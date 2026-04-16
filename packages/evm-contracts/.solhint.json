@@ -1,0 +1,36 @@
+{
+  "extends": "solhint:recommended",
+  "rules": {
+    "compiler-version": ["error", "^0.8.0"],
+    "func-visibility": [
+      "error",
+      {
+        "ignoreConstructors": true
+      }
+    ],
+    "no-empty-blocks": "error",
+    "max-line-length": ["error", 120],
+    "no-inline-assembly": "off",
+    "avoid-low-level-calls": "off",
+    "var-name-mixedcase": "off",
+    "immutable-vars-naming": "off",
+    "state-visibility": "off",
+    "gas-custom-errors": "off",
+    "gas-small-strings": "off",
+    "gas-strict-inequalities": "off",
+    "gas-increment-by-one": "off",
+    "gas-indexed-events": "off",
+    "one-contract-per-file": "off",
+    "function-max-lines": "off",
+    "explicit-types": "off",
+    "no-global-import": "off",
+    "use-natspec": "off",
+    "reason-string": [
+      "warn",
+      {
+        "maxLength": 64
+      }
+    ],
+    "import-path-check": "off"
+  }
+}

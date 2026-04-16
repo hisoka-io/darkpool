@@ -1,0 +1,10 @@
+[package]
+name = "shared"
+type = "lib"
+authors = ["hisoka-io"]
+license = "Apache-2.0"
+
+[dependencies]
+poseidon = { tag = "v0.2.6", git = "https://github.com/noir-lang/poseidon" }
+ecdh = { tag = "ecdh-v0.0.2", git = "https://github.com/zk-kit/zk-kit.noir", directory = "packages/ecdh" }
+edwards = {tag ="v0.2.5",  git = "https://github.com/noir-lang/noir-edwards" }

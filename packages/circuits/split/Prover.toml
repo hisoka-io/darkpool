@@ -1,0 +1,34 @@
+compliance_pubkey_x = ""
+compliance_pubkey_y = ""
+current_timestamp = ""
+index_in = ""
+merkle_root = ""
+path_in = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+preimage_in = ""
+secret_in = ""
+sk_out_1 = ""
+sk_out_2 = ""
+
+[note_in]
+asset_id = ""
+hashlock = ""
+nullifier = ""
+secret = ""
+timelock = ""
+value = ""
+
+[note_out_1]
+asset_id = ""
+hashlock = ""
+nullifier = ""
+secret = ""
+timelock = ""
+value = ""
+
+[note_out_2]
+asset_id = ""
+hashlock = ""
+nullifier = ""
+secret = ""
+timelock = ""
+value = ""

@@ -1,0 +1,11 @@
+{
+  "name": "@hisoka/circuits",
+  "version": "1.0.0",
+  "private": true,
+  "author": "hisoka-io",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "nargo compile",
+    "test": "nargo test"
+  }
+}

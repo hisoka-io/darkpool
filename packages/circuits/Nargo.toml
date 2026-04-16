@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "deposit",
+    "shared",
+    "split",
+    "join",
+    "withdraw",
+    "transfer",
+    "public_claim",
+    "gas_payment",
+]

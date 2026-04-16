@@ -1,0 +1,42 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [
+        "dist/**",
+        "build/**",
+        "out/**",
+        ".next/**",
+        "artifacts/**",
+        "target/**",
+        "src/generated/**"
+      ]
+    },
+    "lint:fix": {
+      "outputs": []
+    },
+    "lint": {
+      "outputs": []
+    },
+    "test": {
+      "outputs": []
+    },
+    "test:fast": {
+      "outputs": []
+    },
+    "test:fork": {
+      "outputs": []
+    },
+    "test:full": {
+      "outputs": []
+    },
+    "audit": {
+      "outputs": []
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}

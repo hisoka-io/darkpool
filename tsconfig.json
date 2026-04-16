@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/wallets"
+    },
+    {
+      "path": "./packages/prover"
+    },
+    {
+      "path": "./packages/evm-contracts"
+    },
+    {
+      "path": "./packages/adaptors"
+    }
+  ]
+}

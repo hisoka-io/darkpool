@@ -1,0 +1,20 @@
+
+
+# Guard: block commits that include no-commit/ or CLAUDE.md
+FORBIDDEN=$(git diff --cached --name-only | grep -E '^no-commit/|^CLAUDE\.md$' || true)
+if [ -n "$FORBIDDEN" ]; then
+  echo ""
+  echo "COMMIT BLOCKED: The following files must not be committed:"
+  echo "$FORBIDDEN" | sed 's/^/  - /'
+  echo ""
+  echo "Fix: add them back to .gitignore, then run:"
+  echo "  git reset HEAD <file>   # unstage"
+  echo "  git add .gitignore      # re-stage gitignore"
+  echo ""
+  exit 1
+fi
+
+echo "Running pre-commit checks..."
+
+echo "Running linters on staged files..."
+pnpm exec lint-staged

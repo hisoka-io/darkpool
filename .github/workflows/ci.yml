@@ -1,0 +1,90 @@
+name: Hisoka CI
+
+on:
+  push:
+    branches: ["main", "release/campaign"]
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+
+  circuits:
+    name: Circuits (Noir)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Nargo
+        run: |
+          curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+          export PATH="$HOME/.nargo/bin:$PATH"
+          noirup -v 1.0.0-beta.19
+          echo "$HOME/.nargo/bin" >> $GITHUB_PATH
+      - name: Test circuits
+        working-directory: packages/circuits
+        run: nargo test
+
+  ts-tests:
+    name: TS Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+      - name: Install Nargo
+        run: |
+          curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+          export PATH="$HOME/.nargo/bin:$PATH"
+          noirup -v 1.0.0-beta.19
+          echo "$HOME/.nargo/bin" >> $GITHUB_PATH
+      - run: pnpm install --frozen-lockfile
+      - name: Build packages
+        run: pnpm turbo run build --filter=@hisoka/wallets --filter=@hisoka/adaptors --filter=@hisoka/prover
+      - name: Test wallets
+        run: pnpm --filter @hisoka/wallets run test
+      - name: Test adaptors
+        run: pnpm --filter @hisoka/adaptors run test
+      - name: Test prover
+        run: pnpm --filter @hisoka/prover run test
+
+  evm-tests:
+    name: EVM Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+      - name: Install Nargo
+        run: |
+          curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+          export PATH="$HOME/.nargo/bin:$PATH"
+          noirup -v 1.0.0-beta.19
+          echo "$HOME/.nargo/bin" >> $GITHUB_PATH
+      - run: pnpm install --frozen-lockfile
+      - name: Build all packages
+        run: pnpm turbo run build
+      - name: Run Solidity tests
+        run: pnpm --filter evm-contracts run test:fast
+
+  # Rust CI (lint, test, security) runs in hisoka-io/nox repo

@@ -1,0 +1,12 @@
+
+        compliance_pubkey_x = "0x0"
+        compliance_pubkey_y = "0x0"
+        ephemeral_sk = "0x1"
+        [note_plaintext]
+        asset_id = "0x0"
+        value = "0x0"
+        secret = "0x0"
+        nullifier = "0x0"
+        timelock = "0x0"
+        hashlock = "0x0"
+    

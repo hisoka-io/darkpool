@@ -1,0 +1,34 @@
+{
+  "name": "@hisoka/adaptors",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint 'src/**/*.ts'",
+    "lint:fix": "eslint 'src/**/*.ts' --fix"
+  },
+  "dependencies": {
+    "@hisoka/wallets": "workspace:*",
+    "ethers": "^6.15.0"
+  },
+  "author": "hisoka-io",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "5.9.2",
+    "vitest": "^1.6.0"
+  }
+}

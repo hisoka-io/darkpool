@@ -1,0 +1,6 @@
+contracts/verifiers/**/*.sol
+contracts/Poseidon/**/*.sol
+node_modules/
+artifacts/
+cache/
+typechain-types/

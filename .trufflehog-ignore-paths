@@ -1,0 +1,8 @@
+.*packages/prover/src/generated/.*
+.*transfer_circuit\.ts$
+.*deposit_circuit\.ts$
+.*withdraw_circuit\.ts$
+.*circuits/.*json
+.*nox/circuits/
+.*deployments/.*json
+.*verifiers/.*\.sol

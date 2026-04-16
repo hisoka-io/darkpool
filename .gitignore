@@ -1,0 +1,66 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+.pnpm-store
+
+# Local env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Testing
+coverage
+
+# Turbo
+.turbo
+
+# Build Outputs
+.next/
+out/
+build
+dist
+build-info
+target
+artifacts
+packages/prover/src/generated/
+packages/evm-contracts/typechain-types/
+packages/evm-contracts/cache
+packages/evm-contracts/coverage.json
+*.tsbuildinfo
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Misc
+.DS_Store
+*.pem
+*.temp
+.temp/
+.ruff_cache
+dairies
+
+# AI context (never commit)
+CLAUDE.md
+MEMORY.md
+no-commit
+.claude
+.opencode
+.vscode
+
+# Deployment secrets
+*.secrets.json
+packages/evm-contracts/deployments/archives/
+deployments
+
+# NOX runtime
+packages/nox/data/nox_db/
+packages/nox/*.log
+packages/nox/scripts/bench/data_backup_debug
+packages/ts_proof_debug.bin
+packages/dleq_vectors.json
+benchmark_logs

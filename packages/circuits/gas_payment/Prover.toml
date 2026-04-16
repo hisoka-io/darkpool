@@ -1,0 +1,29 @@
+_execution_hash = ""
+_relayer_address = ""
+change_ephemeral_sk = ""
+compliance_pubkey_x = ""
+compliance_pubkey_y = ""
+current_timestamp = ""
+hashlock_preimage = ""
+merkle_root = ""
+old_note_index = ""
+old_note_path = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+old_shared_secret = ""
+payment_asset_id = ""
+payment_value = ""
+
+[change_note]
+asset_id = ""
+hashlock = ""
+nullifier = ""
+secret = ""
+timelock = ""
+value = ""
+
+[old_note]
+asset_id = ""
+hashlock = ""
+nullifier = ""
+secret = ""
+timelock = ""
+value = ""

@@ -1,0 +1,53 @@
+change_ephemeral_sk = ""
+compliance_pubkey_x = ""
+compliance_pubkey_y = ""
+current_timestamp = ""
+hashlock_preimage = ""
+memo_ephemeral_sk = ""
+merkle_root = ""
+old_note_index = ""
+old_note_path = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+old_shared_secret = ""
+
+[change_note]
+asset_id = ""
+hashlock = ""
+nullifier = ""
+secret = ""
+timelock = ""
+value = ""
+
+[memo_note]
+asset_id = ""
+hashlock = ""
+nullifier = ""
+secret = ""
+timelock = ""
+value = ""
+
+[old_note]
+asset_id = ""
+hashlock = ""
+nullifier = ""
+secret = ""
+timelock = ""
+value = ""
+
+[recipient_B]
+x = ""
+y = ""
+
+[recipient_P]
+x = ""
+y = ""
+
+[recipient_proof]
+z = ""
+
+[recipient_proof.U]
+x = ""
+y = ""
+
+[recipient_proof.V]
+x = ""
+y = ""

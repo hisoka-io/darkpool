@@ -1,0 +1,38 @@
+{
+  "name": "@hisoka/prover",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "clean": "rm -rf dist src/generated *.tsbuildinfo",
+    "build": "node ./scripts/compile_circuit.js && node ./scripts/generate_verifier.js && tsup",
+    "test": "vitest run",
+    "lint": "eslint 'src/**/*.ts'",
+    "gen-verifier": "node ./scripts/generate_verifier.js",
+    "lint:fix": "eslint 'src/**/*.ts' --fix"
+  },
+  "dependencies": {
+    "@aztec/bb.js": "4.0.0-nightly.20260218",
+    "@aztec/foundation": "^2.0.4",
+    "@noir-lang/noir_js": "1.0.0-beta.19",
+    "@hisoka/wallets": "workspace:*",
+    "@zk-kit/baby-jubjub": "^1.0.3"
+  },
+  "author": "hisoka-io",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsup": "^8.5.1",
+    "typescript": "5.9.2",
+    "vitest": "^1.6.0"
+  }
+}
