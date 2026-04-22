@@ -56,7 +56,6 @@ task("test:fast", "Runs core logic tests (no fork)")
     const files = [
       "test/merkle-tree.test.ts",
       "test/poseidon-parity.test.ts",
-      "test/poseidon-gas.test.ts",
     ];
 
     let testFiles: string[] = [];
