@@ -17,6 +17,7 @@ export async function provePublicClaim(
     memo_id: inputs.memoId.toString(),
     compliance_pubkey_x: `0x${inputs.compliancePk[0].toString(16)}`,
     compliance_pubkey_y: `0x${inputs.compliancePk[1].toString(16)}`,
+    current_timestamp: inputs.currentTimestamp.toString(),
     val: inputs.val.toString(),
     asset_id: inputs.assetId.toString(),
     timelock: inputs.timelock.toString(),

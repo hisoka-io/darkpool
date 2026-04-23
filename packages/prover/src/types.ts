@@ -116,6 +116,7 @@ export interface GasPaymentInputs {
 export interface PublicClaimInputs {
   memoId: Fr;
   compliancePk: Point<bigint>;
+  currentTimestamp: number;
 
   val: Fr;
   assetId: Fr;

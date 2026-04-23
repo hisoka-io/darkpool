@@ -52,9 +52,14 @@ export class TestWallet {
     public readonly signer: ContractRunner & { address: string },
     public readonly darkPool: DarkPool,
     public readonly token: MockERC20, // Default token
-  ) { }
+  ) {}
 
-  static async create(signer: any, darkPool: DarkPool, token: MockERC20, fromBlock?: number) {
+  static async create(
+    signer: any,
+    darkPool: DarkPool,
+    token: MockERC20,
+    fromBlock?: number,
+  ) {
     const wallet = new TestWallet(signer, darkPool, token);
     const signature = await signer.signMessage("Hisoka Test Login");
     wallet.account = await DarkAccount.fromSignature(signature);
@@ -115,12 +120,7 @@ export class TestWallet {
       hashlock: toFr(0n),
     };
 
-    await encryptNoteDeposit(
-      skView,
-      nonce,
-      note,
-      COMPLIANCE_PK_POINT,
-    );
+    await encryptNoteDeposit(skView, nonce, note, COMPLIANCE_PK_POINT);
     const inputs: DepositInputs = {
       notePlaintext: note,
       ephemeralSk,
@@ -139,9 +139,11 @@ export class TestWallet {
       ) as unknown as MockERC20;
     }
 
-    await (await tokenContract
-      .connect(this.signer)
-      .approve(await this.darkPool.getAddress(), amount)).wait();
+    await (
+      await tokenContract
+        .connect(this.signer)
+        .approve(await this.darkPool.getAddress(), amount)
+    ).wait();
     const tx = await this.darkPool
       .connect(this.signer)
       .deposit(proof.proof, proof.publicInputs);
@@ -193,8 +195,11 @@ export class TestWallet {
       hashlock: toFr(0),
     };
     // BJJ subgroup order - ephemeral keys must be reduced to this range
-    const BJJ_SUBGROUP_ORDER = 2736030358979909402780800718157159386076813972158567259200215660948447373041n;
-    const memoEphSk = toFr(ethers.toBigInt(ethers.randomBytes(31)) % BJJ_SUBGROUP_ORDER);
+    const BJJ_SUBGROUP_ORDER =
+      2736030358979909402780800718157159386076813972158567259200215660948447373041n;
+    const memoEphSk = toFr(
+      ethers.toBigInt(ethers.randomBytes(31)) % BJJ_SUBGROUP_ORDER,
+    );
 
     const changeNote: NotePlaintext = {
       asset_id: inputData.note.asset_id,
@@ -391,6 +396,7 @@ export class TestWallet {
     const inputs: PublicClaimInputs = {
       memoId: memoIdFr,
       compliancePk: COMPLIANCE_PK_POINT,
+      currentTimestamp: Math.floor(Date.now() / 1000),
       val: valFr,
       assetId: assetFr,
       timelock: timeFr,
@@ -408,7 +414,7 @@ export class TestWallet {
       .publicClaim(proof.proof, proof.publicInputs);
 
     const pub = proof.publicInputs.map((s) => toFr(s));
-    const packedCt = pub.slice(5, 12);
+    const packedCt = pub.slice(6, 13);
     const commitment = await Poseidon.hash(packedCt);
     const nullifierHash = await deriveNullifierPathA(noteOut.nullifier);
 
