@@ -342,26 +342,29 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         );
     }
 
-    function publicClaim(
-        bytes calldata _proof,
-        bytes32[] calldata _publicInputs
-    ) external nonReentrant whenNotPaused {
-        if (_publicInputs.length != 13) revert InvalidInputsLength();
+function publicClaim(
+    bytes calldata _proof,
+    bytes32[] calldata _publicInputs
+) external nonReentrant whenNotPaused {
+    if (_publicInputs.length != 14) revert InvalidInputsLength(); // was 13, now 14
 
-        bytes32 memoId = _publicInputs[0];
-        if (!isValidPublicMemo[memoId]) revert MemoInvalid();
-        if (isPublicMemoSpent[memoId]) revert MemoSpent();
+    bytes32 memoId = _publicInputs[0];
+    if (!isValidPublicMemo[memoId]) revert MemoInvalid();
+    if (isPublicMemoSpent[memoId]) revert MemoSpent();
 
-        _verifyComplianceKey(_publicInputs[1], _publicInputs[2]);
+    _verifyComplianceKey(_publicInputs[1], _publicInputs[2]);
 
-        if (!publicClaimVerifier.verify(_proof, _publicInputs))
-            revert InvalidProof();
+    // Enforce that the timestamp the prover used matches on-chain time
+    _verifyProofTimestamp(uint256(_publicInputs[3]));
 
-        isPublicMemoSpent[memoId] = true;
-        emit PublicMemoSpent(memoId);
+    if (!publicClaimVerifier.verify(_proof, _publicInputs))
+        revert InvalidProof();
 
-        _processChange(_publicInputs, 5, 3, 4);
-    }
+    isPublicMemoSpent[memoId] = true;
+    emit PublicMemoSpent(memoId);
+
+    _processChange(_publicInputs, 6, 4, 5);
+}
 
     function payRelayer(
         bytes calldata _proof,
