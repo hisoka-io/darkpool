@@ -1,7 +1,7 @@
 use ::ecdh::{bjj::BJJ, ECDHTrait, Point};
 use ::shared::{
-    encrypt_note, kdf_to_aes_key_iv, lean_imt_inclusion_proof, Note, pack_ciphertext, verify_spend,
-    TREE_DEPTH,
+    encrypt_note, kdf_to_aes_key_iv, lean_imt_inclusion_proof, Note, pack_ciphertext, TREE_DEPTH,
+    verify_spend,
 };
 
 fn main(
@@ -36,6 +36,7 @@ fn main(
     assert(change_note.asset_id == payment_asset_id);
     assert(old_note.value == payment_value + change_note.value);
 
+    assert(change_ephemeral_sk != 0, "ephemeral secret key cannot be zero");
     let change_ephemeral_pk = BJJ::new(change_ephemeral_sk).derive_public_key();
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     let change_shared_ss = BJJ::new(change_ephemeral_sk).derive_shared_key(compliance_pk);
@@ -150,4 +151,59 @@ fn test_gas_payment_compile() {
     assert(epk_x == exp_change_epk_x);
     assert(epk_y == exp_change_epk_y);
     assert(ct == exp_change_ct);
+}
+
+#[test(should_fail_with = "ephemeral secret key cannot be zero")]
+fn test_gas_payment_zero_ephemeral_sk() {
+    let merkle_root = 0x0ff0308384a3c8925230730c05830475189887fb31eda2d5f9b41508b7457289;
+    let current_timestamp = 0;
+    let payment_value = 0x000000000000000000000000000000000000000000000000000000000000000a;
+    let payment_asset_id = 0x0000000000000000000000001234567890123456789012345678901234567890;
+    let relayer_address = 0x0000000000000000000000001111222233334444555566667777888899990000;
+    let execution_hash = 0x000000000000000000000000000000000000000000000000abcdef1234567890;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let old_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 0x0000000000000000000000000000000000000000000000000000000000000064,
+        secret: 0x000000000000000000000000000000000000000000000000000000000000007b,
+        nullifier: 0x00000000000000000000000000000000000000000000000000000000000001c8,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let old_shared_secret = 0x2d304122ed971f99abcbe36e64fbcd0e770267ad7005912908d66ee8089ccdbd;
+    let old_note_index = 0;
+    let old_note_path = [0; 32];
+    let hashlock_preimage = 0;
+
+    let change_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 0x000000000000000000000000000000000000000000000000000000000000005a,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000315,
+        nullifier: 0x00000000000000000000000000000000000000000000000000000000000003f3,
+        timelock: 0,
+        hashlock: 0,
+    };
+
+    // zero sk  should fail
+    let change_ephemeral_sk = 0;
+
+    let _ = main(
+        merkle_root,
+        current_timestamp,
+        payment_value,
+        payment_asset_id,
+        relayer_address,
+        execution_hash,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        old_note,
+        old_shared_secret,
+        old_note_index,
+        old_note_path,
+        hashlock_preimage,
+        change_note,
+        change_ephemeral_sk,
+    );
 }
