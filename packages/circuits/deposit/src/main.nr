@@ -11,8 +11,8 @@ fn main(
     let encrypted = encrypt_note_for_compliance(note_plaintext, ephemeral_sk, compliance_pk);
 
     (
-        encrypted.epk_x, encrypted.epk_y, note_plaintext.value, note_plaintext.asset_id,
-        encrypted.ciphertext,
+        encrypted.epk_x, encrypted.epk_y, note_plaintext.value as Field,
+        note_plaintext.asset_id, encrypted.ciphertext,
     )
 }
 
@@ -23,7 +23,7 @@ fn test_deposit_compile_check() {
 
     let note_plaintext = Note {
         asset_id: 0x0000000000000000000000000d500b1d8e8ef31e21c99d1db9a6444d3adf1270,
-        value: 0x0000000000000000000000000000000000000000000000000000000000000064,
+        value: 100,
         secret: 0x000000000000000000000000000000000000000000000000000000000000007b,
         nullifier: 0x00000000000000000000000000000000000000000000000000000000000001c8,
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
@@ -52,6 +52,6 @@ fn test_deposit_compile_check() {
 
     assert(epk_x == exp_epk_x);
     assert(epk_y == exp_epk_y);
-    assert(val == note_plaintext.value);
+    assert(val == note_plaintext.value as Field);
     assert(packed_ct == exp_ct);
 }

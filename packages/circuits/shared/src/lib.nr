@@ -37,7 +37,7 @@ pub fn encrypt_note_for_compliance(
 
 pub struct Note {
     pub asset_id: Field,
-    pub value: Field,
+    pub value: u128,
     pub secret: Field,
     pub nullifier: Field,
     pub timelock: Field,
@@ -49,7 +49,7 @@ impl Note {
         let mut bytes: [u8; 192] = [0; 192];
 
         let f0 = self.asset_id.to_be_bytes::<32>();
-        let f1 = self.value.to_be_bytes::<32>();
+        let f1 = (self.value as Field).to_be_bytes::<32>();
         let f2 = self.secret.to_be_bytes::<32>();
         let f3 = self.nullifier.to_be_bytes::<32>();
         let f4 = self.timelock.to_be_bytes::<32>();
