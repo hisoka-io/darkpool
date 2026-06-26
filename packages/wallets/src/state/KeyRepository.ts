@@ -1,9 +1,9 @@
-import { Fr } from '@aztec/foundation/fields';
-import { Point, mulPointEscalar } from '@zk-kit/baby-jubjub';
-import { DarkAccount } from '../keys/DarkAccount.js';
-import { toFr } from '../crypto/fields.js';
-import { BJJ_SUBGROUP_ORDER } from '../crypto/constants.js';
-import { IKeyRepository } from '../repositories.js';
+import { Fr } from "@aztec/foundation/fields";
+import { Point, mulPointEscalar } from "@zk-kit/baby-jubjub";
+import { DarkAccount } from "../keys/DarkAccount.js";
+import { toFr } from "../crypto/fields.js";
+import { BJJ_SUBGROUP_ORDER } from "../crypto/constants.js";
+import { IKeyRepository } from "../repositories.js";
 
 export class KeyRepository implements IKeyRepository {
   private _ephemeralIndex: number = 0;
@@ -11,15 +11,20 @@ export class KeyRepository implements IKeyRepository {
   private _nextEphemeralNonce: number = 0;
 
   private ephemeralKeyMap: Map<string, { key: Fr; index: number }> = new Map();
-  private recipientKeyMap: Map<string, { key: bigint; index: number }> = new Map();
+  private recipientKeyMap: Map<string, { key: bigint; index: number }> =
+    new Map();
 
   constructor(
     private readonly account: DarkAccount,
-    private readonly compliancePk: Point<bigint>
-  ) { }
+    private readonly compliancePk: Point<bigint>,
+  ) {}
 
-  public get ephemeralIndex(): number { return this._ephemeralIndex; }
-  public get incomingIndex(): number { return this._incomingIndex; }
+  public get ephemeralIndex(): number {
+    return this._ephemeralIndex;
+  }
+  public get incomingIndex(): number {
+    return this._incomingIndex;
+  }
 
   public async nextEphemeralParams(): Promise<{ sk: Fr; nonce: Fr }> {
     const idx = this._nextEphemeralNonce++;
@@ -66,12 +71,17 @@ export class KeyRepository implements IKeyRepository {
     }
   }
 
-  public tryMatchDeposit(epkX: bigint | string, epkY: bigint | string): { key: Fr; index: number } | null {
+  public tryMatchDeposit(
+    epkX: bigint | string,
+    epkY: bigint | string,
+  ): { key: Fr; index: number } | null {
     const key = this.formatPointKey([BigInt(epkX), BigInt(epkY)]);
     return this.ephemeralKeyMap.get(key) || null;
   }
 
-  public tryMatchTransfer(tagPx: bigint | string): { key: bigint; index: number } | null {
+  public tryMatchTransfer(
+    tagPx: bigint | string,
+  ): { key: bigint; index: number } | null {
     const key = toFr(tagPx).toString();
     return this.recipientKeyMap.get(key) || null;
   }

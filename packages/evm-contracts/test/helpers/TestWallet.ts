@@ -68,7 +68,7 @@ export class TestWallet {
     wallet.keyRepo = new KeyRepository(wallet.account, COMPLIANCE_PK_POINT);
     wallet.utxoRepo = new UtxoRepository();
 
-    // Store the block from which to scan (important for mainnet forks)
+    // fromBlock matters for mainnet forks (avoids scanning pre-deploy history)
     wallet.fromBlock = fromBlock ?? 0;
 
     wallet.scanEngine = new ScanEngine(
@@ -107,7 +107,6 @@ export class TestWallet {
     const { sk: ephemeralSk, nonce } = await this.keyRepo.nextEphemeralParams();
     const skView = await this.account.getViewKey();
 
-    // Use provided asset or default
     const tokenAddress = asset || (await this.token.getAddress());
     const assetFr = addressToFr(tokenAddress);
 
@@ -129,7 +128,7 @@ export class TestWallet {
 
     const proof = await proveDeposit(inputs);
 
-    // We need to get the contract instance for the specific token if it's not the default one
+    // Resolve a contract instance for a non-default token
     let tokenContract = this.token;
     if (asset && asset !== (await this.token.getAddress())) {
       tokenContract = new ethers.Contract(
@@ -292,7 +291,6 @@ export class TestWallet {
 
     const targetAssetFr = addressToFr(targetAsset);
 
-    // 1. Select Note
     const notes = this.utxoRepo.getUnspentNotes();
     const assetNotes = notes.filter((n) =>
       n.note.asset_id.equals(targetAssetFr),
@@ -319,7 +317,6 @@ export class TestWallet {
       hashlock: toFr(0),
     };
 
-    // Use deterministic key for recovery
     const { sk: changeEphSk } = await this.keyRepo.nextEphemeralParams();
 
     const inputs: WithdrawInputs = {
@@ -340,8 +337,7 @@ export class TestWallet {
 
     const proof = await proveWithdraw(inputs);
 
-    // If this is a DeFi intent (Hash != 0), we return the proof for the caller to use.
-    // If standard withdraw, we execute it directly on DarkPool.
+    // DeFi intent (hash != 0): return the proof for the caller to submit to the adaptor.
     if (!intentHash.isZero()) {
       return proof;
     }
@@ -349,7 +345,7 @@ export class TestWallet {
     await this.darkPool
       .connect(this.signer)
       .withdraw(proof.proof, proof.publicInputs);
-    return proof; // Return proof anyway
+    return proof;
   }
 
   async claimPublic(

@@ -2,7 +2,9 @@ import { generateProof } from "../prover-base.js";
 import { circuit } from "../generated/gas_payment_circuit.js";
 import { GasPaymentInputs, ProofData } from "../types.js";
 
-export async function proveGasPayment(inputs: GasPaymentInputs): Promise<ProofData> {
+export async function proveGasPayment(
+  inputs: GasPaymentInputs,
+): Promise<ProofData> {
   const noirInputs = {
     merkle_root: inputs.merkleRoot.toString(),
     current_timestamp: inputs.currentTimestamp.toString(),

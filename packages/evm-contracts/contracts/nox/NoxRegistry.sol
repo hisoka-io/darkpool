@@ -2,14 +2,10 @@
 pragma solidity ^0.8.25;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {
-    ReentrancyGuard
-} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {
-    SafeERC20
-} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @title NoxRegistry
@@ -23,11 +19,9 @@ import {
 contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
-    // --- ROLES ---
     bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE");
     bytes32 public constant CONFIG_ROLE = keccak256("CONFIG_ROLE");
 
-    // --- STRUCTS ---
     struct RelayerProfile {
         bytes32 sphinxKey;
         string url;
@@ -38,15 +32,12 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         bool isRegistered;
     }
 
-    // --- NODE ROLE CONSTANTS ---
     uint8 public constant ROLE_RELAY = 1;
     uint8 public constant ROLE_EXIT = 2;
     uint8 public constant ROLE_FULL = 3;
 
-    // --- CONSTANTS ---
     uint256 public constant MIN_UNSTAKE_DELAY = 1 days;
 
-    // --- STATE ---
     IERC20 public immutable stakingToken;
     uint256 public minStakeAmount;
     uint256 public unstakeDelay;
@@ -66,7 +57,6 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
     /// @notice Enforces sphinxKey uniqueness — prevents two nodes from sharing a key.
     mapping(bytes32 => address) public sphinxKeyOwner;
 
-    // --- EVENTS ---
     event RelayerRegistered(
         address indexed relayer,
         bytes32 sphinxKey,
@@ -104,7 +94,6 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         bytes32 indexed prevFingerprint
     );
 
-    // --- ERRORS ---
     error ZeroAddress();
     error InvalidKey();
     error DuplicateKey();
@@ -138,13 +127,10 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         // XOR identity: empty set = bytes32(0). No genesis hash needed.
     }
 
-    // --- INTERNAL HELPERS ---
-
     /**
      * @dev XOR a node's identity hash into the topology fingerprint.
      *      Self-inverse: XOR to add, XOR again to remove.
      *      fingerprint = XOR(keccak256(abi.encodePacked(addr)) for each registered addr)
-     * @param nodeAddress The node being added or removed
      */
     function _xorAddressIntoFingerprint(address nodeAddress) private {
         bytes32 prevFingerprint = topologyFingerprint;
@@ -154,8 +140,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         emit TopologyFingerprintUpdated(topologyFingerprint, prevFingerprint);
     }
 
-    // --- COMMUNITY REGISTRATION (STAKED) ---
-
+    // Community registration (staked)
     function register(
         bytes32 _sphinxKey,
         string calldata _url,
@@ -169,7 +154,8 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         if (bytes(_url).length == 0) revert EmptyString();
         if (_sphinxKey == bytes32(0)) revert InvalidKey();
         if (sphinxKeyOwner[_sphinxKey] != address(0)) revert DuplicateKey();
-        if (_nodeRole < ROLE_RELAY || _nodeRole > ROLE_FULL) revert InvalidRole();
+        if (_nodeRole < ROLE_RELAY || _nodeRole > ROLE_FULL)
+            revert InvalidRole();
 
         stakingToken.safeTransferFrom(msg.sender, address(this), _stakeAmount);
 
@@ -187,10 +173,16 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
 
         relayerCount++;
         _xorAddressIntoFingerprint(msg.sender);
-        emit RelayerRegistered(msg.sender, _sphinxKey, _url, _ingressUrl, _metadataUrl, _stakeAmount, _nodeRole);
+        emit RelayerRegistered(
+            msg.sender,
+            _sphinxKey,
+            _url,
+            _ingressUrl,
+            _metadataUrl,
+            _stakeAmount,
+            _nodeRole
+        );
     }
-
-    // --- ADMIN REGISTRATION (PRIVILEGED) ---
 
     /**
      * @notice Bootstrap the network with trusted nodes (No stake required).
@@ -210,7 +202,8 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         if (bytes(_url).length == 0) revert EmptyString();
         if (_sphinxKey == bytes32(0)) revert InvalidKey();
         if (sphinxKeyOwner[_sphinxKey] != address(0)) revert DuplicateKey();
-        if (_nodeRole < ROLE_RELAY || _nodeRole > ROLE_FULL) revert InvalidRole();
+        if (_nodeRole < ROLE_RELAY || _nodeRole > ROLE_FULL)
+            revert InvalidRole();
 
         relayers[_relayer] = RelayerProfile({
             sphinxKey: _sphinxKey,
@@ -226,10 +219,15 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
 
         relayerCount++;
         _xorAddressIntoFingerprint(_relayer);
-        emit PrivilegedRelayerRegistered(_relayer, _sphinxKey, _url, _ingressUrl, _metadataUrl, _nodeRole);
+        emit PrivilegedRelayerRegistered(
+            _relayer,
+            _sphinxKey,
+            _url,
+            _ingressUrl,
+            _metadataUrl,
+            _nodeRole
+        );
     }
-
-    // --- MANAGEMENT ---
 
     function updateUrl(string calldata _newUrl) external {
         if (!relayers[msg.sender].isRegistered) revert NotRegistered();
@@ -279,8 +277,6 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         emit StakeAdded(msg.sender, _amount);
     }
 
-    // --- EXIT ---
-
     function requestUnstake() external {
         if (!relayers[msg.sender].isRegistered) revert NotRegistered();
         if (relayers[msg.sender].unstakeRequestTime > 0)
@@ -309,8 +305,6 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         }
         emit Unstaked(msg.sender, amount);
     }
-
-    // --- GOVERNANCE / SECURITY ---
 
     /**
      * @notice Financial Punishment.

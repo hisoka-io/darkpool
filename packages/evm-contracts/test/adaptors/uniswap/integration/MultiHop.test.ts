@@ -37,7 +37,6 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
     btcUsd = prices.btcUsd;
   });
 
-  // Helper to bootstrap a note
   async function setupNote(data: any, amountEth: string) {
     const amount = ethers.parseEther(amountEth);
     const assetFr = addressToFr(WETH_ADDRESS);
@@ -58,9 +57,11 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
       compliancePk: COMPLIANCE_PK,
     });
 
-    await (await data.weth
-      .connect(data.alice)
-      .approve(await data.darkPool.getAddress(), amount)).wait();
+    await (
+      await data.weth
+        .connect(data.alice)
+        .approve(await data.darkPool.getAddress(), amount)
+    ).wait();
     await data.darkPool
       .connect(data.alice)
       .deposit(depProof.proof, depProof.publicInputs);
@@ -114,7 +115,6 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
     };
     const proof = await proveWithdraw(inputs);
 
-    // Execute
     const abiCoder = new ethers.AbiCoder();
     const encodedParams = abiCoder.encode(
       [
@@ -139,7 +139,6 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
       .executeSwap(proofHex, pubHex, SwapType.ExactInput, encodedParams);
     const receipt = await tx.wait();
 
-    // Verify Return
     const log = receipt!.logs
       .map((l) => {
         try {
@@ -150,12 +149,14 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
       })
       .find((l) => l?.name === "NewPublicMemo");
 
-    assert(log !== null)
+    assert(log !== null);
     // Should be DAI
     expect(log?.args.asset).to.equal(DAI_ADDRESS);
     // Dynamic threshold: 1 WETH should yield at least 50% of ETH/USD price in DAI (multi-hop slippage margin)
     const minDaiOutput = Math.floor(ethUsd * 0.5);
-    expect(log?.args.value).to.be.gt(ethers.parseUnits(minDaiOutput.toString(), 18));
+    expect(log?.args.value).to.be.gt(
+      ethers.parseUnits(minDaiOutput.toString(), 18),
+    );
     console.log(
       `   Swapped 1 WETH -> DAI: ${ethers.formatUnits(log?.args.value, 18)} (min threshold: ${minDaiOutput} at ETH=$${ethUsd.toFixed(0)})`,
     );
@@ -253,11 +254,15 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
 
     // 2. Refund Memo
     // Dynamic threshold: cost of 0.1 WBTC in ETH = 0.1 * btcUsd / ethUsd, with 50% slippage margin
-    const estimatedCostEth = 0.1 * btcUsd / ethUsd;
+    const estimatedCostEth = (0.1 * btcUsd) / ethUsd;
     const minRefund = 10 - estimatedCostEth * 1.5;
     const wethLog = logs.find((l) => l?.args.asset === WETH_ADDRESS);
-    assert(wethLog !== null)
-    expect(wethLog?.args.value).to.be.gt(ethers.parseEther(minRefund.toFixed(4)));
-    console.log(`   Refunded: ${ethers.formatEther(wethLog?.args.value)} WETH (min threshold: ${minRefund.toFixed(2)} at BTC=$${btcUsd.toFixed(0)}, ETH=$${ethUsd.toFixed(0)})`);
+    assert(wethLog !== null);
+    expect(wethLog?.args.value).to.be.gt(
+      ethers.parseEther(minRefund.toFixed(4)),
+    );
+    console.log(
+      `   Refunded: ${ethers.formatEther(wethLog?.args.value)} WETH (min threshold: ${minRefund.toFixed(2)} at BTC=$${btcUsd.toFixed(0)}, ETH=$${ethUsd.toFixed(0)})`,
+    );
   });
 });

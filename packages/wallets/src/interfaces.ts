@@ -1,5 +1,5 @@
-import { Fr } from '@aztec/foundation/fields';
-import { Point } from '@zk-kit/baby-jubjub';
+import { Fr } from "@aztec/foundation/fields";
+import { Point } from "@zk-kit/baby-jubjub";
 
 export interface IKeyDeriver {
   derive(purpose: string, master: Fr, nonce?: Fr): Promise<Fr>;

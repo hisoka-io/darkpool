@@ -11,7 +11,7 @@ export async function deriveSharedSecret(
     throw new Error("ephemeral_sk must not be zero");
   }
   const shared_point = mulPointEscalar(compliance_pk, ephemeral_sk.toBigInt());
-  return new Fr(shared_point[0]); // x coord as Fr
+  return new Fr(shared_point[0]);
 }
 
 export async function kdfToAesKeyIV(

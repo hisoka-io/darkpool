@@ -36,11 +36,11 @@ class ComplianceTool {
   constructor(
     public readonly complianceSk: bigint,
     public readonly contract: DarkPool,
-  ) { }
+  ) {}
 
   // Simulate indexing by fetching all events
   async sync() {
-    // 1. Process NewNote (Deposit / Change)
+    // NewNote: deposits / changes
     const noteEvents = await this.contract.queryFilter(
       this.contract.filters.NewNote(),
     );
@@ -48,7 +48,7 @@ class ComplianceTool {
       await this.tryDecryptNote(ev);
     }
 
-    // 2. Process NewPrivateMemo (Transfer)
+    // NewPrivateMemo: transfers
     const memoEvents = await this.contract.queryFilter(
       this.contract.filters.NewPrivateMemo(),
     );
@@ -56,7 +56,6 @@ class ComplianceTool {
       await this.tryDecryptMemo(ev);
     }
 
-    // 3. Process Spends
     const nullEvents = await this.contract.queryFilter(
       this.contract.filters.NullifierSpent(),
     );
@@ -65,8 +64,7 @@ class ComplianceTool {
     }
   }
 
-  // Attempt 2-Party Decryption (Deposit/Change)
-
+  // 2-party decryption (deposit/change)
   async tryDecryptNote(event: any) {
     const { ephemeralPK_x, ephemeralPK_y, packedCiphertext } = event.args;
     const epk: Point<bigint> = [ephemeralPK_x, ephemeralPK_y];
@@ -74,25 +72,21 @@ class ComplianceTool {
     const ciphertext = unpackCiphertext(packedFr);
 
     try {
-      // Decrypt using Compliance SK
       const note = await complianceDecryptNote(
         this.complianceSk,
         epk,
         ciphertext,
       );
 
-      // Derive Nullifier (Path A) to index this note
+      // Path A nullifier indexes this note
       const nf = await deriveNullifierPathA(note.nullifier);
-
-      // Heuristic: If it came from NewNote, it's likely Deposit or Change
       this.observedNotes.set(nf.toString(), { note, type: "DEPOSIT" });
     } catch {
-      // Ignore failure (maybe not intended for us, though Compliance *should* read all NewNotes)
+      // Compliance should read all NewNotes; ignore any that fail to decrypt
     }
   }
 
-  // Attempt 3-Party Decryption (Transfer)
-
+  // 3-party decryption (transfer)
   async tryDecryptMemo(event: any) {
     const {
       packedCiphertext,
@@ -110,15 +104,13 @@ class ComplianceTool {
     const ciphertext = unpackCiphertext(packedFr);
 
     try {
-      // Decrypt 3-Party
       const { note, sharedSecret } = await complianceDecrypt3Party(
         this.complianceSk,
         intermediate,
         ciphertext,
       );
 
-      // Derive Nullifier (Path B) for indexing
-      // Path B Nullifier = Hash(SharedSecret, Commitment, Index)
+      // Path B nullifier = Hash(sharedSecret, commitment, index)
       const nf = await deriveNullifierPathB(
         sharedSecret,
         toFr(commitment),
@@ -127,7 +119,7 @@ class ComplianceTool {
 
       this.observedNotes.set(nf.toString(), { note, type: "MEMO" });
     } catch {
-      // Ignore failure
+      // Ignore notes that fail to decrypt
     }
   }
 
@@ -187,15 +179,11 @@ describe("Integration: Compliance God View", function () {
       .privateTransfer(trfProof.proof, trfProof.publicInputs);
 
     // --- 3. COMPLIANCE AUDIT ---
-    // Instantiate tool with Compliance Secret Key
     const tool = new ComplianceTool(COMPLIANCE_SK, darkPool);
-
-    // Sync all events from chain
     await tool.sync();
 
     const report = tool.generateReport();
 
-    // Assertions
     expect(report.length).to.equal(3); // Deposit, Memo, Change
 
     // 1. The Deposit (100) -> Should be SPENT

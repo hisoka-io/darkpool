@@ -27,7 +27,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
   async function fixture() {
     const data = await deployUniswapFixture();
 
-    // 1. Deposit 10 WETH (Standard Setup)
+    // Deposit 10 WETH
     const amount = ethers.parseEther("10");
     const assetFr = addressToFr(WETH_ADDRESS);
     const note: NotePlaintext = {
@@ -48,14 +48,15 @@ describe("Uniswap Adaptor: Security & Validation", function () {
       compliancePk: COMPLIANCE_PK,
     });
 
-    await (await data.weth
-      .connect(data.alice)
-      .approve(await data.darkPool.getAddress(), amount)).wait();
+    await (
+      await data.weth
+        .connect(data.alice)
+        .approve(await data.darkPool.getAddress(), amount)
+    ).wait();
     await data.darkPool
       .connect(data.alice)
       .deposit(depProof.proof, depProof.publicInputs);
 
-    // 2. Construct Tree
     const tree = new LeanIMT(32);
     const pub = depProof.publicInputs.map((s) => toFr(s));
     await tree.insert(await Poseidon.hash(pub.slice(6, 13)));
@@ -104,7 +105,6 @@ describe("Uniswap Adaptor: Security & Validation", function () {
     const DA_ADDRESS = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
     const hijackedParams = { ...validParams, assetOut: DA_ADDRESS };
 
-    // Encode params for contract
     const abiCoder = new ethers.AbiCoder();
     const encodedParams = abiCoder.encode(
       [

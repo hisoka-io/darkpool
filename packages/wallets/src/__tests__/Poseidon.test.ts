@@ -63,7 +63,7 @@ describe("Cryptographic Primitives", () => {
         const rand2 = toFr(BigInt(randBuffer[0]) + (BigInt(i) % Fr.MODULUS));
         const hash = await Poseidon.hash([rand1, rand2]);
         const hashStr = hash.toString();
-        expect(inputs.has(hashStr)).toBe(false); // Now no collisions
+        expect(inputs.has(hashStr)).toBe(false);
         inputs.add(hashStr);
       }
     });

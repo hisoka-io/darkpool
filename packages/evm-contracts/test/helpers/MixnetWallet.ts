@@ -1,4 +1,3 @@
- 
 /**
  * MixnetWallet — wraps TestWallet with gas-paid multicall transport.
  *
@@ -66,28 +65,45 @@ export class MixnetWallet {
     return new MixnetWallet(base, multicallAddress, relayerAddress);
   }
 
-  // ---- Delegated accessors ----
-  get signer() { return this.base.signer; }
-  get tree() { return this.base.tree; }
-  get utxoRepo() { return this.base.utxoRepo; }
-  get keyRepo() { return this.base.keyRepo; }
-  get account() { return this.base.account; }
+  // Delegated accessors
+  get signer() {
+    return this.base.signer;
+  }
+  get tree() {
+    return this.base.tree;
+  }
+  get utxoRepo() {
+    return this.base.utxoRepo;
+  }
+  get keyRepo() {
+    return this.base.keyRepo;
+  }
+  get account() {
+    return this.base.account;
+  }
 
-  getBalance(asset?: string) { return this.base.getBalance(asset); }
-  async deposit(amount: bigint, asset?: string) { return this.base.deposit(amount, asset); }
-  async syncTree(commitment: Fr) { return this.base.syncTree(commitment); }
-  async sync() { return this.base.sync(); }
+  getBalance(asset?: string) {
+    return this.base.getBalance(asset);
+  }
+  async deposit(amount: bigint, asset?: string) {
+    return this.base.deposit(amount, asset);
+  }
+  async syncTree(commitment: Fr) {
+    return this.base.syncTree(commitment);
+  }
+  async sync() {
+    return this.base.sync();
+  }
   async transfer(amount: bigint, B: any, P: any, pi: any, asset?: string) {
     return this.base.transfer(amount, B, P, pi, asset);
   }
-  async withdraw(amount: bigint, options?: any) { return this.base.withdraw(amount, options); }
+  async withdraw(amount: bigint, options?: any) {
+    return this.base.withdraw(amount, options);
+  }
 
-  // ---- Gas payment helpers ----
-
+  // Gas payment helpers
   private computeExecutionHash(actionCalldata: string): Fr {
-    return toFr(
-      BigInt(ethersLib.keccak256(actionCalldata)) % BN254_FR_MODULUS,
-    );
+    return toFr(BigInt(ethersLib.keccak256(actionCalldata)) % BN254_FR_MODULUS);
   }
 
   private async buildGasPaymentInputs(
@@ -112,7 +128,7 @@ export class MixnetWallet {
     if (!paymentNote) {
       throw new Error(
         `No gas payment note (need >= ${fee}, excluding leaves [${excludeLeafIndices.join(", ")}]). ` +
-        `Available: ${notes.map((n) => `leaf=${n.leafIndex} val=${n.note.value.toBigInt()}`).join(", ")}`,
+          `Available: ${notes.map((n) => `leaf=${n.leafIndex} val=${n.note.value.toBigInt()}`).join(", ")}`,
       );
     }
 
@@ -175,12 +191,17 @@ export class MixnetWallet {
       `      [gas] merkleRoot=${gasInputs.merkleRoot.toString().slice(0, 20)}..., isTransfer=${paymentNote.isTransfer}`,
     );
 
-    console.log(`      [gas] note fields: value=${gasInputs.oldNote.value.toBigInt()}, payment=${gasInputs.paymentValue.toBigInt()}, change=${gasInputs.changeNote.value.toBigInt()}`);
-    console.log(`      [gas] note: nullifier=${gasInputs.oldNote.nullifier.toBigInt() !== 0n ? "nonzero" : "ZERO"}, secret=${gasInputs.oldNote.secret.toBigInt() !== 0n ? "nonzero" : "ZERO"}`);
-    console.log(`      [gas] pathLen=${gasInputs.oldNotePath.length}, idx=${gasInputs.oldNoteIndex}`);
+    console.log(
+      `      [gas] note fields: value=${gasInputs.oldNote.value.toBigInt()}, payment=${gasInputs.paymentValue.toBigInt()}, change=${gasInputs.changeNote.value.toBigInt()}`,
+    );
+    console.log(
+      `      [gas] note: nullifier=${gasInputs.oldNote.nullifier.toBigInt() !== 0n ? "nonzero" : "ZERO"}, secret=${gasInputs.oldNote.secret.toBigInt() !== 0n ? "nonzero" : "ZERO"}`,
+    );
+    console.log(
+      `      [gas] pathLen=${gasInputs.oldNotePath.length}, idx=${gasInputs.oldNoteIndex}`,
+    );
     const gasProof = await proveGasPayment(gasInputs);
 
-    // Encode payRelayer calldata
     const iface = this.base.darkPool.interface;
     const payRelayerData = iface.encodeFunctionData("payRelayer", [
       ethersLib.hexlify(gasProof.proof),
@@ -197,18 +218,25 @@ export class MixnetWallet {
     );
 
     const tx = await multicallContract.multicall([
-      { target: darkPoolAddr, data: payRelayerData, value: 0n, requireSuccess: true },
-      { target: darkPoolAddr, data: actionCalldata, value: 0n, requireSuccess: true },
+      {
+        target: darkPoolAddr,
+        data: payRelayerData,
+        value: 0n,
+        requireSuccess: true,
+      },
+      {
+        target: darkPoolAddr,
+        data: actionCalldata,
+        value: 0n,
+        requireSuccess: true,
+      },
     ]);
     const receipt = await tx.wait();
 
     return { txHash: receipt.hash, gasProof };
   }
 
-  // =========================================================================
-  // Paid Operations
-  // =========================================================================
-
+  // Paid operations
   async splitViaMixnet(
     amountA: bigint,
     amountB: bigint,
@@ -251,14 +279,20 @@ export class MixnetWallet {
       indexIn: inputNote.leafIndex,
       pathIn: this.tree.getMerklePath(inputNote.leafIndex),
       preimageIn: toFr(0),
-      noteOut1, skOut1, noteOut2, skOut2,
+      noteOut1,
+      skOut1,
+      noteOut2,
+      skOut2,
     });
 
     const actionCalldata = this.base.darkPool.interface.encodeFunctionData(
-      "split", [proof.proof, proof.publicInputs],
+      "split",
+      [proof.proof, proof.publicInputs],
     );
 
-    const { txHash } = await this.submitPaidAction(actionCalldata, [inputNote.leafIndex]);
+    const { txHash } = await this.submitPaidAction(actionCalldata, [
+      inputNote.leafIndex,
+    ]);
 
     const pub = proof.publicInputs.map((s) => toFr(s));
     const com1 = await Poseidon.hash(pub.slice(7, 14));
@@ -276,7 +310,9 @@ export class MixnetWallet {
 
     const notes = this.utxoRepo.getUnspentNotes();
     const inputNote = notes.find(
-      (n) => n.note.asset_id.toString() === tokenFr.toString() && n.note.value.toBigInt() >= amount,
+      (n) =>
+        n.note.asset_id.toString() === tokenFr.toString() &&
+        n.note.value.toBigInt() >= amount,
     );
     if (!inputNote) throw new Error(`No note with >= ${amount} for withdraw`);
 
@@ -290,7 +326,8 @@ export class MixnetWallet {
       value: toFr(changeValue),
       secret: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
       nullifier: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
-      timelock: toFr(0), hashlock: toFr(0),
+      timelock: toFr(0),
+      hashlock: toFr(0),
     };
     const { sk: changeEphSk } = await this.keyRepo.nextEphemeralParams();
 
@@ -306,14 +343,18 @@ export class MixnetWallet {
       oldNoteIndex: inputNote.leafIndex,
       oldNotePath: this.tree.getMerklePath(inputNote.leafIndex),
       hashlockPreimage: toFr(0),
-      changeNote, changeEphemeralSk: changeEphSk,
+      changeNote,
+      changeEphemeralSk: changeEphSk,
     });
 
     const actionCalldata = this.base.darkPool.interface.encodeFunctionData(
-      "withdraw", [proof.proof, proof.publicInputs],
+      "withdraw",
+      [proof.proof, proof.publicInputs],
     );
 
-    const { txHash } = await this.submitPaidAction(actionCalldata, [inputNote.leafIndex]);
+    const { txHash } = await this.submitPaidAction(actionCalldata, [
+      inputNote.leafIndex,
+    ]);
 
     const pub = proof.publicInputs.map((s) => toFr(s));
     const changeCom = await Poseidon.hash(pub.slice(10, 17));
@@ -336,13 +377,15 @@ export class MixnetWallet {
       ? noteB.spendingSecret
       : await deriveSharedSecret(noteB.spendingSecret, COMPLIANCE_PK);
 
-    const totalValue = noteA.note.value.toBigInt() + noteB.note.value.toBigInt();
+    const totalValue =
+      noteA.note.value.toBigInt() + noteB.note.value.toBigInt();
     const noteOut: NotePlaintext = {
       asset_id: noteA.note.asset_id,
       value: toFr(totalValue),
       secret: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
       nullifier: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
-      timelock: toFr(0), hashlock: toFr(0),
+      timelock: toFr(0),
+      hashlock: toFr(0),
     };
     const { sk: skOut } = await this.keyRepo.nextEphemeralParams();
 
@@ -350,19 +393,30 @@ export class MixnetWallet {
       merkleRoot: this.tree.getRoot(),
       currentTimestamp: Math.floor(Date.now() / 1000),
       compliancePk: COMPLIANCE_PK,
-      noteA: noteA.note, secretA, indexA: noteA.leafIndex,
-      pathA: this.tree.getMerklePath(noteA.leafIndex), preimageA: toFr(0),
-      noteB: noteB.note, secretB, indexB: noteB.leafIndex,
-      pathB: this.tree.getMerklePath(noteB.leafIndex), preimageB: toFr(0),
-      noteOut, skOut,
+      noteA: noteA.note,
+      secretA,
+      indexA: noteA.leafIndex,
+      pathA: this.tree.getMerklePath(noteA.leafIndex),
+      preimageA: toFr(0),
+      noteB: noteB.note,
+      secretB,
+      indexB: noteB.leafIndex,
+      pathB: this.tree.getMerklePath(noteB.leafIndex),
+      preimageB: toFr(0),
+      noteOut,
+      skOut,
     });
 
     const actionCalldata = this.base.darkPool.interface.encodeFunctionData(
-      "join", [proof.proof, proof.publicInputs],
+      "join",
+      [proof.proof, proof.publicInputs],
     );
 
     // Exclude both join input notes from gas payment selection
-    const { txHash } = await this.submitPaidAction(actionCalldata, [noteA.leafIndex, noteB.leafIndex]);
+    const { txHash } = await this.submitPaidAction(actionCalldata, [
+      noteA.leafIndex,
+      noteB.leafIndex,
+    ]);
 
     const pub = proof.publicInputs.map((s) => toFr(s));
     const com = await Poseidon.hash(pub.slice(7, 14));
@@ -374,15 +428,23 @@ export class MixnetWallet {
     recipientB: any,
     recipientP: any,
     recipientProof: any,
-  ): Promise<{ memoCommitment: Fr; changeCommitment: Fr; txHash: string; publicInputs: string[] }> {
+  ): Promise<{
+    memoCommitment: Fr;
+    changeCommitment: Fr;
+    txHash: string;
+    publicInputs: string[];
+  }> {
     const tokenAddr = await this.base.token.getAddress();
     const tokenFr = addressToFr(tokenAddr);
 
     const notes = this.utxoRepo.getUnspentNotes();
     const inputData = notes.find(
-      (n) => n.note.asset_id.toString() === tokenFr.toString() && n.note.value.toBigInt() >= amount,
+      (n) =>
+        n.note.asset_id.toString() === tokenFr.toString() &&
+        n.note.value.toBigInt() >= amount,
     );
-    if (!inputData) throw new Error(`Insufficient funds for transfer: ${amount}`);
+    if (!inputData)
+      throw new Error(`Insufficient funds for transfer: ${amount}`);
 
     const oldSecret = inputData.isTransfer
       ? inputData.spendingSecret
@@ -391,16 +453,24 @@ export class MixnetWallet {
     const changeValue = inputData.note.value.toBigInt() - amount;
 
     const memoNote: NotePlaintext = {
-      asset_id: inputData.note.asset_id, value: toFr(amount),
-      secret: toFr(0), nullifier: toFr(0), timelock: toFr(0), hashlock: toFr(0),
+      asset_id: inputData.note.asset_id,
+      value: toFr(amount),
+      secret: toFr(0),
+      nullifier: toFr(0),
+      timelock: toFr(0),
+      hashlock: toFr(0),
     };
-    const memoEphSk = toFr(ethersLib.toBigInt(ethersLib.randomBytes(31)) % BJJ_SUBGROUP_ORDER);
+    const memoEphSk = toFr(
+      ethersLib.toBigInt(ethersLib.randomBytes(31)) % BJJ_SUBGROUP_ORDER,
+    );
 
     const changeNote: NotePlaintext = {
-      asset_id: inputData.note.asset_id, value: toFr(changeValue),
+      asset_id: inputData.note.asset_id,
+      value: toFr(changeValue),
       secret: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
       nullifier: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
-      timelock: toFr(0), hashlock: toFr(0),
+      timelock: toFr(0),
+      hashlock: toFr(0),
     };
     const { sk: changeEphSk } = await this.keyRepo.nextEphemeralParams();
 
@@ -408,24 +478,37 @@ export class MixnetWallet {
       merkleRoot: this.tree.getRoot(),
       currentTimestamp: Math.floor(Date.now() / 1000),
       compliancePk: COMPLIANCE_PK,
-      recipientB, recipientP, recipientProof,
-      oldNote: inputData.note, oldSharedSecret: oldSecret,
+      recipientB,
+      recipientP,
+      recipientProof,
+      oldNote: inputData.note,
+      oldSharedSecret: oldSecret,
       oldNoteIndex: inputData.leafIndex,
       oldNotePath: this.tree.getMerklePath(inputData.leafIndex),
       hashlockPreimage: toFr(0),
-      memoNote, memoEphemeralSk: memoEphSk,
-      changeNote, changeEphemeralSk: changeEphSk,
+      memoNote,
+      memoEphemeralSk: memoEphSk,
+      changeNote,
+      changeEphemeralSk: changeEphSk,
     });
 
     const actionCalldata = this.base.darkPool.interface.encodeFunctionData(
-      "privateTransfer", [proof.proof, proof.publicInputs],
+      "privateTransfer",
+      [proof.proof, proof.publicInputs],
     );
 
-    const { txHash } = await this.submitPaidAction(actionCalldata, [inputData.leafIndex]);
+    const { txHash } = await this.submitPaidAction(actionCalldata, [
+      inputData.leafIndex,
+    ]);
 
     const pub = proof.publicInputs.map((s) => toFr(s));
     const memoCommitment = await Poseidon.hash(pub.slice(11, 18));
     const changeCommitment = await Poseidon.hash(pub.slice(24, 31));
-    return { memoCommitment, changeCommitment, txHash, publicInputs: proof.publicInputs };
+    return {
+      memoCommitment,
+      changeCommitment,
+      txHash,
+      publicInputs: proof.publicInputs,
+    };
   }
 }

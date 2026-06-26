@@ -25,15 +25,15 @@ describe("DarkPool Behavior: Private Transfer", function () {
       100n,
     );
 
-    // 2. Bob generates his "Hisoka Address" (DLEQ Params)
-    const bob_sk = 555n; // Bob's private key
+    // 2. Bob generates his "Hisoka Address" (DLEQ params)
+    const bob_sk = 555n;
     const bob_dleq = await generateDLEQProof(bob_sk, COMPLIANCE_PK);
 
-    // 3. Reconstruct Tree (Mocking Alice's wallet sync)
+    // 3. Reconstruct tree (stand-in for Alice's wallet sync)
     const tree = new LeanIMT(32);
     await tree.insert(commitment);
 
-    // 4. Prepare Transfer
+    // 4. Prepare transfer
     const transferValue = 40n;
     const changeValue = 60n;
 
@@ -79,7 +79,6 @@ describe("DarkPool Behavior: Private Transfer", function () {
 
     const proof = await proveTransfer(inputs);
 
-    // 5. Execute On-Chain
     await expect(
       darkPool.connect(alice).privateTransfer(proof.proof, proof.publicInputs),
     )
@@ -87,8 +86,7 @@ describe("DarkPool Behavior: Private Transfer", function () {
       .and.to.emit(darkPool, "NewNote") // Change note
       .and.to.emit(darkPool, "NullifierSpent");
 
-    // 6. Verify State
-    // Check Nullifier (Index 8 in Transfer layout)
+    // Nullifier is index 8 in the transfer public-input layout
     const nullifierHash = proof.publicInputs[8];
     expect(await darkPool.isNullifierSpent(nullifierHash)).to.equal(true);
   });
@@ -126,12 +124,11 @@ describe("DarkPool Behavior: Private Transfer", function () {
 
     const proof = await proveTransfer(inputs);
 
-    // First transfer ok
     await darkPool
       .connect(alice)
       .privateTransfer(proof.proof, proof.publicInputs);
 
-    // Replay fails
+    // Replay must fail (nullifier already spent)
     await expect(
       darkPool.connect(alice).privateTransfer(proof.proof, proof.publicInputs),
     ).to.be.revertedWithCustomError(darkPool, "NullifierAlreadySpent");

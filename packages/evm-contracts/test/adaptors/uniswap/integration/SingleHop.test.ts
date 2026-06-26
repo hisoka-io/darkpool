@@ -108,7 +108,6 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
     };
     const proof = await proveWithdraw(inputs);
 
-    // Encode
     const abiCoder = new ethers.AbiCoder();
     const encodedParams = abiCoder.encode(
       [
@@ -131,15 +130,12 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
       (i) => "0x" + BigInt(i).toString(16).padStart(64, "0"),
     );
 
-    // Execute
     const tx = await uniswapAdaptor
       .connect(alice)
       .executeSwap(proofHex, pubHex, SwapType.ExactOutputSingle, encodedParams);
     const receipt = await tx.wait();
 
-    // --- VERIFICATION ---
-
-    // We expect TWO NewPublicMemo events
+    // Expect two NewPublicMemo events: target output + refund
     const logs = receipt!.logs
       .map((l) => {
         try {
@@ -165,7 +161,9 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
     const estimatedCost = 2000 / ethUsd;
     const minRefund = 10 - estimatedCost * 1.5;
     const refund = wethLog?.args.value;
-    console.log(`   Refunded: ${ethers.formatEther(refund)} WETH (min threshold: ${minRefund.toFixed(2)} at ETH=$${ethUsd.toFixed(0)})`);
+    console.log(
+      `   Refunded: ${ethers.formatEther(refund)} WETH (min threshold: ${minRefund.toFixed(2)} at ETH=$${ethUsd.toFixed(0)})`,
+    );
     expect(refund).to.be.gt(ethers.parseEther(minRefund.toFixed(4)));
 
     // 3. Check Ownership

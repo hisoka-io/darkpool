@@ -16,6 +16,7 @@ if (typeof globalThis.crypto === "undefined")
 import { ethers } from "ethers";
 import { NoxClient } from "@hisoka-io/nox-client";
 import {
+  Fr,
   toFr,
   addressToFr,
   deriveSharedSecret,
@@ -23,18 +24,15 @@ import {
   DarkAccount,
   KeyRepository,
 } from "@hisoka/wallets";
-import {
-  proveDeposit,
-  proveGasPayment,
-  proveSplit,
-} from "@hisoka/prover";
+import { proveDeposit, proveGasPayment, proveSplit } from "@hisoka/prover";
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
 const SEED = process.env["SEED"] || "https://api.hisoka.io/seed";
-const PRIVATE_KEY = process.env["PRIVATE_KEY"] ||
+const PRIVATE_KEY =
+  process.env["PRIVATE_KEY"] ||
   "3e8a4387dce9ecce4d3dabf84e8d3883074a4756ae369906175e8ca40f52af68";
 const ARB_RPC = "https://sepolia-rollup.arbitrum.io/rpc";
 
@@ -105,20 +103,33 @@ async function broadcastViaMixnet(
     maxPriorityFeePerGas: feeData.maxPriorityFeePerGas ?? 100000000n,
     type: 2,
   });
-  const resp = await client.broadcastSignedTransaction(ethers.getBytes(signedTx));
-  const txHash = "0x" + Array.from(resp.slice(0, 32)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const resp = await client.broadcastSignedTransaction(
+    ethers.getBytes(signedTx),
+  );
+  const txHash =
+    "0x" +
+    Array.from(resp.slice(0, 32))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
   log(`  TX: ${txHash}`);
   const receipt = await provider.waitForTransaction(txHash, 1, 60_000);
-  if (!receipt || receipt.status !== 1) throw new Error(`TX reverted: ${txHash}`);
+  if (!receipt || receipt.status !== 1)
+    throw new Error(`TX reverted: ${txHash}`);
   log(`  Confirmed: block=${receipt.blockNumber}, gas=${receipt.gasUsed}`);
   return receipt;
 }
 
-function parseNewNoteEvent(receipt: ethers.TransactionReceipt): { leafIndex: number; commitment: string } {
+function parseNewNoteEvent(receipt: ethers.TransactionReceipt): {
+  leafIndex: number;
+  commitment: string;
+} {
   const iface = new ethers.Interface(DARKPOOL_ABI);
   for (const eventLog of receipt.logs) {
     try {
-      const parsed = iface.parseLog({ topics: eventLog.topics as string[], data: eventLog.data });
+      const parsed = iface.parseLog({
+        topics: eventLog.topics as string[],
+        data: eventLog.data,
+      });
       if (parsed && parsed.name === "NewNote") {
         return {
           leafIndex: Number(parsed.args[0]),
@@ -164,7 +175,9 @@ async function main() {
   let tokenBal = await token.balanceOf(signer.address);
   if (tokenBal < ethers.parseEther("1000")) {
     log("Minting NOX-STK...");
-    await (await token.mint(signer.address, ethers.parseEther("100000"))).wait();
+    await (
+      await token.mint(signer.address, ethers.parseEther("100000"))
+    ).wait();
     tokenBal = await token.balanceOf(signer.address);
   }
   log(`NOX-STK: ${ethers.formatEther(tokenBal)}`);
@@ -217,7 +230,14 @@ async function main() {
       proof.publicInputs.map((v: string) => ethers.zeroPadValue(v, 32)),
     ]);
 
-    const receipt = await broadcastViaMixnet(client, signer, provider, DARKPOOL, calldata, 15000000n);
+    const receipt = await broadcastViaMixnet(
+      client,
+      signer,
+      provider,
+      DARKPOOL,
+      calldata,
+      15000000n,
+    );
     const { leafIndex, commitment } = parseNewNoteEvent(receipt);
     log(`  Leaf: ${leafIndex}, Commitment: ${commitment.slice(0, 18)}...`);
 
@@ -248,14 +268,23 @@ async function main() {
       proof.publicInputs.map((v: string) => ethers.zeroPadValue(v, 32)),
     ]);
 
-    const receipt = await broadcastViaMixnet(client, signer, provider, DARKPOOL, calldata, 15000000n);
+    const receipt = await broadcastViaMixnet(
+      client,
+      signer,
+      provider,
+      DARKPOOL,
+      calldata,
+      15000000n,
+    );
     const { leafIndex, commitment } = parseNewNoteEvent(receipt);
     log(`  Leaf: ${leafIndex}, Commitment: ${commitment.slice(0, 18)}...`);
 
     depositedNotes.push({ note, ephemeralSk: ephSk, leafIndex, commitment });
   }
 
-  log(`\nPhase 1 complete: ${depositedNotes.length} notes deposited on-chain via mixnet`);
+  log(
+    `\nPhase 1 complete: ${depositedNotes.length} notes deposited on-chain via mixnet`,
+  );
 
   // ========================================================================
   // PHASE 2: Split via paid multicall (exit node submits, earns revenue)
@@ -278,8 +307,14 @@ async function main() {
   log(`Gas note path: leaf=${gasPaymentNote.leafIndex}`);
 
   // Derive shared secrets for note spending
-  const actionSecret = await deriveSharedSecret(actionNote.ephemeralSk, COMPLIANCE_PK);
-  const gasSecret = await deriveSharedSecret(gasPaymentNote.ephemeralSk, COMPLIANCE_PK);
+  const actionSecret = await deriveSharedSecret(
+    actionNote.ephemeralSk,
+    COMPLIANCE_PK,
+  );
+  const gasSecret = await deriveSharedSecret(
+    gasPaymentNote.ephemeralSk,
+    COMPLIANCE_PK,
+  );
 
   // Build split proof: 100 -> 60 + 40
   log("\nBuilding split proof (100 -> 60 + 40)...");
@@ -325,7 +360,9 @@ async function main() {
     ethers.hexlify(splitProof.proof),
     splitProof.publicInputs.map((v: string) => ethers.zeroPadValue(v, 32)),
   ]);
-  const executionHash = toFr(BigInt(ethers.keccak256(splitCalldata)) % BN254_FR_MODULUS);
+  const executionHash = toFr(
+    BigInt(ethers.keccak256(splitCalldata)) % BN254_FR_MODULUS,
+  );
 
   const gasPaymentFee = ethers.parseEther("1"); // 1 token fee
   const gasChangeValue = gasPaymentNote.note.value.toBigInt() - gasPaymentFee;
@@ -374,20 +411,39 @@ async function main() {
   const multicallIface = new ethers.Interface(MULTICALL_ABI);
   const multicallCalldata = multicallIface.encodeFunctionData("multicall", [
     [
-      { target: DARKPOOL, data: payRelayerCalldata, value: 0n, requireSuccess: true },
-      { target: DARKPOOL, data: splitCalldata, value: 0n, requireSuccess: true },
+      {
+        target: DARKPOOL,
+        data: payRelayerCalldata,
+        value: 0n,
+        requireSuccess: true,
+      },
+      {
+        target: DARKPOOL,
+        data: splitCalldata,
+        value: 0n,
+        requireSuccess: true,
+      },
     ],
   ]);
 
   // Submit via mixnet -- exit node executes, earns the gas payment
-  log("\nSubmitting paid multicall via mixnet (exit node earns gas payment)...");
+  log(
+    "\nSubmitting paid multicall via mixnet (exit node earns gas payment)...",
+  );
   const t3 = Date.now();
-  const resp = await client.submitTransaction(MULTICALL, ethers.getBytes(multicallCalldata));
+  const resp = await client.submitTransaction(
+    MULTICALL,
+    ethers.getBytes(multicallCalldata),
+  );
   const text = new TextDecoder().decode(resp);
   if (text.startsWith("tx_error:")) {
     throw new Error(`Multicall failed: ${text}`);
   }
-  const txHash = "0x" + Array.from(resp.slice(0, 32)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const txHash =
+    "0x" +
+    Array.from(resp.slice(0, 32))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
   log(`Multicall TX: ${txHash} (${Date.now() - t3}ms via mixnet)`);
 
   const receipt = await provider.waitForTransaction(txHash, 1, 60_000);
@@ -395,7 +451,9 @@ async function main() {
     throw new Error(`Multicall TX reverted: ${txHash}`);
   }
   log(`Confirmed! Block: ${receipt.blockNumber}, Gas: ${receipt.gasUsed}`);
-  log(`Exit node earned gas payment of ${ethers.formatEther(gasPaymentFee)} NOX-STK`);
+  log(
+    `Exit node earned gas payment of ${ethers.formatEther(gasPaymentFee)} NOX-STK`,
+  );
 
   // ========================================================================
   // Summary
@@ -406,7 +464,9 @@ async function main() {
   log("╚═══════════════════════════════════════════════════════╝");
   log(`  Deposits:     2 (broadcast via mixnet with real ZK proofs)`);
   log(`  Splits:       1 (gas-paid via exit node with real ZK proofs)`);
-  log(`  Gas payment:  ${ethers.formatEther(gasPaymentFee)} NOX-STK to exit node`);
+  log(
+    `  Gas payment:  ${ethers.formatEther(gasPaymentFee)} NOX-STK to exit node`,
+  );
   log(`  TX:           ${txHash}`);
   log(`  Exit node revenue is now visible on map.hisoka.io`);
 

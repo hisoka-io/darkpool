@@ -6,12 +6,11 @@ import { toFr, addressToFr, Kdf, NotePlaintext } from "@hisoka/wallets";
 import { proveDeposit, DepositInputs } from "@hisoka/prover";
 
 describe("Adversarial: Malleability & Integrity", function () {
-  // Shared setup for generating a valid proof once
   async function fixture() {
     const data = await deployDarkPoolFixture();
     const { token } = data;
 
-    // Generate a Valid Deposit Proof (Off-chain only)
+    // Generate a valid deposit proof off-chain (reused across cases)
     const amount = 100n;
     const assetFr = addressToFr(await token.getAddress());
     const note: NotePlaintext = {
@@ -39,14 +38,10 @@ describe("Adversarial: Malleability & Integrity", function () {
     it("should reject a proof with a single flipped bit", async function () {
       const { darkPool, alice, proofData } = await loadFixture(fixture);
 
-      // Clone the proof
       const tamperedProof = new Uint8Array(proofData.proof);
-
-      // Flip a bit in the middle
       const mid = Math.floor(tamperedProof.length / 2);
-      tamperedProof[mid] ^= 0xff; // Invert byte
+      tamperedProof[mid] ^= 0xff; // invert a middle byte
 
-      // Convert to hex for Solidity
       const proofHex = "0x" + Buffer.from(tamperedProof).toString("hex");
 
       await expect(
@@ -57,12 +52,10 @@ describe("Adversarial: Malleability & Integrity", function () {
     it("should reject a truncated proof", async function () {
       const { darkPool, alice, proofData } = await loadFixture(fixture);
 
-      // Slice off the last 32 bytes
       const truncated = proofData.proof.slice(0, proofData.proof.length - 32);
       const proofHex = "0x" + Buffer.from(truncated).toString("hex");
 
-      // The Verifier might revert with a custom error or Panic depending on implementation
-      // We just ensure it doesn't succeed.
+      // Verifier may revert with a custom error or panic; just assert it doesn't succeed
       await expect(
         darkPool.connect(alice).deposit(proofHex, proofData.publicInputs),
       ).to.be.reverted;
@@ -73,12 +66,10 @@ describe("Adversarial: Malleability & Integrity", function () {
     it("should reject if Public Input 'Value' is modified", async function () {
       const { darkPool, alice, proofData } = await loadFixture(fixture);
 
-      // Deposit Input Layout: [0,1]Comp, [2,3]Epk, [4]Value, [5]Asset...
+      // Deposit input layout: [0,1]Comp, [2,3]Epk, [4]Value, [5]Asset...
       const tamperedInputs = [...proofData.publicInputs];
 
-      // Change Value from 100 -> 200
-      // Note: The proof asserts the encrypted note contains 100.
-      // If we tell the verifier "Value is 200", the proof must fail.
+      // Proof binds value=100; claiming 200 to the verifier must fail
       const newValue = 200n;
       tamperedInputs[4] = ethers.zeroPadValue(ethers.toBeHex(newValue), 32);
 
@@ -92,7 +83,6 @@ describe("Adversarial: Malleability & Integrity", function () {
 
       const tamperedInputs = [...proofData.publicInputs];
 
-      // Change Asset ID to random address
       const fakeAsset = addressToFr(
         "0x000000000000000000000000000000000000dead",
       );
@@ -108,8 +98,7 @@ describe("Adversarial: Malleability & Integrity", function () {
 
       const tamperedInputs = [...proofData.publicInputs];
 
-      // Ciphertext is at [6..12]
-      // Modify one field of the packed ciphertext
+      // Ciphertext occupies [6..12]; mutate one packed field
       tamperedInputs[6] = ethers.zeroPadValue("0xdeadbeef", 32);
 
       await expect(

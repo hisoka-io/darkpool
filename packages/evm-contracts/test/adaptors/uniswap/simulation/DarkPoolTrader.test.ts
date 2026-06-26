@@ -22,7 +22,7 @@ class TraderAgent {
     public wallet: TestWallet,
     public adaptor: UniswapAdaptor,
     public darkPool: DarkPool,
-  ) { }
+  ) {}
 
   get address() {
     return this.wallet.signer.address;
@@ -137,9 +137,13 @@ describe("Simulation: The DarkPool Trader (Multi-User DeFi)", function () {
       fromBlock,
     } = await loadFixture(deployUniswapFixture);
 
-    // --- 0. SETUP AGENTS ---
     console.log("\n[0] Initializing Agents...");
-    const wAlice = await TestWallet.create(alice, darkPool, weth as any, fromBlock);
+    const wAlice = await TestWallet.create(
+      alice,
+      darkPool,
+      weth as any,
+      fromBlock,
+    );
     const wBob = await TestWallet.create(bob, darkPool, weth as any, fromBlock);
 
     const aliceAgent = new TraderAgent(wAlice, uniswapAdaptor, darkPool);
@@ -157,9 +161,7 @@ describe("Simulation: The DarkPool Trader (Multi-User DeFi)", function () {
 
     const depRes = await wAlice.deposit(DEP_AMOUNT);
     await syncAll(depRes.commitment);
-
-    // Alice must sync to find her own note
-    await wAlice.sync();
+    await wAlice.sync(); // discover her own note
 
     // --- STEP 2: ALICE SWAPS WETH -> USDC ---
     console.log("[2] Alice Swaps 2 WETH -> USDC...");
@@ -248,7 +250,10 @@ describe("Simulation: The DarkPool Trader (Multi-User DeFi)", function () {
     await wBob.withdraw(wbtcReceived, { asset: WBTC_ADDRESS });
 
     // Verify L1 Balance
-    const wbtcContract = await ethers.getContractAt("IERC20", WBTC_ADDRESS) as unknown as IERC20;
+    const wbtcContract = (await ethers.getContractAt(
+      "IERC20",
+      WBTC_ADDRESS,
+    )) as unknown as IERC20;
     const bobWbtcBal = await wbtcContract.balanceOf(bob.address);
 
     expect(bobWbtcBal).to.equal(wbtcReceived);

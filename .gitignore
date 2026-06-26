@@ -64,3 +64,6 @@ packages/nox/scripts/bench/data_backup_debug
 packages/ts_proof_debug.bin
 packages/dleq_vectors.json
 benchmark_logs
+
+# Dev sandbox (circuit test-vector generators — not published, not committed)
+packages/wallets/sandbox/

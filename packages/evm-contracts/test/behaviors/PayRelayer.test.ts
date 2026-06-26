@@ -26,23 +26,22 @@ describe("DarkPool Behavior: PayRelayer", function () {
   ) {
     const { darkPool, alice, token, relayer } = ctx;
 
-    // 1. Make a deposit to create a spendable note
     const {
       depositPlain: notePlaintext,
       ephemeralSk,
       commitment,
     } = await makeDeposit(darkPool, token, alice, noteValue);
 
-    // 2. Build Merkle tree
     const tree = new LeanIMT(32);
     await tree.insert(commitment);
 
-    // 3. Build gas payment proof inputs
     const relayerAddress = await relayer.getAddress();
     // keccak256 output overflows BN254 Fr ~75% of the time — reduce mod Fr
-    const BN254_FR_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+    const BN254_FR_MODULUS =
+      21888242871839275222246405745257275088548364400416034343698204186575808495617n;
     const executionHash = toFr(
-      BigInt(ethers.keccak256(ethers.toUtf8Bytes("test_execution_payload"))) % BN254_FR_MODULUS
+      BigInt(ethers.keccak256(ethers.toUtf8Bytes("test_execution_payload"))) %
+        BN254_FR_MODULUS,
     );
 
     const changeValue = noteValue - paymentAmount;
@@ -87,21 +86,27 @@ describe("DarkPool Behavior: PayRelayer", function () {
       .payRelayer(proof.proof, proof.publicInputs.map(toBytes32));
 
     const receipt = await tx.wait();
-    const event = receipt?.logs.find(
-      (log) => {
-        try {
-          return darkPool.interface.parseLog({ topics: [...log.topics], data: log.data })?.name === "GasPaymentProcessed";
-        } catch { return false; }
+    const event = receipt?.logs.find((log) => {
+      try {
+        return (
+          darkPool.interface.parseLog({
+            topics: [...log.topics],
+            data: log.data,
+          })?.name === "GasPaymentProcessed"
+        );
+      } catch {
+        return false;
       }
-    );
+    });
     expect(event).to.not.equal(undefined);
 
-    // Decode event
     const parsed = darkPool.interface.parseLog({
       topics: [...event!.topics],
       data: event!.data,
     });
-    expect(parsed?.args.relayer.toLowerCase()).to.equal(relayerAddress.toLowerCase());
+    expect(parsed?.args.relayer.toLowerCase()).to.equal(
+      relayerAddress.toLowerCase(),
+    );
     expect(parsed?.args.amount).to.equal(10n);
   });
 
@@ -116,13 +121,18 @@ describe("DarkPool Behavior: PayRelayer", function () {
       .payRelayer(proof.proof, proof.publicInputs.map(toBytes32));
 
     const receipt = await tx.wait();
-    const newNoteEvent = receipt?.logs.find(
-      (log) => {
-        try {
-          return darkPool.interface.parseLog({ topics: [...log.topics], data: log.data })?.name === "NewNote";
-        } catch { return false; }
+    const newNoteEvent = receipt?.logs.find((log) => {
+      try {
+        return (
+          darkPool.interface.parseLog({
+            topics: [...log.topics],
+            data: log.data,
+          })?.name === "NewNote"
+        );
+      } catch {
+        return false;
       }
-    );
+    });
     expect(newNoteEvent).to.not.equal(undefined);
   });
 
@@ -157,7 +167,7 @@ describe("DarkPool Behavior: PayRelayer", function () {
     await expect(
       darkPool
         .connect(relayer)
-        .payRelayer(proof.proof, proof.publicInputs.map(toBytes32))
+        .payRelayer(proof.proof, proof.publicInputs.map(toBytes32)),
     ).to.be.revertedWithCustomError(darkPool, "NullifierAlreadySpent");
   });
 
@@ -169,7 +179,7 @@ describe("DarkPool Behavior: PayRelayer", function () {
     const tooFewInputs = Array(10).fill(ethers.ZeroHash);
 
     await expect(
-      darkPool.connect(relayer).payRelayer(fakeProof, tooFewInputs)
+      darkPool.connect(relayer).payRelayer(fakeProof, tooFewInputs),
     ).to.be.revertedWithCustomError(darkPool, "InvalidInputsLength");
   });
 

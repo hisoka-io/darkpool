@@ -14,11 +14,9 @@ import {
 } from "@hisoka/wallets";
 import { proveWithdraw, WithdrawInputs } from "@hisoka/prover";
 
-// Helper to pad hex
 const toBytes32 = (val: string) => ethers.zeroPadValue(val, 32);
 
 describe("DarkPool Behavior: Withdraw", function () {
-  // Helper to generate a valid withdraw proof
   async function prepareWithdraw(
     ctx: Awaited<ReturnType<typeof deployDarkPoolFixture>>,
     amount: bigint,
@@ -31,7 +29,6 @@ describe("DarkPool Behavior: Withdraw", function () {
       commitment,
     } = await makeDeposit(darkPool, token, alice, 100n);
 
-    // Reconstruct Tree
     const tree = new LeanIMT(32);
     await tree.insert(commitment);
 
@@ -62,7 +59,7 @@ describe("DarkPool Behavior: Withdraw", function () {
 
     await darkPool.connect(alice).withdraw(proof.proof, proof.publicInputs);
 
-    // Check balance change (starts with 9900 after deposit, +40 = 9940)
+    // 10000 - 100 deposit + 40 withdraw
     expect(await token.balanceOf(alice.address)).to.equal(
       ethers.parseEther("10000") - 100n + 40n,
     );
@@ -73,10 +70,8 @@ describe("DarkPool Behavior: Withdraw", function () {
     const { darkPool, alice } = ctx;
     const { proof } = await prepareWithdraw(ctx, 100n, alice.address);
 
-    // First spend ok
     await darkPool.connect(alice).withdraw(proof.proof, proof.publicInputs);
 
-    // Replay
     await expect(
       darkPool.connect(alice).withdraw(proof.proof, proof.publicInputs),
     ).to.be.revertedWithCustomError(darkPool, "NullifierAlreadySpent");
@@ -87,13 +82,13 @@ describe("DarkPool Behavior: Withdraw", function () {
     const { darkPool, alice, attacker } = ctx;
     const { proof } = await prepareWithdraw(ctx, 100n, alice.address);
 
-    // Attacker intercepts and changes recipient
+    // Attacker rebinds the recipient (index 1); verifier must reject
     const tamperedInputs = [...proof.publicInputs];
-    tamperedInputs[1] = toBytes32(attacker.address); // Index 1 is recipient
+    tamperedInputs[1] = toBytes32(attacker.address);
 
     await expect(
       darkPool.connect(attacker).withdraw(proof.proof, tamperedInputs),
-    ).to.be.reverted; // Verifier rejects
+    ).to.be.reverted;
   });
 
   it("Should enforce Timestamp Validity", async function () {
@@ -102,9 +97,8 @@ describe("DarkPool Behavior: Withdraw", function () {
     const { darkPool, alice } = ctx;
     const { proof } = await prepareWithdraw(ctx, 100n, alice.address);
 
-    // Tamper with the public input for timestamp (Index 3)
+    // Push timestamp (index 3) ~2h into the future (allowed window is +1h)
     const tamperedInputs = [...proof.publicInputs];
-    // Set timestamp to far future (e.g., now + 2 hours)
     const futureTime = Math.floor(Date.now() / 1000) + 7200;
     tamperedInputs[3] = toBytes32("0x" + BigInt(futureTime).toString());
 

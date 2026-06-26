@@ -38,7 +38,6 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
     const ctx = await deployDarkPoolFixture();
     const { deployer, relayer, token } = ctx;
 
-    // Deploy NoxRegistry
     const RegistryFactory = (await ethers.getContractFactory(
       "NoxRegistry",
     )) as unknown as NoxRegistry__factory;
@@ -82,11 +81,10 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
       commitment,
     } = await makeDeposit(darkPool, token, alice, 100n);
 
-    // 3. Build Merkle tree
     const tree = new LeanIMT(32);
     await tree.insert(commitment);
 
-    // 4. Relayer pays gas (10 tokens) using the deposited note
+    // 3. Relayer pays 10 tokens gas from the deposited note
     const executionHash = toFr(
       BigInt(ethers.keccak256(ethers.toUtf8Bytes("batch_tx_payload"))) %
         BN254_FR_MODULUS,
@@ -124,15 +122,13 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
       await rewardPool.getAddress(),
     );
 
-    const tx = await darkPool
-      .connect(relayer)
-      .payRelayer(
-        gasProof.proof,
-        gasProof.publicInputs.map((v) => ethers.zeroPadValue(v, 32)),
-      );
+    const tx = await darkPool.connect(relayer).payRelayer(
+      gasProof.proof,
+      gasProof.publicInputs.map((v) => ethers.zeroPadValue(v, 32)),
+    );
     const receipt = await tx.wait();
 
-    // 5. Verify GasPaymentProcessed event
+    // 4. Verify GasPaymentProcessed event
     const gasEvent = receipt?.logs.find((log) => {
       try {
         return (
@@ -147,13 +143,13 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
     });
     expect(gasEvent).to.not.equal(undefined);
 
-    // 6. Verify reward deposited to NoxRewardPool
+    // 5. Verify reward deposited to NoxRewardPool
     const poolBalanceAfter = await token.balanceOf(
       await rewardPool.getAddress(),
     );
     expect(poolBalanceAfter - poolBalanceBefore).to.equal(10n);
 
-    // 7. Admin distributes rewards to the relayer
+    // 6. Admin distributes rewards to the relayer
     const relayerBalanceBefore = await token.balanceOf(relayer.address);
     await rewardPool.distributeRewards(
       await token.getAddress(),
@@ -274,12 +270,10 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
       };
 
       const gasProof = await proveGasPayment(gasInputs);
-      await darkPool
-        .connect(relayer)
-        .payRelayer(
-          gasProof.proof,
-          gasProof.publicInputs.map((v) => ethers.zeroPadValue(v, 32)),
-        );
+      await darkPool.connect(relayer).payRelayer(
+        gasProof.proof,
+        gasProof.publicInputs.map((v) => ethers.zeroPadValue(v, 32)),
+      );
     }
 
     const poolBalanceAfter = await token.balanceOf(

@@ -2,14 +2,10 @@
 pragma solidity ^0.8.25;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {
-    ReentrancyGuard
-} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {
-    SafeERC20
-} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @title NoxRewardPool
@@ -22,27 +18,19 @@ import {
 contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
-    // --- ROLES ---
-
     /// @notice Role allowed to trigger reward distributions
     bytes32 public constant DISTRIBUTOR_ROLE = keccak256("DISTRIBUTOR_ROLE");
 
     /// @notice Role for asset whitelist and emergency controls
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
 
-    // --- STATE ---
-
     /// @notice Whitelisted assets (e.g., WETH, USDC) allowed for gas payments.
     /// @dev Prevents users from paying in griefing/spam tokens.
     mapping(address => bool) public isSupportedAsset;
 
-    /// @notice Total amount collected per asset (Accounting).
     mapping(address => uint256) public totalCollected;
 
-    /// @notice Total amount distributed per asset (Historical accounting).
     mapping(address => uint256) public totalDistributed;
-
-    // --- EVENTS ---
 
     event AssetStatusChanged(address indexed asset, bool isSupported);
     event RewardsDeposited(
@@ -61,8 +49,6 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
         uint256 amount
     );
 
-    // --- ERRORS ---
-
     error InvalidAsset();
     error AssetNotSupported();
     error ArrayLengthMismatch();
@@ -80,8 +66,6 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
         _grantRole(ADMIN_ROLE, _admin);
         _grantRole(DISTRIBUTOR_ROLE, _admin);
     }
-
-    // --- CONFIGURATION ---
 
     /**
      * @notice Toggle support for a gas token (e.g., USDC, WETH).
@@ -112,8 +96,6 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
         _unpause();
     }
 
-    // --- INFLOW (DEPOSIT) ---
-
     /**
      * @notice Accepts gas payments from DarkPool or Users.
      * @param _asset The ERC20 token address.
@@ -131,8 +113,6 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
 
         emit RewardsDeposited(_asset, msg.sender, _amount);
     }
-
-    // --- OUTFLOW (DISTRIBUTION) ---
 
     /**
      * @notice Distributes accumulated fees to a list of relayers.
@@ -165,8 +145,6 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
 
         emit RewardsDistributed(_asset, batchTotal, _recipients.length);
     }
-
-    // --- EMERGENCY ---
 
     /**
      * @notice Rescues tokens sent to this contract by mistake, or drains pool in emergency.

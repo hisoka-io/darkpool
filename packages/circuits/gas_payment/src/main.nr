@@ -186,7 +186,6 @@ fn test_gas_payment_zero_ephemeral_sk() {
         hashlock: 0,
     };
 
-    // zero sk  should fail
     let change_ephemeral_sk = 0;
 
     let _ = main(

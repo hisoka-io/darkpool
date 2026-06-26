@@ -23,8 +23,6 @@ describe("Note (Unified)", () => {
     expect(hash1.equals(hash2)).toBe(true);
   });
 
-
-
   it("should throw an error for a negative value", () => {
     const invalidPlaintext = { ...samplePlaintext, value: toFr(1n) };
     invalidPlaintext.value.toBigInt = () => -1n;

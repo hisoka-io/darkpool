@@ -11,8 +11,8 @@ fn main(
     let encrypted = encrypt_note_for_compliance(note_plaintext, ephemeral_sk, compliance_pk);
 
     (
-        encrypted.epk_x, encrypted.epk_y, note_plaintext.value as Field,
-        note_plaintext.asset_id, encrypted.ciphertext,
+        encrypted.epk_x, encrypted.epk_y, note_plaintext.value as Field, note_plaintext.asset_id,
+        encrypted.ciphertext,
     )
 }
 

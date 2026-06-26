@@ -67,17 +67,6 @@ impl Note {
     }
 }
 
-pub fn string_to_fr<let N: u32>(s: str<N>) -> Field {
-    let bytes = s.as_bytes();
-    assert(N <= 32, "string_to_fr input string is too long");
-    let mut padded_bytes: [u8; 32] = [0; 32];
-    for i in 0..N {
-        padded_bytes[32 - N + i] = bytes[i];
-    }
-    let field_from_bytes = Field::from_be_bytes(padded_bytes);
-    Poseidon2::hash([field_from_bytes], 1)
-}
-
 pub fn kdf_to_aes_key_iv(shared_ss: Field) -> ([u8; 16], [u8; 16]) {
     let key_fr = Poseidon2::hash([shared_ss, KEY_PURPOSE], 2);
     let iv_fr = Poseidon2::hash([shared_ss, IV_PURPOSE], 2);

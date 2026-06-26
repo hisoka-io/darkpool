@@ -13,14 +13,12 @@ import {Field} from "../Poseidon/Field.sol";
 library MerkleTreeLib {
     using Field for uint256;
 
-    // --- Custom Errors ---
     error TreeIsFull();
     error InvalidDepth();
     error LevelOutOfBounds();
     error PositionOutOfBounds();
     error LeafIndexOutOfBounds();
 
-    // --- Events ---
     event LeafInserted(
         uint256 indexed leafIndex,
         bytes32 leaf,

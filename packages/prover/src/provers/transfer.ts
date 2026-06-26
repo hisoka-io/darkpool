@@ -2,7 +2,9 @@ import { generateProof } from "../prover-base.js";
 import { circuit } from "../generated/transfer_circuit.js";
 import { TransferInputs, ProofData } from "../types.js";
 
-export async function proveTransfer(inputs: TransferInputs): Promise<ProofData> {
+export async function proveTransfer(
+  inputs: TransferInputs,
+): Promise<ProofData> {
   const noirInputs = {
     merkle_root: inputs.merkleRoot.toString(),
     current_timestamp: inputs.currentTimestamp.toString(),

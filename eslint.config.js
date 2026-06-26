@@ -19,10 +19,7 @@ export default tseslint.config(
 
   {
     rules: {
-      "no-console": [
-        "error",
-        { allow: ["warn", "error", "debug", "info", "log"] },
-      ],
+      "no-console": ["error", { allow: ["warn", "error"] }],
       "no-debugger": "error",
       "@typescript-eslint/ban-ts-comment": "off",
       "@typescript-eslint/no-explicit-any": "off",
@@ -45,6 +42,8 @@ export default tseslint.config(
     files: [
       "**/*.test.ts",
       "**/*.spec.ts",
+      "**/test/**",
+      "**/__tests__/**",
       "**/scripts/**",
       "**/hardhat.config.ts",
     ],

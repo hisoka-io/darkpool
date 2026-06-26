@@ -7,8 +7,7 @@ import {
   makeDeposit,
 } from "../helpers/fixtures";
 
-// Helpers
-const DUMMY_PROOF = new Uint8Array(32); // Empty bytes for proof
+const DUMMY_PROOF = new Uint8Array(32);
 const randomBytes32 = () => ethers.hexlify(ethers.randomBytes(32));
 
 describe("Adversarial: Input Validation & Pre-checks", function () {
@@ -18,9 +17,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
     return data;
   }
 
-  // =========================================================================
-  // 1. ARRAY LENGTH CHECKS (The "Buffer Overflow" Guard)
-  // =========================================================================
+  // Array length checks: the "buffer overflow" guard
   describe("Input Array Lengths", function () {
     it("should reject Deposit with invalid input length", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
@@ -77,18 +74,15 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
     });
   });
 
-  // =========================================================================
-  // 2. COMPLIANCE KEY BINDING (The "Spoofing" Guard)
-  // =========================================================================
-  // The circuit enforces integrity using Public Inputs. The contract MUST check
-  // that those Public Inputs match the immutable keys stored on-chain.
+  // Compliance key binding: the "spoofing" guard.
+  // The contract MUST check that the proof's compliance public inputs match the
+  // immutable keys stored on-chain — the circuit alone cannot enforce this.
   describe("Compliance Key Binding", function () {
     it("Deposit: should reject invalid Compliance Key X", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
       const inputs = Array(13).fill(randomBytes32());
 
-      // Index 0 is Compliance X
-      inputs[0] = ethers.ZeroHash; // Wrong Key
+      inputs[0] = ethers.ZeroHash; // index 0 = compliance X (wrong key)
 
       await expect(
         darkPool.connect(alice).deposit(DUMMY_PROOF, inputs),
@@ -101,14 +95,12 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
 
       const validRoot = await darkPool.getCurrentRoot();
 
-      inputs[2] = validRoot; // Valid Root
+      inputs[2] = validRoot; // root
+      inputs[3] = ethers.zeroPadValue(ethers.toBeHex(await time.latest()), 32); // timestamp
 
-      // Validation: Timestamp (Index 3) must be valid too
-      inputs[3] = ethers.zeroPadValue(ethers.toBeHex(await time.latest()), 32);
-
-      // Now mess up keys. Withdraw: Compliance at [4, 5]
+      // Withdraw compliance key at [5,6]: valid X, invalid Y
       inputs[5] = ethers.zeroPadValue(ethers.toBeHex(COMPLIANCE_PK[0]), 32);
-      inputs[6] = ethers.ZeroHash; // Invalid Y
+      inputs[6] = ethers.ZeroHash;
 
       await expect(
         darkPool.connect(alice).withdraw(DUMMY_PROOF, inputs),
@@ -119,13 +111,11 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
       const { darkPool, alice } = await loadFixture(fixture);
       const inputs = Array(31).fill(randomBytes32());
 
-      // Pass Root check
-      inputs[0] = await darkPool.getCurrentRoot();
-      // Pass Time check
-      inputs[1] = ethers.zeroPadValue(ethers.toBeHex(await time.latest()), 32);
+      inputs[0] = await darkPool.getCurrentRoot(); // pass root check
+      inputs[1] = ethers.zeroPadValue(ethers.toBeHex(await time.latest()), 32); // pass time check
 
-      // Transfer: Compliance at [2, 3]
-      inputs[2] = ethers.ZeroHash; // Invalid X
+      // Transfer compliance key at [2,3]
+      inputs[2] = ethers.ZeroHash; // invalid X
 
       await expect(
         darkPool.connect(alice).privateTransfer(DUMMY_PROOF, inputs),
@@ -133,19 +123,15 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
     });
   });
 
-  // =========================================================================
-  // 3. TIMESTAMP BOUNDARIES (The "Future-Proof" Guard)
-  // =========================================================================
+  // Timestamp boundaries: the "future-proof" guard
   describe("Timestamp Boundaries", function () {
     it("should reject proof timestamps too far in the future", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
 
-      // Withdraw Input Layout: [..., root, timestamp, ...]
       const inputs = Array(18).fill(randomBytes32());
-      inputs[2] = await darkPool.getCurrentRoot(); // Valid Root
+      inputs[2] = await darkPool.getCurrentRoot(); // root
 
-      // Timestamp is at Index 3
-      // Current time + 2 hours (Allowed window is +1 hour)
+      // Timestamp (index 3) at now + 2h; allowed window is +1h
       const futureTime = (await time.latest()) + 7200;
       inputs[3] = ethers.zeroPadValue(ethers.toBeHex(futureTime), 32);
 
@@ -171,17 +157,14 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
     });
   });
 
-  // =========================================================================
-  // 4. MERKLE ROOT EXISTENCE (The "History" Guard)
-  // =========================================================================
+  // Merkle root existence: the "history" guard
   describe("Merkle Root Verification", function () {
     it("should reject unknown Merkle Roots", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
 
       const inputs = Array(18).fill(randomBytes32());
 
-      // Random root at Index 2
-      inputs[2] = ethers.hexlify(ethers.randomBytes(32));
+      inputs[2] = ethers.hexlify(ethers.randomBytes(32)); // unknown root at index 2
 
       await expect(
         darkPool.connect(alice).withdraw(DUMMY_PROOF, inputs),

@@ -1,4 +1,4 @@
- import { Fr } from "@aztec/foundation/fields";
+import { Fr } from "@aztec/foundation/fields";
 import { Point, mulPointEscalar, Base8, subOrder } from "@zk-kit/baby-jubjub";
 import { Kdf } from "./Kdf.js";
 import { NotePlaintext } from "./types.js";
@@ -29,7 +29,7 @@ export async function encryptNoteDeposit(
   sk_view: Fr,
   nonce: Fr,
   note_plain: NotePlaintext,
-  compliance_pk: Point<bigint>
+  compliance_pk: Point<bigint>,
 ): Promise<{
   ciphertext: Buffer;
   ephemeralPK: Point<bigint>;
@@ -58,7 +58,7 @@ export async function encryptNoteDeposit(
 export async function decryptNoteDeposit(
   ephemeral_sk: Fr,
   compliance_pk: Point<bigint>,
-  ciphertext: Buffer
+  ciphertext: Buffer,
 ): Promise<NotePlaintext> {
   const shared_ss = await deriveSharedSecret(ephemeral_sk, compliance_pk);
   const { key, iv } = await kdfToAesKeyIV(shared_ss);
@@ -70,7 +70,7 @@ export async function decryptNoteDeposit(
 export async function complianceDecryptNote(
   compliance_sk: bigint,
   ephemeralPK: Point<bigint>,
-  ciphertext: Buffer
+  ciphertext: Buffer,
 ): Promise<NotePlaintext> {
   const shared_point = mulPointEscalar(ephemeralPK, compliance_sk);
   const shared_ss = new Fr(shared_point[0]);
@@ -82,7 +82,7 @@ export async function complianceDecryptNote(
 export async function complianceDecrypt3Party(
   compliance_sk: bigint,
   intermediate_point: Point<bigint>,
-  ciphertext: Buffer
+  ciphertext: Buffer,
 ): Promise<{ note: NotePlaintext; sharedSecret: Fr }> {
   const shared_point = mulPointEscalar(intermediate_point, compliance_sk);
   const shared_ss = new Fr(shared_point[0]);
@@ -98,7 +98,7 @@ export async function complianceDecrypt3Party(
 export async function recipientDecrypt3Party(
   recipient_sk: bigint,
   intermediate_point: Point<bigint>,
-  ciphertext: Buffer
+  ciphertext: Buffer,
 ): Promise<{ note: NotePlaintext; sharedSecret: Fr }> {
   const shared_point = mulPointEscalar(intermediate_point, recipient_sk);
   const shared_ss = new Fr(shared_point[0]);
@@ -114,7 +114,7 @@ export async function recipientDecrypt3Party(
 export function unpackCiphertext(packed: Fr[]): Buffer {
   if (packed.length !== 7) {
     throw new Error(
-      `Invalid packed ciphertext length. Expected 7 Fields, got ${packed.length}.`
+      `Invalid packed ciphertext length. Expected 7 Fields, got ${packed.length}.`,
     );
   }
 
@@ -144,7 +144,7 @@ export async function calculatePublicMemoId(
   timelock: Fr,
   ownerX: Fr,
   ownerY: Fr,
-  salt: Fr
+  salt: Fr,
 ): Promise<Fr> {
   return await Poseidon.hash([val, asset, timelock, ownerX, ownerY, salt]);
 }

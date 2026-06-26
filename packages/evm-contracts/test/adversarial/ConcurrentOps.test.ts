@@ -27,18 +27,15 @@ describe("Adversarial: Concurrent Operations", function () {
     const ctx = await loadFixture(deployDarkPoolFixture);
     const { darkPool, token, alice, bob, charlie } = ctx;
 
-    // All three users deposit in quick succession
     const [depA, depB, depC] = await Promise.all([
       makeDeposit(darkPool, token, alice, 100n),
       makeDeposit(darkPool, token, bob, 200n),
       makeDeposit(darkPool, token, charlie, 300n),
     ]);
 
-    // Verify all three notes were created (nextLeafIndex should be 3)
     const nextIdx = await darkPool.getNextLeafIndex();
     expect(nextIdx).to.equal(3n);
 
-    // Verify all roots are valid
     const tree = new LeanIMT(32);
     await tree.insert(depA.commitment);
     await tree.insert(depB.commitment);
@@ -52,7 +49,6 @@ describe("Adversarial: Concurrent Operations", function () {
     const ctx = await loadFixture(deployDarkPoolFixture);
     const { darkPool, token, alice, bob } = ctx;
 
-    // Alice deposits 100
     const dep = await makeDeposit(darkPool, token, alice, 100n);
     const tree = new LeanIMT(32);
     await tree.insert(dep.commitment);
@@ -85,7 +81,7 @@ describe("Adversarial: Concurrent Operations", function () {
     // 1 original + 1 change note + 1 Bob deposit = 3
     expect(nextIdx).to.equal(3n);
 
-    // Trying to re-use Alice's nullifier should fail
+    // Re-using Alice's nullifier must fail
     await expect(
       darkPool.withdraw(
         proof.proof,
@@ -98,7 +94,6 @@ describe("Adversarial: Concurrent Operations", function () {
     const ctx = await loadFixture(deployDarkPoolFixture);
     const { darkPool, token, alice } = ctx;
 
-    // 10 sequential deposits
     for (let i = 0; i < 10; i++) {
       await makeDeposit(darkPool, token, alice, BigInt(i + 1));
     }

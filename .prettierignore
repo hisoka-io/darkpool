@@ -1,0 +1,26 @@
+# Dependencies
+node_modules
+pnpm-lock.yaml
+
+# Build / compile outputs
+dist
+build
+out
+.next
+coverage
+.turbo
+**/*.tsbuildinfo
+packages/evm-contracts/artifacts
+packages/evm-contracts/cache
+packages/evm-contracts/typechain-types
+packages/circuits/**/target
+
+# Generated code (regenerated from circuits — never hand-format)
+packages/prover/src/generated
+packages/evm-contracts/contracts/verifiers
+
+# Vendored third-party Solidity (zemse/poseidon2-evm, incl. inline Yul)
+packages/evm-contracts/contracts/Poseidon
+
+# Gitignored AI context / archived docs
+no-commit

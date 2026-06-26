@@ -2,12 +2,8 @@
 pragma solidity ^0.8.25;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {
-    SafeERC20
-} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {
-    ISwapRouter
-} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import {IDarkPool} from "../../interfaces/IDarkPool.sol";
 import {Poseidon2} from "../../Poseidon/Poseidon2.sol";
 import {Field} from "../../Poseidon/Field.sol";
@@ -20,7 +16,6 @@ contract UniswapAdaptor {
     error WithdrawAmountMismatch();
     error UnsupportedSwapType();
     error PathTooShort();
-    error PathOutOfBounds();
 
     address public immutable DARK_POOL;
     ISwapRouter public immutable UNISWAP_ROUTER;
@@ -232,13 +227,10 @@ contract UniswapAdaptor {
         if (len < 20) revert PathTooShort();
         address token;
         assembly {
-            // path points to length. path+32 is data start.
-            // We want the last 20 bytes.
-            // ptr = path + 32 + len - 20
+            // Load the last 20 bytes (path data starts at path+32); address sits
+            // in the top 20 bytes of the word, so shift right by 96 bits.
             let ptr := add(add(path, 32), sub(len, 20))
             let loaded := mload(ptr)
-            // Address is in the top 20 bytes (MSB) of the loaded word.
-            // Shift right by 12 bytes (96 bits)
             token := shr(96, loaded)
         }
         return token;

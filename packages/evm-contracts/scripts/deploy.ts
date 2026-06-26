@@ -24,12 +24,9 @@ function generateComplianceKeypair(): {
   sk: bigint;
   pk: Point<bigint>;
 } {
-  // Generate a random scalar in the BJJ subgroup
   const randomBytes = crypto.randomBytes(32);
   const rawSk = BigInt("0x" + randomBytes.toString("hex"));
   const sk = rawSk % BJJ_SUBGROUP_ORDER;
-
-  // Derive public key: pk = sk * Base8
   const pk = mulPointEscalar(Base8, sk);
 
   return { sk, pk };
@@ -39,12 +36,13 @@ async function deployVerifier(contractPath: string): Promise<{
   verifier: string;
   name: string;
 }> {
-  const name = contractPath.split("/").pop()?.replace(".sol", "") || contractPath;
+  const name =
+    contractPath.split("/").pop()?.replace(".sol", "") || contractPath;
   console.log(`  Deploying ${name}...`);
 
   // TranscriptLib is inlined (internal functions) — no separate deployment needed
   const VerifierFactory = await ethers.getContractFactory(
-    `${contractPath}:HonkVerifier`
+    `${contractPath}:HonkVerifier`,
   );
   const verifier = await VerifierFactory.deploy();
   await verifier.waitForDeployment();
@@ -63,10 +61,10 @@ function sha256File(filePath: string): string {
 async function tryVerify(
   address: string,
   constructorArgs: any[],
-  contract?: string
+  contract?: string,
 ): Promise<boolean> {
   if (network.name === "hardhat" || network.name === "localhost") {
-    return false; // Skip verification on local networks
+    return false;
   }
 
   try {
@@ -105,7 +103,7 @@ async function main() {
   const startBlock = await ethers.provider.getBlockNumber();
   const startTime = new Date().toISOString();
 
-  // ---- Step 0: Compliance keypair (reuse existing or generate fresh) ----
+  // Step 0: Compliance keypair (reuse existing or generate fresh)
   let compliance: { sk: bigint; pk: Point<bigint> };
   const existingSk = process.env.COMPLIANCE_SECRET_KEY;
   if (existingSk) {
@@ -121,7 +119,6 @@ async function main() {
   console.log(`  Compliance SK: *** stored in deployment artifacts ***`);
   console.log();
 
-  // ---- Step 1: Deploy Poseidon2 library ----
   console.log("Step 1: Deploying Poseidon2 library...");
   const Poseidon2Factory = await ethers.getContractFactory("Poseidon2");
   const poseidon2 = await Poseidon2Factory.deploy();
@@ -130,7 +127,6 @@ async function main() {
   console.log(`  Poseidon2: ${poseidon2Addr}`);
   console.log();
 
-  // ---- Step 2: Deploy 7 Verifiers ----
   console.log("Step 2: Deploying 7 circuit verifiers...");
   const verifierPaths = [
     "contracts/verifiers/DepositVerifier.sol",
@@ -149,7 +145,6 @@ async function main() {
   }
   console.log();
 
-  // ---- Step 3: Deploy NoxRewardPool ----
   console.log("Step 3: Deploying NoxRewardPool...");
   const RewardPoolFactory = await ethers.getContractFactory("NoxRewardPool");
   const rewardPool = await RewardPoolFactory.deploy(deployer.address);
@@ -158,7 +153,6 @@ async function main() {
   console.log(`  NoxRewardPool: ${rewardPoolAddr}`);
   console.log();
 
-  // ---- Step 4: Deploy DarkPool ----
   console.log("Step 4: Deploying DarkPool...");
   const DarkPoolFactory = await ethers.getContractFactory("DarkPool", {
     libraries: { Poseidon2: poseidon2Addr },
@@ -174,14 +168,13 @@ async function main() {
     rewardPoolAddr,
     compliance.pk[0],
     compliance.pk[1],
-    deployer.address
+    deployer.address,
   );
   await darkPool.waitForDeployment();
   const darkPoolAddr = await darkPool.getAddress();
   console.log(`  DarkPool: ${darkPoolAddr}`);
   console.log();
 
-  // ---- Step 5: Deploy MockERC20 (NOX-STK staking token) ----
   console.log("Step 5: Deploying NOX-STK staking token...");
   const TokenFactory = await ethers.getContractFactory("MockERC20");
   const token = await TokenFactory.deploy("NOX Stake Token", "NOX-STK", 18);
@@ -190,21 +183,19 @@ async function main() {
   console.log(`  NOX-STK: ${tokenAddr}`);
   console.log();
 
-  // ---- Step 6: Deploy NoxRegistry ----
   console.log("Step 6: Deploying NoxRegistry...");
   const NoxRegistryFactory = await ethers.getContractFactory("NoxRegistry");
   const noxRegistry = await NoxRegistryFactory.deploy(
     deployer.address,
     tokenAddr,
     0n, // minStake = 0 for testnet (privileged registration)
-    86400n // unstakeDelay = 1 day (contract minimum)
+    86400n, // unstakeDelay = 1 day (contract minimum)
   );
   await noxRegistry.waitForDeployment();
   const noxRegistryAddr = await noxRegistry.getAddress();
   console.log(`  NoxRegistry: ${noxRegistryAddr}`);
   console.log();
 
-  // ---- Step 7: Deploy RelayerMulticall ----
   console.log("Step 7: Deploying RelayerMulticall...");
   const MulticallFactory = await ethers.getContractFactory("RelayerMulticall");
   const multicall = await MulticallFactory.deploy();
@@ -213,24 +204,24 @@ async function main() {
   console.log(`  RelayerMulticall: ${multicallAddr}`);
   console.log();
 
-  // ---- Post-deploy setup ----
   console.log("Post-deploy: Whitelisting NOX-STK in NoxRewardPool...");
   await rewardPool.setAssetStatus(tokenAddr, true);
   console.log("  Done.");
   console.log();
 
-  // ---- Contract Verification ----
   console.log("Step 8: Verifying contracts on block explorer...");
 
-  // Libraries (no constructor args)
   await tryVerify(poseidon2Addr, []);
 
-  // Verifiers (no constructor args, TranscriptLib is inlined)
+  // Verifiers: no constructor args, TranscriptLib is inlined
   for (const v of verifiers) {
-    await tryVerify(v.verifier, [], `${verifierPaths[verifiers.indexOf(v)]}:HonkVerifier`);
+    await tryVerify(
+      v.verifier,
+      [],
+      `${verifierPaths[verifiers.indexOf(v)]}:HonkVerifier`,
+    );
   }
 
-  // Contracts with constructor args
   await tryVerify(rewardPoolAddr, [deployer.address]);
   await tryVerify(darkPoolAddr, [
     verifiers[0].verifier,
@@ -250,7 +241,6 @@ async function main() {
   await tryVerify(multicallAddr, []);
   console.log();
 
-  // ---- Build deployment record ----
   const endBlock = await ethers.provider.getBlockNumber();
   const circuitsDir = path.join(__dirname, "../../circuits/target");
 
@@ -309,7 +299,6 @@ async function main() {
       optimizer: { enabled: true, runs: 1 },
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       hardhat: require("hardhat/package.json").version,
-      // Circuit versions (read from Nargo.toml if available)
       noir: "1.0.0-beta.19",
       bbjs: "4.0.0-nightly.20260218",
     },
@@ -324,7 +313,6 @@ async function main() {
     },
   };
 
-  // ---- Write deployment JSON ----
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const deployDir = path.join(__dirname, "../deployments");
   fs.mkdirSync(deployDir, { recursive: true });
@@ -333,21 +321,21 @@ async function main() {
   fs.writeFileSync(deployFile, JSON.stringify(deployment, null, 2));
   console.log(`Deployment record: ${deployFile}`);
 
-  // Also write a "latest" symlink-style file
   const latestFile = path.join(deployDir, `${network.name}-latest.json`);
   fs.writeFileSync(latestFile, JSON.stringify(deployment, null, 2));
   console.log(`Latest pointer:    ${latestFile}`);
 
-  // ---- Write secrets file (compliance SK) — KEEP THIS SAFE ----
+  // Write secrets file (compliance SK) — KEEP THIS SAFE
   const secretsFile = path.join(
     deployDir,
-    `${network.name}-${timestamp}.secrets.json`
+    `${network.name}-${timestamp}.secrets.json`,
   );
   fs.writeFileSync(
     secretsFile,
     JSON.stringify(
       {
-        WARNING: "THIS FILE CONTAINS THE COMPLIANCE PRIVATE KEY. STORE SECURELY.",
+        WARNING:
+          "THIS FILE CONTAINS THE COMPLIANCE PRIVATE KEY. STORE SECURELY.",
         network: network.name,
         chainId: Number(chainId),
         deployedAt: startTime,
@@ -355,14 +343,12 @@ async function main() {
         deployerAddress: deployer.address,
       },
       null,
-      2
-    )
+      2,
+    ),
   );
-  // Restrict permissions
   fs.chmodSync(secretsFile, 0o600);
   console.log(`Secrets file:      ${secretsFile} (chmod 600)`);
 
-  // ---- Summary ----
   console.log();
   console.log("╔══════════════════════════════════════════════════════╗");
   console.log("║  DEPLOYMENT COMPLETE                                 ║");
@@ -378,7 +364,9 @@ async function main() {
   console.log(`  Blocks:          ${startBlock} → ${endBlock}`);
   console.log();
   console.log("Next steps:");
-  console.log(`  1. Archive: bash scripts/archive-deployment.sh ${network.name}-${timestamp}`);
+  console.log(
+    `  1. Archive: bash scripts/archive-deployment.sh ${network.name}-${timestamp}`,
+  );
   console.log(`  2. Import into nox-ctl: nox-ctl config import ${latestFile}`);
   console.log(`  3. Register nodes: nox-ctl registry register ...`);
 }

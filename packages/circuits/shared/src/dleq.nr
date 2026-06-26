@@ -1,5 +1,5 @@
-use poseidon::poseidon2::Poseidon2;
 use edwards::{bjj::BabyJubJub as Point, CurveTrait, ScalarField};
+use poseidon::poseidon2::Poseidon2;
 use std::ops::Add;
 
 pub struct DLEQProof {

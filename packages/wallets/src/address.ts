@@ -34,7 +34,6 @@ export function encodeHisokaAddress(data: HisokaAddressData): string {
     bigintTo32BufferBE(z),
   ]);
 
-
   return `${ADDRESS_PREFIX}_${bs58check.encode(payload)}`;
 }
 

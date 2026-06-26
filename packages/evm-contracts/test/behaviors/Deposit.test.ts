@@ -14,13 +14,12 @@ describe("DarkPool Behavior: Deposit", function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
     const amount = 100n;
 
-    // We capture the receipt to check events
     const balBefore = await token.balanceOf(await darkPool.getAddress());
     const aliceBalBefore = await token.balanceOf(alice.address);
 
     await makeDeposit(darkPool, token, alice, amount);
 
-    // Check Balances (use delta to avoid parallel test interference)
+    // Use balance deltas to avoid parallel-test interference
     expect(await token.balanceOf(await darkPool.getAddress())).to.equal(
       balBefore + amount,
     );
@@ -28,7 +27,6 @@ describe("DarkPool Behavior: Deposit", function () {
       aliceBalBefore - amount,
     );
 
-    // Check Root update
     const root = await darkPool.getCurrentRoot();
     expect(await darkPool.isKnownRoot(root)).to.equal(true);
   });
@@ -60,10 +58,9 @@ describe("DarkPool Behavior: Deposit", function () {
 
   it("should reject incorrect public inputs length", async function () {
     const { darkPool, alice } = await loadFixture(deployDarkPoolFixture);
-    await expect(darkPool.connect(alice).deposit("0x", [])).to.be.revertedWithCustomError(
-      darkPool,
-      "InvalidInputsLength",
-    );
+    await expect(
+      darkPool.connect(alice).deposit("0x", []),
+    ).to.be.revertedWithCustomError(darkPool, "InvalidInputsLength");
   });
 
   it("should reject deposit if compliance key in inputs is tampered", async function () {
@@ -71,7 +68,7 @@ describe("DarkPool Behavior: Deposit", function () {
 
     const { proof } = await makeDeposit(darkPool, token, alice, 100n);
     const tamperedInputs = [...proof.publicInputs];
-    tamperedInputs[0] = ethers.ZeroHash; // Corrupt Compliance X
+    tamperedInputs[0] = ethers.ZeroHash; // index 0 = compliance X
 
     await expect(
       darkPool.connect(alice).deposit(proof.proof, tamperedInputs),

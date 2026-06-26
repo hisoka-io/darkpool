@@ -7,29 +7,17 @@ import {MerkleTreeLib} from "./libraries/MerkleTreeLib.sol";
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {
-    ReentrancyGuard
-} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {
-    SafeERC20
-} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {HonkVerifier as DepositVerifier} from "./verifiers/DepositVerifier.sol";
-import {
-    HonkVerifier as WithdrawVerifier
-} from "./verifiers/WithdrawVerifier.sol";
-import {
-    HonkVerifier as TransferVerifier
-} from "./verifiers/TransferVerifier.sol";
+import {HonkVerifier as WithdrawVerifier} from "./verifiers/WithdrawVerifier.sol";
+import {HonkVerifier as TransferVerifier} from "./verifiers/TransferVerifier.sol";
 import {HonkVerifier as JoinVerifier} from "./verifiers/JoinVerifier.sol";
 import {HonkVerifier as SplitVerifier} from "./verifiers/SplitVerifier.sol";
-import {
-    HonkVerifier as PublicClaimVerifier
-} from "./verifiers/PublicClaimVerifier.sol";
-import {
-    HonkVerifier as GasPaymentVerifier
-} from "./verifiers/GasPaymentVerifier.sol";
+import {HonkVerifier as PublicClaimVerifier} from "./verifiers/PublicClaimVerifier.sol";
+import {HonkVerifier as GasPaymentVerifier} from "./verifiers/GasPaymentVerifier.sol";
 
 import {NoxRewardPool} from "./nox/NoxRewardPool.sol";
 
@@ -41,10 +29,8 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
-    // --- ROLES ---
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
-    // --- ERRORS ---
     error ZeroAddress();
     error InvalidInputsLength();
     error InvalidComplianceKey();
@@ -57,7 +43,6 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     error MemoSpent();
     error MemoInvalid();
 
-    // --- EVENTS ---
     event NewNote(
         uint256 indexed leafIndex,
         bytes32 indexed commitment,
@@ -113,7 +98,6 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     GasPaymentVerifier public immutable gasPaymentVerifier;
     NoxRewardPool public immutable rewardPool;
 
-    // --- STATE ---
     MerkleTreeLib.Tree internal merkleTree;
 
     DepositVerifier public immutable depositVerifier;
@@ -171,8 +155,6 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         merkleTree.init(32, 100);
     }
 
-    // --- ADMIN FUNCTIONS ---
-
     function pause() external onlyRole(PAUSER_ROLE) {
         _pause();
     }
@@ -180,8 +162,6 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
-
-    // --- ACTIONS ---
 
     /**
      * @notice Deposit public assets into the shielded pool.
@@ -342,29 +322,29 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         );
     }
 
-function publicClaim(
-    bytes calldata _proof,
-    bytes32[] calldata _publicInputs
-) external nonReentrant whenNotPaused {
-    if (_publicInputs.length != 14) revert InvalidInputsLength(); // was 13, now 14
+    function publicClaim(
+        bytes calldata _proof,
+        bytes32[] calldata _publicInputs
+    ) external nonReentrant whenNotPaused {
+        if (_publicInputs.length != 14) revert InvalidInputsLength();
 
-    bytes32 memoId = _publicInputs[0];
-    if (!isValidPublicMemo[memoId]) revert MemoInvalid();
-    if (isPublicMemoSpent[memoId]) revert MemoSpent();
+        bytes32 memoId = _publicInputs[0];
+        if (!isValidPublicMemo[memoId]) revert MemoInvalid();
+        if (isPublicMemoSpent[memoId]) revert MemoSpent();
 
-    _verifyComplianceKey(_publicInputs[1], _publicInputs[2]);
+        _verifyComplianceKey(_publicInputs[1], _publicInputs[2]);
 
-    // Enforce that the timestamp the prover used matches on-chain time
-    _verifyProofTimestamp(uint256(_publicInputs[3]));
+        // Enforce that the timestamp the prover used matches on-chain time
+        _verifyProofTimestamp(uint256(_publicInputs[3]));
 
-    if (!publicClaimVerifier.verify(_proof, _publicInputs))
-        revert InvalidProof();
+        if (!publicClaimVerifier.verify(_proof, _publicInputs))
+            revert InvalidProof();
 
-    isPublicMemoSpent[memoId] = true;
-    emit PublicMemoSpent(memoId);
+        isPublicMemoSpent[memoId] = true;
+        emit PublicMemoSpent(memoId);
 
-    _processChange(_publicInputs, 6, 4, 5);
-}
+        _processChange(_publicInputs, 6, 4, 5);
+    }
 
     function payRelayer(
         bytes calldata _proof,
@@ -402,8 +382,6 @@ function publicClaim(
             executionHash
         );
     }
-
-    // --- INTERNAL PROCESSORS ---
 
     function _processTransferMemo(bytes32[] calldata _publicInputs) internal {
         Field.Type[] memory packedMemo = new Field.Type[](7);

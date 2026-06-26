@@ -65,14 +65,13 @@ describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
       .connect(alice)
       .withdraw(lockProof.proof, lockProof.publicInputs);
 
-    // Update Tree with the locked note (Index 1)
-    // Withdraw 18 Inputs -> [10..16] is change_ct
+    // Insert locked note (index 1). Withdraw layout: [10..16] is change_ct.
     const lockedPub = lockProof.publicInputs.map((s) => toFr(s));
     const lockedCt = lockedPub.slice(10, 17);
     const lockedCommitment = await Poseidon.hash(lockedCt);
     await tree.insert(lockedCommitment);
 
-    // 3. Attempt to Spend Locked Note IMMEDIATELY (Should Fail)
+    // 3. Spending the locked note immediately must fail
     const lockedEphSk = toFr(999n);
     const lockedSharedSecret = await deriveSharedSecret(
       lockedEphSk,
@@ -80,13 +79,13 @@ describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
     );
 
     const spendPath = Array(32).fill(toFr(0n));
-    spendPath[0] = commitment; // Sibling is Index 0
+    spendPath[0] = commitment; // sibling is index 0
 
     const spendInputs: WithdrawInputs = {
       withdrawValue: toFr(100n),
       recipient: addressToFr(alice.address),
       merkleRoot: tree.getRoot(),
-      currentTimestamp: await time.latest(), // Time is < unlockTime
+      currentTimestamp: await time.latest(), // now < unlockTime
       intentHash: toFr(0),
       compliancePk: COMPLIANCE_PK,
       oldNote: lockedNote,
@@ -109,10 +108,8 @@ describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
       true,
     );
 
-    // 4. Advance Time
-    await time.increaseTo(unlockTime + 10); // Buffer to be safe
-
-    // 5. Attempt Spend AGAIN (Should Pass)
+    // 4. Advance past the unlock time, then the spend should succeed
+    await time.increaseTo(unlockTime + 10);
     spendInputs.currentTimestamp = await time.latest();
 
     const validProof = await proveWithdraw(spendInputs);
@@ -120,7 +117,7 @@ describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
       .connect(alice)
       .withdraw(validProof.proof, validProof.publicInputs);
 
-    // Balance check: 10000 start - 100 dep + 0 wdw + 100 wdw = 10000
+    // 10000 start - 100 dep + 0 wdw + 100 wdw = 10000
     expect(await token.balanceOf(alice.address)).to.equal(
       ethers.parseEther("10000"),
     );
@@ -172,7 +169,7 @@ describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
       .connect(alice)
       .withdraw(lockProof.proof, lockProof.publicInputs);
 
-    // Update Tree (Index 1)
+    // Insert locked note (index 1)
     const lockedPub = lockProof.publicInputs.map((s) => toFr(s));
     const lockedCommitment = await Poseidon.hash(lockedPub.slice(10, 17));
     await tree.insert(lockedCommitment);

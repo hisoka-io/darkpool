@@ -15,17 +15,11 @@ describe("DarkPool Behavior: Public Interop", function () {
     const AMOUNT = ethers.parseEther("50");
 
     // --- 1. PUBLIC TRANSFER (Alice -> Bob) ---
-    // Alice is a public user (EOA), she doesn't need a wallet/proof.
-    // She just needs Bob's Public Key.
-
-    // Bob generates a keypair to receive this funds
-    // In a real app, this might be his root viewing key or a derived one.
-    // For Hisoka, we usually use derived keys to keep privacy.
+    // Alice is a public EOA (no wallet/proof needed); she only needs Bob's derived public key.
     await bobWallet.keyRepo.advanceIncomingKeys(1);
     const bobSk = await bobWallet.account.getIncomingViewingKey(0n);
     const bobPk = await bobWallet.account.getPublicIncomingViewingKey(0n);
 
-    // Alice calls the contract directly
     await token.connect(alice).approve(await darkPool.getAddress(), AMOUNT);
 
     const salt = 12345n;
@@ -39,8 +33,7 @@ describe("DarkPool Behavior: Public Interop", function () {
     );
     const receipt = await tx.wait();
 
-    // Capture the Memo ID from the event
-    // Event: NewPublicMemo(memoId, ownerX, ownerY, asset, value, timelock, salt)
+    // NewPublicMemo(memoId, ownerX, ownerY, asset, value, timelock, salt)
     const log = receipt!.logs.find(
       (l) => (l as EventLog).fragment?.name === "NewPublicMemo",
     );
@@ -48,14 +41,11 @@ describe("DarkPool Behavior: Public Interop", function () {
 
     expect(args.value).to.equal(AMOUNT);
 
-    // Verify State
     expect(await darkPool.isValidPublicMemo(args.memoId)).to.equal(true);
     expect(await darkPool.isPublicMemoSpent(args.memoId)).to.equal(false);
 
-    // --- 2. PUBLIC CLAIM (Bob) ---
+    // --- 2. PUBLIC CLAIM (Bob claims into his shielded wallet) ---
     console.log("Generating Public Claim Proof...");
-
-    // Bob claims it into his shielded wallet
     await bobWallet.claimPublic(
       {
         memoId: args.memoId,
@@ -69,12 +59,10 @@ describe("DarkPool Behavior: Public Interop", function () {
       bobSk,
     );
 
-    // Verify Spent
     expect(await darkPool.isPublicMemoSpent(args.memoId)).to.equal(true);
     expect(bobWallet.getBalance()).to.equal(AMOUNT);
 
-    // --- 3. PRIVATE WITHDRAW (Bob) ---
-    // Prove that the claimed note is usable
+    // --- 3. PRIVATE WITHDRAW (Bob) — proves the claimed note is spendable ---
     console.log("Withdrawing claimed funds...");
     await bobWallet.withdraw(AMOUNT);
 
@@ -90,7 +78,7 @@ describe("DarkPool Behavior: Public Interop", function () {
     const bobWallet = await TestWallet.create(bob, darkPool, token);
     const AMOUNT = ethers.parseEther("10");
 
-    // Setup: Create and Claim once
+    // Setup: create and claim once, then attempt a replay
     await bobWallet.keyRepo.advanceIncomingKeys(1);
     const bobSk = await bobWallet.account.getIncomingViewingKey(0n);
     const bobPk = await bobWallet.account.getPublicIncomingViewingKey(0n);
@@ -126,7 +114,6 @@ describe("DarkPool Behavior: Public Interop", function () {
       bobSk,
     );
 
-    // Attempt Replay
     await expect(
       bobWallet.claimPublic(
         {

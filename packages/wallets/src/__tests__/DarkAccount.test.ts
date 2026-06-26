@@ -51,10 +51,10 @@ describe("DarkAccount", () => {
 
       expect(deriveSpy).toHaveBeenCalledTimes(2);
 
-      // Second calls should not trigger Kdf.derive for these master keys
+      // Cached: second calls must not re-derive master keys.
       await account.getSpendKey();
       await account.getViewKey();
-      expect(deriveSpy).toHaveBeenCalledTimes(2); // Still 2
+      expect(deriveSpy).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -89,7 +89,7 @@ describe("DarkAccount", () => {
     it("should derive a valid public Incoming Viewing Key", async () => {
       const IVK = await account.getPublicIncomingViewingKey(1n);
       expect(IVK).toBeDefined();
-      expect(IVK.length).toBe(2); // Should be a Point [x, y]
+      expect(IVK.length).toBe(2);
       expect(typeof IVK[0]).toBe("bigint");
     });
 

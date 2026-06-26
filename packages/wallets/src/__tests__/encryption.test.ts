@@ -30,8 +30,8 @@ describe("Encryption (Unified Note)", () => {
       value: toFr(100n),
       secret: toFr(456n),
       nullifier: toFr(789n),
-      timelock: toFr(0n), // New field
-      hashlock: toFr(0n), // New field
+      timelock: toFr(0n),
+      hashlock: toFr(0n),
     };
     plaintext_192 = packNotePlaintext(note_plain);
   });

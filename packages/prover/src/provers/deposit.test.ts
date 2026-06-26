@@ -47,7 +47,7 @@ describe("proveDeposit End-to-End (with Packed Ciphertext)", () => {
     expect(result.publicInputs.length).toBe(13);
 
     const publicInputsFr = result.publicInputs.map(Fr.fromString);
-    const return_values = publicInputsFr.slice(2); // Skip compliance key
+    const return_values = publicInputsFr.slice(2);
 
     const [epkX_fr, epkY_fr, valueOut_fr, assetIdOut_fr] = return_values.slice(
       0,

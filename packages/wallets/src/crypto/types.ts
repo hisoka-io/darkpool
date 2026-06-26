@@ -14,7 +14,6 @@ export class SizeError extends Error {
   }
 }
 
-// Unified Note Structure
 export interface NotePlaintext {
   asset_id: Fr;
   value: Fr;

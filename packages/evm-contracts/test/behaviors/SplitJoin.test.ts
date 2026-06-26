@@ -20,26 +20,22 @@ describe("DarkPool Behavior: Split & Join", function () {
         deployDarkPoolFixture,
       );
 
-      // 1. Create Note A (100)
       const depA = await makeDeposit(darkPool, token, alice, 100n);
-      // 2. Create Note B (50)
       const depB = await makeDeposit(darkPool, token, alice, 50n);
 
-      // 3. Build Tree (Index 0 = A, Index 1 = B)
       const tree = new LeanIMT(32);
-      await tree.insert(depA.commitment); // 0
-      await tree.insert(depB.commitment); // 1
+      await tree.insert(depA.commitment); // index 0 = A
+      await tree.insert(depB.commitment); // index 1 = B
       const root = tree.getRoot();
 
-      // Path for A (0): Sibling is B
+      // Path for A (0): sibling is B
       const pathA = Array(32).fill(toFr(0n));
       pathA[0] = depB.commitment;
 
-      // Path for B (1): Sibling is A
+      // Path for B (1): sibling is A
       const pathB = Array(32).fill(toFr(0n));
       pathB[0] = depA.commitment;
 
-      // 4. Output Note (150)
       const noteOut: NotePlaintext = {
         ...depA.depositPlain,
         value: toFr(150n),
@@ -52,14 +48,12 @@ describe("DarkPool Behavior: Split & Join", function () {
         currentTimestamp: Math.floor(Date.now() / 1000),
         compliancePk: COMPLIANCE_PK,
 
-        // Note A
         noteA: depA.depositPlain,
         secretA: await deriveSharedSecret(depA.ephemeralSk, COMPLIANCE_PK),
         indexA: 0,
         pathA: pathA,
         preimageA: toFr(0n),
 
-        // Note B
         noteB: depB.depositPlain,
         secretB: await deriveSharedSecret(depB.ephemeralSk, COMPLIANCE_PK),
         indexB: 1,
@@ -72,15 +66,12 @@ describe("DarkPool Behavior: Split & Join", function () {
 
       const proof = await proveJoin(inputs);
 
-      // 5. Execute
-      // Inputs: root, time, comp, nullA, nullB, epk, ct, asset
       await expect(
         darkPool.connect(alice).join(proof.proof, proof.publicInputs),
       )
-        .to.emit(darkPool, "NewNote") // Output note created
-        .and.to.emit(darkPool, "NullifierSpent"); // Note A spent
+        .to.emit(darkPool, "NewNote")
+        .and.to.emit(darkPool, "NullifierSpent");
 
-      // 6. Verify State
       const nullA = proof.publicInputs[4];
       const nullB = proof.publicInputs[5];
       expect(await darkPool.isNullifierSpent(nullA)).to.equal(true);
@@ -94,13 +85,12 @@ describe("DarkPool Behavior: Split & Join", function () {
         deployDarkPoolFixture,
       );
 
-      // 1. Create Note (100)
       const dep = await makeDeposit(darkPool, token, alice, 100n);
 
       const tree = new LeanIMT(32);
       await tree.insert(dep.commitment);
 
-      // 2. Outputs (40 + 60)
+      // Outputs: 40 + 60
       const out1: NotePlaintext = {
         ...dep.depositPlain,
         value: toFr(40n),
@@ -134,8 +124,8 @@ describe("DarkPool Behavior: Split & Join", function () {
       await expect(
         darkPool.connect(alice).split(proof.proof, proof.publicInputs),
       )
-        .to.emit(darkPool, "NewNote") // 1st Note
-        .and.to.emit(darkPool, "NewNote"); // 2nd Note
+        .to.emit(darkPool, "NewNote")
+        .and.to.emit(darkPool, "NewNote");
 
       const nullIn = proof.publicInputs[4];
       expect(await darkPool.isNullifierSpent(nullIn)).to.equal(true);

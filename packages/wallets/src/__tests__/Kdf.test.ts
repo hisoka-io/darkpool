@@ -38,7 +38,6 @@ describe("Kdf", () => {
       expect(noNonce.equals(withNonce)).toBe(false);
     });
 
-    // New: Edge - nonce=0 same as no nonce?
     it("should treat missing nonce as 0", async () => {
       const noNonce = await Kdf.derive("test", sk_root);
       const zeroNonce = await Kdf.derive("test", sk_root, toFr(0n));

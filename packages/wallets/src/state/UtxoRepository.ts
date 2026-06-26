@@ -1,9 +1,8 @@
-import { Fr } from '@aztec/foundation/fields';
-import { WalletNote } from './types.js';
-import { IUtxoRepository } from '../repositories.js';
+import { Fr } from "@aztec/foundation/fields";
+import { WalletNote } from "./types.js";
+import { IUtxoRepository } from "../repositories.js";
 
 export class UtxoRepository implements IUtxoRepository {
-  // Nullifier -> Note
   private notes: Map<string, WalletNote> = new Map();
 
   public async addNote(note: WalletNote): Promise<void> {
@@ -32,7 +31,7 @@ export class UtxoRepository implements IUtxoRepository {
 
   public getUnspentNotes(): WalletNote[] {
     const all = Array.from(this.notes.values());
-    return all.filter(n => !n.spent);
+    return all.filter((n) => !n.spent);
   }
 
   public getAllNotes(): WalletNote[] {

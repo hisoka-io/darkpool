@@ -14,8 +14,7 @@ const MAINNET_FORK_URL = process.env.MAINNET_FORK_URL;
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
 const ARB_PRIV_KEY = process.env.ARB_PRIV_KEY || PRIVATE_KEY;
 const ARB_SEPOLIA_RPC_URL =
-  process.env.ARB_SEPOLIA_RPC_URL ||
-  "https://sepolia-rollup.arbitrum.io/rpc";
+  process.env.ARB_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc";
 const ARBISCAN_API_KEY = process.env.ARBISCAN_API_KEY || "";
 
 // Validation for fork mode
@@ -42,7 +41,6 @@ function getTestFiles(dir: string): string[] {
   return files;
 }
 
-
 task("test:fast", "Runs core logic tests (no fork)")
   .addFlag("parallel", "Run tests in parallel")
   .setAction(async (args, hre) => {
@@ -53,10 +51,7 @@ task("test:fast", "Runs core logic tests (no fork)")
       "test/integration",
       "test/nox",
     ];
-    const files = [
-      "test/merkle-tree.test.ts",
-      "test/poseidon-parity.test.ts",
-    ];
+    const files = ["test/merkle-tree.test.ts", "test/poseidon-parity.test.ts"];
 
     let testFiles: string[] = [];
     for (const d of dirs) testFiles = testFiles.concat(getTestFiles(d));
@@ -72,20 +67,21 @@ task("test:fast", "Runs core logic tests (no fork)")
     await hre.run("test", { testFiles, parallel: !!args.parallel });
   });
 
-task("test:nox", "Runs mixnet E2E tests (requires nox mesh running)")
-  .setAction(async (args, hre) => {
+task("test:nox", "Runs mixnet E2E tests (requires nox mesh running)").setAction(
+  async (args, hre) => {
     const testFiles = getTestFiles("test/nox");
     console.log(`Running ${testFiles.length} nox mixnet tests...`);
     await hre.run("test", { testFiles });
-  });
+  },
+);
 
-task("test:fork", "Runs adaptor tests (with mainnet fork)")
-  .setAction(async (args, hre) => {
+task("test:fork", "Runs adaptor tests (with mainnet fork)").setAction(
+  async (args, hre) => {
     const testFiles = getTestFiles("test/adaptors");
     console.log(`Running ${testFiles.length} fork tests...`);
     await hre.run("test", { testFiles });
-  });
-
+  },
+);
 
 const config: HardhatUserConfig = {
   solidity: {

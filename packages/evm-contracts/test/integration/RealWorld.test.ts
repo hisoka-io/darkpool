@@ -6,8 +6,7 @@ import { TestWallet } from "../helpers/TestWallet";
 import { generateDLEQProof } from "@hisoka/wallets";
 
 describe("Integration: The Real World Simulation", function () {
-  // Extended timeout for multiple proof generations and sync operations
-  this.timeout(1200000);
+  this.timeout(1200000); // many proof generations + sync operations
 
   it("should simulate a multi-hop economy: Alice -> Bob -> Charlie -> Withdraw", async function () {
     const { darkPool, token, alice, bob, charlie } = await loadFixture(
@@ -29,11 +28,11 @@ describe("Integration: The Real World Simulation", function () {
     console.log("[1] Alice Deposits 100 tokens...");
     const depRes = await aliceWallet.deposit(AMOUNT_DEPOSIT);
 
-    // Network Propagation: Everyone sees the new leaf on-chain
+    // Network propagation: every wallet inserts the new leaf into its local tree
     await bobWallet.syncTree(depRes.commitment);
     await charlieWallet.syncTree(depRes.commitment);
 
-    // Alice Syncs: Finds her own note via ScanEngine
+    // Alice's ScanEngine discovers her own note
     console.log("    Alice Syncing...");
     await aliceWallet.sync();
 
@@ -45,15 +44,11 @@ describe("Integration: The Real World Simulation", function () {
     // --- STEP 2: ALICE TRANSFERS TO BOB ---
     console.log("[2] Alice Transfers 50 to Bob...");
 
-    // 1. Bob prepares his wallet to receive (Registers Tag for Index 0)
+    // Bob prepares index-0 incoming key and derives his receive address
     await bobWallet.keyRepo.advanceIncomingKeys(1);
-
-    // 2. Bob gets his ACTUAL key for Index 0
     const bobIvk = await bobWallet.account.getIncomingViewingKey(0n);
-    // 3. Bob generates the address using that key
     const bobAddr = await generateDLEQProof(bobIvk.toBigInt(), COMPLIANCE_PK);
 
-    // Alice executes transfer
     const trf1 = await aliceWallet.transfer(
       AMOUNT_TRANSFER_1,
       bobAddr.B,
@@ -61,20 +56,18 @@ describe("Integration: The Real World Simulation", function () {
       bobAddr.pi,
     );
 
-    // Network Propagation: 2 New Leaves (Memo + Change)
+    // Network propagation: 2 new leaves (memo + change)
     await bobWallet.syncTree(trf1.memoCommitment);
     await bobWallet.syncTree(trf1.changeCommitment);
     await charlieWallet.syncTree(trf1.memoCommitment);
     await charlieWallet.syncTree(trf1.changeCommitment);
 
-    // Sync Wallets
     console.log("    Bob Syncing (Looking for Memo)...");
     await bobWallet.sync();
 
     console.log("    Alice Syncing (Looking for Change)...");
     await aliceWallet.sync();
 
-    // Verification
     expect(aliceWallet.getBalance()).to.equal(
       AMOUNT_DEPOSIT - AMOUNT_TRANSFER_1,
     ); // 50
@@ -87,7 +80,6 @@ describe("Integration: The Real World Simulation", function () {
     // --- STEP 3: BOB TRANSFERS TO CHARLIE ---
     console.log("[3] Bob Transfers 25 to Charlie...");
 
-    // Charlie prepares
     await charlieWallet.keyRepo.advanceIncomingKeys(1);
     const charlieIvk = await charlieWallet.account.getIncomingViewingKey(0n);
     const charlieAddr = await generateDLEQProof(
@@ -95,7 +87,7 @@ describe("Integration: The Real World Simulation", function () {
       COMPLIANCE_PK,
     );
 
-    // Bob spends his received note
+    // Bob spends his received (Path B) note
     const trf2 = await bobWallet.transfer(
       AMOUNT_TRANSFER_2,
       charlieAddr.B,
@@ -103,13 +95,11 @@ describe("Integration: The Real World Simulation", function () {
       charlieAddr.pi,
     );
 
-    // Network Propagation
     await aliceWallet.syncTree(trf2.memoCommitment);
     await aliceWallet.syncTree(trf2.changeCommitment);
     await charlieWallet.syncTree(trf2.memoCommitment);
     await charlieWallet.syncTree(trf2.changeCommitment);
 
-    // Sync Wallets
     console.log("    Charlie Syncing...");
     await charlieWallet.sync();
     console.log("    Bob Syncing...");

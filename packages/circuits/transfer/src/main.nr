@@ -28,7 +28,12 @@ fn main(
     let recipient_P_temp = BabyJubJub::new(recipient_P.x, recipient_P.y);
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
 
-    verify_dleq(recipient_B_temp, compliance_pk_temp, recipient_P_temp, recipient_proof);
+    verify_dleq(
+        recipient_B_temp,
+        compliance_pk_temp,
+        recipient_P_temp,
+        recipient_proof,
+    );
 
     assert(memo_ephemeral_sk != 0);
     assert(change_ephemeral_sk != 0);

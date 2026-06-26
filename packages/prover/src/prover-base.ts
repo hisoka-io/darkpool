@@ -2,7 +2,10 @@ import { Barretenberg, UltraHonkBackend } from "@aztec/bb.js";
 import { CompiledCircuit, InputMap, Noir } from "@noir-lang/noir_js";
 import { ProofData } from "./types.js";
 
-const BB_THREADS = Math.max(1, parseInt(process.env.BB_THREADS ?? "16", 10) || 16);
+const BB_THREADS = Math.max(
+  1,
+  parseInt(process.env.BB_THREADS ?? "16", 10) || 16,
+);
 
 let bbInitialized = false;
 

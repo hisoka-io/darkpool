@@ -42,7 +42,7 @@ export class ComplianceService {
    * Scans the chain, decrypts everything, and builds the state.
    */
   async sync() {
-    // 1. Fetch All Events (from deployment block to avoid RPC limits on forks)
+    // Query from deployment block to avoid RPC range limits on forks
     const noteEvents = await this.contract.queryFilter(
       this.contract.filters.NewNote(),
       this.fromBlock,
@@ -52,12 +52,12 @@ export class ComplianceService {
       this.fromBlock,
     );
 
-    // 2. Decrypt & Index (Path A: Deposits/Changes)
+    // Path A: deposits/changes
     for (const ev of noteEvents) {
       await this.processNewNote(ev as EventLog);
     }
 
-    // 3. Decrypt & Index (Path B: Transfers)
+    // Path B: transfers
     for (const ev of memoEvents) {
       await this.processMemo(ev as EventLog);
     }
@@ -67,42 +67,36 @@ export class ComplianceService {
    * Reconstructs the flow of funds by grouping events by Transaction Hash.
    */
   async traceTransactions(): Promise<TransactionGraph[]> {
-    // 1. Fetch Spend Events
     const spendEvents = await this.contract.queryFilter(
       this.contract.filters.NullifierSpent(),
       this.fromBlock,
     );
 
-    // 2. Group Spends by TxHash
     const txs = new Map<string, { inputs: string[]; outputs: string[] }>();
 
-    // Helper to get/init tx entry
     const getTx = (hash: string) => {
       if (!txs.has(hash)) txs.set(hash, { inputs: [], outputs: [] });
       return txs.get(hash)!;
     };
 
-    // Map Inputs (Spends)
+    // Inputs: map each spent nullifier back to its source commitment
     for (const ev of spendEvents) {
       const tx = getTx(ev.transactionHash);
       const nf = (ev as EventLog).args.nullifierHash;
-      // Find which note this nullifier belongs to
       const commitment = this.nullifierMap.get(nf);
       if (commitment) {
         tx.inputs.push(commitment);
       }
     }
 
-    // Map Outputs (Creations)
+    // Outputs: notes created in each tx
     for (const rec of this.db.values()) {
       const tx = getTx(rec.txHash);
       tx.outputs.push(rec.commitment);
     }
 
-    // 3. Build Rich Graph
     const graph: TransactionGraph[] = [];
     for (const [hash, data] of txs.entries()) {
-      // Sort by block number/index logic if needed, for now just raw dump
       graph.push({
         txHash: hash,
         inputs: data.inputs.map((c) => this.db.get(c)!),
@@ -112,8 +106,6 @@ export class ComplianceService {
 
     return graph;
   }
-
-  // --- INTERNAL PROCESSORS ---
 
   private async processNewNote(event: EventLog) {
     const { ephemeralPK_x, ephemeralPK_y, packedCiphertext } = event.args;

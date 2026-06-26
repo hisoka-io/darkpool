@@ -15,5 +15,5 @@ export interface WalletNote {
 export interface KeyPair {
   index: number;
   privateKey: Fr;
-  publicKey: { x: bigint; y: bigint }; // Point structure
+  publicKey: { x: bigint; y: bigint };
 }

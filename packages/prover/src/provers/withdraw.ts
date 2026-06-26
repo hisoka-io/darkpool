@@ -2,7 +2,9 @@ import { generateProof } from "../prover-base.js";
 import { circuit } from "../generated/withdraw_circuit.js";
 import { WithdrawInputs, ProofData } from "../types.js";
 
-export async function proveWithdraw(inputs: WithdrawInputs): Promise<ProofData> {
+export async function proveWithdraw(
+  inputs: WithdrawInputs,
+): Promise<ProofData> {
   const noirInputs = {
     withdraw_value: inputs.withdrawValue.toString(),
     _recipient: inputs.recipient.toString(),

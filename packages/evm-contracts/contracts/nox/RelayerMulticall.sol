@@ -48,7 +48,9 @@ contract RelayerMulticall {
 
         uint256 remaining = address(this).balance;
         if (remaining > 0) {
-            (bool refundSuccess, ) = payable(msg.sender).call{value: remaining}("");
+            (bool refundSuccess, ) = payable(msg.sender).call{value: remaining}(
+                ""
+            );
             if (!refundSuccess) revert ETHRefundFailed();
         }
     }

@@ -83,9 +83,7 @@ describe("Compliance: Traceability & Auditing", function () {
       aliceAddr.pi,
     );
 
-    // =====================================================
-    // [Info] COMPLIANCE INVESTIGATION
-    // =====================================================
+    // Compliance investigation
     console.log("\n[Compliance] Starting Forensic Scan...");
     const auditor = new ComplianceService(
       COMPLIANCE_SK,
@@ -94,8 +92,6 @@ describe("Compliance: Traceability & Auditing", function () {
     await auditor.sync();
     const graph = await auditor.traceTransactions();
     console.log(`[Compliance] Reconstructed ${graph.length} Transactions.`);
-
-    // --- ASSERTION LOGIC ---
 
     // TX 1: Deposit
     const depositTx = graph.find(
@@ -118,7 +114,10 @@ describe("Compliance: Traceability & Auditing", function () {
         o.note.value.equals(toFr(ethers.parseEther("50"))) &&
         o.isTransfer === true,
     );
-    expect(bobMemo, "Compliance failed to identify the Transfer Note to Bob").to.not.equal(undefined);
+    expect(
+      bobMemo,
+      "Compliance failed to identify the Transfer Note to Bob",
+    ).to.not.equal(undefined);
 
     // TX 3: Bob -> Charlie
     const txBobToCharlie = graph.find((tx) =>
