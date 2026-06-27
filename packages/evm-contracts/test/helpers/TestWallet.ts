@@ -4,7 +4,6 @@ import {
   NotePlaintext,
   LeanIMT,
   toFr,
-  encryptNoteDeposit,
   deriveSharedSecret,
   KeyRepository,
   UtxoRepository,
@@ -104,8 +103,7 @@ export class TestWallet {
   // --- ACTIONS ---
 
   async deposit(amount: bigint, asset?: string) {
-    const { sk: ephemeralSk, nonce } = await this.keyRepo.nextEphemeralParams();
-    const skView = await this.account.getViewKey();
+    const { sk: ephemeralSk } = await this.keyRepo.nextEphemeralParams();
 
     const tokenAddress = asset || (await this.token.getAddress());
     const assetFr = addressToFr(tokenAddress);
@@ -119,7 +117,6 @@ export class TestWallet {
       hashlock: toFr(0n),
     };
 
-    await encryptNoteDeposit(skView, nonce, note, COMPLIANCE_PK_POINT);
     const inputs: DepositInputs = {
       notePlaintext: note,
       ephemeralSk,
@@ -412,11 +409,16 @@ export class TestWallet {
     const pub = proof.publicInputs.map((s) => toFr(s));
     const packedCt = pub.slice(6, 13);
     const commitment = await Poseidon.hash(packedCt);
-    const nullifierHash = await deriveNullifierPathA(noteOut.nullifier);
+    const leafIndex = this.tree.nextLeafIndex;
+    const nullifierHash = await deriveNullifierPathA(
+      noteOut.nullifier,
+      commitment,
+      leafIndex,
+    );
 
     const walletNote: WalletNote = {
       note: noteOut,
-      leafIndex: this.tree.nextLeafIndex,
+      leafIndex,
       commitment,
       nullifier: nullifierHash,
       spendingSecret: skOut,

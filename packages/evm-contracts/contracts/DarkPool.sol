@@ -31,6 +31,8 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
 
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
+    uint256 private constant PROOF_TIMESTAMP_TOLERANCE = 5 minutes;
+
     error ZeroAddress();
     error InvalidInputsLength();
     error InvalidComplianceKey();
@@ -42,6 +44,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     error MemoCollision();
     error MemoSpent();
     error MemoInvalid();
+    error FeeOnTransferUnsupported();
 
     event NewNote(
         uint256 indexed leafIndex,
@@ -191,7 +194,10 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         address asset = address(uint160(uint256(_publicInputs[5])));
         if (value == 0) revert ValueZero();
 
+        uint256 bal0 = IERC20(asset).balanceOf(address(this));
         IERC20(asset).safeTransferFrom(msg.sender, address(this), value);
+        if (IERC20(asset).balanceOf(address(this)) - bal0 != value)
+            revert FeeOnTransferUnsupported();
         emit Deposited(msg.sender, asset, value);
 
         emit NewNote(
@@ -308,7 +314,10 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
 
         if (isValidPublicMemo[memoId]) revert MemoCollision();
 
+        uint256 bal0 = IERC20(_asset).balanceOf(address(this));
         IERC20(_asset).safeTransferFrom(msg.sender, address(this), _value);
+        if (IERC20(_asset).balanceOf(address(this)) - bal0 != _value)
+            revert FeeOnTransferUnsupported();
         isValidPublicMemo[memoId] = true;
 
         emit NewPublicMemo(
@@ -346,6 +355,11 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         _processChange(_publicInputs, 6, 4, 5);
     }
 
+    /**
+     * @notice Pay an anonymous relayer's gas fee from a shielded note. V0: execution_hash
+     * (_publicInputs[5]) is bound in the proof but NOT enforced on-chain; the relayer is
+     * trusted to perform the bound action (atomic on-chain enforcement is a future change).
+     */
     function payRelayer(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -441,9 +455,10 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         }
     }
 
-    /// @dev 1-hour tolerance for ZK proof timestamp freshness (network latency, block variance).
+    /// @dev 5-minute tolerance for ZK proof timestamp freshness (network latency, block variance).
     function _verifyProofTimestamp(uint256 timestamp) internal view {
-        if (timestamp > block.timestamp + 1 hours) revert TimestampInvalid();
+        if (timestamp > block.timestamp + PROOF_TIMESTAMP_TOLERANCE)
+            revert TimestampInvalid();
     }
 
     function _spendNullifier(bytes32 _nullifierHash) internal {

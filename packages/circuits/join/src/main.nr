@@ -151,8 +151,8 @@ fn test_join_smoke() {
     };
     let sk_out = 0x0f152ae1850ac02348979462fb897febe30ea9bcc6a437e545b2f1f30eaa15b6;
 
-    let exp_nf_a = 0x1d7a5148ab0fff52fad551b57d2964711fb32a536d568fafacef09d5211b724f;
-    let exp_nf_b = 0x2b5094300fa9dacb8dd02fac2e3c8a2b2f687b5528337b3a6f100db97bdd69b2;
+    let exp_nf_a = 0x253d98f39b7adb6935e46bfe48b7e8e57284294c7f4f7f130005e4d7ff821a83;
+    let exp_nf_b = 0x1ce63511420809dee178ec3b7664e42212c5053b89e6699122a07544921571f1;
     let exp_ct = [
         0x006c7b0d19cd89580c2ffdc8e6d9a8abb309b872e9e3bfcc7e45663b58534c2e,
         0x007be1b682f6a13831c2f446dd94cbbcf1d68b551d6fe343566bc543c52869f4,
@@ -185,4 +185,133 @@ fn test_join_smoke() {
     assert(nf_a == exp_nf_a);
     assert(nf_b == exp_nf_b);
     assert(ct == exp_ct);
+}
+
+#[test(should_fail_with = "non-canonical leaf index")]
+fn audit_reject_self_join_noncanonical_index() {
+    let merkle_root = 0x24b729768482e5013bbc0d45aa10ccc7bf69d64a46ba4c89db19a97c35206a66;
+    let current_timestamp = 0;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let note_a = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003f2,
+        nullifier: 0x00000000000000000000000000000000000000000000000000000000000007da,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let secret_a = 0x19712b8cf8a75a1bffabfc0c83238c273079cfe5fa59d693955977b5049d049b;
+    let index_a = 0;
+    let path_a = [
+        0x04012a1319255bfdc69d8b0a1a8be730299e7765661a19e9eee4bb899bf74450,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    ];
+    let preimage_a = 0;
+
+    let note_b = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 50,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003f3,
+        nullifier: 0x00000000000000000000000000000000000000000000000000000000000007db,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let secret_b = 0x03b623e557c1f450cf99d1bdcab41ae717e18210ca5ef7d6dd6e40032c674c08;
+    let index_b = 3;
+    let path_b = [
+        0x15efa22295890ff196020df82130d519ad1a2cb86661ad78862afcf51ad4d07e,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    ];
+    let preimage_b = 0;
+
+    let note_out = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 150,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
+        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000378,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let sk_out = 0x0f152ae1850ac02348979462fb897febe30ea9bcc6a437e545b2f1f30eaa15b6;
+
+    let _ = main(
+        merkle_root,
+        current_timestamp,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        note_a,
+        secret_a,
+        index_a,
+        path_a,
+        preimage_a,
+        note_b,
+        secret_b,
+        index_b,
+        path_b,
+        preimage_b,
+        note_out,
+        sk_out,
+    );
 }

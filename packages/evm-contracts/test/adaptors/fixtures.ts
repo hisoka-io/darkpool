@@ -1,6 +1,7 @@
 import { ethers } from "hardhat";
+import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
-import { toFr } from "@hisoka/wallets";
+import { toFr, Kdf, toBjjScalar } from "@hisoka/wallets";
 import {
   DarkPool__factory,
   IERC20,
@@ -76,6 +77,14 @@ export const COMPLIANCE_PK: Point<bigint> = mulPointEscalar(
 export const SK_VIEW = toFr(123456789n);
 export const NONCE = toFr(1n);
 
+export async function depositEphemeralParams() {
+  return {
+    ephemeral_sk_used: toBjjScalar(
+      await Kdf.derive("hisoka.ephemeral", SK_VIEW, NONCE),
+    ),
+  };
+}
+
 const GAS_OVERRIDES = {
   maxFeePerGas: ethers.parseUnits("300", "gwei"),
   maxPriorityFeePerGas: ethers.parseUnits("10", "gwei"),
@@ -101,6 +110,11 @@ export async function deployUniswapFixture() {
     );
     console.error("Usage: FORK_MAINNET=true npx hardhat test:fork");
     throw new Error("Forking disabled or invalid RPC.");
+  }
+
+  const wallNow = Math.floor(Date.now() / 1000);
+  if ((await time.latest()) < wallNow) {
+    await time.increaseTo(wallNow);
   }
 
   const Poseidon2Factory = await ethers.getContractFactory("Poseidon2");

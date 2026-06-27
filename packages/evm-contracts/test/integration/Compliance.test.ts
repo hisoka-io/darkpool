@@ -79,7 +79,13 @@ class ComplianceTool {
       );
 
       // Path A nullifier indexes this note
-      const nf = await deriveNullifierPathA(note.nullifier);
+      const commitment = toFr(event.args.commitment);
+      const leafIndex = Number(event.args.leafIndex);
+      const nf = await deriveNullifierPathA(
+        note.nullifier,
+        commitment,
+        leafIndex,
+      );
       this.observedNotes.set(nf.toString(), { note, type: "DEPOSIT" });
     } catch {
       // Compliance should read all NewNotes; ignore any that fail to decrypt

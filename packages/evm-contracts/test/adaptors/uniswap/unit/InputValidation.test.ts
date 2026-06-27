@@ -3,14 +3,12 @@ import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployUniswapFixture,
+  depositEphemeralParams,
   WETH_ADDRESS,
   USDC_ADDRESS,
   COMPLIANCE_PK,
-  SK_VIEW,
-  NONCE,
 } from "../../fixtures";
 import {
-  encryptNoteDeposit,
   deriveSharedSecret,
   NotePlaintext,
   toFr,
@@ -39,7 +37,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
       hashlock: toFr(0n),
     };
 
-    const enc = await encryptNoteDeposit(SK_VIEW, NONCE, note, COMPLIANCE_PK);
+    const enc = await depositEphemeralParams();
     const depProof = await (
       await import("@hisoka/prover")
     ).proveDeposit({
@@ -210,5 +208,133 @@ describe("Uniswap Adaptor: Security & Validation", function () {
           encodedParams,
         ),
     ).to.be.revertedWithCustomError(uniswapAdaptor, "InvalidProofRecipient");
+  });
+
+  const EIS_TUPLE =
+    "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin)";
+
+  function encodeEIS(p: {
+    assetIn: string;
+    assetOut: string;
+    fee: number;
+    recipient: { ownerX: bigint; ownerY: bigint };
+    amountOutMin: bigint;
+  }) {
+    return new ethers.AbiCoder().encode(
+      [EIS_TUPLE],
+      [
+        [
+          p.assetIn,
+          p.assetOut,
+          p.fee,
+          [p.recipient.ownerX, p.recipient.ownerY],
+          p.amountOutMin,
+        ],
+      ],
+    );
+  }
+
+  async function buildWithdraw(
+    data: any,
+    tree: any,
+    note: any,
+    enc: any,
+    amount: bigint,
+    params: any,
+  ) {
+    // @ts-ignore
+    const intentHash = await hashUniswapIntent(params);
+    const inputs: WithdrawInputs = {
+      withdrawValue: toFr(amount),
+      recipient: addressToFr(await data.uniswapAdaptor.getAddress()),
+      merkleRoot: tree.getRoot(),
+      currentTimestamp: Math.floor(Date.now() / 1000),
+      intentHash,
+      compliancePk: COMPLIANCE_PK,
+      oldNote: note,
+      oldSharedSecret: await deriveSharedSecret(
+        enc.ephemeral_sk_used,
+        COMPLIANCE_PK,
+      ),
+      oldNoteIndex: 0,
+      oldNotePath: Array(32).fill(toFr(0n)),
+      hashlockPreimage: toFr(0n),
+      changeNote: { ...note, value: toFr(0n) },
+      changeEphemeralSk: toFr(999n),
+    };
+    const proof = await proveWithdraw(inputs);
+    const proofHex = "0x" + Buffer.from(proof.proof).toString("hex");
+    const pubHex = proof.publicInputs.map(
+      (i) => "0x" + BigInt(i).toString(16).padStart(64, "0"),
+    );
+    return { proofHex, pubHex };
+  }
+
+  const goodParams = {
+    type: SwapType.ExactInputSingle,
+    assetIn: WETH_ADDRESS,
+    assetOut: USDC_ADDRESS,
+    fee: 3000,
+    recipient: { ownerX: 777n, ownerY: 888n },
+    amountOutMin: 0n,
+  };
+
+  it("FIX1: rejects swapping an asset other than the withdrawn asset", async function () {
+    const data = await loadFixture(fixture);
+    const { uniswapAdaptor, alice } = data;
+    const mismatch = {
+      ...goodParams,
+      assetIn: USDC_ADDRESS,
+      assetOut: WETH_ADDRESS,
+    };
+    const { proofHex, pubHex } = await buildWithdraw(
+      data,
+      data.tree,
+      data.note,
+      data.enc,
+      data.amount,
+      mismatch,
+    );
+    await expect(
+      uniswapAdaptor
+        .connect(alice)
+        .executeSwap(
+          proofHex,
+          pubHex,
+          SwapType.ExactInputSingle,
+          encodeEIS(mismatch),
+        ),
+    ).to.be.revertedWithCustomError(uniswapAdaptor, "AssetMismatch");
+  });
+
+  it("FIX1: rejects a replayed proof after a completed atomic swap", async function () {
+    const data = await loadFixture(fixture);
+    const { uniswapAdaptor, darkPool, alice } = data;
+    const { proofHex, pubHex } = await buildWithdraw(
+      data,
+      data.tree,
+      data.note,
+      data.enc,
+      data.amount,
+      goodParams,
+    );
+    await uniswapAdaptor
+      .connect(alice)
+      .executeSwap(
+        proofHex,
+        pubHex,
+        SwapType.ExactInputSingle,
+        encodeEIS(goodParams),
+      );
+    await expect(
+      uniswapAdaptor
+        .connect(alice)
+        .executeSwap(
+          proofHex,
+          pubHex,
+          SwapType.ExactInputSingle,
+          encodeEIS(goodParams),
+        ),
+    ).to.be.revertedWithCustomError(darkPool, "NullifierAlreadySpent");
   });
 });

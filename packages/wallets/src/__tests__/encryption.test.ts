@@ -4,8 +4,10 @@ import { toFr } from "../crypto/fields";
 import {
   aes128Encrypt,
   aes128Decrypt,
-  encryptNoteDeposit,
   decryptNoteDeposit,
+  deriveSharedSecret,
+  kdfToAesKeyIV,
+  toBjjScalar,
   packNotePlaintext,
   unpackNotePlaintext,
   NotePlaintext,
@@ -77,32 +79,23 @@ describe("Encryption (Unified Note)", () => {
     });
   });
 
-  describe("Deposit Encryption", () => {
-    it("encryptNoteDeposit produces 208b ct", async () => {
-      const { ciphertext, value_out } = await encryptNoteDeposit(
-        sk_view,
-        nonce,
-        note_plain,
-        COMPLIANCE_PK,
+  describe("Deposit Encryption Roundtrip", () => {
+    it("encrypts via the ECDH/AES primitives and decryptNoteDeposit recovers it", async () => {
+      const ephemeral_sk = toBjjScalar(
+        await Kdf.derive("hisoka.ephemeral", sk_view, nonce),
       );
+      const shared = await deriveSharedSecret(ephemeral_sk, COMPLIANCE_PK);
+      const { key, iv } = await kdfToAesKeyIV(shared);
+      const ciphertext = await aes128Encrypt(plaintext_192, key, iv);
       expect(ciphertext.length).toBe(208);
-      expect(value_out.equals(note_plain.value)).toBe(true);
-    });
 
-    it("decryptNoteDeposit roundtrips", async () => {
-      const enc = await encryptNoteDeposit(
-        sk_view,
-        nonce,
-        note_plain,
-        COMPLIANCE_PK,
-      );
-      const ephemeral_sk = await Kdf.derive("hisoka.ephemeral", sk_view, nonce);
       const decrypted = await decryptNoteDeposit(
         ephemeral_sk,
         COMPLIANCE_PK,
-        enc.ciphertext,
+        ciphertext,
       );
       expect(decrypted.asset_id.equals(note_plain.asset_id)).toBe(true);
+      expect(decrypted.value.equals(note_plain.value)).toBe(true);
       expect(decrypted.timelock.equals(note_plain.timelock)).toBe(true);
     });
   });

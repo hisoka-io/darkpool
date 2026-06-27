@@ -115,7 +115,13 @@ export class ComplianceService {
 
     try {
       const note = await complianceDecryptNote(this.complianceSk, epk, ct);
-      const nf = await deriveNullifierPathA(note.nullifier);
+      const commitment = toFr(event.args.commitment);
+      const leafIndex = Number(event.args.leafIndex);
+      const nf = await deriveNullifierPathA(
+        note.nullifier,
+        commitment,
+        leafIndex,
+      );
       this.storeRecord(event, note, nf, false);
     } catch {
       /* Ignore failures */

@@ -1,7 +1,7 @@
 
 
-# Guard: block commits that include no-commit/ or CLAUDE.md
-FORBIDDEN=$(git diff --cached --name-only | grep -E '^no-commit/|^CLAUDE\.md$' || true)
+# Guard: block commits of project-local AI context (gitignored; this is the active backstop)
+FORBIDDEN=$(git diff --cached --name-only | grep -E '^no-commit/|^CLAUDE\.|^MEMORY\.md$|^\.claude/|^\.agent/' || true)
 if [ -n "$FORBIDDEN" ]; then
   echo ""
   echo "COMMIT BLOCKED: The following files must not be committed:"

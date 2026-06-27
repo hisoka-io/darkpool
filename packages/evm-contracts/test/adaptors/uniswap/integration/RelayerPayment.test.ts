@@ -3,14 +3,12 @@ import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployUniswapFixture,
+  depositEphemeralParams,
   WETH_ADDRESS,
   USDC_ADDRESS,
   COMPLIANCE_PK,
-  SK_VIEW,
-  NONCE,
 } from "../../fixtures";
 import {
-  encryptNoteDeposit,
   NotePlaintext,
   toFr,
   addressToFr,
@@ -36,7 +34,7 @@ describe("Relayer Safe Settlement: Integration", function () {
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };
-    const enc = await encryptNoteDeposit(SK_VIEW, NONCE, note, COMPLIANCE_PK);
+    const enc = await depositEphemeralParams();
     const depProof = await (
       await import("@hisoka/prover")
     ).proveDeposit({

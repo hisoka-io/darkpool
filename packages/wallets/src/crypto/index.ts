@@ -1,10 +1,9 @@
 import { Fr } from "@aztec/foundation/fields";
-import { Point, mulPointEscalar, Base8, subOrder } from "@zk-kit/baby-jubjub";
-import { Kdf } from "./Kdf.js";
+import { Point, mulPointEscalar, subOrder } from "@zk-kit/baby-jubjub";
 import { NotePlaintext } from "./types.js";
 import { deriveSharedSecret, kdfToAesKeyIV } from "./ecdh.js";
-import { packNotePlaintext, unpackNotePlaintext } from "./packing.js";
-import { aes128Encrypt, aes128Decrypt } from "./aes.js";
+import { unpackNotePlaintext } from "./packing.js";
+import { aes128Decrypt } from "./aes.js";
 import { Poseidon } from "./Poseidon.js";
 
 /**
@@ -24,36 +23,6 @@ export * from "./Poseidon.js";
 export * from "./dleq.js";
 export * from "./Kdf.js";
 export * from "./nullifier.js";
-
-export async function encryptNoteDeposit(
-  sk_view: Fr,
-  nonce: Fr,
-  note_plain: NotePlaintext,
-  compliance_pk: Point<bigint>,
-): Promise<{
-  ciphertext: Buffer;
-  ephemeralPK: Point<bigint>;
-  ephemeral_sk_used: Fr;
-  value_out: Fr;
-  asset_id_out: Fr;
-}> {
-  const raw_sk = await Kdf.derive("hisoka.ephemeral", sk_view, nonce);
-  const ephemeral_sk = toBjjScalar(raw_sk); // Reduce to valid BJJ scalar
-  const ephemeralPK = mulPointEscalar(Base8, ephemeral_sk.toBigInt());
-  const shared_ss = await deriveSharedSecret(ephemeral_sk, compliance_pk);
-  const { key, iv } = await kdfToAesKeyIV(shared_ss);
-
-  const plaintext = packNotePlaintext(note_plain);
-  const ciphertext = await aes128Encrypt(plaintext, key, iv);
-
-  return {
-    ciphertext,
-    ephemeralPK,
-    ephemeral_sk_used: ephemeral_sk,
-    value_out: note_plain.value,
-    asset_id_out: note_plain.asset_id,
-  };
-}
 
 export async function decryptNoteDeposit(
   ephemeral_sk: Fr,

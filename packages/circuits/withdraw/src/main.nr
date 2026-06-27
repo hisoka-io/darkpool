@@ -75,7 +75,7 @@ fn test_withdraw_compile_check() {
     };
     let change_ephemeral_sk = 0x00c08605661c1ef6bad34085c2356c82102e5e46ecabebaa3939190f4e68b268;
 
-    let exp_nf = 0x1330149830bb507a82c893814415ac88d36a2f8263dffffdb1956b3635a04fae;
+    let exp_nf = 0x2b27292cf91640a783dbe709d5b4bc440e97377a7d0fc10d4a4b6533b4537ebb;
     let exp_ct = [
         0x00f35ac9ea5690a6549faf5529fa73942349ab475d50507a9b2e84ebcc11816c,
         0x0009e10ba6dc87e2b2394bdd24698da85f9b1166e342902abd4a01286b1cc08a,
@@ -105,4 +105,58 @@ fn test_withdraw_compile_check() {
 
     assert(nf == exp_nf);
     assert(ct == exp_ct);
+}
+
+#[test(should_fail_with = "non-canonical leaf index")]
+fn audit_reject_noncanonical_index() {
+    let withdraw_value: u128 = 40;
+    let recipient = 0x1234567890123456789012345678901234567890;
+    let merkle_root = 0x2b007edcbc06d28d57c351697d325087133d5a0aa0971c8384fa03c6a93b4a0a;
+    let current_timestamp = 0;
+    let intent_hash = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let old_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
+        nullifier: 0x00000000000000000000000000000000000000000000000000000000000000c8,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let old_shared_secret = 0x19712b8cf8a75a1bffabfc0c83238c273079cfe5fa59d693955977b5049d049b;
+    let old_note_index = 7;
+    let old_note_path = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,
+    ];
+    let hashlock_preimage = 0;
+
+    let change_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 60,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000190,
+        nullifier: 0x000000000000000000000000000000000000000000000000000000000000012c,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let change_ephemeral_sk = 0x00c08605661c1ef6bad34085c2356c82102e5e46ecabebaa3939190f4e68b268;
+
+    let _ = main(
+        withdraw_value,
+        recipient,
+        merkle_root,
+        current_timestamp,
+        intent_hash,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        old_note,
+        old_shared_secret,
+        old_note_index,
+        old_note_path,
+        hashlock_preimage,
+        change_note,
+        change_ephemeral_sk,
+    );
 }

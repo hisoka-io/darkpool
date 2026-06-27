@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Fr } from "@aztec/foundation/fields";
 import { Note } from "../utxo/Note";
 import { NotePlaintext } from "../crypto";
+import { Poseidon } from "../crypto/Poseidon";
 import { toFr, addressToFr } from "../crypto/fields";
 
 describe("Note (Unified)", () => {
@@ -16,11 +17,28 @@ describe("Note (Unified)", () => {
 
   const note = new Note(samplePlaintext);
 
-  it("should compute the nullifier hash deterministically", async () => {
-    const hash1 = await note.getNullifierHash();
-    const hash2 = await note.getNullifierHash();
+  it("derives the Path-A nullifier as Poseidon(nullifier, commitment, leafIndex)", async () => {
+    const commitment = new Fr(0x1234abcdn);
+    const leafIndex = 5;
+
+    const hash1 = await note.getNullifierHash(commitment, leafIndex);
+    const hash2 = await note.getNullifierHash(commitment, leafIndex);
     expect(hash1).toBeInstanceOf(Fr);
     expect(hash1.equals(hash2)).toBe(true);
+
+    const expected = await Poseidon.hash([
+      samplePlaintext.nullifier,
+      commitment,
+      new Fr(BigInt(leafIndex)),
+    ]);
+    expect(hash1.equals(expected)).toBe(true);
+  });
+
+  it("binds the nullifier to the leaf position", async () => {
+    const commitment = new Fr(0x1234abcdn);
+    const atIndex5 = await note.getNullifierHash(commitment, 5);
+    const atIndex6 = await note.getNullifierHash(commitment, 6);
+    expect(atIndex5.equals(atIndex6)).toBe(false);
   });
 
   it("should throw an error for a negative value", () => {

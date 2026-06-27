@@ -1,5 +1,5 @@
 import { Fr } from "@aztec/foundation/fields";
-import { Poseidon } from "../crypto/Poseidon.js";
+import { deriveNullifierPathA } from "../crypto/nullifier.js";
 import { IUTXO } from "../interfaces.js";
 import { getAddress } from "ethers";
 import { NotePlaintext } from "../crypto/index.js";
@@ -23,7 +23,14 @@ export class Note implements IUTXO {
     }
   }
 
-  public async getNullifierHash(): Promise<Fr> {
-    return await Poseidon.hashScalar(this.plaintext.nullifier);
+  public async getNullifierHash(
+    commitment: Fr,
+    leafIndex: number | bigint,
+  ): Promise<Fr> {
+    return await deriveNullifierPathA(
+      this.plaintext.nullifier,
+      commitment,
+      leafIndex,
+    );
   }
 }

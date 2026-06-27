@@ -24,9 +24,23 @@ export class ScanEngine {
   }
 
   public async sync(fromBlock: number): Promise<void> {
-    await this.keyRepo.advanceEphemeralKeys(this.lookaheadWindow);
-    await this.keyRepo.advanceIncomingKeys(this.lookaheadWindow);
+    await this.keyRepo.ensureEphemeralLookahead(this.lookaheadWindow);
+    await this.keyRepo.ensureIncomingLookahead(this.lookaheadWindow);
 
+    const maxPasses = 64;
+    for (let pass = 0; pass < maxPasses; pass++) {
+      await this.scanOnce(fromBlock);
+      const ext1 = await this.keyRepo.ensureEphemeralLookahead(
+        this.lookaheadWindow,
+      );
+      const ext2 = await this.keyRepo.ensureIncomingLookahead(
+        this.lookaheadWindow,
+      );
+      if (!ext1 && !ext2) break;
+    }
+  }
+
+  private async scanOnce(fromBlock: number): Promise<void> {
     const noteLogs = await this.contract.queryFilter(
       this.contract.filters.NewNote(),
       fromBlock,
@@ -101,34 +115,51 @@ export class ScanEngine {
     endIndex: number,
   ): Promise<void> {
     if (!this.merkleTree) return;
-    const indices: number[] = [];
-    for (let i = startIndex; i <= endIndex; i++) indices.push(i);
+    void startIndex;
 
-    const missingNotes = await this.contract.queryFilter(
+    const maxAttempts = 8;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const need: number[] = [];
+      for (let i = this.merkleTree.nextLeafIndex; i <= endIndex; i++)
+        need.push(i);
+      if (need.length === 0) return;
+
+      const byIndex = await this.fetchLeafEvents(fromBlock, need);
+
+      while (this.merkleTree.nextLeafIndex <= endIndex) {
+        const ev = byIndex.get(this.merkleTree.nextLeafIndex);
+        if (!ev) break;
+        await this.merkleTree.insert(toFr(ev.args["commitment"] as string));
+        await this.processLog(ev, ev);
+      }
+      if (this.merkleTree.nextLeafIndex > endIndex) return;
+    }
+
+    throw new Error(
+      `ScanEngine.repairTreeGap: could not fetch all leaves up to ${endIndex} ` +
+        `(stuck at ${this.merkleTree.nextLeafIndex}); the RPC may be truncating logs.`,
+    );
+  }
+
+  private async fetchLeafEvents(
+    fromBlock: number,
+    indices: number[],
+  ): Promise<Map<number, EventLog>> {
+    const notes = await this.contract.queryFilter(
       this.contract.filters.NewNote(indices),
       fromBlock,
     );
-    const missingMemos = await this.contract.queryFilter(
+    const memos = await this.contract.queryFilter(
       this.contract.filters.NewPrivateMemo(indices),
       fromBlock,
     );
-
-    const missingLogs = [...missingNotes, ...missingMemos].sort(
-      (a, b) =>
-        Number((a as EventLog).args["leafIndex"]) -
-        Number((b as EventLog).args["leafIndex"]),
-    );
-
-    for (const log of missingLogs) {
-      const eventLog = log as EventLog;
-      const idx = Number(eventLog.args["leafIndex"]);
-
-      if (idx === this.merkleTree.nextLeafIndex) {
-        const comm = eventLog.args["commitment"] as string;
-        await this.merkleTree.insert(toFr(comm));
-        await this.processLog(eventLog, log);
-      }
+    const byIndex = new Map<number, EventLog>();
+    for (const log of [...notes, ...memos]) {
+      if (!("args" in log)) continue;
+      const ev = log as EventLog;
+      byIndex.set(Number(ev.args["leafIndex"]), ev);
     }
+    return byIndex;
   }
 
   private async processLog(

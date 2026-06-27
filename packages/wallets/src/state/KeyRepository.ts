@@ -3,12 +3,14 @@ import { Point, mulPointEscalar } from "@zk-kit/baby-jubjub";
 import { DarkAccount } from "../keys/DarkAccount.js";
 import { toFr } from "../crypto/fields.js";
 import { BJJ_SUBGROUP_ORDER } from "../crypto/constants.js";
-import { IKeyRepository } from "../repositories.js";
+import { IKeyRepository, KeyRepoState } from "../repositories.js";
 
 export class KeyRepository implements IKeyRepository {
   private _ephemeralIndex: number = 0;
   private _incomingIndex: number = 0;
   private _nextEphemeralNonce: number = 0;
+  private _highestMatchedEphemeral: number = -1;
+  private _highestMatchedIncoming: number = -1;
 
   private ephemeralKeyMap: Map<string, { key: Fr; index: number }> = new Map();
   private recipientKeyMap: Map<string, { key: bigint; index: number }> =
@@ -47,6 +49,32 @@ export class KeyRepository implements IKeyRepository {
     }
   }
 
+  public async ensureEphemeralLookahead(window: number): Promise<boolean> {
+    const target = Math.max(
+      this._ephemeralIndex,
+      this._highestMatchedEphemeral + 1 + window,
+    );
+    let advanced = false;
+    while (this._ephemeralIndex < target) {
+      await this.registerEphemeralKey(this._ephemeralIndex++);
+      advanced = true;
+    }
+    return advanced;
+  }
+
+  public async ensureIncomingLookahead(window: number): Promise<boolean> {
+    const target = Math.max(
+      this._incomingIndex,
+      this._highestMatchedIncoming + 1 + window,
+    );
+    let advanced = false;
+    while (this._incomingIndex < target) {
+      await this.registerIncomingKey(this._incomingIndex++);
+      advanced = true;
+    }
+    return advanced;
+  }
+
   private async registerEphemeralKey(index: number): Promise<void> {
     const idxBi = BigInt(index);
     const ephPk = await this.account.getPublicEphemeralOutgoingKey(idxBi);
@@ -76,18 +104,58 @@ export class KeyRepository implements IKeyRepository {
     epkY: bigint | string,
   ): { key: Fr; index: number } | null {
     const key = this.formatPointKey([BigInt(epkX), BigInt(epkY)]);
-    return this.ephemeralKeyMap.get(key) || null;
+    const match = this.ephemeralKeyMap.get(key) || null;
+    if (match && match.index > this._highestMatchedEphemeral) {
+      this._highestMatchedEphemeral = match.index;
+    }
+    return match;
   }
 
   public tryMatchTransfer(
     tagPx: bigint | string,
   ): { key: bigint; index: number } | null {
     const key = toFr(tagPx).toString();
-    return this.recipientKeyMap.get(key) || null;
+    const match = this.recipientKeyMap.get(key) || null;
+    if (match && match.index > this._highestMatchedIncoming) {
+      this._highestMatchedIncoming = match.index;
+    }
+    return match;
   }
 
   public getAllTags(): string[] {
     return Array.from(this.recipientKeyMap.keys());
+  }
+
+  public getState(): KeyRepoState {
+    return {
+      nextEphemeralNonce: this._nextEphemeralNonce,
+      ephemeralIndex: this._ephemeralIndex,
+      incomingIndex: this._incomingIndex,
+      highestMatchedEphemeral: this._highestMatchedEphemeral,
+      highestMatchedIncoming: this._highestMatchedIncoming,
+    };
+  }
+
+  public async restore(state: KeyRepoState): Promise<void> {
+    this._nextEphemeralNonce = Math.max(
+      this._nextEphemeralNonce,
+      state.nextEphemeralNonce,
+    );
+    this._highestMatchedEphemeral = Math.max(
+      this._highestMatchedEphemeral,
+      state.highestMatchedEphemeral,
+    );
+    this._highestMatchedIncoming = Math.max(
+      this._highestMatchedIncoming,
+      state.highestMatchedIncoming,
+    );
+    const ephTarget = Math.max(state.ephemeralIndex, this._nextEphemeralNonce);
+    while (this._ephemeralIndex < ephTarget) {
+      await this.registerEphemeralKey(this._ephemeralIndex++);
+    }
+    while (this._incomingIndex < state.incomingIndex) {
+      await this.registerIncomingKey(this._incomingIndex++);
+    }
   }
 
   private formatPointKey(p: Point<bigint>): string {

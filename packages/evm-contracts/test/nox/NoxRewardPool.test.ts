@@ -198,26 +198,41 @@ describe("NoxRewardPool (Treasury)", function () {
   });
 
   describe("Emergency Functions", function () {
-    it("should allow Admin to rescue funds", async function () {
-      const { pool, token, admin } = await loadFixture(deployFixture);
+    it("rescues foreign tokens but never the reward float", async function () {
+      const { pool, token, unsupportedToken, admin } =
+        await loadFixture(deployFixture);
 
-      // Send tokens directly (simulate accidental transfer)
       await token.mint(await pool.getAddress(), 1000);
-
       await expect(
         pool
           .connect(admin)
           .rescueFunds(await token.getAddress(), admin.address, 1000),
+      ).to.be.revertedWithCustomError(pool, "RewardAssetNotRescuable");
+
+      await unsupportedToken.mint(await pool.getAddress(), 1000);
+      await expect(
+        pool
+          .connect(admin)
+          .rescueFunds(
+            await unsupportedToken.getAddress(),
+            admin.address,
+            1000,
+          ),
       )
         .to.emit(pool, "FundsRescued")
-        .withArgs(await token.getAddress(), admin.address, 1000);
-
-      expect(await token.balanceOf(admin.address)).to.equal(1000);
+        .withArgs(await unsupportedToken.getAddress(), admin.address, 1000);
     });
 
     it("should pause and block deposits/distributions", async function () {
-      const { pool, admin, user, distributor, token, relayer1 } =
-        await loadFixture(deployFixture);
+      const {
+        pool,
+        admin,
+        user,
+        distributor,
+        token,
+        unsupportedToken,
+        relayer1,
+      } = await loadFixture(deployFixture);
 
       await pool.connect(admin).pause();
 
@@ -235,12 +250,11 @@ describe("NoxRewardPool (Treasury)", function () {
           ),
       ).to.be.revertedWithCustomError(pool, "EnforcedPause");
 
-      // Admin rescue should still work
-      await token.mint(await pool.getAddress(), 100);
+      await unsupportedToken.mint(await pool.getAddress(), 100);
       await expect(
         pool
           .connect(admin)
-          .rescueFunds(await token.getAddress(), admin.address, 100),
+          .rescueFunds(await unsupportedToken.getAddress(), admin.address, 100),
       ).to.not.be.reverted;
     });
   });

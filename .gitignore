@@ -46,11 +46,16 @@ dairies
 
 # AI context (never commit)
 CLAUDE.md
+CLAUDE.*
 MEMORY.md
 no-commit
 .claude
+.agent
 .opencode
+.cursor
 .vscode
+.mcp.json
+tmp/
 
 # Deployment secrets
 *.secrets.json

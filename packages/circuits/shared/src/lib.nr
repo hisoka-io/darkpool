@@ -132,6 +132,11 @@ pub fn lean_imt_inclusion_proof<let MAX_DEPTH: u32>(
             let left = current + path_bit * (sibling - current);
             let right = sibling + path_bit * (current - sibling);
             current = Poseidon2::hash([left, right], 2);
+        } else {
+            // A leaf cannot be the right child of an absent left sibling, so the
+            // index bit at every empty level must be 0. Without this the bits above
+            // the populated height are free, yielding many valid indices for one leaf.
+            assert(path_bits[i] == 0, "non-canonical leaf index: right child at empty level");
         }
     }
     current

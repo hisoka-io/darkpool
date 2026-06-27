@@ -6,6 +6,7 @@ import { toReducedFr } from "../crypto/fields.js";
 import { Point, mulPointEscalar, Base8 } from "@zk-kit/baby-jubjub";
 import { IDarkAccount } from "../interfaces.js";
 import { toFr } from "../crypto/fields.js";
+import { toBjjScalar } from "../crypto/index.js";
 
 async function mnemonicToSeed(mnemonic: string): Promise<Uint8Array> {
   const encoder = new TextEncoder();
@@ -54,7 +55,7 @@ export class DarkAccount implements IDarkAccount {
   public async getIncomingViewingKey(index: bigint): Promise<Fr> {
     const vk_master = await this.getMasterViewingKey();
     const tweak = await Kdf.derive("hisoka.ivkTweak", vk_master, toFr(index));
-    return vk_master.add(tweak);
+    return toBjjScalar(vk_master.add(tweak));
   }
 
   public async getPublicIncomingViewingKey(
@@ -67,7 +68,7 @@ export class DarkAccount implements IDarkAccount {
   public async getEphemeralOutgoingKey(index: bigint): Promise<Fr> {
     const vk_master = await this.getMasterViewingKey();
     const tweak = await Kdf.derive("hisoka.eskTweak", vk_master, toFr(index));
-    return vk_master.add(tweak);
+    return toBjjScalar(vk_master.add(tweak));
   }
 
   public async getPublicEphemeralOutgoingKey(

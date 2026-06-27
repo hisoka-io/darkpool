@@ -8,11 +8,10 @@ export class UtxoRepository implements IUtxoRepository {
   public async addNote(note: WalletNote): Promise<void> {
     const key = note.nullifier.toString();
 
-    if (this.notes.has(key)) {
-      const existing = this.notes.get(key)!;
-      if (existing.spent === note.spent) {
-        return;
-      }
+    const existing = this.notes.get(key);
+    if (existing) {
+      this.notes.set(key, { ...note, spent: existing.spent || note.spent });
+      return;
     }
     this.notes.set(key, note);
   }

@@ -26,7 +26,7 @@ pub fn verify_spend(
     let nullifier = if note.nullifier == 0 {
         Poseidon2::hash([shared_secret, commitment, note_index], 3)
     } else {
-        Poseidon2::hash([note.nullifier], 1)
+        Poseidon2::hash([note.nullifier, commitment, note_index], 3)
     };
 
     (nullifier, commitment)

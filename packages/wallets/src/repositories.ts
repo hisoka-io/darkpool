@@ -1,6 +1,14 @@
 import { Fr } from "@aztec/foundation/fields";
 import { WalletNote } from "./state/types.js";
 
+export interface KeyRepoState {
+  nextEphemeralNonce: number;
+  ephemeralIndex: number;
+  incomingIndex: number;
+  highestMatchedEphemeral: number;
+  highestMatchedIncoming: number;
+}
+
 export interface IKeyRepository {
   readonly ephemeralIndex: number;
   readonly incomingIndex: number;
@@ -8,6 +16,9 @@ export interface IKeyRepository {
   nextEphemeralParams(): Promise<{ sk: Fr; nonce: Fr }>;
   advanceEphemeralKeys(count?: number): Promise<void>;
   advanceIncomingKeys(count?: number): Promise<void>;
+
+  ensureEphemeralLookahead(window: number): Promise<boolean>;
+  ensureIncomingLookahead(window: number): Promise<boolean>;
 
   tryMatchDeposit(
     epkX: bigint | string,
@@ -18,6 +29,9 @@ export interface IKeyRepository {
   ): { key: bigint; index: number } | null;
 
   getAllTags(): string[];
+
+  getState(): KeyRepoState;
+  restore(state: KeyRepoState): Promise<void>;
 }
 
 export interface IUtxoRepository {

@@ -46,12 +46,18 @@ export class NoteProcessor {
       const { key, iv } = await kdfToAesKeyIV(sharedSecret);
       const plaintext = await aes128Decrypt(ciphertext, key, iv);
       const note = unpackNotePlaintext(plaintext);
-      const nullifier = await deriveNullifierPathA(note.nullifier);
+      const commitment = toFr(event.args.commitment);
+      const leafIndex = Number(event.args.leafIndex);
+      const nullifier = await deriveNullifierPathA(
+        note.nullifier,
+        commitment,
+        leafIndex,
+      );
 
       return {
         note,
-        commitment: toFr(event.args.commitment),
-        leafIndex: Number(event.args.leafIndex),
+        commitment,
+        leafIndex,
         nullifier,
         spendingSecret: match.key,
         isTransfer: false,

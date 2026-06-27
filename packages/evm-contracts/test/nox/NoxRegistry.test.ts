@@ -604,6 +604,22 @@ describe("NoxRegistry (Identity & Staking)", function () {
       expect(slasherBalAfter - slasherBalBefore).to.equal(MIN_STAKE);
     });
 
+    it("deregisters a relayer slashed to zero stake", async function () {
+      const { registry, relayer, slasher } = await loadFixture(deployFixture);
+      await registry
+        .connect(relayer)
+        .register(sphinxKey, url, "", "", MIN_STAKE, ROLE_FULL);
+      expect((await registry.relayers(relayer.address)).isRegistered).to.equal(
+        true,
+      );
+
+      await registry.connect(slasher).slash(relayer.address, MIN_STAKE);
+
+      const profile = await registry.relayers(relayer.address);
+      expect(profile.isRegistered).to.equal(false);
+      expect(profile.stakedAmount).to.equal(0);
+    });
+
     it("should reject slash from non-slasher", async function () {
       const { registry, relayer, attacker } = await loadFixture(deployFixture);
       await registry

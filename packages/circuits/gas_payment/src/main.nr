@@ -116,7 +116,7 @@ fn test_gas_payment_compile() {
     };
     let change_ephemeral_sk = 0x009e0df938f67eb7d4f4fa0f9c25ed14e2b6e0712d086fb6c8d330ab44e25cf3;
 
-    let exp_nullifier_hash = 0x2b5e2e032c8c028717d5c04dbc403bad8e40126798465625f58460fcd3e9d418;
+    let exp_nullifier_hash = 0x01d282703dd3be2a1adad02d2ecbba18ef824e05290f8938ba12249ef74ff345;
     let exp_change_epk_x = 0x2ee2ede1573fde24114afe66be1f17ab11c778b6a9745613c8bda41d2494a8ed;
     let exp_change_epk_y = 0x080e4cc68fd214da6254485d6c92b95531db466075319cd462b2ce48ae6332d2;
     let exp_change_ct = [

@@ -55,6 +55,8 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
     error ZeroAddress();
     error ZeroAmount();
     error TransferFailed();
+    error InsufficientCollected();
+    error RewardAssetNotRescuable();
 
     /**
      * @param _admin The initial admin and distributor.
@@ -141,15 +143,14 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
             }
         }
 
+        if (batchTotal > totalCollected[_asset] - totalDistributed[_asset])
+            revert InsufficientCollected();
         totalDistributed[_asset] += batchTotal;
 
         emit RewardsDistributed(_asset, batchTotal, _recipients.length);
     }
 
-    /**
-     * @notice Rescues tokens sent to this contract by mistake, or drains pool in emergency.
-     * @dev Can act on any asset, whitelisted or not. Bypass Paused state.
-     */
+    /// @notice Rescue non-reward tokens sent here by mistake; reward assets are not rescuable.
     function rescueFunds(
         address _asset,
         address _to,
@@ -157,6 +158,7 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
     ) external nonReentrant onlyRole(ADMIN_ROLE) {
         if (_to == address(0)) revert ZeroAddress();
         if (_amount == 0) revert ZeroAmount();
+        if (isSupportedAsset[_asset]) revert RewardAssetNotRescuable();
 
         IERC20(_asset).safeTransfer(_to, _amount);
         emit FundsRescued(_asset, _to, _amount);

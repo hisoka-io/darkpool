@@ -306,13 +306,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         emit Unstaked(msg.sender, amount);
     }
 
-    /**
-     * @notice Financial Punishment.
-     * Takes stake from a malicious node. Does NOT remove them (unless logic requires it).
-     * @dev KNOWN LIMITATION (Beta): Privileged relayers (stakedAmount=0) are immune to
-     *      financial slashing. For privileged relayers, use `forceUnregister()` instead.
-     *      Production should require minimum stake for all relayers.
-     */
+    /// @notice Slash a relayer's stake; a relayer slashed to zero stake is deregistered.
     function slash(
         address _relayer,
         uint256 _amount
@@ -326,6 +320,15 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
             relayers[_relayer].stakedAmount -= slashAmount;
             stakingToken.safeTransfer(msg.sender, slashAmount); // Send to Slasher/Admin
             emit Slashed(_relayer, slashAmount, msg.sender);
+
+            if (relayers[_relayer].stakedAmount == 0) {
+                delete sphinxKeyOwner[relayers[_relayer].sphinxKey];
+                delete relayers[_relayer];
+                delete nodeRoles[_relayer];
+                relayerCount--;
+                _xorAddressIntoFingerprint(_relayer);
+                emit RelayerRemoved(_relayer, msg.sender);
+            }
         }
     }
 
@@ -352,6 +355,14 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         }
 
         emit RelayerRemoved(_relayer, msg.sender);
+    }
+
+    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
+    }
+
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
     }
 
     /// @notice Get the node role for a registered relayer.

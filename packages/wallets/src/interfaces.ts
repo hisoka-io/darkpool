@@ -6,7 +6,7 @@ export interface IKeyDeriver {
 }
 
 export interface IUTXO {
-  getNullifierHash(): Promise<Fr>;
+  getNullifierHash(commitment: Fr, leafIndex: number | bigint): Promise<Fr>;
 }
 
 export interface IDarkAccount {

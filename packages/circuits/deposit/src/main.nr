@@ -7,6 +7,8 @@ fn main(
     note_plaintext: Note,
     ephemeral_sk: Field,
 ) -> pub (Field, Field, Field, Field, [Field; 7]) {
+    let _: [u8; 20] = note_plaintext.asset_id.to_be_bytes();
+
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     let encrypted = encrypt_note_for_compliance(note_plaintext, ephemeral_sk, compliance_pk);
 
@@ -29,18 +31,18 @@ fn test_deposit_compile_check() {
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
         hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
     };
-    let ephemeral_sk = 0x03cf700a261c47a107a4c09e19d872edbb3fbb2cf49d5fd861550ee4b6fb476e;
+    let ephemeral_sk = 0x0178e49f6c3773df9ae9f433b0cdabc9473c85156d10d8017ad0cdbb6b27aae0;
 
-    let exp_epk_x = 0x05aeddf5c49db2aa0a16ca23af6cc1c5f11faa4408177c276c042c7a917c9688;
-    let exp_epk_y = 0x24fff8909e635b0fd91a935ef6dc0b0b91c283395fcc6c67d5e8bbad57166b6a;
+    let exp_epk_x = 0x03cd3c013a82b3e9a5e460e7eedd6594365577b3e68803bf77642ee29bb6aaa1;
+    let exp_epk_y = 0x157fea669cb4e5f724d8722bab1c14d709de22ceb136f511919b8ec8c5b868cf;
     let exp_ct = [
-        0x00c45e1a1b67b5fb3545c3328e77d83a0afff829713bd7d675a32857c48d3ad1,
-        0x0086bcb787b6fc2a30a98a9ae9b12ada6e7106c4287549635f187a70d7d5a1bb,
-        0x00242ff45c3b74efb8f8fc482e403f7430ab28e27adaa2ae8de35dc510eeac4c,
-        0x002df0ebc2ea5a3e0775020598190bacae76a5d75ba04874d75c1a92844adf9a,
-        0x008cf25bea8386af1c3c1db8888c48e6c15d7c123ba852692077fcdcb4b33e2b,
-        0x00868afe85c908d27ecc257a9ed85a1b249b7b16d2d0d66c7aa3e598b2fd73bf,
-        0x00000000000000000000f14176119f1657470cef170d7734e0693fa2f1310477,
+        0x00a1c5a084acf0b2e26482562982f71a1f667126aa0cdb52a3b8a892ee4545ef,
+        0x00b70c58836e817de954b7150fa6513354d5a2c3b1625154659dd61d7c68c883,
+        0x007c7b240dc5610519f96d3a11c7f36be54d767c21f87bfc48b8844ea7ec42a6,
+        0x00bd9b446dc553fbd3881689bc054a2aaa140e4ed3869ba859e9acfa3a98eb9a,
+        0x00df8e9698bd0a548574dd5429affb3a08f06f279ad5006d1091f1bf572a3214,
+        0x008b54a11f0aaf495b9aaa235e64b4e42d560745a74259978f36241ef2a6a0aa,
+        0x000000000000000000002443c6b384703b0b431b5d9b7d3b559aad24efa3f9c3,
     ];
 
     let (epk_x, epk_y, val, _, packed_ct) = main(
