@@ -133,14 +133,11 @@ export class ComplianceService {
       commitment,
       packedCiphertext,
       leafIndex,
-      intermediateCompliance_x,
-      intermediateCompliance_y,
+      int_carol_x,
+      int_carol_y,
     } = event.args;
 
-    const intermediate: Point<bigint> = [
-      intermediateCompliance_x,
-      intermediateCompliance_y,
-    ];
+    const intermediate: Point<bigint> = [int_carol_x, int_carol_y];
     const packed = packedCiphertext.map((h: string) => toFr(h));
     const ct = unpackCiphertext(packed);
 

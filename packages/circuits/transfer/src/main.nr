@@ -56,6 +56,9 @@ fn main(
     assert(old_note.asset_id == memo_note.asset_id);
     assert(old_note.asset_id == change_note.asset_id);
 
+    assert(memo_note.hashlock == 0, "memo note hashlock must be zero");
+    assert(memo_note.timelock == 0, "memo note timelock must be zero");
+
     let memo_scalar: ScalarField<64> = ScalarField::from(memo_ephemeral_sk);
     let S_point = recipient_P_temp.mul(memo_scalar);
     let (memo_key, memo_iv) = kdf_to_aes_key_iv(S_point.x);
@@ -240,6 +243,172 @@ fn audit_reject_recipient_b_low_order() {
         secret: 0x0000000000000000000000000000000000000000000000000000000000000000,
         nullifier: 0x0000000000000000000000000000000000000000000000000000000000000000,
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let memo_ephemeral_sk = 0x0000000000000000000000000000000000000000000000000000000000000378;
+
+    let change_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 60,
+        secret: 0x000000000000000000000000000000000000000000000000000000000000012c,
+        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000190,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let change_ephemeral_sk = 0x0430b6a4988e13cb97ca501b50d78271c6f95bdcfa08d105f90bde66c1895467;
+
+    let _ = main(
+        merkle_root,
+        current_timestamp,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        recipient_B,
+        recipient_P,
+        recipient_proof,
+        old_note,
+        old_shared_secret,
+        old_note_index,
+        old_note_path,
+        hashlock_preimage,
+        memo_note,
+        memo_ephemeral_sk,
+        change_note,
+        change_ephemeral_sk,
+    );
+}
+
+#[test(should_fail_with = "memo note hashlock must be zero")]
+fn audit_reject_memo_hashlock() {
+    let merkle_root = 0x2b007edcbc06d28d57c351697d325087133d5a0aa0971c8384fa03c6a93b4a0a;
+    let current_timestamp = 0;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let recipient_B = Point {
+        x: 0x0cf064598cbf9e0f91228a743567873ef0f2001edabb432b546f6ffa0a25afe5,
+        y: 0x1209bec18717eb6499e330d9196458e04b91f995e16d76f2e4c322705c77242f,
+    };
+    let recipient_P = Point {
+        x: 0x0464508630b85bedcc795e1f2f26a5fbd9c36b074cbbb0946c182f608ec975ab,
+        y: 0x2d3d62b4b8421137315a7903873c39feba45e5520d585d43136d5f249588cff4,
+    };
+    let recipient_proof = DLEQProof {
+        U: BabyJubJub {
+            x: 0x01ca63455d07899e43bdcd4abf36013172312c1b690c9a8a3f1b6242271a0150,
+            y: 0x0ed865f3b0b8c53064058bb57420f5d98cbbd57fdcbd6c921e39b3e17572c832,
+        },
+        V: BabyJubJub {
+            x: 0x17228803115038cdc19db7a91e3788e690774a8f57414206aafe2dcd609d272e,
+            y: 0x2e7797d18f2966122424b83b6641f6a48007e18f5ddfa803747479ab057145f0,
+        },
+        z: 0x01da3994cac4354303f5c5333714983541ffa9863dfac26573738e13520daa38,
+    };
+
+    let old_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
+        nullifier: 0x00000000000000000000000000000000000000000000000000000000000000c8,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let old_shared_secret = 0x19712b8cf8a75a1bffabfc0c83238c273079cfe5fa59d693955977b5049d049b;
+    let old_note_index = 0;
+    let old_note_path = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,
+    ];
+    let hashlock_preimage = 0;
+
+    let memo_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 40,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000001,
+    };
+    let memo_ephemeral_sk = 0x0000000000000000000000000000000000000000000000000000000000000378;
+
+    let change_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 60,
+        secret: 0x000000000000000000000000000000000000000000000000000000000000012c,
+        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000190,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let change_ephemeral_sk = 0x0430b6a4988e13cb97ca501b50d78271c6f95bdcfa08d105f90bde66c1895467;
+
+    let _ = main(
+        merkle_root,
+        current_timestamp,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        recipient_B,
+        recipient_P,
+        recipient_proof,
+        old_note,
+        old_shared_secret,
+        old_note_index,
+        old_note_path,
+        hashlock_preimage,
+        memo_note,
+        memo_ephemeral_sk,
+        change_note,
+        change_ephemeral_sk,
+    );
+}
+
+#[test(should_fail_with = "memo note timelock must be zero")]
+fn audit_reject_memo_timelock() {
+    let merkle_root = 0x2b007edcbc06d28d57c351697d325087133d5a0aa0971c8384fa03c6a93b4a0a;
+    let current_timestamp = 0;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let recipient_B = Point {
+        x: 0x0cf064598cbf9e0f91228a743567873ef0f2001edabb432b546f6ffa0a25afe5,
+        y: 0x1209bec18717eb6499e330d9196458e04b91f995e16d76f2e4c322705c77242f,
+    };
+    let recipient_P = Point {
+        x: 0x0464508630b85bedcc795e1f2f26a5fbd9c36b074cbbb0946c182f608ec975ab,
+        y: 0x2d3d62b4b8421137315a7903873c39feba45e5520d585d43136d5f249588cff4,
+    };
+    let recipient_proof = DLEQProof {
+        U: BabyJubJub {
+            x: 0x01ca63455d07899e43bdcd4abf36013172312c1b690c9a8a3f1b6242271a0150,
+            y: 0x0ed865f3b0b8c53064058bb57420f5d98cbbd57fdcbd6c921e39b3e17572c832,
+        },
+        V: BabyJubJub {
+            x: 0x17228803115038cdc19db7a91e3788e690774a8f57414206aafe2dcd609d272e,
+            y: 0x2e7797d18f2966122424b83b6641f6a48007e18f5ddfa803747479ab057145f0,
+        },
+        z: 0x01da3994cac4354303f5c5333714983541ffa9863dfac26573738e13520daa38,
+    };
+
+    let old_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
+        nullifier: 0x00000000000000000000000000000000000000000000000000000000000000c8,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let old_shared_secret = 0x19712b8cf8a75a1bffabfc0c83238c273079cfe5fa59d693955977b5049d049b;
+    let old_note_index = 0;
+    let old_note_path = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,
+    ];
+    let hashlock_preimage = 0;
+
+    let memo_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 40,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000001,
         hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
     };
     let memo_ephemeral_sk = 0x0000000000000000000000000000000000000000000000000000000000000378;

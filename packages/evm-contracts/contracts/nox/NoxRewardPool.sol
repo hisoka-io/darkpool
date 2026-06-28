@@ -57,6 +57,7 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
     error TransferFailed();
     error InsufficientCollected();
     error RewardAssetNotRescuable();
+    error FeeOnTransferUnsupported();
 
     /**
      * @param _admin The initial admin and distributor.
@@ -110,8 +111,12 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
         if (_amount == 0) revert ZeroAmount();
         if (!isSupportedAsset[_asset]) revert AssetNotSupported();
 
-        totalCollected[_asset] += _amount;
+        uint256 bal0 = IERC20(_asset).balanceOf(address(this));
         IERC20(_asset).safeTransferFrom(msg.sender, address(this), _amount);
+        if (IERC20(_asset).balanceOf(address(this)) - bal0 != _amount)
+            revert FeeOnTransferUnsupported();
+
+        totalCollected[_asset] += _amount;
 
         emit RewardsDeposited(_asset, msg.sender, _amount);
     }

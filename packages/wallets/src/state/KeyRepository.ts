@@ -5,6 +5,8 @@ import { toFr } from "../crypto/fields.js";
 import { BJJ_SUBGROUP_ORDER } from "../crypto/constants.js";
 import { IKeyRepository, KeyRepoState } from "../repositories.js";
 
+const DEFAULT_LOOKAHEAD_WINDOW = 20;
+
 export class KeyRepository implements IKeyRepository {
   private _ephemeralIndex: number = 0;
   private _incomingIndex: number = 0;
@@ -156,6 +158,9 @@ export class KeyRepository implements IKeyRepository {
     while (this._incomingIndex < state.incomingIndex) {
       await this.registerIncomingKey(this._incomingIndex++);
     }
+
+    await this.ensureEphemeralLookahead(DEFAULT_LOOKAHEAD_WINDOW);
+    await this.ensureIncomingLookahead(DEFAULT_LOOKAHEAD_WINDOW);
   }
 
   private formatPointKey(p: Point<bigint>): string {

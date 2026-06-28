@@ -37,16 +37,22 @@ export class UtxoRepository implements IUtxoRepository {
     return Array.from(this.notes.values());
   }
 
-  public getBalance(assetId?: string): bigint {
+  public getBalance(assetId?: Fr | bigint | string): bigint {
     let total = 0n;
-    const unspent = this.getUnspentNotes();
+    const want =
+      assetId === undefined
+        ? undefined
+        : typeof assetId === "bigint"
+          ? assetId
+          : typeof assetId === "string"
+            ? BigInt(assetId)
+            : assetId.toBigInt();
 
-    for (const note of unspent) {
-      if (assetId && note.note.asset_id.toString() !== assetId) {
+    for (const note of this.getUnspentNotes()) {
+      if (want !== undefined && note.note.asset_id.toBigInt() !== want) {
         continue;
       }
-      const val = note.note.value.toBigInt();
-      total += val;
+      total += note.note.value.toBigInt();
     }
     return total;
   }

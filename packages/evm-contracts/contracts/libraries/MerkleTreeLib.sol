@@ -84,6 +84,8 @@ library MerkleTreeLib {
 
             if (right == bytes32(0)) {
                 currentComputedNode = left;
+            } else if (left == bytes32(0)) {
+                currentComputedNode = right;
             } else {
                 currentComputedNode = bytes32(
                     Field.Type.unwrap(

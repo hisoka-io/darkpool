@@ -28,7 +28,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         string ingressUrl;
         string metadataUrl;
         uint256 stakedAmount;
-        uint256 unstakeRequestTime;
+        uint256 unlockTime;
         bool isRegistered;
     }
 
@@ -115,6 +115,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
     ) {
         if (_admin == address(0)) revert ZeroAddress();
         if (_stakingToken == address(0)) revert ZeroAddress();
+        if (_unstakeDelay < MIN_UNSTAKE_DELAY) revert InvalidAmount();
 
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
         _grantRole(CONFIG_ROLE, _admin);
@@ -165,7 +166,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
             ingressUrl: _ingressUrl,
             metadataUrl: _metadataUrl,
             stakedAmount: _stakeAmount,
-            unstakeRequestTime: 0,
+            unlockTime: 0,
             isRegistered: true
         });
         sphinxKeyOwner[_sphinxKey] = msg.sender;
@@ -211,7 +212,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
             ingressUrl: _ingressUrl,
             metadataUrl: _metadataUrl,
             stakedAmount: 0, // Trusted
-            unstakeRequestTime: 0,
+            unlockTime: 0,
             isRegistered: true
         });
         sphinxKeyOwner[_sphinxKey] = _relayer;
@@ -269,7 +270,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
     function addStake(uint256 _amount) external nonReentrant whenNotPaused {
         if (!relayers[msg.sender].isRegistered) revert NotRegistered();
         if (_amount == 0) revert InvalidAmount();
-        if (relayers[msg.sender].unstakeRequestTime > 0)
+        if (relayers[msg.sender].unlockTime > 0)
             revert UnstakeAlreadyRequested();
 
         stakingToken.safeTransferFrom(msg.sender, address(this), _amount);
@@ -279,19 +280,18 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
 
     function requestUnstake() external {
         if (!relayers[msg.sender].isRegistered) revert NotRegistered();
-        if (relayers[msg.sender].unstakeRequestTime > 0)
+        if (relayers[msg.sender].unlockTime > 0)
             revert UnstakeAlreadyRequested();
 
-        relayers[msg.sender].unstakeRequestTime = block.timestamp;
-        emit UnstakeRequested(msg.sender, block.timestamp + unstakeDelay);
+        relayers[msg.sender].unlockTime = block.timestamp + unstakeDelay;
+        emit UnstakeRequested(msg.sender, relayers[msg.sender].unlockTime);
     }
 
     function executeUnstake() external nonReentrant {
         RelayerProfile storage profile = relayers[msg.sender];
         if (!profile.isRegistered) revert NotRegistered();
-        if (profile.unstakeRequestTime == 0) revert UnstakeNotRequested();
-        if (block.timestamp < profile.unstakeRequestTime + unstakeDelay)
-            revert UnstakeTooEarly();
+        if (profile.unlockTime == 0) revert UnstakeNotRequested();
+        if (block.timestamp < profile.unlockTime) revert UnstakeTooEarly();
 
         uint256 amount = profile.stakedAmount;
         delete sphinxKeyOwner[profile.sphinxKey];
@@ -310,23 +310,28 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
     function slash(
         address _relayer,
         uint256 _amount
-    ) external onlyRole(SLASHER_ROLE) {
+    ) external onlyRole(SLASHER_ROLE) nonReentrant {
         if (!relayers[_relayer].isRegistered) revert NotRegistered();
 
         uint256 currentStake = relayers[_relayer].stakedAmount;
         uint256 slashAmount = _amount > currentStake ? currentStake : _amount;
 
         if (slashAmount > 0) {
-            relayers[_relayer].stakedAmount -= slashAmount;
-            stakingToken.safeTransfer(msg.sender, slashAmount); // Send to Slasher/Admin
-            emit Slashed(_relayer, slashAmount, msg.sender);
-
-            if (relayers[_relayer].stakedAmount == 0) {
+            bool fullySlashed = slashAmount == currentStake;
+            if (fullySlashed) {
                 delete sphinxKeyOwner[relayers[_relayer].sphinxKey];
                 delete relayers[_relayer];
                 delete nodeRoles[_relayer];
                 relayerCount--;
                 _xorAddressIntoFingerprint(_relayer);
+            } else {
+                relayers[_relayer].stakedAmount -= slashAmount;
+            }
+
+            stakingToken.safeTransfer(msg.sender, slashAmount);
+
+            emit Slashed(_relayer, slashAmount, msg.sender);
+            if (fullySlashed) {
                 emit RelayerRemoved(_relayer, msg.sender);
             }
         }

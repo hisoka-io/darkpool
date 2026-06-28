@@ -39,5 +39,5 @@ export interface IUtxoRepository {
   markSpent(nullifier: string | Fr): boolean;
   getUnspentNotes(): WalletNote[];
   getAllNotes(): WalletNote[];
-  getBalance(assetId?: string): bigint;
+  getBalance(assetId?: Fr | bigint | string): bigint;
 }

@@ -174,9 +174,7 @@ export class TestWallet {
         `Insufficient funds: Needed ${amount}, have notes: ${assetNotes.map((n) => n.note.value.toBigInt())}`,
       );
 
-    const oldSharedSecret = inputData.isTransfer
-      ? inputData.spendingSecret
-      : await deriveSharedSecret(inputData.spendingSecret, COMPLIANCE_PK_POINT);
+    const oldSharedSecret = inputData.spendingSecret;
 
     const path = this.tree.getMerklePath(inputData.leafIndex);
     const root = this.tree.getRoot();
@@ -299,9 +297,7 @@ export class TestWallet {
         `Insufficient funds for withdraw: Needed ${amount}, found ${assetNotes.length} notes`,
       );
 
-    const oldSharedSecret = inputData.isTransfer
-      ? inputData.spendingSecret
-      : await deriveSharedSecret(inputData.spendingSecret, COMPLIANCE_PK_POINT);
+    const oldSharedSecret = inputData.spendingSecret;
 
     const changeValue = inputData.note.value.toBigInt() - amount;
 
@@ -421,7 +417,7 @@ export class TestWallet {
       leafIndex,
       commitment,
       nullifier: nullifierHash,
-      spendingSecret: skOut,
+      spendingSecret: await deriveSharedSecret(skOut, COMPLIANCE_PK_POINT),
       isTransfer: false,
       derivationIndex: Number(nonce.toBigInt()),
       spent: false,

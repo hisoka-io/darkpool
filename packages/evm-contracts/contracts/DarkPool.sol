@@ -45,6 +45,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     error MemoSpent();
     error MemoInvalid();
     error FeeOnTransferUnsupported();
+    error OnlyAdaptorMayPull();
 
     event NewNote(
         uint256 indexed leafIndex,
@@ -61,10 +62,10 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         uint256 ephemeralPK_x,
         uint256 ephemeralPK_y,
         bytes32[7] packedCiphertext,
-        uint256 intermediateBob_x,
-        uint256 intermediateBob_y,
-        uint256 intermediateCompliance_x,
-        uint256 intermediateCompliance_y
+        uint256 int_bob_x,
+        uint256 int_bob_y,
+        uint256 int_carol_x,
+        uint256 int_carol_y
     );
 
     event NewPublicMemo(
@@ -89,6 +90,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         address relayer
     );
     event NullifierSpent(bytes32 indexed nullifierHash);
+    event AdaptorSet(address indexed adaptor, bool enabled);
     event PublicMemoSpent(bytes32 indexed memoId);
     event GasPaymentProcessed(
         bytes32 indexed nullifierHash,
@@ -113,6 +115,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     mapping(bytes32 => bool) public isNullifierSpent;
     mapping(bytes32 => bool) public isValidPublicMemo;
     mapping(bytes32 => bool) public isPublicMemoSpent;
+    mapping(address => bool) public isAdaptor;
 
     uint256 public immutable COMPLIANCE_PK_X;
     uint256 public immutable COMPLIANCE_PK_Y;
@@ -164,6 +167,17 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
 
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
+    }
+
+    /// @notice Register/deregister an adaptor. A withdraw whose recipient is a registered
+    /// adaptor may only be initiated by that adaptor, blocking front-run strand griefing.
+    function setAdaptor(
+        address adaptor,
+        bool enabled
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (adaptor == address(0)) revert ZeroAddress();
+        isAdaptor[adaptor] = enabled;
+        emit AdaptorSet(adaptor, enabled);
     }
 
     /**
@@ -218,6 +232,10 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     ) external nonReentrant whenNotPaused {
         if (_publicInputs.length != 18) revert InvalidInputsLength();
 
+        address recipient = address(uint160(uint256(_publicInputs[1])));
+        if (isAdaptor[recipient] && msg.sender != recipient)
+            revert OnlyAdaptorMayPull();
+
         bytes32 root = _publicInputs[2];
         if (!merkleTree.isKnownRoot[root]) revert InvalidRoot();
 
@@ -233,7 +251,6 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         _processChange(_publicInputs, 10, 8, 9);
 
         uint256 withdrawValue = uint256(_publicInputs[0]);
-        address recipient = address(uint160(uint256(_publicInputs[1])));
         address asset = address(uint160(uint256(_publicInputs[17])));
 
         if (withdrawValue > 0) {

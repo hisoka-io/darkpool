@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.25;
 
-contract RelayerMulticall {
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+/**
+ * @title RelayerMulticall
+ * @notice Stateless, permissionless batch-call forwarder. It holds no funds at rest and
+ *         grants no allowances. Anyone may call multicall, and any ETH or tokens left in
+ *         this contract can be swept by the next caller. Callers MUST NOT grant this
+ *         contract token or ETH approvals, and MUST NOT leave a balance here between calls.
+ */
+contract RelayerMulticall is ReentrancyGuard {
     error CriticalCallFailed();
     error ETHRefundFailed();
+    error ValueMismatch();
 
     struct Call {
         address target;
@@ -16,10 +26,18 @@ contract RelayerMulticall {
     event CallFailed(uint256 indexed index, bytes reason);
 
     /**
-     * @notice Executes a batch of calls.
+     * @notice Executes a batch of calls, forwarding exactly msg.value across them.
+     * @dev Reverts unless msg.value equals the sum of calls[i].value. Residual ETH is
+     *      refunded to msg.sender. Do not approve or pre-fund this contract.
      * @param calls The array of calls to execute.
      */
-    function multicall(Call[] calldata calls) external payable {
+    function multicall(Call[] calldata calls) external payable nonReentrant {
+        uint256 totalValue = 0;
+        for (uint256 i = 0; i < calls.length; i++) {
+            totalValue += calls[i].value;
+        }
+        if (msg.value != totalValue) revert ValueMismatch();
+
         for (uint256 i = 0; i < calls.length; i++) {
             Call calldata call = calls[i];
 

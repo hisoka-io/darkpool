@@ -500,7 +500,24 @@ describe("NoxRegistry (Identity & Staking)", function () {
       );
 
       const profile = await registry.relayers(relayer.address);
-      expect(profile.unstakeRequestTime).to.be.gt(0);
+      expect(profile.unlockTime).to.be.gt(0);
+    });
+
+    it("honors the unlock-time snapshot when config delay is later increased", async function () {
+      const { registry, admin, relayer, token } =
+        await loadFixture(deployFixture);
+      await registry
+        .connect(relayer)
+        .register(sphinxKey, url, "", "", MIN_STAKE, ROLE_FULL);
+      await registry.connect(relayer).requestUnstake();
+
+      await registry.connect(admin).updateConfig(MIN_STAKE, UNSTAKE_DELAY * 5);
+
+      await time.increase(UNSTAKE_DELAY + 1);
+      const balBefore = await token.balanceOf(relayer.address);
+      await registry.connect(relayer).executeUnstake();
+      const balAfter = await token.balanceOf(relayer.address);
+      expect(balAfter - balBefore).to.equal(MIN_STAKE);
     });
 
     it("should reject duplicate unstake request", async function () {

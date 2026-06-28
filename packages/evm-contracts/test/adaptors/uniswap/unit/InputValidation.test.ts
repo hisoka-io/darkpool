@@ -337,4 +337,23 @@ describe("Uniswap Adaptor: Security & Validation", function () {
         ),
     ).to.be.revertedWithCustomError(darkPool, "NullifierAlreadySpent");
   });
+
+  it("C-1: blocks a direct withdraw to the adaptor from a non-adaptor caller", async function () {
+    const data = await loadFixture(fixture);
+    const { darkPool, attacker, uniswapAdaptor } = data;
+    const { proofHex, pubHex } = await buildWithdraw(
+      data,
+      data.tree,
+      data.note,
+      data.enc,
+      data.amount,
+      goodParams,
+    );
+    expect(
+      await darkPool.isAdaptor(await uniswapAdaptor.getAddress()),
+    ).to.equal(true);
+    await expect(
+      darkPool.connect(attacker).withdraw(proofHex, pubHex),
+    ).to.be.revertedWithCustomError(darkPool, "OnlyAdaptorMayPull");
+  });
 });

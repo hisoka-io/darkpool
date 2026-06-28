@@ -1,10 +1,10 @@
 mod dleq;
 mod spend;
+use ecdh::{bjj::BJJ, ECDHTrait, Point};
+use poseidon::poseidon2::Poseidon2;
 use std;
 pub use dleq::{DLEQProof, verify_dleq};
-use poseidon::poseidon2::Poseidon2;
 pub use spend::verify_spend;
-use ecdh::{bjj::BJJ, ECDHTrait, Point};
 
 pub global TREE_DEPTH: u32 = 32;
 pub global CIPHERTEXT_FIELDS: u32 = 7;

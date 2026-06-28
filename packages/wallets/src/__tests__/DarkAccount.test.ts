@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
 import { Wallet } from "ethers";
+import { Base8, mulPointEscalar, subOrder } from "@zk-kit/baby-jubjub";
 import { DarkAccount } from "../keys/DarkAccount";
 import { Kdf } from "../crypto/Kdf";
 
@@ -98,6 +99,29 @@ describe("DarkAccount", () => {
       expect(EPK).toBeDefined();
       expect(EPK.length).toBe(2);
       expect(typeof EPK[0]).toBe("bigint");
+    });
+  });
+
+  describe("KH-3 invariant (scalar in sub-order, public = Base8 * scalar)", () => {
+    it("derives reduced view/ephemeral scalars consistent with their public keys", async () => {
+      const account = await DarkAccount.fromMnemonic(testMnemonic);
+      for (const i of [0n, 1n, 5n, 42n]) {
+        const ivk = (await account.getIncomingViewingKey(i)).toBigInt();
+        expect(ivk).toBeGreaterThan(0n);
+        expect(ivk).toBeLessThan(subOrder);
+        const ivkPub = await account.getPublicIncomingViewingKey(i);
+        const expIvkPub = mulPointEscalar(Base8, ivk);
+        expect(ivkPub[0]).toBe(expIvkPub[0]);
+        expect(ivkPub[1]).toBe(expIvkPub[1]);
+
+        const esk = (await account.getEphemeralOutgoingKey(i)).toBigInt();
+        expect(esk).toBeGreaterThan(0n);
+        expect(esk).toBeLessThan(subOrder);
+        const eskPub = await account.getPublicEphemeralOutgoingKey(i);
+        const expEskPub = mulPointEscalar(Base8, esk);
+        expect(eskPub[0]).toBe(expEskPub[0]);
+        expect(eskPub[1]).toBe(expEskPub[1]);
+      }
     });
   });
 });

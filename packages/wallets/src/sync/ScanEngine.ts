@@ -18,6 +18,7 @@ export class ScanEngine {
     compliancePk: Point<bigint>,
     private merkleTree?: LeanIMT,
     lookaheadWindow: number = 20,
+    private readonly deploymentBlock: number = 0,
   ) {
     this.lookaheadWindow = lookaheadWindow;
     this.processor = new NoteProcessor(keyRepo, compliancePk);
@@ -116,6 +117,7 @@ export class ScanEngine {
   ): Promise<void> {
     if (!this.merkleTree) return;
     void startIndex;
+    void fromBlock;
 
     const maxAttempts = 8;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -124,7 +126,7 @@ export class ScanEngine {
         need.push(i);
       if (need.length === 0) return;
 
-      const byIndex = await this.fetchLeafEvents(fromBlock, need);
+      const byIndex = await this.fetchLeafEvents(need);
 
       while (this.merkleTree.nextLeafIndex <= endIndex) {
         const ev = byIndex.get(this.merkleTree.nextLeafIndex);
@@ -142,16 +144,15 @@ export class ScanEngine {
   }
 
   private async fetchLeafEvents(
-    fromBlock: number,
     indices: number[],
   ): Promise<Map<number, EventLog>> {
     const notes = await this.contract.queryFilter(
       this.contract.filters.NewNote(indices),
-      fromBlock,
+      this.deploymentBlock,
     );
     const memos = await this.contract.queryFilter(
       this.contract.filters.NewPrivateMemo(indices),
-      fromBlock,
+      this.deploymentBlock,
     );
     const byIndex = new Map<number, EventLog>();
     for (const log of [...notes, ...memos]) {
@@ -189,11 +190,11 @@ export class ScanEngine {
             : undefined,
         intermediateBobX:
           eventType === "NEW_MEMO"
-            ? BigInt(eventLog.args["intermediateBob_x"])
+            ? BigInt(eventLog.args["int_bob_x"])
             : undefined,
         intermediateBobY:
           eventType === "NEW_MEMO"
-            ? BigInt(eventLog.args["intermediateBob_y"])
+            ? BigInt(eventLog.args["int_bob_y"])
             : undefined,
       },
     };

@@ -96,16 +96,13 @@ class ComplianceTool {
   async tryDecryptMemo(event: any) {
     const {
       packedCiphertext,
-      intermediateCompliance_x,
-      intermediateCompliance_y,
+      int_carol_x,
+      int_carol_y,
       leafIndex,
       commitment,
     } = event.args;
 
-    const intermediate: Point<bigint> = [
-      intermediateCompliance_x,
-      intermediateCompliance_y,
-    ];
+    const intermediate: Point<bigint> = [int_carol_x, int_carol_y];
     const packedFr = packedCiphertext.map((h: string) => toFr(h));
     const ciphertext = unpackCiphertext(packedFr);
 

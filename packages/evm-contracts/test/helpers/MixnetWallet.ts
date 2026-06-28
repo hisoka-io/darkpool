@@ -14,7 +14,6 @@ import { ethers as ethersLib } from "ethers";
 import {
   toFr,
   addressToFr,
-  deriveSharedSecret,
   Poseidon,
   Fr,
   NotePlaintext,
@@ -132,9 +131,7 @@ export class MixnetWallet {
       );
     }
 
-    const oldSecret = paymentNote.isTransfer
-      ? paymentNote.spendingSecret
-      : await deriveSharedSecret(paymentNote.spendingSecret, COMPLIANCE_PK);
+    const oldSecret = paymentNote.spendingSecret;
 
     const changeValue = paymentNote.note.value.toBigInt() - fee;
     const changeNote: NotePlaintext = {
@@ -246,9 +243,7 @@ export class MixnetWallet {
     const inputNote = notes.find((n) => n.note.value.toBigInt() >= total);
     if (!inputNote) throw new Error(`No note with >= ${total} for split`);
 
-    const oldSecret = inputNote.isTransfer
-      ? inputNote.spendingSecret
-      : await deriveSharedSecret(inputNote.spendingSecret, COMPLIANCE_PK);
+    const oldSecret = inputNote.spendingSecret;
 
     const noteOut1: NotePlaintext = {
       asset_id: inputNote.note.asset_id,
@@ -316,9 +311,7 @@ export class MixnetWallet {
     );
     if (!inputNote) throw new Error(`No note with >= ${amount} for withdraw`);
 
-    const oldSecret = inputNote.isTransfer
-      ? inputNote.spendingSecret
-      : await deriveSharedSecret(inputNote.spendingSecret, COMPLIANCE_PK);
+    const oldSecret = inputNote.spendingSecret;
 
     const changeValue = inputNote.note.value.toBigInt() - amount;
     const changeNote: NotePlaintext = {
@@ -370,12 +363,8 @@ export class MixnetWallet {
     const noteB = notes[noteBIndex];
     if (!noteA || !noteB) throw new Error("Invalid note indices for join");
 
-    const secretA = noteA.isTransfer
-      ? noteA.spendingSecret
-      : await deriveSharedSecret(noteA.spendingSecret, COMPLIANCE_PK);
-    const secretB = noteB.isTransfer
-      ? noteB.spendingSecret
-      : await deriveSharedSecret(noteB.spendingSecret, COMPLIANCE_PK);
+    const secretA = noteA.spendingSecret;
+    const secretB = noteB.spendingSecret;
 
     const totalValue =
       noteA.note.value.toBigInt() + noteB.note.value.toBigInt();
@@ -446,9 +435,7 @@ export class MixnetWallet {
     if (!inputData)
       throw new Error(`Insufficient funds for transfer: ${amount}`);
 
-    const oldSecret = inputData.isTransfer
-      ? inputData.spendingSecret
-      : await deriveSharedSecret(inputData.spendingSecret, COMPLIANCE_PK);
+    const oldSecret = inputData.spendingSecret;
 
     const changeValue = inputData.note.value.toBigInt() - amount;
 

@@ -1,4 +1,11 @@
-import { packPoint, Point, unpackPoint } from "@zk-kit/baby-jubjub";
+import {
+  packPoint,
+  Point,
+  unpackPoint,
+  inCurve,
+  mulPointEscalar,
+  subOrder,
+} from "@zk-kit/baby-jubjub";
 import bs58check from "bs58check";
 import { DLEQProof } from "./crypto/dleq.js";
 
@@ -73,6 +80,18 @@ export function decodeHisokaAddress(address: string): HisokaAddressData {
     throw new Error(
       "Failed to unpack one or more points from the address. The address may be corrupted or invalid.",
     );
+  }
+
+  for (const point of [B, P, U, V]) {
+    if (!inCurve(point)) {
+      throw new Error("Decoded address point is not on the BabyJubJub curve.");
+    }
+    const [ox, oy] = mulPointEscalar(point, subOrder);
+    if (ox !== 0n || oy !== 1n) {
+      throw new Error(
+        "Decoded address point is not in the prime-order subgroup.",
+      );
+    }
   }
 
   const pi: DLEQProof = { U, V, z };

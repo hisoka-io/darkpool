@@ -190,6 +190,12 @@ export async function deployUniswapFixture() {
     GAS_OVERRIDES,
   );
 
+  await (
+    await darkPool
+      .connect(deployer)
+      .setAdaptor(await uniswapAdaptor.getAddress(), true)
+  ).wait();
+
   const wethContract = new ethers.Contract(WETH_ADDRESS, IWETH_ABI, alice);
   const tx = await wethContract.deposit({
     value: ethers.parseEther("20"),

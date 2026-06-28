@@ -32,11 +32,11 @@ export class NoteProcessor {
   private async processNewNote(
     event: UnprocessedEvent,
   ): Promise<WalletNote | null> {
-    const { epkX, epkY, packedCiphertext } = event.args;
-    const match = this.keyRepository.tryMatchDeposit(epkX, epkY);
-    if (!match) return null;
-
     try {
+      const { epkX, epkY, packedCiphertext } = event.args;
+      const match = this.keyRepository.tryMatchDeposit(epkX, epkY);
+      if (!match) return null;
+
       const packed = packedCiphertext.map((h) => toFr(h));
       const ciphertext = unpackCiphertext(packed);
       const sharedSecret = await deriveSharedSecret(
@@ -48,18 +48,16 @@ export class NoteProcessor {
       const note = unpackNotePlaintext(plaintext);
       const commitment = toFr(event.args.commitment);
       const leafIndex = Number(event.args.leafIndex);
-      const nullifier = await deriveNullifierPathA(
-        note.nullifier,
-        commitment,
-        leafIndex,
-      );
+      const nullifier = note.nullifier.isZero()
+        ? await deriveNullifierPathB(sharedSecret, commitment, leafIndex)
+        : await deriveNullifierPathA(note.nullifier, commitment, leafIndex);
 
       return {
         note,
         commitment,
         leafIndex,
         nullifier,
-        spendingSecret: match.key,
+        spendingSecret: sharedSecret,
         isTransfer: false,
         derivationIndex: match.index,
         spent: false,
@@ -76,14 +74,14 @@ export class NoteProcessor {
   private async processMemo(
     event: UnprocessedEvent,
   ): Promise<WalletNote | null> {
-    const { tag, intermediateBobX, intermediateBobY, packedCiphertext } =
-      event.args;
-    if (!tag || !intermediateBobX || !intermediateBobY) return null;
-
-    const match = this.keyRepository.tryMatchTransfer(tag);
-    if (!match) return null;
-
     try {
+      const { tag, intermediateBobX, intermediateBobY, packedCiphertext } =
+        event.args;
+      if (!tag || !intermediateBobX || !intermediateBobY) return null;
+
+      const match = this.keyRepository.tryMatchTransfer(tag);
+      if (!match) return null;
+
       const intPoint: Point<bigint> = [
         BigInt(intermediateBobX),
         BigInt(intermediateBobY),

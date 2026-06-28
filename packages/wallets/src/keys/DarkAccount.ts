@@ -8,6 +8,9 @@ import { IDarkAccount } from "../interfaces.js";
 import { toFr } from "../crypto/fields.js";
 import { toBjjScalar } from "../crypto/index.js";
 
+const SECP256K1_ORDER =
+  0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+
 async function mnemonicToSeed(mnemonic: string): Promise<Uint8Array> {
   const encoder = new TextEncoder();
   const passwordBytes = encoder.encode(mnemonic);
@@ -111,11 +114,20 @@ export class DarkAccount implements IDarkAccount {
     return new DarkAccount(sk_root);
   }
 
+  /// @notice Sign-to-derive: the signing message and signer MUST be deterministic, or a
+  /// different signature derives a different account. The signature is canonicalized to low-s
+  /// so a malleated high-s signature over the same message derives the same account.
   public static async fromSignature(signature: string): Promise<DarkAccount> {
     const sig = Signature.from(signature);
+    let s = BigInt(sig.s);
+    let yParity = sig.yParity ? 1 : 0;
+    if (s > SECP256K1_ORDER / 2n) {
+      s = SECP256K1_ORDER - s;
+      yParity ^= 1;
+    }
     const rHex = sig.r.slice(2);
-    const sHex = sig.s.slice(2);
-    const parityByte = sig.yParity ? "01" : "00";
+    const sHex = s.toString(16).padStart(64, "0");
+    const parityByte = yParity ? "01" : "00";
     const sigHex = rHex + sHex + parityByte;
     const sigFr = toReducedFr("0x" + sigHex);
     const sk_root = await Kdf.derive("hisoka.root", sigFr);

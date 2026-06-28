@@ -10,6 +10,12 @@ export class Note implements IUTXO {
       throw new Error("Note value cannot be negative.");
     }
 
+    if (plaintext.nullifier.isZero()) {
+      throw new Error(
+        "Self-owned note nullifier must be non-zero; nullifier == 0 is reserved for received (Path-B) notes and would be mis-tracked by the scanner.",
+      );
+    }
+
     const fullBuffer = plaintext.asset_id.toBuffer();
     // 32-byte Fr field element minus 20-byte EVM address = 12 leading zero bytes
     const FR_TO_ADDRESS_OFFSET = 12;
