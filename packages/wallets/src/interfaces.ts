@@ -6,12 +6,18 @@ export interface IKeyDeriver {
 }
 
 export interface IUTXO {
-  getNullifierHash(commitment: Fr, leafIndex: number | bigint): Promise<Fr>;
+  getNullifierHash(
+    nk: Fr,
+    commitment: Fr,
+    leafIndex: number | bigint,
+  ): Promise<Fr>;
 }
 
 export interface IDarkAccount {
   getSpendKey(): Promise<Fr>;
   getViewKey(): Promise<Fr>;
+  getNullifyingKey(): Promise<Fr>;
+  getPublicSpendKey(): Promise<Point<bigint>>;
 
   getIncomingViewingKey(index: bigint): Promise<Fr>;
   getPublicIncomingViewingKey(index: bigint): Promise<Point<bigint>>;

@@ -8,9 +8,6 @@ import { IDarkAccount } from "../interfaces.js";
 import { toFr } from "../crypto/fields.js";
 import { toBjjScalar } from "../crypto/index.js";
 
-const SECP256K1_ORDER =
-  0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
-
 async function mnemonicToSeed(mnemonic: string): Promise<Uint8Array> {
   const encoder = new TextEncoder();
   const passwordBytes = encoder.encode(mnemonic);
@@ -46,6 +43,7 @@ export class DarkAccount implements IDarkAccount {
   private _sk_spend?: Fr;
   private _sk_view?: Fr;
   private _vk_master?: Fr;
+  private _nk?: Fr;
 
   private async getMasterViewingKey(): Promise<Fr> {
     if (this._vk_master === undefined) {
@@ -90,6 +88,19 @@ export class DarkAccount implements IDarkAccount {
     return this._sk_spend;
   }
 
+  public async getNullifyingKey(): Promise<Fr> {
+    if (this._nk === undefined) {
+      const sk_spend = await this.getSpendKey();
+      this._nk = toBjjScalar(await Kdf.derive("hisoka.nullify", sk_spend));
+    }
+    return this._nk;
+  }
+
+  public async getPublicSpendKey(): Promise<Point<bigint>> {
+    const nk = await this.getNullifyingKey();
+    return mulPointEscalar(Base8, nk.toBigInt());
+  }
+
   public async getViewKey(): Promise<Fr> {
     if (this._sk_view === undefined) {
       this._sk_view = await Kdf.derive("hisoka.view", this.sk_root);
@@ -114,20 +125,13 @@ export class DarkAccount implements IDarkAccount {
     return new DarkAccount(sk_root);
   }
 
-  /// @notice Sign-to-derive: the signing message and signer MUST be deterministic, or a
-  /// different signature derives a different account. The signature is canonicalized to low-s
-  /// so a malleated high-s signature over the same message derives the same account.
+  /// Sign-to-derive: the signing message and signer MUST be deterministic, or a different
+  /// signature derives a different account.
   public static async fromSignature(signature: string): Promise<DarkAccount> {
     const sig = Signature.from(signature);
-    let s = BigInt(sig.s);
-    let yParity = sig.yParity ? 1 : 0;
-    if (s > SECP256K1_ORDER / 2n) {
-      s = SECP256K1_ORDER - s;
-      yParity ^= 1;
-    }
     const rHex = sig.r.slice(2);
-    const sHex = s.toString(16).padStart(64, "0");
-    const parityByte = yParity ? "01" : "00";
+    const sHex = sig.s.slice(2);
+    const parityByte = sig.yParity ? "01" : "00";
     const sigHex = rHex + sHex + parityByte;
     const sigFr = toReducedFr("0x" + sigHex);
     const sk_root = await Kdf.derive("hisoka.root", sigFr);

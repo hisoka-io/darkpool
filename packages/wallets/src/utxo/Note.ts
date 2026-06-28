@@ -1,5 +1,5 @@
 import { Fr } from "@aztec/foundation/fields";
-import { deriveNullifierPathA } from "../crypto/nullifier.js";
+import { deriveNullifier } from "../crypto/nullifier.js";
 import { IUTXO } from "../interfaces.js";
 import { getAddress } from "ethers";
 import { NotePlaintext } from "../crypto/index.js";
@@ -10,10 +10,8 @@ export class Note implements IUTXO {
       throw new Error("Note value cannot be negative.");
     }
 
-    if (plaintext.nullifier.isZero()) {
-      throw new Error(
-        "Self-owned note nullifier must be non-zero; nullifier == 0 is reserved for received (Path-B) notes and would be mis-tracked by the scanner.",
-      );
+    if (plaintext.owner.isZero()) {
+      throw new Error("Note owner (spend-key commitment) must be non-zero.");
     }
 
     const fullBuffer = plaintext.asset_id.toBuffer();
@@ -30,13 +28,10 @@ export class Note implements IUTXO {
   }
 
   public async getNullifierHash(
+    nk: Fr,
     commitment: Fr,
     leafIndex: number | bigint,
   ): Promise<Fr> {
-    return await deriveNullifierPathA(
-      this.plaintext.nullifier,
-      commitment,
-      leafIndex,
-    );
+    return await deriveNullifier(nk, commitment, leafIndex);
   }
 }

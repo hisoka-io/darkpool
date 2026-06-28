@@ -1,24 +1,16 @@
 import { Fr } from "@aztec/foundation/fields";
+import { Point } from "@zk-kit/baby-jubjub";
 import { Poseidon } from "./Poseidon.js";
+import { toFr } from "./fields.js";
 
-/** Path A (self-owned): N = Poseidon(nullifier_secret, commitment, leaf_index) */
-export async function deriveNullifierPathA(
-  note_nullifier_secret: Fr,
+export async function deriveNullifier(
+  nk: Fr,
   commitment: Fr,
   leaf_index: number | bigint,
 ): Promise<Fr> {
-  return Poseidon.hash([
-    note_nullifier_secret,
-    commitment,
-    new Fr(BigInt(leaf_index)),
-  ]);
+  return Poseidon.hash([nk, commitment, new Fr(BigInt(leaf_index))]);
 }
 
-/** Path B (received): N = Poseidon(shared_secret, commitment, leaf_index) */
-export async function deriveNullifierPathB(
-  shared_secret: Fr,
-  commitment: Fr,
-  leaf_index: number | bigint,
-): Promise<Fr> {
-  return Poseidon.hash([shared_secret, commitment, new Fr(BigInt(leaf_index))]);
+export async function computeOwner(pk_spend: Point<bigint>): Promise<Fr> {
+  return Poseidon.hash([toFr(pk_spend[0]), toFr(pk_spend[1])]);
 }

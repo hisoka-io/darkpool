@@ -13,6 +13,7 @@ export interface IKeyRepository {
   readonly ephemeralIndex: number;
   readonly incomingIndex: number;
 
+  getNullifyingKey(): Promise<Fr>;
   nextEphemeralParams(): Promise<{ sk: Fr; nonce: Fr }>;
   advanceEphemeralKeys(count?: number): Promise<void>;
   advanceIncomingKeys(count?: number): Promise<void>;

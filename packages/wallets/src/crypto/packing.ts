@@ -8,7 +8,7 @@ export function packNotePlaintext(note: NotePlaintext): Buffer {
     note.asset_id,
     note.value,
     note.secret,
-    note.nullifier,
+    note.owner,
     note.timelock,
     note.hashlock,
   ].forEach((fr) => {
@@ -35,7 +35,7 @@ export function unpackNotePlaintext(plain: Buffer): NotePlaintext {
     asset_id: frs[0],
     value: frs[1],
     secret: frs[2],
-    nullifier: frs[3],
+    owner: frs[3],
     timelock: frs[4],
     hashlock: frs[5],
   };

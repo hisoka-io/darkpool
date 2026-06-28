@@ -128,6 +128,25 @@ describe("RelayerMulticall", function () {
     ).to.changeEtherBalances([owner, mockTarget], [-value, value]);
   });
 
+  it("should revert if msg.value does not equal the sum of call values", async function () {
+    const successData = mockTarget.interface.encodeFunctionData("successFn", [
+      "MismatchTest",
+    ]);
+
+    const calls = [
+      {
+        target: await mockTarget.getAddress(),
+        data: successData,
+        value: ethers.parseEther("1.0"),
+        requireSuccess: true,
+      },
+    ];
+
+    await expect(
+      multicall.multicall(calls, { value: ethers.parseEther("0.5") }),
+    ).to.be.revertedWithCustomError(multicall, "ValueMismatch");
+  });
+
   it("should revert if requireSuccess=true call fails with no reason", async function () {
     const failData = mockTarget.interface.encodeFunctionData("failNoReason");
 

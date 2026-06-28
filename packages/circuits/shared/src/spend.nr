@@ -1,9 +1,11 @@
 use crate::{ciphertext_commitment, encrypt_note, kdf_to_aes_key_iv, Note, pack_ciphertext};
+use ecdh::{bjj::BJJ, ECDHTrait};
 use poseidon::poseidon2::Poseidon2;
 
 pub fn verify_spend(
     note: Note,
     shared_secret: Field,
+    nk: Field,
     note_index: Field,
     current_timestamp: Field,
     hashlock_preimage: Field,
@@ -14,6 +16,12 @@ pub fn verify_spend(
     let packed = pack_ciphertext(ciphertext);
     let commitment = ciphertext_commitment(packed);
 
+    let pk = BJJ::new(nk).derive_public_key();
+    assert(
+        note.owner == Poseidon2::hash([pk.x, pk.y], 2),
+        "spender does not own this note",
+    );
+
     if note.timelock != 0 {
         assert(current_timestamp as u64 >= note.timelock as u64);
     }
@@ -23,11 +31,7 @@ pub fn verify_spend(
         assert(derived_hash == note.hashlock);
     }
 
-    let nullifier = if note.nullifier == 0 {
-        Poseidon2::hash([shared_secret, commitment, note_index], 3)
-    } else {
-        Poseidon2::hash([note.nullifier, commitment, note_index], 3)
-    };
+    let nullifier = Poseidon2::hash([nk, commitment, note_index], 3);
 
     (nullifier, commitment)
 }

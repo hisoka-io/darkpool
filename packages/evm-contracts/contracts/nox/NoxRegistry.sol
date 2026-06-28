@@ -98,6 +98,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
     error InvalidKey();
     error DuplicateKey();
     error InvalidAmount();
+    error InvalidDelay();
     error AlreadyRegistered();
     error NotRegistered();
     error InsufficientStake();
@@ -115,7 +116,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
     ) {
         if (_admin == address(0)) revert ZeroAddress();
         if (_stakingToken == address(0)) revert ZeroAddress();
-        if (_unstakeDelay < MIN_UNSTAKE_DELAY) revert InvalidAmount();
+        if (_unstakeDelay < MIN_UNSTAKE_DELAY) revert InvalidDelay();
 
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
         _grantRole(CONFIG_ROLE, _admin);
@@ -381,7 +382,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         uint256 _minStake,
         uint256 _unstakeDelay
     ) external onlyRole(CONFIG_ROLE) {
-        if (_unstakeDelay < MIN_UNSTAKE_DELAY) revert InvalidAmount();
+        if (_unstakeDelay < MIN_UNSTAKE_DELAY) revert InvalidDelay();
         minStakeAmount = _minStake;
         unstakeDelay = _unstakeDelay;
         emit ConfigUpdated(_minStake, _unstakeDelay);

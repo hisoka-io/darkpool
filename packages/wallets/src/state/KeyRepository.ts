@@ -30,6 +30,10 @@ export class KeyRepository implements IKeyRepository {
     return this._incomingIndex;
   }
 
+  public async getNullifyingKey(): Promise<Fr> {
+    return this.account.getNullifyingKey();
+  }
+
   public async nextEphemeralParams(): Promise<{ sk: Fr; nonce: Fr }> {
     const idx = this._nextEphemeralNonce++;
     const nonce = toFr(idx);

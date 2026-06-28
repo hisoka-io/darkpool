@@ -24,6 +24,10 @@ export class ScanEngine {
     this.processor = new NoteProcessor(keyRepo, compliancePk);
   }
 
+  /**
+   * Gap-limit: a full `lookaheadWindow` of consecutive skipped self-note indices is not found
+   * until a manual wider rescan (a larger `lookaheadWindow`).
+   */
   public async sync(fromBlock: number): Promise<void> {
     await this.keyRepo.ensureEphemeralLookahead(this.lookaheadWindow);
     await this.keyRepo.ensureIncomingLookahead(this.lookaheadWindow);

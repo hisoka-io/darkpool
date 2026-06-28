@@ -8,8 +8,7 @@ import {
   kdfToAesKeyIV,
   deriveSharedSecret,
   recipientDecrypt3Party,
-  deriveNullifierPathA,
-  deriveNullifierPathB,
+  deriveNullifier,
   toFr,
 } from "../crypto/index.js";
 import { UnprocessedEvent } from "./types.js";
@@ -48,9 +47,8 @@ export class NoteProcessor {
       const note = unpackNotePlaintext(plaintext);
       const commitment = toFr(event.args.commitment);
       const leafIndex = Number(event.args.leafIndex);
-      const nullifier = note.nullifier.isZero()
-        ? await deriveNullifierPathB(sharedSecret, commitment, leafIndex)
-        : await deriveNullifierPathA(note.nullifier, commitment, leafIndex);
+      const nk = await this.keyRepository.getNullifyingKey();
+      const nullifier = await deriveNullifier(nk, commitment, leafIndex);
 
       return {
         note,
@@ -97,11 +95,8 @@ export class NoteProcessor {
 
       const commitment = toFr(event.args.commitment);
       const index = event.args.leafIndex;
-      const nullifier = await deriveNullifierPathB(
-        sharedSecret,
-        commitment,
-        Number(index),
-      );
+      const nk = await this.keyRepository.getNullifyingKey();
+      const nullifier = await deriveNullifier(nk, commitment, Number(index));
 
       return {
         note,

@@ -209,6 +209,29 @@ async function main() {
   console.log("  Done.");
   console.log();
 
+  const swapRouter = process.env.SWAP_ROUTER;
+  if (swapRouter && swapRouter !== ethers.ZeroAddress) {
+    console.log("Post-deploy: Deploying + registering UniswapAdaptor...");
+    const AdaptorFactory = await ethers.getContractFactory("UniswapAdaptor", {
+      libraries: { Poseidon2: poseidon2Addr },
+    });
+    const uniswapAdaptor = await AdaptorFactory.deploy(darkPoolAddr, swapRouter);
+    await uniswapAdaptor.waitForDeployment();
+    const adaptorAddr = await uniswapAdaptor.getAddress();
+    await (await darkPool.setAdaptor(adaptorAddr, true)).wait();
+    console.log(`  UniswapAdaptor: ${adaptorAddr} (registered via setAdaptor)`);
+    console.log();
+  } else {
+    console.log("Post-deploy: SWAP_ROUTER not set; UniswapAdaptor not deployed.");
+    console.log(
+      "  CHECKLIST: any adaptor MUST be registered with darkPool.setAdaptor(adaptor, true)",
+    );
+    console.log(
+      "  atomically with its deployment (C-1 guard) or it is front-runnable.",
+    );
+    console.log();
+  }
+
   console.log("Step 8: Verifying contracts on block explorer...");
 
   await tryVerify(poseidon2Addr, []);

@@ -39,7 +39,7 @@ pub struct Note {
     pub asset_id: Field,
     pub value: u128,
     pub secret: Field,
-    pub nullifier: Field,
+    pub owner: Field,
     pub timelock: Field,
     pub hashlock: Field,
 }
@@ -51,7 +51,7 @@ impl Note {
         let f0 = self.asset_id.to_be_bytes::<32>();
         let f1 = (self.value as Field).to_be_bytes::<32>();
         let f2 = self.secret.to_be_bytes::<32>();
-        let f3 = self.nullifier.to_be_bytes::<32>();
+        let f3 = self.owner.to_be_bytes::<32>();
         let f4 = self.timelock.to_be_bytes::<32>();
         let f5 = self.hashlock.to_be_bytes::<32>();
 

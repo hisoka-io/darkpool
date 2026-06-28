@@ -18,7 +18,7 @@ export interface NotePlaintext {
   asset_id: Fr;
   value: Fr;
   secret: Fr;
-  nullifier: Fr;
+  owner: Fr;
   timelock: Fr;
   hashlock: Fr;
 }
