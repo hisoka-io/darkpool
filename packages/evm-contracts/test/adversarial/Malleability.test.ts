@@ -17,7 +17,7 @@ describe("Adversarial: Malleability & Integrity", function () {
       value: toFr(amount),
       asset_id: assetFr,
       secret: toFr(123n),
-      nullifier: toFr(456n),
+      owner: toFr(456n),
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };

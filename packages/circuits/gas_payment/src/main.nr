@@ -18,12 +18,14 @@ fn main(
     old_note_index: Field,
     old_note_path: [Field; TREE_DEPTH],
     hashlock_preimage: Field,
+    nk: Field,
     change_note: Note,
     change_ephemeral_sk: Field,
 ) -> pub (Field, Field, Field, [Field; 7]) {
     let (nullifier_hash, old_commitment) = verify_spend(
         old_note,
         old_shared_secret,
+        nk,
         old_note_index,
         current_timestamp,
         hashlock_preimage,
@@ -51,7 +53,7 @@ fn main(
 
 #[test]
 fn test_gas_payment_compile() {
-    let merkle_root = 0x0ff0308384a3c8925230730c05830475189887fb31eda2d5f9b41508b7457289;
+    let merkle_root = 0x1d1fb81ebd879fa5c132a51e1dd95c6da39aa64d229c2c1f903bbe2eb189ed5b;
     let current_timestamp = 0;
     let payment_value: u128 = 10;
     let payment_asset_id = 0x0000000000000000000000001234567890123456789012345678901234567890;
@@ -64,11 +66,11 @@ fn test_gas_payment_compile() {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 100,
         secret: 0x000000000000000000000000000000000000000000000000000000000000007b,
-        nullifier: 0x00000000000000000000000000000000000000000000000000000000000001c8,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
         hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
     };
-    let old_shared_secret = 0x2d304122ed971f99abcbe36e64fbcd0e770267ad7005912908d66ee8089ccdbd;
+    let old_shared_secret = 0x084115db5f9e6cdbab427af0ffbd2cec18695ebd6ae0d2e2e672a6a4e4ba83ab;
     let old_note_index = 0;
     let old_note_path = [
         0x0000000000000000000000000000000000000000000000000000000000000000,
@@ -105,28 +107,29 @@ fn test_gas_payment_compile() {
         0x0000000000000000000000000000000000000000000000000000000000000000,
     ];
     let hashlock_preimage = 0;
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
 
     let change_note = Note {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 90,
         secret: 0x0000000000000000000000000000000000000000000000000000000000000315,
-        nullifier: 0x00000000000000000000000000000000000000000000000000000000000003f3,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
         hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
     };
-    let change_ephemeral_sk = 0x009e0df938f67eb7d4f4fa0f9c25ed14e2b6e0712d086fb6c8d330ab44e25cf3;
+    let change_ephemeral_sk = 0x056b90925a5ce3b760ab13d212189843a04d5d916018d6ba9cdd4270fe2d2986;
 
-    let exp_nullifier_hash = 0x01d282703dd3be2a1adad02d2ecbba18ef824e05290f8938ba12249ef74ff345;
-    let exp_change_epk_x = 0x2ee2ede1573fde24114afe66be1f17ab11c778b6a9745613c8bda41d2494a8ed;
-    let exp_change_epk_y = 0x080e4cc68fd214da6254485d6c92b95531db466075319cd462b2ce48ae6332d2;
+    let exp_nullifier_hash = 0x1bdcdadf508c875d24171803cd5e05a734119b635c8b0bd1e2376db571be1ab5;
+    let exp_change_epk_x = 0x11adc553d6fa0d3334a0b0dbd5e7e256723a210d85d0fe65a9250baf031ec913;
+    let exp_change_epk_y = 0x14b62dcab493347cfbdeab6f59391861615ca4ef4d1965d482aafa346dfd2e49;
     let exp_change_ct = [
-        0x00cd76999e3e2db795e69d9e8fbac02e29ea4f70056d1929b8f3be78b897d762,
-        0x0042d2b46d4e6327cbf4afb5dc0191e563651ab20039d4835384888cd5e61eb2,
-        0x000c8ab774e94151c9a8e63c1d1d95216c9efa9ea31445b6c0e67db709349a6a,
-        0x00cc881126418daf4a12c9d922f110c00d04f8148c009e4639cad6c5490fd06a,
-        0x0048eecbc76d4f1c3b45f5243707134db33dc37a33c5ba16986a9d114d4bc113,
-        0x00b0404a2a91308b5091428577ee6b5ed4758e1b69f98381518a43eb9c56a27c,
-        0x0000000000000000000089061237adec51ccf1e8a477fcf0487db97c8dabd241,
+        0x001e19bdfa988b86df4506c3cd7c33dcd5d8ede2e60d8057304276baf0c7b2fc,
+        0x006b9e566b4f4cf6ec959c13dc93b73184294535b283043280bd4f0ff13c6c3a,
+        0x00eb566d9e2ecbfed7a66f51d22c19cf6f50d243da7701ed6d5d7fea5609e157,
+        0x00c257d1bcf971fe8d4a9e3d10b4cff273e4627a4de3931941df7d0b3016741d,
+        0x00dd859561db9d5974999b53b65d93c8d33c9aa225af72dac3b56926f55e8bc,
+        0x007294623491a17cb1618c6372372cd0c56ca4d19aadf00f5e37c7822832d41e,
+        0x0000000000000000000000d6a7c995b0299b35f67a6ed14bdbd3c766d834cb03ae,
     ];
 
     let (nf, epk_x, epk_y, ct) = main(
@@ -143,6 +146,7 @@ fn test_gas_payment_compile() {
         old_note_index,
         old_note_path,
         hashlock_preimage,
+        nk,
         change_note,
         change_ephemeral_sk,
     );
@@ -155,7 +159,7 @@ fn test_gas_payment_compile() {
 
 #[test(should_fail_with = "ephemeral secret key cannot be zero")]
 fn test_gas_payment_zero_ephemeral_sk() {
-    let merkle_root = 0x0ff0308384a3c8925230730c05830475189887fb31eda2d5f9b41508b7457289;
+    let merkle_root = 0x1d1fb81ebd879fa5c132a51e1dd95c6da39aa64d229c2c1f903bbe2eb189ed5b;
     let current_timestamp = 0;
     let payment_value: u128 = 10;
     let payment_asset_id = 0x0000000000000000000000001234567890123456789012345678901234567890;
@@ -168,20 +172,21 @@ fn test_gas_payment_zero_ephemeral_sk() {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 100,
         secret: 0x000000000000000000000000000000000000000000000000000000000000007b,
-        nullifier: 0x00000000000000000000000000000000000000000000000000000000000001c8,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0,
         hashlock: 0,
     };
-    let old_shared_secret = 0x2d304122ed971f99abcbe36e64fbcd0e770267ad7005912908d66ee8089ccdbd;
+    let old_shared_secret = 0x084115db5f9e6cdbab427af0ffbd2cec18695ebd6ae0d2e2e672a6a4e4ba83ab;
     let old_note_index = 0;
     let old_note_path = [0; 32];
     let hashlock_preimage = 0;
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
 
     let change_note = Note {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 90,
         secret: 0x0000000000000000000000000000000000000000000000000000000000000315,
-        nullifier: 0x00000000000000000000000000000000000000000000000000000000000003f3,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0,
         hashlock: 0,
     };
@@ -202,6 +207,7 @@ fn test_gas_payment_zero_ephemeral_sk() {
         old_note_index,
         old_note_path,
         hashlock_preimage,
+        nk,
         change_note,
         change_ephemeral_sk,
     );

@@ -12,10 +12,10 @@ function hashBytesToField(data: string): Fr {
  * Compute Poseidon2 intent hash binding a withdrawal proof to swap parameters.
  * Field ordering MUST match Solidity UniswapAdaptor._calculateIntentHash() exactly:
  *
- *   ExactInputSingle(0): [type, assetIn, assetOut, fee, amountOutMin, ownerX, ownerY]  (7 fields)
- *   ExactInput(1):       [type, keccak256(path) % PRIME, amountOutMin, ownerX, ownerY]  (5 fields)
- *   ExactOutputSingle(2):[type, assetIn, assetOut, fee, amountOut, amountInMax, ownerX, ownerY]  (8 fields)
- *   ExactOutput(3):      [type, keccak256(path) % PRIME, amountOut, amountInMax, ownerX, ownerY]  (6 fields)
+ *   ExactInputSingle(0): [type, assetIn, assetOut, fee, amountOutMin, ownerX, ownerY, claimerOwner]  (8 fields)
+ *   ExactInput(1):       [type, keccak256(path) % PRIME, amountOutMin, ownerX, ownerY, claimerOwner]  (6 fields)
+ *   ExactOutputSingle(2):[type, assetIn, assetOut, fee, amountOut, amountInMax, ownerX, ownerY, claimerOwner]  (9 fields)
+ *   ExactOutput(3):      [type, keccak256(path) % PRIME, amountOut, amountInMax, ownerX, ownerY, claimerOwner]  (7 fields)
  */
 export async function hashUniswapIntent(
   params: UniswapSwapParams,
@@ -30,6 +30,7 @@ export async function hashUniswapIntent(
         toFr(params.amountOutMin),
         toFr(params.recipient.ownerX),
         toFr(params.recipient.ownerY),
+        toFr(params.recipient.claimerOwner),
       ]);
 
     case SwapType.ExactInput:
@@ -39,6 +40,7 @@ export async function hashUniswapIntent(
         toFr(params.amountOutMin),
         toFr(params.recipient.ownerX),
         toFr(params.recipient.ownerY),
+        toFr(params.recipient.claimerOwner),
       ]);
 
     case SwapType.ExactOutputSingle:
@@ -51,6 +53,7 @@ export async function hashUniswapIntent(
         toFr(params.amountInMaximum),
         toFr(params.recipient.ownerX),
         toFr(params.recipient.ownerY),
+        toFr(params.recipient.claimerOwner),
       ]);
 
     case SwapType.ExactOutput:
@@ -61,6 +64,7 @@ export async function hashUniswapIntent(
         toFr(params.amountInMaximum),
         toFr(params.recipient.ownerX),
         toFr(params.recipient.ownerY),
+        toFr(params.recipient.claimerOwner),
       ]);
 
     default:

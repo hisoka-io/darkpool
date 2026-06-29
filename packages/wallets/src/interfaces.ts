@@ -1,5 +1,6 @@
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
+import { SpendBinding } from "./crypto/spendBinding.js";
 
 export interface IKeyDeriver {
   derive(purpose: string, master: Fr, nonce?: Fr): Promise<Fr>;
@@ -18,6 +19,7 @@ export interface IDarkAccount {
   getViewKey(): Promise<Fr>;
   getNullifyingKey(): Promise<Fr>;
   getPublicSpendKey(): Promise<Point<bigint>>;
+  signSpendBinding(index: bigint): Promise<SpendBinding>;
 
   getIncomingViewingKey(index: bigint): Promise<Fr>;
   getPublicIncomingViewingKey(index: bigint): Promise<Point<bigint>>;

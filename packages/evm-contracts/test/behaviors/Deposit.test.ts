@@ -40,7 +40,7 @@ describe("DarkPool Behavior: Deposit", function () {
       value: toFr(0n),
       asset_id: assetFr,
       secret: toFr(1n),
-      nullifier: toFr(2n),
+      owner: toFr(2n),
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };

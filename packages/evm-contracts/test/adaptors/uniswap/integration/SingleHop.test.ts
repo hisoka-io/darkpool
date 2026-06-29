@@ -16,7 +16,11 @@ import {
   addressToFr,
   LeanIMT,
   Poseidon,
+  Kdf,
+  toBjjScalar,
+  computeOwner,
 } from "@hisoka/wallets";
+import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
 import { proveWithdraw, WithdrawInputs } from "@hisoka/prover";
 import { hashUniswapIntent, SwapType } from "@hisoka/adaptors";
 
@@ -33,11 +37,14 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
   async function setupNote(data: any) {
     const amount = ethers.parseEther("10"); // 10 WETH
     const assetFr = addressToFr(WETH_ADDRESS);
+    // verify_spend asserts note.owner == Poseidon2(nk*G), so owner/nk must agree.
+    const nk = toBjjScalar(await Kdf.derive("hisoka.test.nk", toFr(1n)));
+    const owner = await computeOwner(mulPointEscalar(Base8, nk.toBigInt()));
     const note: NotePlaintext = {
       value: toFr(amount),
       asset_id: assetFr,
       secret: toFr(10n),
-      nullifier: toFr(20n),
+      owner,
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };
@@ -61,13 +68,13 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
     const pub = depProof.publicInputs.map((s: string) => toFr(s));
     await tree.insert(await Poseidon.hash(pub.slice(6, 13)));
 
-    return { note, enc, tree, amount };
+    return { note, enc, tree, amount, nk };
   }
 
   it("should execute ExactOutputSingle and REFUND excess input", async function () {
     const data = await loadFixture(deployUniswapFixture);
     const { uniswapAdaptor, darkPool, alice } = data;
-    const { note, enc, tree, amount } = await setupNote(data);
+    const { note, enc, tree, amount, nk } = await setupNote(data);
 
     // Goal: Buy exactly 2000 USDC
     const TARGET_USDC = ethers.parseUnits("2000", 6); // 2000 USDC
@@ -78,7 +85,7 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
       assetIn: WETH_ADDRESS,
       assetOut: USDC_ADDRESS,
       fee: 3000,
-      recipient: { ownerX: 888n, ownerY: 999n },
+      recipient: { ownerX: 888n, ownerY: 999n, claimerOwner: 1000n },
       amountOut: BigInt(TARGET_USDC),
       amountInMaximum: BigInt(amount), // Max we are willing to spend (entire note)
     };
@@ -98,6 +105,7 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
         enc.ephemeral_sk_used,
         COMPLIANCE_PK,
       ),
+      nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),
@@ -109,14 +117,18 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
     const abiCoder = new ethers.AbiCoder();
     const encodedParams = abiCoder.encode(
       [
-        "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOut, uint256 amountInMaximum)",
+        "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOut, uint256 amountInMaximum)",
       ],
       [
         [
           params.assetIn,
           params.assetOut,
           params.fee,
-          [params.recipient.ownerX, params.recipient.ownerY],
+          [
+            params.recipient.ownerX,
+            params.recipient.ownerY,
+            params.recipient.claimerOwner,
+          ],
           params.amountOut,
           params.amountInMaximum,
         ],

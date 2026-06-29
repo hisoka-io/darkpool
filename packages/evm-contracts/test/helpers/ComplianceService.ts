@@ -5,11 +5,11 @@ import {
   unpackCiphertext,
   complianceDecryptNote,
   complianceDecrypt3Party,
-  deriveNullifierPathA,
-  deriveNullifierPathB,
+  deriveNullifier,
+  computeOwner,
   Fr,
 } from "@hisoka/wallets";
-import { Point } from "@zk-kit/baby-jubjub";
+import { Point, Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
 
 interface DecryptedRecord {
   commitment: string;
@@ -31,17 +31,26 @@ export class ComplianceService {
   private db: Map<string, DecryptedRecord> = new Map();
   // DB: Nullifier -> Commitment (Reverse lookup to find source of a spend)
   private nullifierMap: Map<string, string> = new Map();
+  // Owner commitment -> nullifying key (the spender's nk is disclosed to the audit
+  // harness; compliance cannot derive the nullifier without it).
+  private ownerToNk: Map<string, Fr> = new Map();
 
   constructor(
     private readonly complianceSk: bigint,
     private readonly contract: Contract,
     private readonly fromBlock: number = 0,
+    private readonly auditNks: Fr[] = [],
   ) {}
 
   /**
    * Scans the chain, decrypts everything, and builds the state.
    */
   async sync() {
+    for (const nk of this.auditNks) {
+      const owner = await computeOwner(mulPointEscalar(Base8, nk.toBigInt()));
+      this.ownerToNk.set(owner.toString(), nk);
+    }
+
     // Query from deployment block to avoid RPC range limits on forks
     const noteEvents = await this.contract.queryFilter(
       this.contract.filters.NewNote(),
@@ -117,11 +126,10 @@ export class ComplianceService {
       const note = await complianceDecryptNote(this.complianceSk, epk, ct);
       const commitment = toFr(event.args.commitment);
       const leafIndex = Number(event.args.leafIndex);
-      const nf = await deriveNullifierPathA(
-        note.nullifier,
-        commitment,
-        leafIndex,
-      );
+      const nk = this.ownerToNk.get(note.owner.toString());
+      const nf = nk
+        ? await deriveNullifier(nk, commitment, leafIndex)
+        : undefined;
       this.storeRecord(event, note, nf, false);
     } catch {
       /* Ignore failures */
@@ -142,16 +150,15 @@ export class ComplianceService {
     const ct = unpackCiphertext(packed);
 
     try {
-      const { note, sharedSecret } = await complianceDecrypt3Party(
+      const { note } = await complianceDecrypt3Party(
         this.complianceSk,
         intermediate,
         ct,
       );
-      const nf = await deriveNullifierPathB(
-        sharedSecret,
-        toFr(commitment),
-        Number(leafIndex),
-      );
+      const nk = this.ownerToNk.get(note.owner.toString());
+      const nf = nk
+        ? await deriveNullifier(nk, toFr(commitment), Number(leafIndex))
+        : undefined;
       this.storeRecord(event, note, nf, true);
     } catch {
       /* Ignore */
@@ -161,11 +168,11 @@ export class ComplianceService {
   private storeRecord(
     event: EventLog,
     note: NotePlaintext,
-    nullifier: Fr,
+    nullifier: Fr | undefined,
     isTransfer: boolean,
   ) {
     const commitStr = event.args.commitment;
-    const nfStr = nullifier.toString();
+    const nfStr = nullifier ? nullifier.toString() : "";
 
     this.db.set(commitStr, {
       commitment: commitStr,
@@ -176,6 +183,6 @@ export class ComplianceService {
       isTransfer,
     });
 
-    this.nullifierMap.set(nfStr, commitStr);
+    if (nullifier) this.nullifierMap.set(nfStr, commitStr);
   }
 }

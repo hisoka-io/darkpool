@@ -12,6 +12,8 @@ import {
   Kdf,
   NotePlaintext,
   Poseidon,
+  computeOwner,
+  toBjjScalar,
 } from "@hisoka/wallets";
 import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
 import { ContractRunner } from "ethers";
@@ -119,11 +121,20 @@ export async function makeDeposit(
   amount: bigint,
 ) {
   const assetFr = addressToFr(await token.getAddress());
+
+  // Deterministic per-user spending key so the deposit note is spendable:
+  // verify_spend asserts note.owner == Poseidon2(nk*G).
+  const nk = toBjjScalar(
+    await Kdf.derive("hisoka.test.nk", addressToFr(user.address)),
+  );
+  const pkSpend = mulPointEscalar(Base8, nk.toBigInt());
+  const owner = await computeOwner(pkSpend);
+
   const depositPlain: NotePlaintext = {
     value: toFr(amount),
     asset_id: assetFr,
     secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-    nullifier: toFr(ethers.toBigInt(ethers.randomBytes(31))),
+    owner,
     timelock: toFr(0n),
     hashlock: toFr(0n),
   };
@@ -151,5 +162,5 @@ export async function makeDeposit(
   const packedCt = pub.slice(6, 13);
   const commitment = await Poseidon.hash(packedCt);
 
-  return { depositPlain, ephemeralSk, commitment, proof };
+  return { depositPlain, ephemeralSk, commitment, proof, nk };
 }

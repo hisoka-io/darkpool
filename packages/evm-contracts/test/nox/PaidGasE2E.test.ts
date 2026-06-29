@@ -15,7 +15,6 @@ import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { COMPLIANCE_PK } from "../helpers/fixtures";
 import { MixnetWallet } from "../helpers/MixnetWallet";
-import { generateDLEQProof } from "@hisoka/wallets";
 
 /**
  * Deploy DarkPool + RelayerMulticall + NoxRewardPool.
@@ -150,14 +149,14 @@ describe("Paid Gas Payment: Full Economy E2E", function () {
 
     console.log("  [4] Alice transfers 30 to Bob (gas-paid multicall)...");
     await bob.keyRepo.advanceIncomingKeys(1);
-    const bobIvk = await bob.account.getIncomingViewingKey(0n);
-    const bobAddr = await generateDLEQProof(bobIvk.toBigInt(), COMPLIANCE_PK);
+    const bobR = await bob.receiveData(0n);
 
     const { txHash: trfTx } = await alice.transferViaMixnet(
       ethers.parseEther("30"),
-      bobAddr.B,
-      bobAddr.P,
-      bobAddr.pi,
+      bobR.B,
+      bobR.P,
+      bobR.pi,
+      bobR,
     );
     console.log(`    Transfer TX: ${trfTx}`);
 

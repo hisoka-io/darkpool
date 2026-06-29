@@ -21,7 +21,7 @@ describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
 
     // 1. Setup: Deposit 100
-    const { depositPlain, ephemeralSk, commitment } = await makeDeposit(
+    const { depositPlain, ephemeralSk, commitment, nk } = await makeDeposit(
       darkPool,
       token,
       alice,
@@ -38,7 +38,7 @@ describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
       value: toFr(100n),
       asset_id: assetFr,
       secret: toFr(123n),
-      nullifier: toFr(456n),
+      owner: depositPlain.owner, // self-owned so it stays spendable with the same nk
       timelock: toFr(unlockTime), // SET TIMELOCK
       hashlock: toFr(0n),
     };
@@ -53,6 +53,7 @@ describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
       compliancePk: COMPLIANCE_PK,
       oldNote: depositPlain,
       oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
+      nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),
@@ -90,6 +91,7 @@ describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
       compliancePk: COMPLIANCE_PK,
       oldNote: lockedNote,
       oldSharedSecret: lockedSharedSecret,
+      nk,
       oldNoteIndex: 1,
       oldNotePath: spendPath,
       hashlockPreimage: toFr(0n),
@@ -127,7 +129,7 @@ describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
 
     // 1. Setup: Deposit 100
-    const { depositPlain, ephemeralSk, commitment } = await makeDeposit(
+    const { depositPlain, ephemeralSk, commitment, nk } = await makeDeposit(
       darkPool,
       token,
       alice,
@@ -144,7 +146,7 @@ describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
       value: toFr(100n),
       asset_id: depositPlain.asset_id,
       secret: toFr(1n),
-      nullifier: toFr(2n),
+      owner: depositPlain.owner, // self-owned so it stays spendable with the same nk
       timelock: toFr(0n),
       hashlock: hashlock, // SET HASHLOCK
     };
@@ -158,6 +160,7 @@ describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
       compliancePk: COMPLIANCE_PK,
       oldNote: depositPlain,
       oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
+      nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),
@@ -191,6 +194,7 @@ describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
       compliancePk: COMPLIANCE_PK,
       oldNote: lockedNote,
       oldSharedSecret: lockedSharedSecret,
+      nk,
       oldNoteIndex: 1,
       oldNotePath: spendPath,
       hashlockPreimage: toFr(999999n), // WRONG PREIMAGE

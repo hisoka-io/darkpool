@@ -20,14 +20,15 @@ fn main(
     preimage_b: Field,
     note_out: Note,
     sk_out: Field,
+    nk: Field,
 ) -> pub (Field, Field, Field, Field, [Field; 7], Field) {
     let (nullifier_a, commitment_a) =
-        verify_spend(note_a, secret_a, index_a, current_timestamp, preimage_a);
+        verify_spend(note_a, secret_a, nk, index_a, current_timestamp, preimage_a);
     let root_a = lean_imt_inclusion_proof(commitment_a, index_a, path_a);
     assert(root_a == merkle_root);
 
     let (nullifier_b, commitment_b) =
-        verify_spend(note_b, secret_b, index_b, current_timestamp, preimage_b);
+        verify_spend(note_b, secret_b, nk, index_b, current_timestamp, preimage_b);
     let root_b = lean_imt_inclusion_proof(commitment_b, index_b, path_b);
     assert(root_b == merkle_root);
 
@@ -44,23 +45,25 @@ fn main(
 
 #[test]
 fn test_join_smoke() {
-    let merkle_root = 0x24b729768482e5013bbc0d45aa10ccc7bf69d64a46ba4c89db19a97c35206a66;
+    let merkle_root = 0x0aba59c2a9ccbfef3b36e42af175c1a80ce75561fab3fb085c242d6f8b66e199;
     let current_timestamp = 0;
     let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
     let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
 
     let note_a = Note {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 100,
         secret: 0x00000000000000000000000000000000000000000000000000000000000003f2,
-        nullifier: 0x00000000000000000000000000000000000000000000000000000000000007da,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0,
         hashlock: 0,
     };
-    let secret_a = 0x19712b8cf8a75a1bffabfc0c83238c273079cfe5fa59d693955977b5049d049b;
+    let secret_a = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
     let index_a = 0;
     let path_a = [
-        0x04012a1319255bfdc69d8b0a1a8be730299e7765661a19e9eee4bb899bf74450,
+        0x2be17ff320d0b3aeb5a392b367f651abb70676adccb81871c2fe787a20982c32,
         0x0000000000000000000000000000000000000000000000000000000000000000,
         0x0000000000000000000000000000000000000000000000000000000000000000,
         0x0000000000000000000000000000000000000000000000000000000000000000,
@@ -99,14 +102,14 @@ fn test_join_smoke() {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 50,
         secret: 0x00000000000000000000000000000000000000000000000000000000000003f3,
-        nullifier: 0x00000000000000000000000000000000000000000000000000000000000007db,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0,
         hashlock: 0,
     };
-    let secret_b = 0x03b623e557c1f450cf99d1bdcab41ae717e18210ca5ef7d6dd6e40032c674c08;
+    let secret_b = 0x29b4a3c41682b85beb0c5d2178df291daa9706d02b16c4c4c93ddddef5deff00;
     let index_b = 1;
     let path_b = [
-        0x15efa22295890ff196020df82130d519ad1a2cb86661ad78862afcf51ad4d07e,
+        0x2044d601c131beadcd213aaf6d83efcc17f8a2f3ad1f92d7d24850493142ad64,
         0x0000000000000000000000000000000000000000000000000000000000000000,
         0x0000000000000000000000000000000000000000000000000000000000000000,
         0x0000000000000000000000000000000000000000000000000000000000000000,
@@ -145,22 +148,22 @@ fn test_join_smoke() {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 150,
         secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
-        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000378,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0,
         hashlock: 0,
     };
-    let sk_out = 0x0f152ae1850ac02348979462fb897febe30ea9bcc6a437e545b2f1f30eaa15b6;
+    let sk_out = 0x025b363d74ca244bb6bc1cdb6a3d3a279fd2176d8848d17fe927fd7616d55f71;
 
-    let exp_nf_a = 0x253d98f39b7adb6935e46bfe48b7e8e57284294c7f4f7f130005e4d7ff821a83;
-    let exp_nf_b = 0x1ce63511420809dee178ec3b7664e42212c5053b89e6699122a07544921571f1;
+    let exp_nf_a = 0x2b5ec7f3e27e5885285ee701145e21246e2d696364c19afdcf867b539659ed6b;
+    let exp_nf_b = 0x14f7091e4a4ce0f3b0822c0dded4d8c9291a0b64e83ee790d667b40c239e14e2;
     let exp_ct = [
-        0x006c7b0d19cd89580c2ffdc8e6d9a8abb309b872e9e3bfcc7e45663b58534c2e,
-        0x007be1b682f6a13831c2f446dd94cbbcf1d68b551d6fe343566bc543c52869f4,
-        0x00216c1570fac919e2417d8c3529bb48de572aaee8cac97b1cd31850d5547d16,
-        0x0070caa336a71edd2a194d63f902de2479e020c5fcbd8a8814275a68e7ce606b,
-        0x0098fadeedd1a127bf508b74c25fee1c6874092450be523250d15b2d116e7652,
-        0x00fd685fc43b482fa00f2faa8f132c5087401fd972812e86d019501761e569b9,
-        0x000000000000000000007af7d95d0f73f5c260581f33eaec949ec632848be778,
+        0x00f78e0f620a837e143cd25de3facf7db436339a146c93aa5ffc673df7dce42f,
+        0x007cb7955aa89deb672df06e6a7b26a81cc299d09c9f185a334ac8e0a00a6fc3,
+        0x0026cd97c46964b43e032346f67660af47677e9469509cd0ace5a8645f73b832,
+        0x00f923a254bb46919e3ca8ea19a91dc5369adfed585058021bda2186e0bfef50,
+        0x00e501047476047b85700f52cceea24c8a1b3dee279e55512e0bb71e8c76c0df,
+        0x00233682e43c00f82d61333fec2050443931d3c96cff9ff03c96b2a8bb4bd83c,
+        0x00000000000000000000521140181fbb7ae63132fc38823fff5998793fe7e08c,
     ];
 
     let (nf_a, nf_b, _, _, ct, _) = main(
@@ -180,6 +183,7 @@ fn test_join_smoke() {
         preimage_b,
         note_out,
         sk_out,
+        nk,
     );
 
     assert(nf_a == exp_nf_a);
@@ -189,23 +193,25 @@ fn test_join_smoke() {
 
 #[test(should_fail_with = "non-canonical leaf index")]
 fn audit_reject_self_join_noncanonical_index() {
-    let merkle_root = 0x24b729768482e5013bbc0d45aa10ccc7bf69d64a46ba4c89db19a97c35206a66;
+    let merkle_root = 0x0aba59c2a9ccbfef3b36e42af175c1a80ce75561fab3fb085c242d6f8b66e199;
     let current_timestamp = 0;
     let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
     let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
 
     let note_a = Note {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 100,
         secret: 0x00000000000000000000000000000000000000000000000000000000000003f2,
-        nullifier: 0x00000000000000000000000000000000000000000000000000000000000007da,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0,
         hashlock: 0,
     };
-    let secret_a = 0x19712b8cf8a75a1bffabfc0c83238c273079cfe5fa59d693955977b5049d049b;
+    let secret_a = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
     let index_a = 0;
     let path_a = [
-        0x04012a1319255bfdc69d8b0a1a8be730299e7765661a19e9eee4bb899bf74450,
+        0x2be17ff320d0b3aeb5a392b367f651abb70676adccb81871c2fe787a20982c32,
         0,
         0,
         0,
@@ -244,14 +250,14 @@ fn audit_reject_self_join_noncanonical_index() {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 50,
         secret: 0x00000000000000000000000000000000000000000000000000000000000003f3,
-        nullifier: 0x00000000000000000000000000000000000000000000000000000000000007db,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0,
         hashlock: 0,
     };
-    let secret_b = 0x03b623e557c1f450cf99d1bdcab41ae717e18210ca5ef7d6dd6e40032c674c08;
+    let secret_b = 0x29b4a3c41682b85beb0c5d2178df291daa9706d02b16c4c4c93ddddef5deff00;
     let index_b = 3;
     let path_b = [
-        0x15efa22295890ff196020df82130d519ad1a2cb86661ad78862afcf51ad4d07e,
+        0x2044d601c131beadcd213aaf6d83efcc17f8a2f3ad1f92d7d24850493142ad64,
         0,
         0,
         0,
@@ -290,11 +296,11 @@ fn audit_reject_self_join_noncanonical_index() {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 150,
         secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
-        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000378,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0,
         hashlock: 0,
     };
-    let sk_out = 0x0f152ae1850ac02348979462fb897febe30ea9bcc6a437e545b2f1f30eaa15b6;
+    let sk_out = 0x025b363d74ca244bb6bc1cdb6a3d3a279fd2176d8848d17fe927fd7616d55f71;
 
     let _ = main(
         merkle_root,
@@ -313,5 +319,6 @@ fn audit_reject_self_join_noncanonical_index() {
         preimage_b,
         note_out,
         sk_out,
+        nk,
     );
 }

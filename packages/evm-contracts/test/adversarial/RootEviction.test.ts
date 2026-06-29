@@ -100,6 +100,7 @@ describe("Adversarial: Root Ring Buffer Eviction", function () {
         first.ephemeralSk,
         COMPLIANCE_PK,
       ),
+      nk: first.nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),

@@ -21,6 +21,7 @@ export * from "./ecdh.js";
 export * from "./fields.js";
 export * from "./Poseidon.js";
 export * from "./dleq.js";
+export * from "./spendBinding.js";
 export * from "./Kdf.js";
 export * from "./nullifier.js";
 
@@ -113,7 +114,16 @@ export async function calculatePublicMemoId(
   timelock: Fr,
   ownerX: Fr,
   ownerY: Fr,
+  claimerOwner: Fr,
   salt: Fr,
 ): Promise<Fr> {
-  return await Poseidon.hash([val, asset, timelock, ownerX, ownerY, salt]);
+  return await Poseidon.hash([
+    val,
+    asset,
+    timelock,
+    ownerX,
+    ownerY,
+    claimerOwner,
+    salt,
+  ]);
 }

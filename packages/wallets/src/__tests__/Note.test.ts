@@ -9,6 +9,7 @@ import {
   aes128Encrypt,
   packNotePlaintext,
   unpackCiphertext,
+  computeOwner,
 } from "../crypto";
 import { Poseidon } from "../crypto/Poseidon";
 import { toFr, addressToFr } from "../crypto/fields";
@@ -42,24 +43,25 @@ describe("Note (Unified)", () => {
     asset_id: addressToFr("0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270"),
     value: toFr(100n * 10n ** 18n),
     secret: new Fr(12345n),
-    nullifier: new Fr(67890n),
+    owner: new Fr(67890n),
     timelock: toFr(0n),
     hashlock: toFr(0n),
   };
 
   const note = new Note(samplePlaintext);
+  const nk = new Fr(0xabcdefn);
 
-  it("derives the Path-A nullifier as Poseidon(nullifier, commitment, leafIndex)", async () => {
+  it("derives the Path-A nullifier as Poseidon(nk, commitment, leafIndex)", async () => {
     const commitment = new Fr(0x1234abcdn);
     const leafIndex = 5;
 
-    const hash1 = await note.getNullifierHash(commitment, leafIndex);
-    const hash2 = await note.getNullifierHash(commitment, leafIndex);
+    const hash1 = await note.getNullifierHash(nk, commitment, leafIndex);
+    const hash2 = await note.getNullifierHash(nk, commitment, leafIndex);
     expect(hash1).toBeInstanceOf(Fr);
     expect(hash1.equals(hash2)).toBe(true);
 
     const expected = await Poseidon.hash([
-      samplePlaintext.nullifier,
+      nk,
       commitment,
       new Fr(BigInt(leafIndex)),
     ]);
@@ -68,8 +70,8 @@ describe("Note (Unified)", () => {
 
   it("binds the nullifier to the leaf position", async () => {
     const commitment = new Fr(0x1234abcdn);
-    const atIndex5 = await note.getNullifierHash(commitment, 5);
-    const atIndex6 = await note.getNullifierHash(commitment, 6);
+    const atIndex5 = await note.getNullifierHash(nk, commitment, 5);
+    const atIndex6 = await note.getNullifierHash(nk, commitment, 6);
     expect(atIndex5.equals(atIndex6)).toBe(false);
   });
 
@@ -81,10 +83,10 @@ describe("Note (Unified)", () => {
     );
   });
 
-  it("should throw for a self-owned note with a zero nullifier", () => {
-    const zeroNullifier = { ...samplePlaintext, nullifier: new Fr(0n) };
-    expect(() => new Note(zeroNullifier)).toThrow(
-      "Self-owned note nullifier must be non-zero",
+  it("should throw for a note with a zero owner", () => {
+    const zeroOwner = { ...samplePlaintext, owner: new Fr(0n) };
+    expect(() => new Note(zeroOwner)).toThrow(
+      "Note owner (spend-key commitment) must be non-zero",
     );
   });
 });
@@ -100,11 +102,12 @@ describe("Path-A deposit scan stores the ECDH shared secret (S-1)", () => {
     const epk = await account.getPublicEphemeralOutgoingKey(index);
     const sharedSecret = await deriveSharedSecret(esk, COMPLIANCE_PK);
 
+    const owner = await computeOwner(await account.getPublicSpendKey());
     const note: NotePlaintext = {
       asset_id: addressToFr("0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270"),
       value: toFr(100n),
       secret: new Fr(12345n),
-      nullifier: new Fr(67890n),
+      owner,
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };

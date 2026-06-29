@@ -1,14 +1,10 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
-import {
-  deployDarkPoolFixture,
-  COMPLIANCE_SK,
-  COMPLIANCE_PK,
-} from "../helpers/fixtures";
+import { deployDarkPoolFixture, COMPLIANCE_SK } from "../helpers/fixtures";
 import { TestWallet } from "../helpers/TestWallet";
 import { ComplianceService } from "../helpers/ComplianceService";
-import { Fr, generateDLEQProof, toFr } from "@hisoka/wallets";
+import { Fr, toFr } from "@hisoka/wallets";
 import { Contract } from "ethers";
 
 describe("Compliance: Traceability & Auditing", function () {
@@ -37,14 +33,14 @@ describe("Compliance: Traceability & Auditing", function () {
 
     // --- 2. Alice -> Bob (50) ---
     await wBob.keyRepo.advanceIncomingKeys(1);
-    const bobIvk = await wBob.account.getIncomingViewingKey(0n);
-    const bobAddr = await generateDLEQProof(bobIvk.toBigInt(), COMPLIANCE_PK);
+    const bobAddr = await wBob.receiveData(0n);
 
     const tx1 = await wAlice.transfer(
       ethers.parseEther("50"),
       bobAddr.B,
       bobAddr.P,
       bobAddr.pi,
+      bobAddr,
     );
     await syncAll(tx1.memoCommitment);
     await syncAll(tx1.changeCommitment);
@@ -52,17 +48,14 @@ describe("Compliance: Traceability & Auditing", function () {
 
     // --- 3. Bob -> Charlie (25) ---
     await wCharlie.keyRepo.advanceIncomingKeys(1);
-    const charlieIvk = await wCharlie.account.getIncomingViewingKey(0n);
-    const charlieAddr = await generateDLEQProof(
-      charlieIvk.toBigInt(),
-      COMPLIANCE_PK,
-    );
+    const charlieAddr = await wCharlie.receiveData(0n);
 
     const tx2 = await wBob.transfer(
       ethers.parseEther("25"),
       charlieAddr.B,
       charlieAddr.P,
       charlieAddr.pi,
+      charlieAddr,
     );
     await syncAll(tx2.memoCommitment);
     await syncAll(tx2.changeCommitment);
@@ -70,17 +63,14 @@ describe("Compliance: Traceability & Auditing", function () {
 
     // --- 4. Charlie -> Alice (10) ---
     await wAlice.keyRepo.advanceIncomingKeys(1);
-    const aliceIvk = await wAlice.account.getIncomingViewingKey(0n);
-    const aliceAddr = await generateDLEQProof(
-      aliceIvk.toBigInt(),
-      COMPLIANCE_PK,
-    );
+    const aliceAddr = await wAlice.receiveData(0n);
 
     await wCharlie.transfer(
       ethers.parseEther("10"),
       aliceAddr.B,
       aliceAddr.P,
       aliceAddr.pi,
+      aliceAddr,
     );
 
     // Compliance investigation
@@ -88,6 +78,12 @@ describe("Compliance: Traceability & Auditing", function () {
     const auditor = new ComplianceService(
       COMPLIANCE_SK,
       darkPool as unknown as Contract,
+      0,
+      [
+        await wAlice.account.getNullifyingKey(),
+        await wBob.account.getNullifyingKey(),
+        await wCharlie.account.getNullifyingKey(),
+      ],
     );
     await auditor.sync();
     const graph = await auditor.traceTransactions();

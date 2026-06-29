@@ -27,6 +27,7 @@ describe("DarkPool Behavior: Withdraw", function () {
       depositPlain: realDep,
       ephemeralSk,
       commitment,
+      nk,
     } = await makeDeposit(darkPool, token, alice, 100n);
 
     const tree = new LeanIMT(32);
@@ -41,6 +42,7 @@ describe("DarkPool Behavior: Withdraw", function () {
       compliancePk: COMPLIANCE_PK,
       oldNote: realDep,
       oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
+      nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),

@@ -35,6 +35,7 @@ contract UniswapAdaptor is ReentrancyGuard {
     struct RecipientIdentity {
         uint256 ownerX;
         uint256 ownerY;
+        uint256 claimerOwner;
     }
 
     struct ExactInputSingleParams {
@@ -241,6 +242,7 @@ contract UniswapAdaptor is ReentrancyGuard {
         IDarkPool(DARK_POOL).publicTransfer(
             r.ownerX,
             r.ownerY,
+            r.claimerOwner,
             asset,
             amount,
             0,
@@ -326,7 +328,7 @@ contract UniswapAdaptor is ReentrancyGuard {
         uint256 e,
         RecipientIdentity memory r
     ) internal pure returns (bytes32) {
-        Field.Type[] memory f = new Field.Type[](7);
+        Field.Type[] memory f = new Field.Type[](8);
         f[0] = Field.toField(a);
         f[1] = Field.toField(b);
         f[2] = Field.toField(c);
@@ -334,6 +336,7 @@ contract UniswapAdaptor is ReentrancyGuard {
         f[4] = Field.toField(e);
         f[5] = Field.toField(r.ownerX);
         f[6] = Field.toField(r.ownerY);
+        f[7] = Field.toField(r.claimerOwner);
         return Field.toBytes32(Poseidon2.hash(f));
     }
     function _hash5(
@@ -342,12 +345,13 @@ contract UniswapAdaptor is ReentrancyGuard {
         uint256 c,
         RecipientIdentity memory r
     ) internal pure returns (bytes32) {
-        Field.Type[] memory f = new Field.Type[](5);
+        Field.Type[] memory f = new Field.Type[](6);
         f[0] = Field.toField(a);
         f[1] = Field.toField(b);
         f[2] = Field.toField(c);
         f[3] = Field.toField(r.ownerX);
         f[4] = Field.toField(r.ownerY);
+        f[5] = Field.toField(r.claimerOwner);
         return Field.toBytes32(Poseidon2.hash(f));
     }
     function _hash8(
@@ -359,7 +363,7 @@ contract UniswapAdaptor is ReentrancyGuard {
         uint256 f,
         RecipientIdentity memory r
     ) internal pure returns (bytes32) {
-        Field.Type[] memory arr = new Field.Type[](8);
+        Field.Type[] memory arr = new Field.Type[](9);
         arr[0] = Field.toField(a);
         arr[1] = Field.toField(b);
         arr[2] = Field.toField(c);
@@ -368,6 +372,7 @@ contract UniswapAdaptor is ReentrancyGuard {
         arr[5] = Field.toField(f);
         arr[6] = Field.toField(r.ownerX);
         arr[7] = Field.toField(r.ownerY);
+        arr[8] = Field.toField(r.claimerOwner);
         return Field.toBytes32(Poseidon2.hash(arr));
     }
     function _hashExactOutputHelper(
@@ -377,13 +382,14 @@ contract UniswapAdaptor is ReentrancyGuard {
         uint256 d,
         RecipientIdentity memory r
     ) internal pure returns (bytes32) {
-        Field.Type[] memory f = new Field.Type[](6);
+        Field.Type[] memory f = new Field.Type[](7);
         f[0] = Field.toField(a);
         f[1] = Field.toField(b);
         f[2] = Field.toField(c);
         f[3] = Field.toField(d);
         f[4] = Field.toField(r.ownerX);
         f[5] = Field.toField(r.ownerY);
+        f[6] = Field.toField(r.claimerOwner);
         return Field.toBytes32(Poseidon2.hash(f));
     }
 }

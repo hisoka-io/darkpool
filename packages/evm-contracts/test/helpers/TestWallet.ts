@@ -12,8 +12,10 @@ import {
   recipientDecrypt3Party,
   WalletNote,
   calculatePublicMemoId,
-  deriveNullifierPathA,
-  deriveNullifierPathB,
+  computeOwner,
+  deriveNullifier,
+  generateDLEQProof,
+  DLEQProof,
   Poseidon,
   Fr,
 } from "@hisoka/wallets";
@@ -37,6 +39,13 @@ export interface WithdrawOptions {
   asset?: string; // Address of token to withdraw (default: wallet's default token)
   recipient?: string; // Address to send funds to (default: wallet signer)
   intentHash?: Fr; // Intent hash for DeFi binding (default: 0)
+}
+
+export interface RecipientBinding {
+  owner: Fr; // recipient spend commitment = computeOwner(S)
+  S: Point<bigint>; // recipient public spend key
+  bindR: Point<bigint>; // spend-binding signature R
+  bindS: Fr; // spend-binding signature s
 }
 
 export class TestWallet {
@@ -108,11 +117,13 @@ export class TestWallet {
     const tokenAddress = asset || (await this.token.getAddress());
     const assetFr = addressToFr(tokenAddress);
 
+    const owner = await computeOwner(await this.account.getPublicSpendKey());
+
     const note: NotePlaintext = {
       value: toFr(amount),
       asset_id: assetFr,
       secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      nullifier: toFr(ethers.toBigInt(ethers.randomBytes(31))),
+      owner,
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };
@@ -157,6 +168,7 @@ export class TestWallet {
     recipientB: Point<bigint>,
     recipientP: Point<bigint>,
     recipientProof: any,
+    recipientBinding: RecipientBinding,
     asset?: string,
   ) {
     const targetAssetFr = asset
@@ -175,6 +187,7 @@ export class TestWallet {
       );
 
     const oldSharedSecret = inputData.spendingSecret;
+    const nk = await this.keyRepo.getNullifyingKey();
 
     const path = this.tree.getMerklePath(inputData.leafIndex);
     const root = this.tree.getRoot();
@@ -184,7 +197,7 @@ export class TestWallet {
       asset_id: inputData.note.asset_id,
       value: toFr(amount),
       secret: toFr(0),
-      nullifier: toFr(0),
+      owner: recipientBinding.owner,
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -199,7 +212,7 @@ export class TestWallet {
       asset_id: inputData.note.asset_id,
       value: toFr(changeValue),
       secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      nullifier: toFr(ethers.toBigInt(ethers.randomBytes(31))),
+      owner: await computeOwner(await this.account.getPublicSpendKey()),
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -211,9 +224,14 @@ export class TestWallet {
       compliancePk: COMPLIANCE_PK_POINT,
       recipientB,
       recipientP,
+      recipientOwner: recipientBinding.owner,
       recipientProof,
+      recipientS: recipientBinding.S,
+      bindR: recipientBinding.bindR,
+      bindS: recipientBinding.bindS,
       oldNote: inputData.note,
       oldSharedSecret,
+      nk,
       oldNoteIndex: inputData.leafIndex,
       oldNotePath: path,
       hashlockPreimage: toFr(0),
@@ -230,8 +248,8 @@ export class TestWallet {
     await tx.wait();
 
     const pub = proof.publicInputs.map((s) => toFr(s));
-    const memoCom = await Poseidon.hash(pub.slice(11, 18));
-    const changeCom = await Poseidon.hash(pub.slice(24, 31));
+    const memoCom = await Poseidon.hash(pub.slice(12, 19));
+    const changeCom = await Poseidon.hash(pub.slice(25, 32));
 
     return {
       memoCommitment: memoCom,
@@ -240,15 +258,33 @@ export class TestWallet {
     };
   }
 
+  async receiveData(index: bigint = 0n): Promise<
+    RecipientBinding & {
+      B: Point<bigint>;
+      P: Point<bigint>;
+      pi: DLEQProof;
+    }
+  > {
+    const ivk = await this.account.getIncomingViewingKey(index);
+    const { B, P, pi } = await generateDLEQProof(
+      ivk.toBigInt(),
+      COMPLIANCE_PK_POINT,
+    );
+    const S = await this.account.getPublicSpendKey();
+    const owner = await computeOwner(S);
+    const { R, s } = await this.account.signSpendBinding(index);
+    return { B, P, pi, owner, S, bindR: R, bindS: toFr(s) };
+  }
+
   async receiveTransfer(
     publicInputs: string[],
     leafIndex: number,
     recipientSk: bigint,
   ) {
     const frInputs = publicInputs.map((s) => toFr(s));
-    const packedCt = frInputs.slice(11, 18);
-    const intBobX = frInputs[18];
-    const intBobY = frInputs[19];
+    const packedCt = frInputs.slice(12, 19);
+    const intBobX = frInputs[19];
+    const intBobY = frInputs[20];
 
     const ct = unpackCiphertext(packedCt);
     const intBobPoint: Point<bigint> = [intBobX.toBigInt(), intBobY.toBigInt()];
@@ -258,16 +294,13 @@ export class TestWallet {
       ct,
     );
     const commitment = await Poseidon.hash(packedCt);
+    const nk = await this.keyRepo.getNullifyingKey();
 
     await this.utxoRepo.addNote({
       note,
       commitment,
       leafIndex,
-      nullifier: await deriveNullifierPathB(
-        sharedSecret,
-        commitment,
-        leafIndex,
-      ),
+      nullifier: await deriveNullifier(nk, commitment, leafIndex),
       spendingSecret: sharedSecret,
       isTransfer: true,
       derivationIndex: 0,
@@ -298,6 +331,7 @@ export class TestWallet {
       );
 
     const oldSharedSecret = inputData.spendingSecret;
+    const nk = await this.keyRepo.getNullifyingKey();
 
     const changeValue = inputData.note.value.toBigInt() - amount;
 
@@ -305,7 +339,7 @@ export class TestWallet {
       ...inputData.note,
       value: toFr(changeValue),
       secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      nullifier: toFr(ethers.toBigInt(ethers.randomBytes(31))),
+      owner: await computeOwner(await this.account.getPublicSpendKey()),
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -321,6 +355,7 @@ export class TestWallet {
       compliancePk: COMPLIANCE_PK_POINT,
       oldNote: inputData.note,
       oldSharedSecret,
+      nk,
       oldNoteIndex: inputData.leafIndex,
       oldNotePath: this.tree.getMerklePath(inputData.leafIndex),
       hashlockPreimage: toFr(0),
@@ -361,12 +396,17 @@ export class TestWallet {
     const saltFr = toFr(args.salt);
     const memoIdFr = toFr(args.memoId);
 
+    const claimerOwner = await computeOwner(
+      await this.account.getPublicSpendKey(),
+    );
+
     const calcId = await calculatePublicMemoId(
       valFr,
       assetFr,
       timeFr,
       ownerXFr,
       ownerYFr,
+      claimerOwner,
       saltFr,
     );
     if (!calcId.equals(memoIdFr)) throw new Error("Local Memo ID mismatch");
@@ -375,7 +415,7 @@ export class TestWallet {
       value: valFr,
       asset_id: assetFr,
       secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      nullifier: toFr(ethers.toBigInt(ethers.randomBytes(31))),
+      owner: claimerOwner,
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -386,6 +426,7 @@ export class TestWallet {
       memoId: memoIdFr,
       compliancePk: COMPLIANCE_PK_POINT,
       currentTimestamp: Math.floor(Date.now() / 1000),
+      claimerOwner,
       val: valFr,
       assetId: assetFr,
       timelock: timeFr,
@@ -403,14 +444,11 @@ export class TestWallet {
       .publicClaim(proof.proof, proof.publicInputs);
 
     const pub = proof.publicInputs.map((s) => toFr(s));
-    const packedCt = pub.slice(6, 13);
+    const packedCt = pub.slice(7, 14);
     const commitment = await Poseidon.hash(packedCt);
     const leafIndex = this.tree.nextLeafIndex;
-    const nullifierHash = await deriveNullifierPathA(
-      noteOut.nullifier,
-      commitment,
-      leafIndex,
-    );
+    const nk = await this.keyRepo.getNullifyingKey();
+    const nullifierHash = await deriveNullifier(nk, commitment, leafIndex);
 
     const walletNote: WalletNote = {
       note: noteOut,

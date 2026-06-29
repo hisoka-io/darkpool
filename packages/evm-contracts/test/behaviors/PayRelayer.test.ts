@@ -30,6 +30,7 @@ describe("DarkPool Behavior: PayRelayer", function () {
       depositPlain: notePlaintext,
       ephemeralSk,
       commitment,
+      nk,
     } = await makeDeposit(darkPool, token, alice, noteValue);
 
     const tree = new LeanIMT(32);
@@ -49,7 +50,7 @@ describe("DarkPool Behavior: PayRelayer", function () {
       asset_id: notePlaintext.asset_id,
       value: toFr(changeValue),
       secret: toFr(789n),
-      nullifier: toFr(1011n),
+      owner: notePlaintext.owner,
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };
@@ -64,6 +65,7 @@ describe("DarkPool Behavior: PayRelayer", function () {
       compliancePk: COMPLIANCE_PK,
       oldNote: notePlaintext,
       oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
+      nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),

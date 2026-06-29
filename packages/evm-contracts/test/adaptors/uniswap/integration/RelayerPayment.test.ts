@@ -15,7 +15,12 @@ import {
   LeanIMT,
   Poseidon,
   deriveSharedSecret,
+  Fr,
+  Kdf,
+  toBjjScalar,
+  computeOwner,
 } from "@hisoka/wallets";
+import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
 import { proveWithdraw, WithdrawInputs } from "@hisoka/prover";
 import { hashUniswapIntent, SwapType, encodePath } from "@hisoka/adaptors";
 import { RelayerMulticall__factory } from "../../../../typechain-types";
@@ -26,11 +31,14 @@ describe("Relayer Safe Settlement: Integration", function () {
   async function setupNote(data: any, amountEth: string) {
     const amount = ethers.parseEther(amountEth);
     const assetFr = addressToFr(WETH_ADDRESS);
+    // verify_spend asserts note.owner == Poseidon2(nk*G), so owner/nk must agree.
+    const nk = toBjjScalar(await Kdf.derive("hisoka.test.nk", toFr(1n)));
+    const owner = await computeOwner(mulPointEscalar(Base8, nk.toBigInt()));
     const note: NotePlaintext = {
       value: toFr(amount),
       asset_id: assetFr,
       secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      nullifier: toFr(ethers.toBigInt(ethers.randomBytes(31))),
+      owner,
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };
@@ -56,7 +64,7 @@ describe("Relayer Safe Settlement: Integration", function () {
     const pub = depProof.publicInputs.map((s: string) => toFr(s));
     await tree.insert(await Poseidon.hash(pub.slice(6, 13)));
 
-    return { note, enc, tree, amount };
+    return { note, enc, tree, amount, nk };
   }
 
   async function generateWithdrawProof(
@@ -64,6 +72,7 @@ describe("Relayer Safe Settlement: Integration", function () {
     enc: any,
     tree: any,
     recipientAddr: string,
+    nk: Fr,
     intentHash: bigint = 0n,
   ) {
     const inputs: WithdrawInputs = {
@@ -78,6 +87,7 @@ describe("Relayer Safe Settlement: Integration", function () {
         enc.ephemeral_sk_used,
         COMPLIANCE_PK,
       ),
+      nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),
@@ -105,6 +115,7 @@ describe("Relayer Safe Settlement: Integration", function () {
       paymentSetup.enc,
       paymentSetup.tree,
       relayer.address,
+      paymentSetup.nk,
     );
 
     // --- 2. Prepare Swap (Withdraw 2 WETH to Adaptor -> Swap) ---
@@ -115,7 +126,7 @@ describe("Relayer Safe Settlement: Integration", function () {
     const params = {
       type: SwapType.ExactInput,
       path: path,
-      recipient: { ownerX: 111n, ownerY: 222n },
+      recipient: { ownerX: 111n, ownerY: 222n, claimerOwner: 333n },
       amountOutMin: ethers.parseUnits("1000000", 6), // Expect 1M USDC for 2 ETH (Impossible!)
     };
     // @ts-ignore
@@ -126,6 +137,7 @@ describe("Relayer Safe Settlement: Integration", function () {
       swapSetup.enc,
       swapSetup.tree,
       await uniswapAdaptor.getAddress(),
+      swapSetup.nk,
       intentHash,
     );
 
@@ -143,12 +155,16 @@ describe("Relayer Safe Settlement: Integration", function () {
     const abiCoder = new ethers.AbiCoder();
     const encodedParams = abiCoder.encode(
       [
-        "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin)",
+        "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOutMin)",
       ],
       [
         [
           params.path,
-          [params.recipient.ownerX, params.recipient.ownerY],
+          [
+            params.recipient.ownerX,
+            params.recipient.ownerY,
+            params.recipient.claimerOwner,
+          ],
           params.amountOutMin,
         ],
       ],

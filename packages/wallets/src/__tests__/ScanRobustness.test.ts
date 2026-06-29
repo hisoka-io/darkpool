@@ -47,7 +47,7 @@ describe("Scan robustness", () => {
         asset_id: toFr(1n),
         value: toFr(100n),
         secret: toFr(0n),
-        nullifier: toFr(0n),
+        owner: toFr(0n),
         timelock: toFr(0n),
         hashlock: toFr(0n),
       },

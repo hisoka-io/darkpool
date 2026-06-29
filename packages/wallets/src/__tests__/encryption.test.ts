@@ -31,7 +31,7 @@ describe("Encryption (Unified Note)", () => {
       asset_id: toFr(123n),
       value: toFr(100n),
       secret: toFr(456n),
-      nullifier: toFr(789n),
+      owner: toFr(789n),
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };

@@ -1,7 +1,8 @@
 use ::ecdh::{bjj::{BJJ, check_subgroup}, ECDHTrait, Point};
+use ::poseidon::poseidon2::Poseidon2;
 use ::shared::{
     DLEQProof, encrypt_note, kdf_to_aes_key_iv, lean_imt_inclusion_proof, Note, pack_ciphertext,
-    TREE_DEPTH, verify_dleq, verify_spend,
+    TREE_DEPTH, verify_dleq, verify_spend, verify_spend_binding,
 };
 use edwards::{bjj::BabyJubJub, CurveTrait, ScalarField};
 
@@ -12,9 +13,14 @@ fn main(
     compliance_pubkey_y: pub Field,
     recipient_B: pub Point,
     recipient_P: pub Point,
+    recipient_owner: pub Field,
     recipient_proof: DLEQProof,
+    recipient_S: Point,
+    bind_R: Point,
+    bind_s: Field,
     old_note: Note,
     old_shared_secret: Field,
+    nk: Field,
     old_note_index: Field,
     old_note_path: [Field; TREE_DEPTH],
     hashlock_preimage: Field,
@@ -26,10 +32,15 @@ fn main(
     let compliance_pk_temp = BabyJubJub::new(compliance_pubkey_x, compliance_pubkey_y);
     let recipient_B_temp = BabyJubJub::new(recipient_B.x, recipient_B.y);
     let recipient_P_temp = BabyJubJub::new(recipient_P.x, recipient_P.y);
+    let recipient_S_temp = BabyJubJub::new(recipient_S.x, recipient_S.y);
+    let bind_R_temp = BabyJubJub::new(bind_R.x, bind_R.y);
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
 
     assert(check_subgroup(recipient_B_temp), "recipient_B not in prime-order subgroup");
     assert(check_subgroup(recipient_P_temp), "recipient_P not in prime-order subgroup");
+    assert(check_subgroup(recipient_S_temp), "recipient_S not in prime-order subgroup");
+    assert(check_subgroup(bind_R_temp), "bind_R not in prime-order subgroup");
+    assert(!recipient_B_temp.is_zero(), "recipient_B must not be the identity");
 
     verify_dleq(
         recipient_B_temp,
@@ -38,12 +49,20 @@ fn main(
         recipient_proof,
     );
 
+    assert(
+        Poseidon2::hash([recipient_S.x, recipient_S.y], 2) == recipient_owner,
+        "recipient_S is not the recipient_owner preimage",
+    );
+    assert(memo_note.owner == recipient_owner, "memo note owner must equal recipient_owner");
+    verify_spend_binding(recipient_B_temp, recipient_S_temp, bind_R_temp, bind_s);
+
     assert(memo_ephemeral_sk != 0);
     assert(change_ephemeral_sk != 0);
 
     let (nullifier_hash, old_commitment) = verify_spend(
         old_note,
         old_shared_secret,
+        nk,
         old_note_index,
         current_timestamp,
         hashlock_preimage,
@@ -89,7 +108,7 @@ fn main(
 
 #[test]
 fn test_transfer_compile_check() {
-    let merkle_root = 0x2b007edcbc06d28d57c351697d325087133d5a0aa0971c8384fa03c6a93b4a0a;
+    let merkle_root = 0x05c1a73fa9dcd01b4cec5d9209592a5629421d0534d3f1decc791a463d969a77;
     let current_timestamp = 0;
     let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
     let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
@@ -102,27 +121,38 @@ fn test_transfer_compile_check() {
         x: 0x0464508630b85bedcc795e1f2f26a5fbd9c36b074cbbb0946c182f608ec975ab,
         y: 0x2d3d62b4b8421137315a7903873c39feba45e5520d585d43136d5f249588cff4,
     };
+    let recipient_owner = 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785;
     let recipient_proof = DLEQProof {
         U: BabyJubJub {
-            x: 0x01ca63455d07899e43bdcd4abf36013172312c1b690c9a8a3f1b6242271a0150,
-            y: 0x0ed865f3b0b8c53064058bb57420f5d98cbbd57fdcbd6c921e39b3e17572c832,
+            x: 0x27ee3bc33eb0726d04cdbbb05ae136b0564d09006123af5fdf939a1f52554382,
+            y: 0x116990511f1dcb2fc86c0162bcfd86ec137e118158d3e46bae37d902b4bbab12,
         },
         V: BabyJubJub {
-            x: 0x17228803115038cdc19db7a91e3788e690774a8f57414206aafe2dcd609d272e,
-            y: 0x2e7797d18f2966122424b83b6641f6a48007e18f5ddfa803747479ab057145f0,
+            x: 0x05bbded25bcbc72dadea0201c22a2b4ca53b1a4ae1f0f7a1afaf1ba69862f7ee,
+            y: 0x2edfdb342f7e672b9643f25629a8ee6f7afc36e9946edc420daefb6c7adb7b04,
         },
-        z: 0x01da3994cac4354303f5c5333714983541ffa9863dfac26573738e13520daa38,
+        z: 0x046b650eb8d15d11ba5636a5eaa2a1e16ba530bab134fb37ad1035ce41a6bb2d,
     };
+    let recipient_S = Point {
+        x: 0x158b1d9682257c0832785c20b002c360b7f84f59f253e667659cf90c1455f764,
+        y: 0x132a0f65758b4775374cfc0a98d7f8a186e1cad626e4e4cd37b73532d7e50101,
+    };
+    let bind_R = Point {
+        x: 0x09dbdcd7d2f82bdddc16c4c9584959e728cfb25af5a7bdd34b47024dc860e03b,
+        y: 0x2d581991fae71f7965a585e267b2fba577aeedaf82aeafaa4346051f2818189a,
+    };
+    let bind_s = 0x00c19c4ad9b681323f7c7499e66cad7cf387dd060d89a990cd7338b4bfdaa760;
 
     let old_note = Note {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 100,
         secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
-        nullifier: 0x00000000000000000000000000000000000000000000000000000000000000c8,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
         hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
     };
-    let old_shared_secret = 0x19712b8cf8a75a1bffabfc0c83238c273079cfe5fa59d693955977b5049d049b;
+    let old_shared_secret = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
     let old_note_index = 0;
     let old_note_path = [
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -134,7 +164,7 @@ fn test_transfer_compile_check() {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 40,
         secret: 0x0000000000000000000000000000000000000000000000000000000000000000,
-        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
         hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
     };
@@ -144,21 +174,21 @@ fn test_transfer_compile_check() {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 60,
         secret: 0x000000000000000000000000000000000000000000000000000000000000012c,
-        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000190,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
         hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
     };
-    let change_ephemeral_sk = 0x0430b6a4988e13cb97ca501b50d78271c6f95bdcfa08d105f90bde66c1895467;
+    let change_ephemeral_sk = 0x00b33e006176aadb2f6f57e502e1cda95491d8b362d0ac15fc7962cd7be32805;
 
-    let exp_nf = 0x2b27292cf91640a783dbe709d5b4bc440e97377a7d0fc10d4a4b6533b4537ebb;
+    let exp_nf = 0x0e733fdbd526ed9faacdb6448985763d2281e5f829aedecdc234cddbb4b6b308;
     let exp_m_ct = [
-        0x009485dd78b67d09184e4c66cef16719ae98d0d1dce6d3dc0946ae4100c4e88b,
-        0x002fa7932c3fea571011250345d30b53b59c6264c1631db4abdf10c311d01a75,
-        0x00fbf65123d5eee1a233b88fd0dfe8c7165d02ded92699e7ded878b15ad0e8f4,
-        0x0014288fb4f8159ccf29464362d7bd19ade4cfbe66eb2b0f2627bc7be9fa1fec,
-        0x009ec600b2b03527b3402fbfc820363435d3804d24b6170c530b9908099a16a9,
-        0x0069abc5f0c180fd67792f5d46b1c7de07c30e032194145d0e597d5de1a4993b,
-        0x000000000000000000003e4c74a86915df0ca0c1d10960eb0f948712d8eb983a,
+        0x9485dd78b67d09184e4c66cef16719ae98d0d1dce6d3dc0946ae4100c4e88b,
+        0x2fa7932c3fea571011250345d30b53b59c6264c1631db4abdf10c311d01a75,
+        0xfbf65123d5eee1a233b88fd0dfe8c7165d02ded92699e7ded878b15ad0e8f4,
+        0x72db0e5cc9f3578b4e8b4817d28eb5e1a6cb19b0f2182338b66d6243fa1fec,
+        0xb664cd005bf778b544de266ba74d3838567101cb2e96b268d4c93dccf86300,
+        0x8f95f987db9ed3a890046cff2d0b6dd3b70d09c25882be18fa311314f0d7d1,
+        0xc77c13953b8d0fea9dea130e0f1d52232c13d5de67b6,
     ];
     let exp_ib = Point {
         x: 0x0e94d7f61c674a233b14b9b972d8fe81f5c14f1ef33e2568a2cb20be47ce2991,
@@ -176,9 +206,14 @@ fn test_transfer_compile_check() {
         compliance_pubkey_y,
         recipient_B,
         recipient_P,
+        recipient_owner,
         recipient_proof,
+        recipient_S,
+        bind_R,
+        bind_s,
         old_note,
         old_shared_secret,
+        nk,
         old_note_index,
         old_note_path,
         hashlock_preimage,
@@ -194,92 +229,9 @@ fn test_transfer_compile_check() {
     assert(ic == exp_ic);
 }
 
-#[test(should_fail_with = "recipient_B not in prime-order subgroup")]
-fn audit_reject_recipient_b_low_order() {
-    let merkle_root = 0x2b007edcbc06d28d57c351697d325087133d5a0aa0971c8384fa03c6a93b4a0a;
-    let current_timestamp = 0;
-    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
-
-    let recipient_B = Point {
-        x: 0x0000000000000000000000000000000000000000000000000000000000000000,
-        y: 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000,
-    };
-    let recipient_P = Point {
-        x: 0x0464508630b85bedcc795e1f2f26a5fbd9c36b074cbbb0946c182f608ec975ab,
-        y: 0x2d3d62b4b8421137315a7903873c39feba45e5520d585d43136d5f249588cff4,
-    };
-    let recipient_proof = DLEQProof {
-        U: BabyJubJub {
-            x: 0x01ca63455d07899e43bdcd4abf36013172312c1b690c9a8a3f1b6242271a0150,
-            y: 0x0ed865f3b0b8c53064058bb57420f5d98cbbd57fdcbd6c921e39b3e17572c832,
-        },
-        V: BabyJubJub {
-            x: 0x17228803115038cdc19db7a91e3788e690774a8f57414206aafe2dcd609d272e,
-            y: 0x2e7797d18f2966122424b83b6641f6a48007e18f5ddfa803747479ab057145f0,
-        },
-        z: 0x01da3994cac4354303f5c5333714983541ffa9863dfac26573738e13520daa38,
-    };
-
-    let old_note = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 100,
-        secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
-        nullifier: 0x00000000000000000000000000000000000000000000000000000000000000c8,
-        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
-        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
-    };
-    let old_shared_secret = 0x19712b8cf8a75a1bffabfc0c83238c273079cfe5fa59d693955977b5049d049b;
-    let old_note_index = 0;
-    let old_note_path = [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0,
-    ];
-    let hashlock_preimage = 0;
-
-    let memo_note = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 40,
-        secret: 0x0000000000000000000000000000000000000000000000000000000000000000,
-        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000000,
-        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
-        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
-    };
-    let memo_ephemeral_sk = 0x0000000000000000000000000000000000000000000000000000000000000378;
-
-    let change_note = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 60,
-        secret: 0x000000000000000000000000000000000000000000000000000000000000012c,
-        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000190,
-        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
-        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
-    };
-    let change_ephemeral_sk = 0x0430b6a4988e13cb97ca501b50d78271c6f95bdcfa08d105f90bde66c1895467;
-
-    let _ = main(
-        merkle_root,
-        current_timestamp,
-        compliance_pubkey_x,
-        compliance_pubkey_y,
-        recipient_B,
-        recipient_P,
-        recipient_proof,
-        old_note,
-        old_shared_secret,
-        old_note_index,
-        old_note_path,
-        hashlock_preimage,
-        memo_note,
-        memo_ephemeral_sk,
-        change_note,
-        change_ephemeral_sk,
-    );
-}
-
 #[test(should_fail_with = "memo note hashlock must be zero")]
 fn audit_reject_memo_hashlock() {
-    let merkle_root = 0x2b007edcbc06d28d57c351697d325087133d5a0aa0971c8384fa03c6a93b4a0a;
+    let merkle_root = 0x05c1a73fa9dcd01b4cec5d9209592a5629421d0534d3f1decc791a463d969a77;
     let current_timestamp = 0;
     let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
     let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
@@ -292,27 +244,38 @@ fn audit_reject_memo_hashlock() {
         x: 0x0464508630b85bedcc795e1f2f26a5fbd9c36b074cbbb0946c182f608ec975ab,
         y: 0x2d3d62b4b8421137315a7903873c39feba45e5520d585d43136d5f249588cff4,
     };
+    let recipient_owner = 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785;
     let recipient_proof = DLEQProof {
         U: BabyJubJub {
-            x: 0x01ca63455d07899e43bdcd4abf36013172312c1b690c9a8a3f1b6242271a0150,
-            y: 0x0ed865f3b0b8c53064058bb57420f5d98cbbd57fdcbd6c921e39b3e17572c832,
+            x: 0x27ee3bc33eb0726d04cdbbb05ae136b0564d09006123af5fdf939a1f52554382,
+            y: 0x116990511f1dcb2fc86c0162bcfd86ec137e118158d3e46bae37d902b4bbab12,
         },
         V: BabyJubJub {
-            x: 0x17228803115038cdc19db7a91e3788e690774a8f57414206aafe2dcd609d272e,
-            y: 0x2e7797d18f2966122424b83b6641f6a48007e18f5ddfa803747479ab057145f0,
+            x: 0x05bbded25bcbc72dadea0201c22a2b4ca53b1a4ae1f0f7a1afaf1ba69862f7ee,
+            y: 0x2edfdb342f7e672b9643f25629a8ee6f7afc36e9946edc420daefb6c7adb7b04,
         },
-        z: 0x01da3994cac4354303f5c5333714983541ffa9863dfac26573738e13520daa38,
+        z: 0x046b650eb8d15d11ba5636a5eaa2a1e16ba530bab134fb37ad1035ce41a6bb2d,
     };
+    let recipient_S = Point {
+        x: 0x158b1d9682257c0832785c20b002c360b7f84f59f253e667659cf90c1455f764,
+        y: 0x132a0f65758b4775374cfc0a98d7f8a186e1cad626e4e4cd37b73532d7e50101,
+    };
+    let bind_R = Point {
+        x: 0x09dbdcd7d2f82bdddc16c4c9584959e728cfb25af5a7bdd34b47024dc860e03b,
+        y: 0x2d581991fae71f7965a585e267b2fba577aeedaf82aeafaa4346051f2818189a,
+    };
+    let bind_s = 0x00c19c4ad9b681323f7c7499e66cad7cf387dd060d89a990cd7338b4bfdaa760;
 
     let old_note = Note {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 100,
         secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
-        nullifier: 0x00000000000000000000000000000000000000000000000000000000000000c8,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
         hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
     };
-    let old_shared_secret = 0x19712b8cf8a75a1bffabfc0c83238c273079cfe5fa59d693955977b5049d049b;
+    let old_shared_secret = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
     let old_note_index = 0;
     let old_note_path = [
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -324,7 +287,7 @@ fn audit_reject_memo_hashlock() {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 40,
         secret: 0x0000000000000000000000000000000000000000000000000000000000000000,
-        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
         hashlock: 0x0000000000000000000000000000000000000000000000000000000000000001,
     };
@@ -334,11 +297,11 @@ fn audit_reject_memo_hashlock() {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 60,
         secret: 0x000000000000000000000000000000000000000000000000000000000000012c,
-        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000190,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
         hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
     };
-    let change_ephemeral_sk = 0x0430b6a4988e13cb97ca501b50d78271c6f95bdcfa08d105f90bde66c1895467;
+    let change_ephemeral_sk = 0x00b33e006176aadb2f6f57e502e1cda95491d8b362d0ac15fc7962cd7be32805;
 
     let _ = main(
         merkle_root,
@@ -347,9 +310,14 @@ fn audit_reject_memo_hashlock() {
         compliance_pubkey_y,
         recipient_B,
         recipient_P,
+        recipient_owner,
         recipient_proof,
+        recipient_S,
+        bind_R,
+        bind_s,
         old_note,
         old_shared_secret,
+        nk,
         old_note_index,
         old_note_path,
         hashlock_preimage,
@@ -362,7 +330,7 @@ fn audit_reject_memo_hashlock() {
 
 #[test(should_fail_with = "memo note timelock must be zero")]
 fn audit_reject_memo_timelock() {
-    let merkle_root = 0x2b007edcbc06d28d57c351697d325087133d5a0aa0971c8384fa03c6a93b4a0a;
+    let merkle_root = 0x05c1a73fa9dcd01b4cec5d9209592a5629421d0534d3f1decc791a463d969a77;
     let current_timestamp = 0;
     let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
     let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
@@ -375,27 +343,38 @@ fn audit_reject_memo_timelock() {
         x: 0x0464508630b85bedcc795e1f2f26a5fbd9c36b074cbbb0946c182f608ec975ab,
         y: 0x2d3d62b4b8421137315a7903873c39feba45e5520d585d43136d5f249588cff4,
     };
+    let recipient_owner = 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785;
     let recipient_proof = DLEQProof {
         U: BabyJubJub {
-            x: 0x01ca63455d07899e43bdcd4abf36013172312c1b690c9a8a3f1b6242271a0150,
-            y: 0x0ed865f3b0b8c53064058bb57420f5d98cbbd57fdcbd6c921e39b3e17572c832,
+            x: 0x27ee3bc33eb0726d04cdbbb05ae136b0564d09006123af5fdf939a1f52554382,
+            y: 0x116990511f1dcb2fc86c0162bcfd86ec137e118158d3e46bae37d902b4bbab12,
         },
         V: BabyJubJub {
-            x: 0x17228803115038cdc19db7a91e3788e690774a8f57414206aafe2dcd609d272e,
-            y: 0x2e7797d18f2966122424b83b6641f6a48007e18f5ddfa803747479ab057145f0,
+            x: 0x05bbded25bcbc72dadea0201c22a2b4ca53b1a4ae1f0f7a1afaf1ba69862f7ee,
+            y: 0x2edfdb342f7e672b9643f25629a8ee6f7afc36e9946edc420daefb6c7adb7b04,
         },
-        z: 0x01da3994cac4354303f5c5333714983541ffa9863dfac26573738e13520daa38,
+        z: 0x046b650eb8d15d11ba5636a5eaa2a1e16ba530bab134fb37ad1035ce41a6bb2d,
     };
+    let recipient_S = Point {
+        x: 0x158b1d9682257c0832785c20b002c360b7f84f59f253e667659cf90c1455f764,
+        y: 0x132a0f65758b4775374cfc0a98d7f8a186e1cad626e4e4cd37b73532d7e50101,
+    };
+    let bind_R = Point {
+        x: 0x09dbdcd7d2f82bdddc16c4c9584959e728cfb25af5a7bdd34b47024dc860e03b,
+        y: 0x2d581991fae71f7965a585e267b2fba577aeedaf82aeafaa4346051f2818189a,
+    };
+    let bind_s = 0x00c19c4ad9b681323f7c7499e66cad7cf387dd060d89a990cd7338b4bfdaa760;
 
     let old_note = Note {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 100,
         secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
-        nullifier: 0x00000000000000000000000000000000000000000000000000000000000000c8,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
         hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
     };
-    let old_shared_secret = 0x19712b8cf8a75a1bffabfc0c83238c273079cfe5fa59d693955977b5049d049b;
+    let old_shared_secret = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
     let old_note_index = 0;
     let old_note_path = [
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -407,7 +386,7 @@ fn audit_reject_memo_timelock() {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 40,
         secret: 0x0000000000000000000000000000000000000000000000000000000000000000,
-        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000001,
         hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
     };
@@ -417,11 +396,11 @@ fn audit_reject_memo_timelock() {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 60,
         secret: 0x000000000000000000000000000000000000000000000000000000000000012c,
-        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000190,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
         hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
     };
-    let change_ephemeral_sk = 0x0430b6a4988e13cb97ca501b50d78271c6f95bdcfa08d105f90bde66c1895467;
+    let change_ephemeral_sk = 0x00b33e006176aadb2f6f57e502e1cda95491d8b362d0ac15fc7962cd7be32805;
 
     let _ = main(
         merkle_root,
@@ -430,9 +409,407 @@ fn audit_reject_memo_timelock() {
         compliance_pubkey_y,
         recipient_B,
         recipient_P,
+        recipient_owner,
         recipient_proof,
+        recipient_S,
+        bind_R,
+        bind_s,
         old_note,
         old_shared_secret,
+        nk,
+        old_note_index,
+        old_note_path,
+        hashlock_preimage,
+        memo_note,
+        memo_ephemeral_sk,
+        change_note,
+        change_ephemeral_sk,
+    );
+}
+
+#[test(should_fail_with = "recipient_B not in prime-order subgroup")]
+fn audit_reject_recipient_b_low_order() {
+    let merkle_root = 0x05c1a73fa9dcd01b4cec5d9209592a5629421d0534d3f1decc791a463d969a77;
+    let current_timestamp = 0;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let recipient_B = Point {
+        x: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        y: 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000,
+    };
+    let recipient_P = Point {
+        x: 0x0464508630b85bedcc795e1f2f26a5fbd9c36b074cbbb0946c182f608ec975ab,
+        y: 0x2d3d62b4b8421137315a7903873c39feba45e5520d585d43136d5f249588cff4,
+    };
+    let recipient_owner = 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785;
+    let recipient_proof = DLEQProof {
+        U: BabyJubJub {
+            x: 0x27ee3bc33eb0726d04cdbbb05ae136b0564d09006123af5fdf939a1f52554382,
+            y: 0x116990511f1dcb2fc86c0162bcfd86ec137e118158d3e46bae37d902b4bbab12,
+        },
+        V: BabyJubJub {
+            x: 0x05bbded25bcbc72dadea0201c22a2b4ca53b1a4ae1f0f7a1afaf1ba69862f7ee,
+            y: 0x2edfdb342f7e672b9643f25629a8ee6f7afc36e9946edc420daefb6c7adb7b04,
+        },
+        z: 0x046b650eb8d15d11ba5636a5eaa2a1e16ba530bab134fb37ad1035ce41a6bb2d,
+    };
+    let recipient_S = Point {
+        x: 0x158b1d9682257c0832785c20b002c360b7f84f59f253e667659cf90c1455f764,
+        y: 0x132a0f65758b4775374cfc0a98d7f8a186e1cad626e4e4cd37b73532d7e50101,
+    };
+    let bind_R = Point {
+        x: 0x09dbdcd7d2f82bdddc16c4c9584959e728cfb25af5a7bdd34b47024dc860e03b,
+        y: 0x2d581991fae71f7965a585e267b2fba577aeedaf82aeafaa4346051f2818189a,
+    };
+    let bind_s = 0x00c19c4ad9b681323f7c7499e66cad7cf387dd060d89a990cd7338b4bfdaa760;
+
+    let old_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let old_shared_secret = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
+    let old_note_index = 0;
+    let old_note_path = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,
+    ];
+    let hashlock_preimage = 0;
+
+    let memo_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 40,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let memo_ephemeral_sk = 0x0000000000000000000000000000000000000000000000000000000000000378;
+
+    let change_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 60,
+        secret: 0x000000000000000000000000000000000000000000000000000000000000012c,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let change_ephemeral_sk = 0x00b33e006176aadb2f6f57e502e1cda95491d8b362d0ac15fc7962cd7be32805;
+
+    let _ = main(
+        merkle_root,
+        current_timestamp,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        recipient_B,
+        recipient_P,
+        recipient_owner,
+        recipient_proof,
+        recipient_S,
+        bind_R,
+        bind_s,
+        old_note,
+        old_shared_secret,
+        nk,
+        old_note_index,
+        old_note_path,
+        hashlock_preimage,
+        memo_note,
+        memo_ephemeral_sk,
+        change_note,
+        change_ephemeral_sk,
+    );
+}
+
+#[test(should_fail_with = "memo note owner must equal recipient_owner")]
+fn audit_reject_memo_owner_mismatch() {
+    let merkle_root = 0x05c1a73fa9dcd01b4cec5d9209592a5629421d0534d3f1decc791a463d969a77;
+    let current_timestamp = 0;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let recipient_B = Point {
+        x: 0x0cf064598cbf9e0f91228a743567873ef0f2001edabb432b546f6ffa0a25afe5,
+        y: 0x1209bec18717eb6499e330d9196458e04b91f995e16d76f2e4c322705c77242f,
+    };
+    let recipient_P = Point {
+        x: 0x0464508630b85bedcc795e1f2f26a5fbd9c36b074cbbb0946c182f608ec975ab,
+        y: 0x2d3d62b4b8421137315a7903873c39feba45e5520d585d43136d5f249588cff4,
+    };
+    let recipient_owner = 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785;
+    let recipient_proof = DLEQProof {
+        U: BabyJubJub {
+            x: 0x27ee3bc33eb0726d04cdbbb05ae136b0564d09006123af5fdf939a1f52554382,
+            y: 0x116990511f1dcb2fc86c0162bcfd86ec137e118158d3e46bae37d902b4bbab12,
+        },
+        V: BabyJubJub {
+            x: 0x05bbded25bcbc72dadea0201c22a2b4ca53b1a4ae1f0f7a1afaf1ba69862f7ee,
+            y: 0x2edfdb342f7e672b9643f25629a8ee6f7afc36e9946edc420daefb6c7adb7b04,
+        },
+        z: 0x046b650eb8d15d11ba5636a5eaa2a1e16ba530bab134fb37ad1035ce41a6bb2d,
+    };
+    let recipient_S = Point {
+        x: 0x158b1d9682257c0832785c20b002c360b7f84f59f253e667659cf90c1455f764,
+        y: 0x132a0f65758b4775374cfc0a98d7f8a186e1cad626e4e4cd37b73532d7e50101,
+    };
+    let bind_R = Point {
+        x: 0x09dbdcd7d2f82bdddc16c4c9584959e728cfb25af5a7bdd34b47024dc860e03b,
+        y: 0x2d581991fae71f7965a585e267b2fba577aeedaf82aeafaa4346051f2818189a,
+    };
+    let bind_s = 0x00c19c4ad9b681323f7c7499e66cad7cf387dd060d89a990cd7338b4bfdaa760;
+
+    let old_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let old_shared_secret = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
+    let old_note_index = 0;
+    let old_note_path = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,
+    ];
+    let hashlock_preimage = 0;
+
+    let memo_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 40,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        owner: 0x00000000000000000000000000000000000000000000000000000000deadbeef,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let memo_ephemeral_sk = 0x0000000000000000000000000000000000000000000000000000000000000378;
+
+    let change_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 60,
+        secret: 0x000000000000000000000000000000000000000000000000000000000000012c,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let change_ephemeral_sk = 0x00b33e006176aadb2f6f57e502e1cda95491d8b362d0ac15fc7962cd7be32805;
+
+    let _ = main(
+        merkle_root,
+        current_timestamp,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        recipient_B,
+        recipient_P,
+        recipient_owner,
+        recipient_proof,
+        recipient_S,
+        bind_R,
+        bind_s,
+        old_note,
+        old_shared_secret,
+        nk,
+        old_note_index,
+        old_note_path,
+        hashlock_preimage,
+        memo_note,
+        memo_ephemeral_sk,
+        change_note,
+        change_ephemeral_sk,
+    );
+}
+
+#[test(should_fail_with = "spend binding invalid")]
+fn audit_reject_forged_spend_binding() {
+    let merkle_root = 0x05c1a73fa9dcd01b4cec5d9209592a5629421d0534d3f1decc791a463d969a77;
+    let current_timestamp = 0;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let recipient_B = Point {
+        x: 0x0cf064598cbf9e0f91228a743567873ef0f2001edabb432b546f6ffa0a25afe5,
+        y: 0x1209bec18717eb6499e330d9196458e04b91f995e16d76f2e4c322705c77242f,
+    };
+    let recipient_P = Point {
+        x: 0x0464508630b85bedcc795e1f2f26a5fbd9c36b074cbbb0946c182f608ec975ab,
+        y: 0x2d3d62b4b8421137315a7903873c39feba45e5520d585d43136d5f249588cff4,
+    };
+    let recipient_owner = 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785;
+    let recipient_proof = DLEQProof {
+        U: BabyJubJub {
+            x: 0x27ee3bc33eb0726d04cdbbb05ae136b0564d09006123af5fdf939a1f52554382,
+            y: 0x116990511f1dcb2fc86c0162bcfd86ec137e118158d3e46bae37d902b4bbab12,
+        },
+        V: BabyJubJub {
+            x: 0x05bbded25bcbc72dadea0201c22a2b4ca53b1a4ae1f0f7a1afaf1ba69862f7ee,
+            y: 0x2edfdb342f7e672b9643f25629a8ee6f7afc36e9946edc420daefb6c7adb7b04,
+        },
+        z: 0x046b650eb8d15d11ba5636a5eaa2a1e16ba530bab134fb37ad1035ce41a6bb2d,
+    };
+    let recipient_S = Point {
+        x: 0x158b1d9682257c0832785c20b002c360b7f84f59f253e667659cf90c1455f764,
+        y: 0x132a0f65758b4775374cfc0a98d7f8a186e1cad626e4e4cd37b73532d7e50101,
+    };
+    let bind_R = Point {
+        x: 0x09dbdcd7d2f82bdddc16c4c9584959e728cfb25af5a7bdd34b47024dc860e03b,
+        y: 0x2d581991fae71f7965a585e267b2fba577aeedaf82aeafaa4346051f2818189a,
+    };
+    let bind_s = 0x00c19c4ad9b681323f7c7499e66cad7cf387dd060d89a990cd7338b4bfdaa761;
+
+    let old_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let old_shared_secret = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
+    let old_note_index = 0;
+    let old_note_path = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,
+    ];
+    let hashlock_preimage = 0;
+
+    let memo_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 40,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let memo_ephemeral_sk = 0x0000000000000000000000000000000000000000000000000000000000000378;
+
+    let change_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 60,
+        secret: 0x000000000000000000000000000000000000000000000000000000000000012c,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let change_ephemeral_sk = 0x00b33e006176aadb2f6f57e502e1cda95491d8b362d0ac15fc7962cd7be32805;
+
+    let _ = main(
+        merkle_root,
+        current_timestamp,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        recipient_B,
+        recipient_P,
+        recipient_owner,
+        recipient_proof,
+        recipient_S,
+        bind_R,
+        bind_s,
+        old_note,
+        old_shared_secret,
+        nk,
+        old_note_index,
+        old_note_path,
+        hashlock_preimage,
+        memo_note,
+        memo_ephemeral_sk,
+        change_note,
+        change_ephemeral_sk,
+    );
+}
+
+#[test(should_fail_with = "recipient_B must not be the identity")]
+fn audit_reject_identity_recipient_b() {
+    let merkle_root = 0x05c1a73fa9dcd01b4cec5d9209592a5629421d0534d3f1decc791a463d969a77;
+    let current_timestamp = 0;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let recipient_B = Point { x: 0, y: 1 };
+    let recipient_P = Point {
+        x: 0x0464508630b85bedcc795e1f2f26a5fbd9c36b074cbbb0946c182f608ec975ab,
+        y: 0x2d3d62b4b8421137315a7903873c39feba45e5520d585d43136d5f249588cff4,
+    };
+    let recipient_owner = 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785;
+    let recipient_proof = DLEQProof {
+        U: BabyJubJub {
+            x: 0x27ee3bc33eb0726d04cdbbb05ae136b0564d09006123af5fdf939a1f52554382,
+            y: 0x116990511f1dcb2fc86c0162bcfd86ec137e118158d3e46bae37d902b4bbab12,
+        },
+        V: BabyJubJub {
+            x: 0x05bbded25bcbc72dadea0201c22a2b4ca53b1a4ae1f0f7a1afaf1ba69862f7ee,
+            y: 0x2edfdb342f7e672b9643f25629a8ee6f7afc36e9946edc420daefb6c7adb7b04,
+        },
+        z: 0x046b650eb8d15d11ba5636a5eaa2a1e16ba530bab134fb37ad1035ce41a6bb2d,
+    };
+    let recipient_S = Point {
+        x: 0x158b1d9682257c0832785c20b002c360b7f84f59f253e667659cf90c1455f764,
+        y: 0x132a0f65758b4775374cfc0a98d7f8a186e1cad626e4e4cd37b73532d7e50101,
+    };
+    let bind_R = Point {
+        x: 0x09dbdcd7d2f82bdddc16c4c9584959e728cfb25af5a7bdd34b47024dc860e03b,
+        y: 0x2d581991fae71f7965a585e267b2fba577aeedaf82aeafaa4346051f2818189a,
+    };
+    let bind_s = 0x00c19c4ad9b681323f7c7499e66cad7cf387dd060d89a990cd7338b4bfdaa760;
+
+    let old_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let old_shared_secret = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
+    let old_note_index = 0;
+    let old_note_path = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,
+    ];
+    let hashlock_preimage = 0;
+
+    let memo_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 40,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let memo_ephemeral_sk = 0x0000000000000000000000000000000000000000000000000000000000000378;
+
+    let change_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 60,
+        secret: 0x000000000000000000000000000000000000000000000000000000000000012c,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
+    };
+    let change_ephemeral_sk = 0x00b33e006176aadb2f6f57e502e1cda95491d8b362d0ac15fc7962cd7be32805;
+
+    let _ = main(
+        merkle_root,
+        current_timestamp,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        recipient_B,
+        recipient_P,
+        recipient_owner,
+        recipient_proof,
+        recipient_S,
+        bind_R,
+        bind_s,
+        old_note,
+        old_shared_secret,
+        nk,
         old_note_index,
         old_note_path,
         hashlock_preimage,

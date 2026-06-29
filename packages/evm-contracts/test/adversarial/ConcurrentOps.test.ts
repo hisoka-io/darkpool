@@ -63,6 +63,7 @@ describe("Adversarial: Concurrent Operations", function () {
       compliancePk: COMPLIANCE_PK,
       oldNote: dep.depositPlain,
       oldSharedSecret: await deriveSharedSecret(dep.ephemeralSk, COMPLIANCE_PK),
+      nk: dep.nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),

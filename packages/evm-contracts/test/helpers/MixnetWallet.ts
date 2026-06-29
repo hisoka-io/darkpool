@@ -17,6 +17,7 @@ import {
   Poseidon,
   Fr,
   NotePlaintext,
+  computeOwner,
 } from "@hisoka/wallets";
 import {
   proveGasPayment,
@@ -26,7 +27,7 @@ import {
   proveTransfer,
   GasPaymentInputs,
 } from "@hisoka/prover";
-import { TestWallet } from "./TestWallet";
+import { TestWallet, RecipientBinding } from "./TestWallet";
 import { COMPLIANCE_PK } from "./fixtures";
 import type { DarkPool, MockERC20 } from "../../typechain-types";
 
@@ -93,8 +94,18 @@ export class MixnetWallet {
   async sync() {
     return this.base.sync();
   }
-  async transfer(amount: bigint, B: any, P: any, pi: any, asset?: string) {
-    return this.base.transfer(amount, B, P, pi, asset);
+  async receiveData(index: bigint = 0n) {
+    return this.base.receiveData(index);
+  }
+  async transfer(
+    amount: bigint,
+    B: any,
+    P: any,
+    pi: any,
+    recipientBinding: RecipientBinding,
+    asset?: string,
+  ) {
+    return this.base.transfer(amount, B, P, pi, recipientBinding, asset);
   }
   async withdraw(amount: bigint, options?: any) {
     return this.base.withdraw(amount, options);
@@ -132,13 +143,14 @@ export class MixnetWallet {
     }
 
     const oldSecret = paymentNote.spendingSecret;
+    const nk = await this.keyRepo.getNullifyingKey();
 
     const changeValue = paymentNote.note.value.toBigInt() - fee;
     const changeNote: NotePlaintext = {
       asset_id: paymentNote.note.asset_id,
       value: toFr(changeValue),
       secret: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
-      nullifier: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
+      owner: await computeOwner(await this.account.getPublicSpendKey()),
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -154,6 +166,7 @@ export class MixnetWallet {
       compliancePk: COMPLIANCE_PK,
       oldNote: paymentNote.note,
       oldSharedSecret: oldSecret,
+      nk,
       oldNoteIndex: paymentNote.leafIndex,
       oldNotePath: this.tree.getMerklePath(paymentNote.leafIndex),
       hashlockPreimage: toFr(0),
@@ -192,7 +205,7 @@ export class MixnetWallet {
       `      [gas] note fields: value=${gasInputs.oldNote.value.toBigInt()}, payment=${gasInputs.paymentValue.toBigInt()}, change=${gasInputs.changeNote.value.toBigInt()}`,
     );
     console.log(
-      `      [gas] note: nullifier=${gasInputs.oldNote.nullifier.toBigInt() !== 0n ? "nonzero" : "ZERO"}, secret=${gasInputs.oldNote.secret.toBigInt() !== 0n ? "nonzero" : "ZERO"}`,
+      `      [gas] note: owner=${gasInputs.oldNote.owner.toBigInt() !== 0n ? "nonzero" : "ZERO"}, secret=${gasInputs.oldNote.secret.toBigInt() !== 0n ? "nonzero" : "ZERO"}`,
     );
     console.log(
       `      [gas] pathLen=${gasInputs.oldNotePath.length}, idx=${gasInputs.oldNoteIndex}`,
@@ -244,12 +257,16 @@ export class MixnetWallet {
     if (!inputNote) throw new Error(`No note with >= ${total} for split`);
 
     const oldSecret = inputNote.spendingSecret;
+    const nk = await this.keyRepo.getNullifyingKey();
+    const selfOwner = await computeOwner(
+      await this.account.getPublicSpendKey(),
+    );
 
     const noteOut1: NotePlaintext = {
       asset_id: inputNote.note.asset_id,
       value: toFr(amountA),
       secret: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
-      nullifier: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
+      owner: selfOwner,
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -259,7 +276,7 @@ export class MixnetWallet {
       asset_id: inputNote.note.asset_id,
       value: toFr(amountB),
       secret: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
-      nullifier: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
+      owner: selfOwner,
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -274,6 +291,7 @@ export class MixnetWallet {
       indexIn: inputNote.leafIndex,
       pathIn: this.tree.getMerklePath(inputNote.leafIndex),
       preimageIn: toFr(0),
+      nk,
       noteOut1,
       skOut1,
       noteOut2,
@@ -312,13 +330,14 @@ export class MixnetWallet {
     if (!inputNote) throw new Error(`No note with >= ${amount} for withdraw`);
 
     const oldSecret = inputNote.spendingSecret;
+    const nk = await this.keyRepo.getNullifyingKey();
 
     const changeValue = inputNote.note.value.toBigInt() - amount;
     const changeNote: NotePlaintext = {
       ...inputNote.note,
       value: toFr(changeValue),
       secret: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
-      nullifier: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
+      owner: await computeOwner(await this.account.getPublicSpendKey()),
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -333,6 +352,7 @@ export class MixnetWallet {
       compliancePk: COMPLIANCE_PK,
       oldNote: inputNote.note,
       oldSharedSecret: oldSecret,
+      nk,
       oldNoteIndex: inputNote.leafIndex,
       oldNotePath: this.tree.getMerklePath(inputNote.leafIndex),
       hashlockPreimage: toFr(0),
@@ -365,6 +385,7 @@ export class MixnetWallet {
 
     const secretA = noteA.spendingSecret;
     const secretB = noteB.spendingSecret;
+    const nk = await this.keyRepo.getNullifyingKey();
 
     const totalValue =
       noteA.note.value.toBigInt() + noteB.note.value.toBigInt();
@@ -372,7 +393,7 @@ export class MixnetWallet {
       asset_id: noteA.note.asset_id,
       value: toFr(totalValue),
       secret: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
-      nullifier: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
+      owner: await computeOwner(await this.account.getPublicSpendKey()),
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -392,6 +413,7 @@ export class MixnetWallet {
       indexB: noteB.leafIndex,
       pathB: this.tree.getMerklePath(noteB.leafIndex),
       preimageB: toFr(0),
+      nk,
       noteOut,
       skOut,
     });
@@ -417,6 +439,7 @@ export class MixnetWallet {
     recipientB: any,
     recipientP: any,
     recipientProof: any,
+    recipientBinding: RecipientBinding,
   ): Promise<{
     memoCommitment: Fr;
     changeCommitment: Fr;
@@ -436,6 +459,7 @@ export class MixnetWallet {
       throw new Error(`Insufficient funds for transfer: ${amount}`);
 
     const oldSecret = inputData.spendingSecret;
+    const nk = await this.keyRepo.getNullifyingKey();
 
     const changeValue = inputData.note.value.toBigInt() - amount;
 
@@ -443,7 +467,7 @@ export class MixnetWallet {
       asset_id: inputData.note.asset_id,
       value: toFr(amount),
       secret: toFr(0),
-      nullifier: toFr(0),
+      owner: recipientBinding.owner,
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -455,7 +479,7 @@ export class MixnetWallet {
       asset_id: inputData.note.asset_id,
       value: toFr(changeValue),
       secret: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
-      nullifier: toFr(ethersLib.toBigInt(ethersLib.randomBytes(31))),
+      owner: await computeOwner(await this.account.getPublicSpendKey()),
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -467,9 +491,14 @@ export class MixnetWallet {
       compliancePk: COMPLIANCE_PK,
       recipientB,
       recipientP,
+      recipientOwner: recipientBinding.owner,
       recipientProof,
+      recipientS: recipientBinding.S,
+      bindR: recipientBinding.bindR,
+      bindS: recipientBinding.bindS,
       oldNote: inputData.note,
       oldSharedSecret: oldSecret,
+      nk,
       oldNoteIndex: inputData.leafIndex,
       oldNotePath: this.tree.getMerklePath(inputData.leafIndex),
       hashlockPreimage: toFr(0),
@@ -489,8 +518,8 @@ export class MixnetWallet {
     ]);
 
     const pub = proof.publicInputs.map((s) => toFr(s));
-    const memoCommitment = await Poseidon.hash(pub.slice(11, 18));
-    const changeCommitment = await Poseidon.hash(pub.slice(24, 31));
+    const memoCommitment = await Poseidon.hash(pub.slice(12, 19));
+    const changeCommitment = await Poseidon.hash(pub.slice(25, 32));
     return {
       memoCommitment,
       changeCommitment,

@@ -7,6 +7,7 @@ fn main(
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
     current_timestamp: pub Field,
+    claimer_owner: pub Field,
     val: Field,
     asset_id: Field,
     timelock: Field,
@@ -17,7 +18,10 @@ fn main(
     note_out: Note,
     sk_out: Field,
 ) -> pub (Field, Field, [Field; 7], Field) {
-    let computed_id = Poseidon2::hash([val, asset_id, timelock, owner_x, owner_y, salt], 6);
+    let computed_id = Poseidon2::hash(
+        [val, asset_id, timelock, owner_x, owner_y, claimer_owner, salt],
+        7,
+    );
     assert(computed_id == memo_id);
     assert(
         (timelock == 0) | (current_timestamp as u64 >= timelock as u64),
@@ -30,6 +34,7 @@ fn main(
 
     assert(note_out.value as Field == val);
     assert(note_out.asset_id == asset_id);
+    assert(note_out.owner == claimer_owner, "note_out owner must equal claimer_owner");
 
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     let enc = encrypt_note_for_compliance(note_out, sk_out, compliance_pk);
@@ -39,7 +44,7 @@ fn main(
 
 #[test]
 pub fn test_public_claim() {
-    let memo_id = 0x0731300919ae74d1507ab3b22cac576da8c86deb8ddc11f24317b861f17f6f93;
+    let memo_id = 0x0147d1cca002f07222d2606742f4774208eb6a10bda5c630483c0a3866965e0d;
     let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
     let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
 
@@ -50,6 +55,7 @@ pub fn test_public_claim() {
     let owner_x = 0x2a39f6a9afe8c569977ec299af985e30142d18ee451008ffd13fc0a2a36cf54e;
     let owner_y = 0x1d5a43dc73fe0493cce521cc92a4d34d4837214ce47871c587c567d2d0c72c8f;
     let salt = 0x004996117eaf098d97b6a42a8ec9c27b5ec30cdca90ffbdb6792eb4733c982d4;
+    let claimer_owner = 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27;
 
     let recipient_sk = 0x0000000000000000000000000000000000000000000000000000000000003039;
 
@@ -57,7 +63,7 @@ pub fn test_public_claim() {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 100,
         secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
-        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000378,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0,
         hashlock: 0,
     };
@@ -69,10 +75,10 @@ pub fn test_public_claim() {
         0x00badb19c1485c1366b56585c3d7ac572d3dd1ebafcdb9d8b43bac5e280a056b,
         0x004d73f3b84a4ac682f32c6b4f1610e3dd5f5bf07ea074109572feccf595024e,
         0x002775cb2d3ac252728995a20611962630baad45c824d4e5458a1f2b2b2a999e,
-        0x003d9a6736188a28656f7505c7f9a3a9a89407d61b6f1151582022b3981853c0,
-        0x00fea675fcc075d25891db0752ffe9759c5d60aba895b35babeb698573862657,
-        0x0009cf0fb055f7112057858c9816e6ce579a3f648c90d869b6e450ed9f7548c6,
-        0x00000000000000000000f5110dbc4dc465f9928f19f11f7076b46fd7f09b366c,
+        0x00c6f7a267fca9f1f8bc0fec8838e68fabd57037d5372998af0a322c211853c0,
+        0x00168263efc224a2d101bafaf0171ed497263770e8e258e3b85767c35b1cd672,
+        0x004ddd62dbdf416823a033c923fca1e63046a0269c4e34f3397f40767595dc10,
+        0x0000000000000000000056bb1cadc0422640191916d5bbb258a957055f2aa25,
     ];
 
     let (epk_x, epk_y, ct, asset_ret) = main(
@@ -80,6 +86,7 @@ pub fn test_public_claim() {
         compliance_pubkey_x,
         compliance_pubkey_y,
         current_timestamp,
+        claimer_owner,
         val,
         asset_id,
         timelock,
@@ -99,7 +106,7 @@ pub fn test_public_claim() {
 
 #[test]
 pub fn test_public_claim_timelock_active() {
-    let memo_id = 0x0731300919ae74d1507ab3b22cac576da8c86deb8ddc11f24317b861f17f6f93;
+    let memo_id = 0x0147d1cca002f07222d2606742f4774208eb6a10bda5c630483c0a3866965e0d;
     let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
     let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
     let val = 0x0000000000000000000000000000000000000000000000000000000000000064;
@@ -110,12 +117,13 @@ pub fn test_public_claim_timelock_active() {
     let owner_x = 0x2a39f6a9afe8c569977ec299af985e30142d18ee451008ffd13fc0a2a36cf54e;
     let owner_y = 0x1d5a43dc73fe0493cce521cc92a4d34d4837214ce47871c587c567d2d0c72c8f;
     let salt = 0x004996117eaf098d97b6a42a8ec9c27b5ec30cdca90ffbdb6792eb4733c982d4;
+    let claimer_owner = 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27;
     let recipient_sk = 0x0000000000000000000000000000000000000000000000000000000000003039;
     let note_out = Note {
         asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
         value: 100,
         secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
-        nullifier: 0x0000000000000000000000000000000000000000000000000000000000000378,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
         timelock: 0,
         hashlock: 0,
     };
@@ -126,6 +134,7 @@ pub fn test_public_claim_timelock_active() {
         compliance_pubkey_x,
         compliance_pubkey_y,
         current_timestamp,
+        claimer_owner,
         val,
         asset_id,
         timelock,

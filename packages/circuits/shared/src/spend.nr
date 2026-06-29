@@ -17,10 +17,7 @@ pub fn verify_spend(
     let commitment = ciphertext_commitment(packed);
 
     let pk = BJJ::new(nk).derive_public_key();
-    assert(
-        note.owner == Poseidon2::hash([pk.x, pk.y], 2),
-        "spender does not own this note",
-    );
+    assert(note.owner == Poseidon2::hash([pk.x, pk.y], 2), "spender does not own this note");
 
     if note.timelock != 0 {
         assert(current_timestamp as u64 >= note.timelock as u64);

@@ -13,7 +13,12 @@ import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { deployDarkPoolFixture, COMPLIANCE_PK } from "../helpers/fixtures";
 import { TestWallet } from "../helpers/TestWallet";
-import { generateDLEQProof, toFr, Poseidon } from "@hisoka/wallets";
+import {
+  generateDLEQProof,
+  toFr,
+  Poseidon,
+  computeOwner,
+} from "@hisoka/wallets";
 import { proveSplit, proveJoin, SplitInputs, JoinInputs } from "@hisoka/prover";
 import { NoxClient } from "@hisoka-io/nox-client";
 import * as fs from "node:fs";
@@ -120,12 +125,16 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
         })();
     const merkleRoot = aliceWallet.tree.getRoot();
     const merklePath = aliceWallet.tree.getMerklePath(inputNote.leafIndex);
+    const aliceNk = await aliceWallet.keyRepo.getNullifyingKey();
+    const aliceOwner = await computeOwner(
+      await aliceWallet.account.getPublicSpendKey(),
+    );
 
     const noteOut1 = {
       asset_id: inputNote.note.asset_id,
       value: toFr(SPLIT_A),
       secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      nullifier: toFr(ethers.toBigInt(ethers.randomBytes(31))),
+      owner: aliceOwner,
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -135,7 +144,7 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
       asset_id: inputNote.note.asset_id,
       value: toFr(SPLIT_B),
       secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      nullifier: toFr(ethers.toBigInt(ethers.randomBytes(31))),
+      owner: aliceOwner,
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -150,6 +159,7 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
       indexIn: inputNote.leafIndex,
       pathIn: merklePath,
       preimageIn: toFr(0),
+      nk: aliceNk,
       noteOut1,
       skOut1,
       noteOut2,
@@ -188,12 +198,22 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     const bobIvk = await bobWallet.account.getIncomingViewingKey(0n);
     const bobAddr = await generateDLEQProof(bobIvk.toBigInt(), COMPLIANCE_PK);
 
+    const bobS = await bobWallet.account.getPublicSpendKey();
+    const bobBinding = await bobWallet.account.signSpendBinding(0n);
+    const bobRecipientBinding = {
+      owner: await computeOwner(bobS),
+      S: bobS,
+      bindR: bobBinding.R,
+      bindS: toFr(bobBinding.s),
+    };
+
     // Spends Alice's 60-token note from the split
     const trf = await aliceWallet.transfer(
       TRANSFER_AMT,
       bobAddr.B,
       bobAddr.P,
       bobAddr.pi,
+      bobRecipientBinding,
     );
 
     await bobWallet.syncTree(trf.memoCommitment);
@@ -260,12 +280,16 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     const secretB = noteB.isTransfer
       ? noteB.spendingSecret
       : await deriveSharedSecret(noteB.spendingSecret, COMPLIANCE_PK);
+    const aliceNk = await aliceWallet.keyRepo.getNullifyingKey();
+    const aliceOwner = await computeOwner(
+      await aliceWallet.account.getPublicSpendKey(),
+    );
 
     const joinOutput = {
       asset_id: noteA.note.asset_id,
       value: toFr(ethers.parseEther("80")),
       secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      nullifier: toFr(ethers.toBigInt(ethers.randomBytes(31))),
+      owner: aliceOwner,
       timelock: toFr(0),
       hashlock: toFr(0),
     };
@@ -285,6 +309,7 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
       indexB: noteB.leafIndex,
       pathB: aliceWallet.tree.getMerklePath(noteB.leafIndex),
       preimageB: toFr(0),
+      nk: aliceNk,
       noteOut: joinOutput,
       skOut,
     };
@@ -391,11 +416,21 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     const bobIvk = await bobWallet.account.getIncomingViewingKey(0n);
     const bobAddr = await generateDLEQProof(bobIvk.toBigInt(), COMPLIANCE_PK);
 
+    const bobS = await bobWallet.account.getPublicSpendKey();
+    const bobBinding = await bobWallet.account.signSpendBinding(0n);
+    const bobRecipientBinding = {
+      owner: await computeOwner(bobS),
+      S: bobS,
+      bindR: bobBinding.R,
+      bindS: toFr(bobBinding.s),
+    };
+
     const trf = await aliceWallet.transfer(
       ethers.parseEther("20"),
       bobAddr.B,
       bobAddr.P,
       bobAddr.pi,
+      bobRecipientBinding,
       tokenAddr,
     );
 
@@ -436,6 +471,9 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
 
     const salt = 12345n;
     const timelock = 0n;
+    const claimerOwner = (
+      await computeOwner(await charlieWallet.account.getPublicSpendKey())
+    ).toBigInt();
 
     await token.connect(alice).approve(await darkPool.getAddress(), AMOUNT);
     const ptTx = await darkPool
@@ -443,6 +481,7 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
       .publicTransfer(
         charliePk[0],
         charliePk[1],
+        claimerOwner,
         tokenAddr,
         AMOUNT,
         timelock,

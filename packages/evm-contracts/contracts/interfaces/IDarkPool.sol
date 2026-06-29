@@ -17,6 +17,7 @@ interface IDarkPool {
     function publicTransfer(
         uint256 _ownerX,
         uint256 _ownerY,
+        uint256 _claimerOwner,
         address _asset,
         uint256 _value,
         uint256 _timelock,

@@ -6,7 +6,11 @@ import { toReducedFr } from "../crypto/fields.js";
 import { Point, mulPointEscalar, Base8 } from "@zk-kit/baby-jubjub";
 import { IDarkAccount } from "../interfaces.js";
 import { toFr } from "../crypto/fields.js";
-import { toBjjScalar } from "../crypto/index.js";
+import {
+  toBjjScalar,
+  signSpendBinding,
+  SpendBinding,
+} from "../crypto/index.js";
 
 async function mnemonicToSeed(mnemonic: string): Promise<Uint8Array> {
   const encoder = new TextEncoder();
@@ -99,6 +103,15 @@ export class DarkAccount implements IDarkAccount {
   public async getPublicSpendKey(): Promise<Point<bigint>> {
     const nk = await this.getNullifyingKey();
     return mulPointEscalar(Base8, nk.toBigInt());
+  }
+
+  public async signSpendBinding(index: bigint): Promise<SpendBinding> {
+    const ivk = await this.getIncomingViewingKey(index);
+    const pkSpend = await this.getPublicSpendKey();
+    const nonce = toBjjScalar(
+      await Kdf.derive("hisoka.spendBindNonce", ivk, toFr(pkSpend[0])),
+    );
+    return signSpendBinding(ivk.toBigInt(), pkSpend, nonce.toBigInt());
   }
 
   public async getViewKey(): Promise<Fr> {

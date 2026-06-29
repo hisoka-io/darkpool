@@ -20,6 +20,7 @@ export interface WithdrawInputs {
 
   oldNote: NotePlaintext;
   oldSharedSecret: Fr;
+  nk: Fr;
   oldNoteIndex: number;
   oldNotePath: Fr[];
   hashlockPreimage: Fr;
@@ -35,10 +36,15 @@ export interface TransferInputs {
 
   recipientB: Point<bigint>;
   recipientP: Point<bigint>;
+  recipientOwner: Fr;
   recipientProof: DLEQProof;
+  recipientS: Point<bigint>;
+  bindR: Point<bigint>;
+  bindS: Fr;
 
   oldNote: NotePlaintext;
   oldSharedSecret: Fr;
+  nk: Fr;
   oldNoteIndex: number;
   oldNotePath: Fr[];
   hashlockPreimage: Fr;
@@ -73,6 +79,8 @@ export interface JoinInputs {
   pathB: Fr[];
   preimageB: Fr;
 
+  nk: Fr;
+
   noteOut: NotePlaintext;
   skOut: Fr;
 }
@@ -87,6 +95,8 @@ export interface SplitInputs {
   indexIn: number;
   pathIn: Fr[];
   preimageIn: Fr;
+
+  nk: Fr;
 
   noteOut1: NotePlaintext;
   skOut1: Fr;
@@ -105,6 +115,7 @@ export interface GasPaymentInputs {
 
   oldNote: NotePlaintext;
   oldSharedSecret: Fr;
+  nk: Fr;
   oldNoteIndex: number;
   oldNotePath: Fr[];
   hashlockPreimage: Fr;
@@ -117,6 +128,7 @@ export interface PublicClaimInputs {
   memoId: Fr;
   compliancePk: Point<bigint>;
   currentTimestamp: number;
+  claimerOwner: Fr;
 
   val: Fr;
   assetId: Fr;

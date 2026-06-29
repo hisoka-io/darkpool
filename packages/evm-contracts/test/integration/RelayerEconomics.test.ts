@@ -79,6 +79,7 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
       depositPlain: notePlaintext,
       ephemeralSk,
       commitment,
+      nk,
     } = await makeDeposit(darkPool, token, alice, 100n);
 
     const tree = new LeanIMT(32);
@@ -94,7 +95,7 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
       asset_id: notePlaintext.asset_id,
       value: toFr(90n), // 100 - 10 = 90 change
       secret: toFr(789n),
-      nullifier: toFr(1011n),
+      owner: notePlaintext.owner,
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };
@@ -109,6 +110,7 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
       compliancePk: COMPLIANCE_PK,
       oldNote: notePlaintext,
       oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
+      nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),
@@ -168,6 +170,7 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
       depositPlain: notePlaintext,
       ephemeralSk,
       commitment,
+      nk,
     } = await makeDeposit(darkPool, token, alice, 100n);
 
     const tree = new LeanIMT(32);
@@ -182,7 +185,7 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
       asset_id: notePlaintext.asset_id,
       value: toFr(90n),
       secret: toFr(789n),
-      nullifier: toFr(1011n),
+      owner: notePlaintext.owner,
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };
@@ -197,6 +200,7 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
       compliancePk: COMPLIANCE_PK,
       oldNote: notePlaintext,
       oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
+      nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),
@@ -244,7 +248,7 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
         asset_id: deposits[i]!.depositPlain.asset_id,
         value: toFr(45n), // 50 - 5
         secret: toFr(BigInt(100 + i)),
-        nullifier: toFr(BigInt(200 + i)),
+        owner: deposits[i]!.depositPlain.owner,
         timelock: toFr(0n),
         hashlock: toFr(0n),
       };
@@ -262,6 +266,7 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
           deposits[i]!.ephemeralSk,
           COMPLIANCE_PK,
         ),
+        nk: deposits[i]!.nk,
         oldNoteIndex: i,
         oldNotePath: tree.getMerklePath(i),
         hashlockPreimage: toFr(0n),

@@ -8,21 +8,24 @@ import {
 } from "../helpers/fixtures";
 import {
   toFr,
+  Fr,
   LeanIMT,
   deriveSharedSecret,
   NotePlaintext,
   generateDLEQProof,
   complianceDecryptNote,
   complianceDecrypt3Party,
-  deriveNullifierPathA,
-  deriveNullifierPathB,
+  computeOwner,
+  deriveNullifier,
+  signSpendBinding,
+  toBjjScalar,
 } from "@hisoka/wallets";
 import {
   proveTransfer,
   TransferInputs,
   unpackCiphertext,
 } from "@hisoka/prover";
-import { Point } from "@zk-kit/baby-jubjub";
+import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
 import { DarkPool } from "../../typechain-types";
 
 class ComplianceTool {
@@ -33,9 +36,13 @@ class ComplianceTool {
   > = new Map();
   public spentNullifiers: Set<string> = new Set();
 
+  // The nullifier is Poseidon2(nk, commitment, leafIndex) and binds to the
+  // spender's nullifying key. Compliance reconstructs spend correlation with
+  // the spender's nk supplied by the audit harness.
   constructor(
     public readonly complianceSk: bigint,
     public readonly contract: DarkPool,
+    public readonly spenderNk: Fr,
   ) {}
 
   // Simulate indexing by fetching all events
@@ -78,14 +85,9 @@ class ComplianceTool {
         ciphertext,
       );
 
-      // Path A nullifier indexes this note
       const commitment = toFr(event.args.commitment);
       const leafIndex = Number(event.args.leafIndex);
-      const nf = await deriveNullifierPathA(
-        note.nullifier,
-        commitment,
-        leafIndex,
-      );
+      const nf = await deriveNullifier(this.spenderNk, commitment, leafIndex);
       this.observedNotes.set(nf.toString(), { note, type: "DEPOSIT" });
     } catch {
       // Compliance should read all NewNotes; ignore any that fail to decrypt
@@ -107,15 +109,14 @@ class ComplianceTool {
     const ciphertext = unpackCiphertext(packedFr);
 
     try {
-      const { note, sharedSecret } = await complianceDecrypt3Party(
+      const { note } = await complianceDecrypt3Party(
         this.complianceSk,
         intermediate,
         ciphertext,
       );
 
-      // Path B nullifier = Hash(sharedSecret, commitment, index)
-      const nf = await deriveNullifierPathB(
-        sharedSecret,
+      const nf = await deriveNullifier(
+        this.spenderNk,
         toFr(commitment),
         leafIndex,
       );
@@ -146,7 +147,7 @@ describe("Integration: Compliance God View", function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
 
     // --- 1. ALICE DEPOSITS 100 ---
-    const { depositPlain, ephemeralSk, commitment } = await makeDeposit(
+    const { depositPlain, ephemeralSk, commitment, nk } = await makeDeposit(
       darkPool,
       token,
       alice,
@@ -157,7 +158,15 @@ describe("Integration: Compliance God View", function () {
     // (This spends the 100 note, creates 40 Memo + 60 Change)
     const tree = new LeanIMT(32);
     await tree.insert(commitment);
-    const bob_dleq = await generateDLEQProof(555n, COMPLIANCE_PK);
+    const bobIvk = 555n;
+    const bob_dleq = await generateDLEQProof(bobIvk, COMPLIANCE_PK);
+
+    // Bob's spend key set: S = nk_bob*G, owner = Poseidon2(S), plus a spend
+    // binding signed with Bob's viewing key (recipient_B = bobIvk*G).
+    const bobNk = toBjjScalar(toFr(777n));
+    const bobS = mulPointEscalar(Base8, bobNk.toBigInt());
+    const recipientOwner = await computeOwner(bobS);
+    const bobBinding = await signSpendBinding(bobIvk, bobS, 123456789n);
 
     const transferInputs: TransferInputs = {
       merkleRoot: tree.getRoot(),
@@ -165,15 +174,20 @@ describe("Integration: Compliance God View", function () {
       compliancePk: COMPLIANCE_PK,
       recipientB: bob_dleq.B,
       recipientP: bob_dleq.P,
+      recipientOwner,
       recipientProof: bob_dleq.pi,
+      recipientS: bobS,
+      bindR: bobBinding.R,
+      bindS: toFr(bobBinding.s),
       oldNote: depositPlain,
       oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
+      nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),
-      memoNote: { ...depositPlain, value: toFr(40n), nullifier: toFr(0n) }, // 40 to Bob
+      memoNote: { ...depositPlain, value: toFr(40n), owner: recipientOwner }, // 40 to Bob
       memoEphemeralSk: toFr(12n),
-      changeNote: { ...depositPlain, value: toFr(60n), nullifier: toFr(999n) }, // 60 Change
+      changeNote: { ...depositPlain, value: toFr(60n) }, // 60 Change (self-owned)
       changeEphemeralSk: toFr(34n),
     };
     const trfProof = await proveTransfer(transferInputs);
@@ -182,7 +196,7 @@ describe("Integration: Compliance God View", function () {
       .privateTransfer(trfProof.proof, trfProof.publicInputs);
 
     // --- 3. COMPLIANCE AUDIT ---
-    const tool = new ComplianceTool(COMPLIANCE_SK, darkPool);
+    const tool = new ComplianceTool(COMPLIANCE_SK, darkPool, nk);
     await tool.sync();
 
     const report = tool.generateReport();

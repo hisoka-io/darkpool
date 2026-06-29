@@ -13,7 +13,7 @@ import {
   SwapType,
   hashUniswapIntent,
 } from "@hisoka/adaptors";
-import { addressToFr, toFr } from "@hisoka/wallets";
+import { addressToFr, toFr, computeOwner } from "@hisoka/wallets";
 import { DarkPool, IERC20, UniswapAdaptor } from "../../../../typechain-types";
 import { TestWallet } from "../../../helpers/TestWallet";
 
@@ -38,13 +38,21 @@ class TraderAgent {
       await this.wallet.account.getPublicIncomingViewingKey(0n);
     const recipientSk = await this.wallet.account.getIncomingViewingKey(0n);
 
+    const claimerOwner = (
+      await computeOwner(await this.wallet.account.getPublicSpendKey())
+    ).toBigInt();
+
     const params: UniswapSwapParams = {
       type: SwapType.ExactInputSingle,
       assetIn,
       assetOut,
       fee,
       amountOutMin: 0n,
-      recipient: { ownerX: recipientPk[0], ownerY: recipientPk[1] },
+      recipient: {
+        ownerX: recipientPk[0],
+        ownerY: recipientPk[1],
+        claimerOwner,
+      },
     };
 
     const intentHash = await hashUniswapIntent(params);
@@ -58,14 +66,18 @@ class TraderAgent {
     const abiCoder = new ethers.AbiCoder();
     const encodedParams = abiCoder.encode(
       [
-        "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin)",
+        "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOutMin)",
       ],
       [
         [
           params.assetIn,
           params.assetOut,
           params.fee,
-          [params.recipient.ownerX, params.recipient.ownerY],
+          [
+            params.recipient.ownerX,
+            params.recipient.ownerY,
+            params.recipient.claimerOwner,
+          ],
           params.amountOutMin,
         ],
       ],
@@ -200,11 +212,21 @@ describe("Simulation: The DarkPool Trader (Multi-User DeFi)", function () {
     const { generateDLEQProof } = await import("@hisoka/wallets");
     const bobAddr = await generateDLEQProof(bobIvk.toBigInt(), COMPLIANCE_PK);
 
+    const bobS = await wBob.account.getPublicSpendKey();
+    const bobBinding = await wBob.account.signSpendBinding(0n);
+    const recipientBinding = {
+      owner: await computeOwner(bobS),
+      S: bobS,
+      bindR: bobBinding.R,
+      bindS: toFr(bobBinding.s),
+    };
+
     const trf1 = await wAlice.transfer(
       usdcReceived,
       bobAddr.B,
       bobAddr.P,
       bobAddr.pi,
+      recipientBinding,
       USDC_ADDRESS,
     );
 

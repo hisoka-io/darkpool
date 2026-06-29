@@ -22,6 +22,7 @@ describe("DarkPool Behavior: Split & Join", function () {
 
       const depA = await makeDeposit(darkPool, token, alice, 100n);
       const depB = await makeDeposit(darkPool, token, alice, 50n);
+      const nk = depA.nk;
 
       const tree = new LeanIMT(32);
       await tree.insert(depA.commitment); // index 0 = A
@@ -39,7 +40,6 @@ describe("DarkPool Behavior: Split & Join", function () {
       const noteOut: NotePlaintext = {
         ...depA.depositPlain,
         value: toFr(150n),
-        nullifier: toFr(9999n),
         secret: toFr(8888n),
       };
 
@@ -59,6 +59,8 @@ describe("DarkPool Behavior: Split & Join", function () {
         indexB: 1,
         pathB: pathB,
         preimageB: toFr(0n),
+
+        nk,
 
         noteOut: noteOut,
         skOut: toFr(777n),
@@ -94,12 +96,10 @@ describe("DarkPool Behavior: Split & Join", function () {
       const out1: NotePlaintext = {
         ...dep.depositPlain,
         value: toFr(40n),
-        nullifier: toFr(111n),
       };
       const out2: NotePlaintext = {
         ...dep.depositPlain,
         value: toFr(60n),
-        nullifier: toFr(222n),
       };
 
       const inputs: SplitInputs = {
@@ -112,6 +112,8 @@ describe("DarkPool Behavior: Split & Join", function () {
         indexIn: 0,
         pathIn: Array(32).fill(toFr(0n)),
         preimageIn: toFr(0n),
+
+        nk: dep.nk,
 
         noteOut1: out1,
         skOut1: toFr(101n),

@@ -264,7 +264,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
-        if (_publicInputs.length != 31) revert InvalidInputsLength();
+        if (_publicInputs.length != 32) revert InvalidInputsLength();
         if (!merkleTree.isKnownRoot[_publicInputs[0]]) revert InvalidRoot();
         _verifyProofTimestamp(uint256(_publicInputs[1]));
         _verifyComplianceKey(_publicInputs[2], _publicInputs[3]);
@@ -272,9 +272,9 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         if (!transferVerifier.verify(_proof, _publicInputs))
             revert InvalidProof();
 
-        _spendNullifier(_publicInputs[8]);
+        _spendNullifier(_publicInputs[9]);
         _processTransferMemo(_publicInputs);
-        _processChange(_publicInputs, 24, 22, 23);
+        _processChange(_publicInputs, 25, 23, 24);
     }
 
     function join(
@@ -312,6 +312,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     function publicTransfer(
         uint256 _ownerX,
         uint256 _ownerY,
+        uint256 _claimerOwner,
         address _asset,
         uint256 _value,
         uint256 _timelock,
@@ -319,13 +320,14 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     ) external nonReentrant whenNotPaused {
         if (_value == 0) revert ValueZero();
 
-        Field.Type[] memory inputs = new Field.Type[](6);
+        Field.Type[] memory inputs = new Field.Type[](7);
         inputs[0] = Field.toField(_value);
         inputs[1] = Field.toField(uint256(uint160(_asset)));
         inputs[2] = Field.toField(_timelock);
         inputs[3] = Field.toField(_ownerX);
         inputs[4] = Field.toField(_ownerY);
-        inputs[5] = Field.toField(_salt);
+        inputs[5] = Field.toField(_claimerOwner);
+        inputs[6] = Field.toField(_salt);
 
         bytes32 memoId = Field.toBytes32(Poseidon2.hash(inputs));
 
@@ -352,7 +354,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
-        if (_publicInputs.length != 14) revert InvalidInputsLength();
+        if (_publicInputs.length != 15) revert InvalidInputsLength();
 
         bytes32 memoId = _publicInputs[0];
         if (!isValidPublicMemo[memoId]) revert MemoInvalid();
@@ -369,7 +371,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         isPublicMemoSpent[memoId] = true;
         emit PublicMemoSpent(memoId);
 
-        _processChange(_publicInputs, 6, 4, 5);
+        _processChange(_publicInputs, 7, 5, 6);
     }
 
     /**
@@ -418,7 +420,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         Field.Type[] memory packedMemo = new Field.Type[](7);
         bytes32[7] memory packedMemoEvent;
         for (uint256 i = 0; i < 7; i++) {
-            bytes32 val = _publicInputs[11 + i];
+            bytes32 val = _publicInputs[12 + i];
             packedMemo[i] = Field.toField(uint256(val));
             packedMemoEvent[i] = val;
         }
@@ -429,13 +431,13 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
             memoIndex,
             memoCommitment,
             uint256(_publicInputs[6]),
-            uint256(_publicInputs[9]),
             uint256(_publicInputs[10]),
+            uint256(_publicInputs[11]),
             packedMemoEvent,
-            uint256(_publicInputs[18]),
             uint256(_publicInputs[19]),
             uint256(_publicInputs[20]),
-            uint256(_publicInputs[21])
+            uint256(_publicInputs[21]),
+            uint256(_publicInputs[22])
         );
     }
 

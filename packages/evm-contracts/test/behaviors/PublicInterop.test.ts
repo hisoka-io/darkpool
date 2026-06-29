@@ -3,6 +3,7 @@ import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { deployDarkPoolFixture } from "../helpers/fixtures";
 import { TestWallet } from "../helpers/TestWallet";
+import { computeOwner } from "@hisoka/wallets";
 import { EventLog } from "ethers";
 
 describe("DarkPool Behavior: Public Interop", function () {
@@ -19,6 +20,9 @@ describe("DarkPool Behavior: Public Interop", function () {
     await bobWallet.keyRepo.advanceIncomingKeys(1);
     const bobSk = await bobWallet.account.getIncomingViewingKey(0n);
     const bobPk = await bobWallet.account.getPublicIncomingViewingKey(0n);
+    const bobClaimerOwner = (
+      await computeOwner(await bobWallet.account.getPublicSpendKey())
+    ).toBigInt();
 
     await token.connect(alice).approve(await darkPool.getAddress(), AMOUNT);
 
@@ -26,6 +30,7 @@ describe("DarkPool Behavior: Public Interop", function () {
     const tx = await darkPool.connect(alice).publicTransfer(
       bobPk[0],
       bobPk[1],
+      bobClaimerOwner,
       await token.getAddress(),
       AMOUNT,
       0, // No timelock
@@ -82,6 +87,9 @@ describe("DarkPool Behavior: Public Interop", function () {
     await bobWallet.keyRepo.advanceIncomingKeys(1);
     const bobSk = await bobWallet.account.getIncomingViewingKey(0n);
     const bobPk = await bobWallet.account.getPublicIncomingViewingKey(0n);
+    const bobClaimerOwner = (
+      await computeOwner(await bobWallet.account.getPublicSpendKey())
+    ).toBigInt();
 
     await token.connect(alice).approve(await darkPool.getAddress(), AMOUNT);
     const tx = await darkPool
@@ -89,6 +97,7 @@ describe("DarkPool Behavior: Public Interop", function () {
       .publicTransfer(
         bobPk[0],
         bobPk[1],
+        bobClaimerOwner,
         await token.getAddress(),
         AMOUNT,
         0,

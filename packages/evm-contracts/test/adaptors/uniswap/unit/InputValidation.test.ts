@@ -15,9 +15,22 @@ import {
   addressToFr,
   LeanIMT,
   Poseidon,
+  Fr,
+  Kdf,
+  toBjjScalar,
+  computeOwner,
 } from "@hisoka/wallets";
+import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
 import { proveWithdraw, WithdrawInputs } from "@hisoka/prover";
 import { hashUniswapIntent, SwapType } from "@hisoka/adaptors";
+
+// Deterministic spending key for the hand-built deposit note: verify_spend
+// asserts note.owner == Poseidon2(nk*G), so owner and nk must agree.
+async function spendKeyMaterial(): Promise<{ nk: Fr; owner: Fr }> {
+  const nk = toBjjScalar(await Kdf.derive("hisoka.test.nk", toFr(1n)));
+  const owner = await computeOwner(mulPointEscalar(Base8, nk.toBigInt()));
+  return { nk, owner };
+}
 
 describe("Uniswap Adaptor: Security & Validation", function () {
   this.timeout(0); // Forking
@@ -28,11 +41,12 @@ describe("Uniswap Adaptor: Security & Validation", function () {
     // Deposit 10 WETH
     const amount = ethers.parseEther("10");
     const assetFr = addressToFr(WETH_ADDRESS);
+    const { nk, owner } = await spendKeyMaterial();
     const note: NotePlaintext = {
       value: toFr(amount),
       asset_id: assetFr,
       secret: toFr(10n),
-      nullifier: toFr(20n),
+      owner,
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };
@@ -59,11 +73,11 @@ describe("Uniswap Adaptor: Security & Validation", function () {
     const pub = depProof.publicInputs.map((s) => toFr(s));
     await tree.insert(await Poseidon.hash(pub.slice(6, 13)));
 
-    return { ...data, tree, note, enc, amount };
+    return { ...data, tree, note, enc, amount, nk };
   }
 
   it("SECURITY: Should reject if Intent Params are modified (Hijack Attempt)", async function () {
-    const { uniswapAdaptor, alice, tree, note, enc, amount } =
+    const { uniswapAdaptor, alice, tree, note, enc, amount, nk } =
       await loadFixture(fixture);
 
     // A. Alice generates proof for [WETH -> USDC]
@@ -72,7 +86,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
       assetIn: WETH_ADDRESS,
       assetOut: USDC_ADDRESS,
       fee: 3000,
-      recipient: { ownerX: 1n, ownerY: 2n },
+      recipient: { ownerX: 1n, ownerY: 2n, claimerOwner: 3n },
       amountOutMin: 0n,
     };
     // @ts-ignore
@@ -91,6 +105,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
         enc.ephemeral_sk_used,
         COMPLIANCE_PK,
       ),
+      nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),
@@ -106,14 +121,18 @@ describe("Uniswap Adaptor: Security & Validation", function () {
     const abiCoder = new ethers.AbiCoder();
     const encodedParams = abiCoder.encode(
       [
-        "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin)",
+        "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOutMin)",
       ],
       [
         [
           hijackedParams.assetIn,
           hijackedParams.assetOut,
           hijackedParams.fee,
-          [hijackedParams.recipient.ownerX, hijackedParams.recipient.ownerY],
+          [
+            hijackedParams.recipient.ownerX,
+            hijackedParams.recipient.ownerY,
+            hijackedParams.recipient.claimerOwner,
+          ],
           hijackedParams.amountOutMin,
         ],
       ],
@@ -138,7 +157,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
   });
 
   it("SECURITY: Should reject if Proof Recipient is not the Adaptor", async function () {
-    const { uniswapAdaptor, alice, tree, note, enc, amount } =
+    const { uniswapAdaptor, alice, tree, note, enc, amount, nk } =
       await loadFixture(fixture);
 
     // Alice tries to be sneaky: Generates proof withdrawing to HERSELF (Alice),
@@ -150,7 +169,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
       assetIn: WETH_ADDRESS,
       assetOut: USDC_ADDRESS,
       fee: 3000,
-      recipient: { ownerX: 1n, ownerY: 2n },
+      recipient: { ownerX: 1n, ownerY: 2n, claimerOwner: 3n },
       amountOutMin: 0n,
     };
     // @ts-ignore
@@ -168,6 +187,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
         enc.ephemeral_sk_used,
         COMPLIANCE_PK,
       ),
+      nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),
@@ -179,14 +199,18 @@ describe("Uniswap Adaptor: Security & Validation", function () {
     const abiCoder = new ethers.AbiCoder();
     const encodedParams = abiCoder.encode(
       [
-        "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin)",
+        "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOutMin)",
       ],
       [
         [
           validParams.assetIn,
           validParams.assetOut,
           validParams.fee,
-          [validParams.recipient.ownerX, validParams.recipient.ownerY],
+          [
+            validParams.recipient.ownerX,
+            validParams.recipient.ownerY,
+            validParams.recipient.claimerOwner,
+          ],
           validParams.amountOutMin,
         ],
       ],
@@ -211,13 +235,13 @@ describe("Uniswap Adaptor: Security & Validation", function () {
   });
 
   const EIS_TUPLE =
-    "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin)";
+    "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOutMin)";
 
   function encodeEIS(p: {
     assetIn: string;
     assetOut: string;
     fee: number;
-    recipient: { ownerX: bigint; ownerY: bigint };
+    recipient: { ownerX: bigint; ownerY: bigint; claimerOwner: bigint };
     amountOutMin: bigint;
   }) {
     return new ethers.AbiCoder().encode(
@@ -227,7 +251,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
           p.assetIn,
           p.assetOut,
           p.fee,
-          [p.recipient.ownerX, p.recipient.ownerY],
+          [p.recipient.ownerX, p.recipient.ownerY, p.recipient.claimerOwner],
           p.amountOutMin,
         ],
       ],
@@ -244,6 +268,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
   ) {
     // @ts-ignore
     const intentHash = await hashUniswapIntent(params);
+    const { nk } = await spendKeyMaterial();
     const inputs: WithdrawInputs = {
       withdrawValue: toFr(amount),
       recipient: addressToFr(await data.uniswapAdaptor.getAddress()),
@@ -256,6 +281,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
         enc.ephemeral_sk_used,
         COMPLIANCE_PK,
       ),
+      nk,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
       hashlockPreimage: toFr(0n),
@@ -275,7 +301,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
     assetIn: WETH_ADDRESS,
     assetOut: USDC_ADDRESS,
     fee: 3000,
-    recipient: { ownerX: 777n, ownerY: 888n },
+    recipient: { ownerX: 777n, ownerY: 888n, claimerOwner: 999n },
     amountOutMin: 0n,
   };
 

@@ -28,7 +28,7 @@ describe("proveDeposit End-to-End (with Packed Ciphertext)", () => {
       value: toFr(100n),
       asset_id: addressToFr("0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270"),
       secret: toFr(456n),
-      nullifier: toFr(789n),
+      owner: toFr(789n),
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };

@@ -23,6 +23,7 @@ import {
   NotePlaintext,
   DarkAccount,
   KeyRepository,
+  computeOwner,
 } from "@hisoka/wallets";
 import { proveDeposit, proveGasPayment, proveSplit } from "@hisoka/prover";
 
@@ -192,6 +193,10 @@ async function main() {
   const keyRepo = new KeyRepository(account, COMPLIANCE_PK);
   const darkPool = new ethers.Contract(DARKPOOL, DARKPOOL_ABI, provider);
 
+  // Spend material for self-owned notes: verify_spend asserts owner == Poseidon2(nk*G).
+  const nk = await keyRepo.getNullifyingKey();
+  const owner = await computeOwner(await account.getPublicSpendKey());
+
   // ========================================================================
   // PHASE 1: Deposits (user signs, broadcasts via mixnet)
   // ========================================================================
@@ -211,7 +216,7 @@ async function main() {
       asset_id: addressToFr(TOKEN),
       value: toFr(ethers.parseEther("100")),
       secret: toFr(BigInt(ethers.hexlify(ethers.randomBytes(31)))),
-      nullifier: toFr(BigInt(ethers.hexlify(ethers.randomBytes(31)))),
+      owner,
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };
@@ -252,7 +257,7 @@ async function main() {
       asset_id: addressToFr(TOKEN),
       value: toFr(ethers.parseEther("10")),
       secret: toFr(BigInt(ethers.hexlify(ethers.randomBytes(31)))),
-      nullifier: toFr(BigInt(ethers.hexlify(ethers.randomBytes(31)))),
+      owner,
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };
@@ -325,7 +330,7 @@ async function main() {
     asset_id: actionNote.note.asset_id,
     value: toFr(ethers.parseEther("60")),
     secret: toFr(BigInt(ethers.hexlify(ethers.randomBytes(31)))),
-    nullifier: toFr(BigInt(ethers.hexlify(ethers.randomBytes(31)))),
+    owner,
     timelock: toFr(0n),
     hashlock: toFr(0n),
   };
@@ -333,7 +338,7 @@ async function main() {
     asset_id: actionNote.note.asset_id,
     value: toFr(ethers.parseEther("40")),
     secret: toFr(BigInt(ethers.hexlify(ethers.randomBytes(31)))),
-    nullifier: toFr(BigInt(ethers.hexlify(ethers.randomBytes(31)))),
+    owner,
     timelock: toFr(0n),
     hashlock: toFr(0n),
   };
@@ -348,6 +353,7 @@ async function main() {
     indexIn: actionNote.leafIndex,
     pathIn: actionPath.map((p: string) => toFr(BigInt(p))),
     preimageIn: toFr(0),
+    nk,
     noteOut1,
     skOut1: sk1,
     noteOut2,
@@ -371,7 +377,7 @@ async function main() {
     asset_id: gasPaymentNote.note.asset_id,
     value: toFr(gasChangeValue),
     secret: toFr(BigInt(ethers.hexlify(ethers.randomBytes(31)))),
-    nullifier: toFr(BigInt(ethers.hexlify(ethers.randomBytes(31)))),
+    owner,
     timelock: toFr(0n),
     hashlock: toFr(0n),
   };
@@ -394,6 +400,7 @@ async function main() {
     compliancePk: COMPLIANCE_PK,
     oldNote: gasPaymentNote.note,
     oldSharedSecret: gasSecret,
+    nk,
     oldNoteIndex: gasPaymentNote.leafIndex,
     oldNotePath: gasPath.map((p: string) => toFr(BigInt(p))),
     hashlockPreimage: toFr(0),

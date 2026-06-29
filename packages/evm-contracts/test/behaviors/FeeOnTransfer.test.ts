@@ -8,11 +8,17 @@ import {
 } from "../helpers/fixtures";
 import { toFr, addressToFr, NotePlaintext } from "@hisoka/wallets";
 import { proveDeposit } from "@hisoka/prover";
+import { MockFeeOnTransferERC20 } from "../../typechain-types";
 
 describe("DarkPool Behavior: fee-on-transfer rejection", function () {
-  async function deployFoT(feeBps: number) {
+  async function deployFoT(feeBps: number): Promise<MockFeeOnTransferERC20> {
     const FoT = await ethers.getContractFactory("MockFeeOnTransferERC20");
-    return FoT.deploy("FeeToken", "FEE", 18, feeBps);
+    return (await FoT.deploy(
+      "FeeToken",
+      "FEE",
+      18,
+      feeBps,
+    )) as unknown as MockFeeOnTransferERC20;
   }
 
   async function buildDepositProof(tokenAddr: string, amount: bigint) {
@@ -20,7 +26,7 @@ describe("DarkPool Behavior: fee-on-transfer rejection", function () {
       value: toFr(amount),
       asset_id: addressToFr(tokenAddr),
       secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      nullifier: toFr(ethers.toBigInt(ethers.randomBytes(31))),
+      owner: toFr(ethers.toBigInt(ethers.randomBytes(31))),
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };
@@ -59,7 +65,7 @@ describe("DarkPool Behavior: fee-on-transfer rejection", function () {
     await expect(
       darkPool
         .connect(alice)
-        .publicTransfer(1n, 2n, await fot.getAddress(), amount, 0n, 12345n),
+        .publicTransfer(1n, 2n, 3n, await fot.getAddress(), amount, 0n, 12345n),
     ).to.be.revertedWithCustomError(darkPool, "FeeOnTransferUnsupported");
   });
 });

@@ -46,7 +46,8 @@ for (const name of circuits) {
 
     const tsArtifactPath = resolve(generatedDir, `${name}_circuit.ts`);
     const tsContent = `// @ts-nocheck
-export const circuit = ${JSON.stringify(circuitJson, null, 2)} as const;
+import type { CompiledCircuit } from "@noir-lang/noir_js";
+export const circuit = ${JSON.stringify(circuitJson, null, 2)} as CompiledCircuit;
 `;
     writeFileSync(tsArtifactPath, tsContent);
 

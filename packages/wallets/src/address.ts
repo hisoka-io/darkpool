@@ -13,6 +13,9 @@ export type HisokaAddressData = {
   B: Point<bigint>;
   P: Point<bigint>;
   pi: DLEQProof;
+  S: Point<bigint>;
+  bindR: Point<bigint>;
+  bindS: bigint;
 };
 
 const ADDRESS_PREFIX = "hiso";
@@ -30,7 +33,7 @@ function bigintTo32BufferBE(num: bigint): Buffer {
 }
 
 export function encodeHisokaAddress(data: HisokaAddressData): string {
-  const { B, P, pi } = data;
+  const { B, P, pi, S, bindR, bindS } = data;
   const { U, V, z } = pi;
 
   const payload = Buffer.concat([
@@ -39,6 +42,9 @@ export function encodeHisokaAddress(data: HisokaAddressData): string {
     bigintTo32BufferBE(packPoint(U)),
     bigintTo32BufferBE(packPoint(V)),
     bigintTo32BufferBE(z),
+    bigintTo32BufferBE(packPoint(S)),
+    bigintTo32BufferBE(packPoint(bindR)),
+    bigintTo32BufferBE(bindS),
   ]);
 
   return `${ADDRESS_PREFIX}_${bs58check.encode(payload)}`;
@@ -53,9 +59,9 @@ export function decodeHisokaAddress(address: string): HisokaAddressData {
   const encodedPayload = parts[1];
   const payload = bs58check.decode(encodedPayload);
 
-  if (payload.length !== 160) {
+  if (payload.length !== 256) {
     throw new Error(
-      `Invalid payload length. Expected 160 bytes, got ${payload.length}.`,
+      `Invalid payload length. Expected 256 bytes, got ${payload.length}.`,
     );
   }
 
@@ -70,19 +76,24 @@ export function decodeHisokaAddress(address: string): HisokaAddressData {
   const packed_U = sliceToBigInt(64);
   const packed_V = sliceToBigInt(96);
   const z: bigint = sliceToBigInt(128);
+  const packed_S = sliceToBigInt(160);
+  const packed_R = sliceToBigInt(192);
+  const bindS: bigint = sliceToBigInt(224);
 
   const B = unpackPoint(packed_B);
   const P = unpackPoint(packed_P);
   const U = unpackPoint(packed_U);
   const V = unpackPoint(packed_V);
+  const S = unpackPoint(packed_S);
+  const bindR = unpackPoint(packed_R);
 
-  if (!B || !P || !U || !V) {
+  if (!B || !P || !U || !V || !S || !bindR) {
     throw new Error(
       "Failed to unpack one or more points from the address. The address may be corrupted or invalid.",
     );
   }
 
-  for (const point of [B, P, U, V]) {
+  for (const point of [B, P, U, V, S, bindR]) {
     if (!inCurve(point)) {
       throw new Error("Decoded address point is not on the BabyJubJub curve.");
     }
@@ -96,5 +107,5 @@ export function decodeHisokaAddress(address: string): HisokaAddressData {
 
   const pi: DLEQProof = { U, V, z };
 
-  return { B, P, pi };
+  return { B, P, pi, S, bindR, bindS };
 }

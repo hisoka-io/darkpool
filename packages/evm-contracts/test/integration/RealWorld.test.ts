@@ -1,9 +1,8 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
-import { deployDarkPoolFixture, COMPLIANCE_PK } from "../helpers/fixtures";
+import { deployDarkPoolFixture } from "../helpers/fixtures";
 import { TestWallet } from "../helpers/TestWallet";
-import { generateDLEQProof } from "@hisoka/wallets";
 
 describe("Integration: The Real World Simulation", function () {
   this.timeout(1200000); // many proof generations + sync operations
@@ -46,14 +45,14 @@ describe("Integration: The Real World Simulation", function () {
 
     // Bob prepares index-0 incoming key and derives his receive address
     await bobWallet.keyRepo.advanceIncomingKeys(1);
-    const bobIvk = await bobWallet.account.getIncomingViewingKey(0n);
-    const bobAddr = await generateDLEQProof(bobIvk.toBigInt(), COMPLIANCE_PK);
+    const bobAddr = await bobWallet.receiveData(0n);
 
     const trf1 = await aliceWallet.transfer(
       AMOUNT_TRANSFER_1,
       bobAddr.B,
       bobAddr.P,
       bobAddr.pi,
+      bobAddr,
     );
 
     // Network propagation: 2 new leaves (memo + change)
@@ -81,11 +80,7 @@ describe("Integration: The Real World Simulation", function () {
     console.log("[3] Bob Transfers 25 to Charlie...");
 
     await charlieWallet.keyRepo.advanceIncomingKeys(1);
-    const charlieIvk = await charlieWallet.account.getIncomingViewingKey(0n);
-    const charlieAddr = await generateDLEQProof(
-      charlieIvk.toBigInt(),
-      COMPLIANCE_PK,
-    );
+    const charlieAddr = await charlieWallet.receiveData(0n);
 
     // Bob spends his received (Path B) note
     const trf2 = await bobWallet.transfer(
@@ -93,6 +88,7 @@ describe("Integration: The Real World Simulation", function () {
       charlieAddr.B,
       charlieAddr.P,
       charlieAddr.pi,
+      charlieAddr,
     );
 
     await aliceWallet.syncTree(trf2.memoCommitment);

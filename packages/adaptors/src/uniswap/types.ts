@@ -8,6 +8,7 @@ export enum SwapType {
 export interface RecipientIdentity {
   ownerX: bigint;
   ownerY: bigint;
+  claimerOwner: bigint;
 }
 
 export interface ExactInputSingleParams {

@@ -11,7 +11,7 @@ export async function proveDeposit(inputs: DepositInputs): Promise<ProofData> {
       asset_id: inputs.notePlaintext.asset_id.toString(),
       value: inputs.notePlaintext.value.toString(),
       secret: inputs.notePlaintext.secret.toString(),
-      nullifier: inputs.notePlaintext.nullifier.toString(),
+      owner: inputs.notePlaintext.owner.toString(),
       timelock: inputs.notePlaintext.timelock.toString(),
       hashlock: inputs.notePlaintext.hashlock.toString(),
     },

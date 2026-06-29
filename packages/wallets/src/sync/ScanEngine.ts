@@ -7,6 +7,8 @@ import { toFr } from "../crypto/fields.js";
 import { Contract } from "ethers";
 import { IKeyRepository, IUtxoRepository } from "../repositories.js";
 
+const DEFAULT_PROBE_EXTRA_WINDOW = 100;
+
 export class ScanEngine {
   private processor: NoteProcessor;
   private readonly lookaheadWindow: number;
@@ -19,28 +21,54 @@ export class ScanEngine {
     private merkleTree?: LeanIMT,
     lookaheadWindow: number = 20,
     private readonly deploymentBlock: number = 0,
+    private readonly finalityDepth: number = 0,
   ) {
     this.lookaheadWindow = lookaheadWindow;
     this.processor = new NoteProcessor(keyRepo, compliancePk);
   }
 
+  // Only leaves at or below this block enter the committed tree / spend tracker, so a reorg
+  // shallower than finalityDepth never rewrites a Merkle path. finalityDepth 0 == optimistic.
+  private async finalizedBlock(): Promise<number> {
+    if (this.finalityDepth <= 0) return Number.MAX_SAFE_INTEGER;
+    const provider = this.contract.runner?.provider;
+    if (!provider) return Number.MAX_SAFE_INTEGER;
+    const head = await provider.getBlockNumber();
+    return head - this.finalityDepth;
+  }
+
   /**
    * Gap-limit: a full `lookaheadWindow` of consecutive skipped self-note indices is not found
-   * until a manual wider rescan (a larger `lookaheadWindow`).
+   * until a manual wider rescan. `probe` crosses such a gap on demand.
    */
   public async sync(fromBlock: number): Promise<void> {
-    await this.keyRepo.ensureEphemeralLookahead(this.lookaheadWindow);
-    await this.keyRepo.ensureIncomingLookahead(this.lookaheadWindow);
+    await this.scanPasses(fromBlock, this.lookaheadWindow);
+  }
+
+  /**
+   * Extended-probe recovery for the gap-limit weakness on `sync`: widen the lookahead reservation
+   * by `extraWindow` beyond the standard window so a single run of unused self-note indices up to
+   * `extraWindow` wide is crossed and any post-gap matchable notes are recovered. Returns whether
+   * the wider scan discovered notes the standard window missed. Does not alter `sync` behavior.
+   */
+  public async probe(
+    fromBlock: number,
+    extraWindow: number = DEFAULT_PROBE_EXTRA_WINDOW,
+  ): Promise<boolean> {
+    const before = this.utxoRepo.getAllNotes().length;
+    await this.scanPasses(fromBlock, this.lookaheadWindow + extraWindow);
+    return this.utxoRepo.getAllNotes().length > before;
+  }
+
+  private async scanPasses(fromBlock: number, window: number): Promise<void> {
+    await this.keyRepo.ensureEphemeralLookahead(window);
+    await this.keyRepo.ensureIncomingLookahead(window);
 
     const maxPasses = 64;
     for (let pass = 0; pass < maxPasses; pass++) {
       await this.scanOnce(fromBlock);
-      const ext1 = await this.keyRepo.ensureEphemeralLookahead(
-        this.lookaheadWindow,
-      );
-      const ext2 = await this.keyRepo.ensureIncomingLookahead(
-        this.lookaheadWindow,
-      );
+      const ext1 = await this.keyRepo.ensureEphemeralLookahead(window);
+      const ext2 = await this.keyRepo.ensureIncomingLookahead(window);
       if (!ext1 && !ext2) break;
     }
   }
@@ -76,10 +104,14 @@ export class ScanEngine {
       fromBlock,
     );
 
-    const allLogs = [...noteLogs, ...memoLogs].sort((a, b) => {
-      if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
-      return a.index - b.index;
-    });
+    const finalized = await this.finalizedBlock();
+    const allLogs = [...noteLogs, ...memoLogs]
+      .filter((l) => l.blockNumber <= finalized)
+      .sort((a, b) => {
+        if (a.blockNumber !== b.blockNumber)
+          return a.blockNumber - b.blockNumber;
+        return a.index - b.index;
+      });
 
     for (const log of allLogs) {
       if (!("args" in log)) continue;
@@ -106,7 +138,7 @@ export class ScanEngine {
     }
 
     for (const log of nullLogs) {
-      if ("args" in log) {
+      if ("args" in log && log.blockNumber <= finalized) {
         const eventLog = log as EventLog;
         const nfHash = eventLog.args["nullifierHash"] as string;
         this.utxoRepo.markSpent(nfHash);
