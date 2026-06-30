@@ -1,6 +1,6 @@
 use ::ecdh::{bjj::BJJ, ECDHTrait, Point};
 use ::poseidon::poseidon2::Poseidon2;
-use ::shared::{encrypt_note_for_compliance, Note};
+use ::shared::{assert_subgroup_scalar, encrypt_note_for_compliance, Note};
 
 fn main(
     memo_id: pub Field,
@@ -28,6 +28,7 @@ fn main(
         "Timelock has not expired",
     );
 
+    assert_subgroup_scalar(recipient_sk);
     let derived_pk = BJJ::new(recipient_sk).derive_public_key();
     assert(derived_pk.x == owner_x);
     assert(derived_pk.y == owner_y);

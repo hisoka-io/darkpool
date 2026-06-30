@@ -11,7 +11,6 @@ export interface UnprocessedEvent {
     epkX: bigint;
     epkY: bigint;
     packedCiphertext: string[];
-    tag?: bigint;
     intermediateBobX?: bigint;
     intermediateBobY?: bigint;
   };

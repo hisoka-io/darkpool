@@ -1,7 +1,6 @@
-use ::ecdh::{bjj::BJJ, ECDHTrait, Point};
+use ::ecdh::Point;
 use ::shared::{
-    encrypt_note, kdf_to_aes_key_iv, lean_imt_inclusion_proof, Note, pack_ciphertext, TREE_DEPTH,
-    verify_spend,
+    encrypt_note_for_compliance, lean_imt_inclusion_proof, Note, TREE_DEPTH, verify_spend,
 };
 
 fn main(
@@ -38,17 +37,10 @@ fn main(
     assert(change_note.asset_id == payment_asset_id);
     assert(old_note.value == payment_value + change_note.value);
 
-    assert(change_ephemeral_sk != 0, "ephemeral secret key cannot be zero");
-    let change_ephemeral_pk = BJJ::new(change_ephemeral_sk).derive_public_key();
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
-    let change_shared_ss = BJJ::new(change_ephemeral_sk).derive_shared_key(compliance_pk);
-    let (change_key, change_iv) = kdf_to_aes_key_iv(change_shared_ss);
+    let encrypted = encrypt_note_for_compliance(change_note, change_ephemeral_sk, compliance_pk);
 
-    let change_plaintext_bytes = change_note.serialize();
-    let change_ciphertext = encrypt_note(change_plaintext_bytes, change_iv, change_key);
-    let change_packed_ct = pack_ciphertext(change_ciphertext);
-
-    (nullifier_hash, change_ephemeral_pk.x, change_ephemeral_pk.y, change_packed_ct)
+    (nullifier_hash, encrypted.epk_x, encrypted.epk_y, encrypted.ciphertext)
 }
 
 #[test]
@@ -157,7 +149,7 @@ fn test_gas_payment_compile() {
     assert(ct == exp_change_ct);
 }
 
-#[test(should_fail_with = "ephemeral secret key cannot be zero")]
+#[test(should_fail_with = "scalar must be non-zero")]
 fn test_gas_payment_zero_ephemeral_sk() {
     let merkle_root = 0x1d1fb81ebd879fa5c132a51e1dd95c6da39aa64d229c2c1f903bbe2eb189ed5b;
     let current_timestamp = 0;

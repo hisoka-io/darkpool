@@ -518,8 +518,8 @@ export class MixnetWallet {
     ]);
 
     const pub = proof.publicInputs.map((s) => toFr(s));
-    const memoCommitment = await Poseidon.hash(pub.slice(12, 19));
-    const changeCommitment = await Poseidon.hash(pub.slice(25, 32));
+    const memoCommitment = await Poseidon.hash(pub.slice(7, 14));
+    const changeCommitment = await Poseidon.hash(pub.slice(20, 27));
     return {
       memoCommitment,
       changeCommitment,

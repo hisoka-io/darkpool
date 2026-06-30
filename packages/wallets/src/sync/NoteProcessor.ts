@@ -1,4 +1,5 @@
 import { Point } from "@zk-kit/baby-jubjub";
+import { Fr } from "@aztec/foundation/fields";
 import { WalletNote } from "../state/types.js";
 import { IKeyRepository } from "../repositories.js";
 import {
@@ -10,6 +11,8 @@ import {
   recipientDecrypt3Party,
   deriveNullifier,
   toFr,
+  PaddingError,
+  NotePlaintext,
 } from "../crypto/index.js";
 import { UnprocessedEvent } from "./types.js";
 
@@ -73,12 +76,9 @@ export class NoteProcessor {
     event: UnprocessedEvent,
   ): Promise<WalletNote | null> {
     try {
-      const { tag, intermediateBobX, intermediateBobY, packedCiphertext } =
+      const { intermediateBobX, intermediateBobY, packedCiphertext } =
         event.args;
-      if (!tag || !intermediateBobX || !intermediateBobY) return null;
-
-      const match = this.keyRepository.tryMatchTransfer(tag);
-      if (!match) return null;
+      if (!intermediateBobX || !intermediateBobY) return null;
 
       const intPoint: Point<bigint> = [
         BigInt(intermediateBobX),
@@ -87,11 +87,28 @@ export class NoteProcessor {
       const packed = packedCiphertext.map((h) => toFr(h));
       const ciphertext = unpackCiphertext(packed);
 
-      const { note, sharedSecret } = await recipientDecrypt3Party(
-        match.key,
-        intPoint,
-        ciphertext,
-      );
+      // No static tag: recover S_point = ivk * int_bob for each candidate ivk and trial-decrypt. A wrong
+      // ivk yields a garbage AES key whose PKCS#7 padding fails (~2^-128 false-accept), so the first
+      // candidate that decrypts cleanly owns the note.
+      let decrypted: { note: NotePlaintext; sharedSecret: Fr } | null = null;
+      let matchIndex = -1;
+      for (const cand of this.keyRepository.getIncomingCandidates()) {
+        try {
+          decrypted = await recipientDecrypt3Party(
+            cand.key,
+            intPoint,
+            ciphertext,
+          );
+          matchIndex = cand.index;
+          break;
+        } catch (e) {
+          if (e instanceof PaddingError) continue;
+          throw e;
+        }
+      }
+      if (!decrypted) return null;
+
+      this.keyRepository.recordIncomingMatch(matchIndex);
 
       const commitment = toFr(event.args.commitment);
       const index = event.args.leafIndex;
@@ -99,13 +116,13 @@ export class NoteProcessor {
       const nullifier = await deriveNullifier(nk, commitment, Number(index));
 
       return {
-        note,
+        note: decrypted.note,
         commitment,
         leafIndex: Number(index),
         nullifier,
-        spendingSecret: sharedSecret,
+        spendingSecret: decrypted.sharedSecret,
         isTransfer: true,
-        derivationIndex: match.index,
+        derivationIndex: matchIndex,
         spent: false,
       };
     } catch (err) {

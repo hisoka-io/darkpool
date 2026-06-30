@@ -1,3 +1,4 @@
+use crate::assert_subgroup_scalar;
 use ecdh::{bjj::BJJ, ECDHTrait};
 use edwards::{bjj::BabyJubJub, CurveTrait, ScalarField};
 use poseidon::poseidon2::Poseidon2;
@@ -10,6 +11,7 @@ pub fn verify_spend_binding(
     bind_R: BabyJubJub,
     bind_s: Field,
 ) {
+    assert_subgroup_scalar(bind_s);
     let e = Poseidon2::hash(
         [bind_R.x, bind_R.y, recipient_B.x, recipient_B.y, recipient_S.x, recipient_S.y],
         6,

@@ -79,25 +79,11 @@ export class ScanEngine {
       fromBlock,
     );
 
-    const tags = this.keyRepo.getAllTags();
-    let memoLogs: Array<EventLog | Log> = [];
-
-    if (tags.length > 0) {
-      if (this.merkleTree) {
-        memoLogs = await this.contract.queryFilter(
-          this.contract.filters.NewPrivateMemo(),
-          fromBlock,
-        );
-      } else {
-        const filter = this.contract.filters.NewPrivateMemo(null, null, tags);
-        memoLogs = await this.contract.queryFilter(filter, fromBlock);
-      }
-    } else if (this.merkleTree) {
-      memoLogs = await this.contract.queryFilter(
-        this.contract.filters.NewPrivateMemo(),
-        fromBlock,
-      );
-    }
+    // No static tag topic remains; the recipient trial-decrypts every memo, so fetch them all.
+    const memoLogs: Array<EventLog | Log> = await this.contract.queryFilter(
+      this.contract.filters.NewPrivateMemo(),
+      fromBlock,
+    );
 
     const nullLogs = await this.contract.queryFilter(
       this.contract.filters.NullifierSpent(),
@@ -220,10 +206,6 @@ export class ScanEngine {
         epkX: BigInt(eventLog.args["ephemeralPK_x"]),
         epkY: BigInt(eventLog.args["ephemeralPK_y"]),
         packedCiphertext: eventLog.args["packedCiphertext"] as string[],
-        tag:
-          eventType === "NEW_MEMO"
-            ? BigInt(eventLog.args["recipientP_x"])
-            : undefined,
         intermediateBobX:
           eventType === "NEW_MEMO"
             ? BigInt(eventLog.args["int_bob_x"])

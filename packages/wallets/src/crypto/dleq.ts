@@ -3,7 +3,7 @@ import { leBufferToBigInt } from "@zk-kit/utils/conversions";
 import { Point, mulPointEscalar, addPoint, Base8 } from "@zk-kit/baby-jubjub";
 import { Poseidon } from "./Poseidon.js";
 import { toFr } from "./fields.js";
-import { BJJ_SUBGROUP_ORDER } from "./constants.js";
+import { BJJ_SUBGROUP_ORDER, DLEQ_DOMAIN } from "./constants.js";
 
 export type DLEQProof = { U: Point<bigint>; V: Point<bigint>; z: bigint };
 
@@ -21,6 +21,7 @@ export async function generateDLEQProof(
   const V = mulPointEscalar(C, r_mod);
 
   const hash_inputs = [
+    DLEQ_DOMAIN,
     U[0],
     U[1],
     V[0],
@@ -61,6 +62,7 @@ export async function verifyDLEQProof(
   const { U, V, z } = pi;
 
   const hash_inputs = [
+    DLEQ_DOMAIN,
     U[0],
     U[1],
     V[0],

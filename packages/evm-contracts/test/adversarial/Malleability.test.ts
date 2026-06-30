@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { deployDarkPoolFixture, COMPLIANCE_PK } from "../helpers/fixtures";
-import { toFr, addressToFr, Kdf, NotePlaintext } from "@hisoka/wallets";
+import { toFr, addressToFr, Kdf, toBjjScalar, NotePlaintext } from "@hisoka/wallets";
 import { proveDeposit, DepositInputs } from "@hisoka/prover";
 
 describe("Adversarial: Malleability & Integrity", function () {
@@ -21,7 +21,9 @@ describe("Adversarial: Malleability & Integrity", function () {
       timelock: toFr(0n),
       hashlock: toFr(0n),
     };
-    const ephSk = await Kdf.derive("hisoka.ephemeral", toFr(999n), toFr(1n));
+    const ephSk = toBjjScalar(
+      await Kdf.derive("hisoka.ephemeral", toFr(999n), toFr(1n)),
+    );
 
     const inputs: DepositInputs = {
       notePlaintext: note,

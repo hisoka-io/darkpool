@@ -95,7 +95,7 @@ describe("proveDeposit End-to-End (with Packed Ciphertext)", () => {
       ephemeralSk: Fr.ZERO,
     };
     await expect(proveDeposit(invalidInputs)).rejects.toThrow(
-      /ephemeral secret key cannot be zero/i,
+      /scalar must be non-zero/i,
     );
   });
 });

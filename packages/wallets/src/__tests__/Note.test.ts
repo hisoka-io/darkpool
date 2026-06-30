@@ -10,6 +10,7 @@ import {
   packNotePlaintext,
   unpackCiphertext,
   computeOwner,
+  toBjjScalar,
 } from "../crypto";
 import { Poseidon } from "../crypto/Poseidon";
 import { toFr, addressToFr } from "../crypto/fields";
@@ -146,5 +147,75 @@ describe("Path-A deposit scan stores the ECDH shared secret (S-1)", () => {
     );
     const commit2 = await Poseidon.hash(packCiphertext(ct2));
     expect(commit2.equals(walletNote!.commitment)).toBe(true);
+  });
+});
+
+describe("Transfer-memo detection is trial-decrypt (no on-chain tag)", () => {
+  // Mirror the in-circuit 3-party encryption: S = a*ivk*C, int_bob = a*C, key = kdf(S.x). The recipient
+  // recovers S = ivk*int_bob and decrypts; a wrong ivk yields a garbage key whose PKCS#7 padding fails.
+  async function buildMemoEvent(ivkMod: bigint, ownerS: Point<bigint>) {
+    const a = 424242n;
+    const recipientP = mulPointEscalar(COMPLIANCE_PK, ivkMod); // ivk*C
+    const sPoint = mulPointEscalar(recipientP, a); // a*ivk*C
+    const { key, iv } = await kdfToAesKeyIV(new Fr(sPoint[0]));
+
+    const memoNote: NotePlaintext = {
+      asset_id: addressToFr("0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270"),
+      value: toFr(40n),
+      secret: toFr(0n),
+      owner: await computeOwner(ownerS),
+      timelock: toFr(0n),
+      hashlock: toFr(0n),
+    };
+    const ct = await aes128Encrypt(packNotePlaintext(memoNote), key, iv);
+    const packed = packCiphertext(ct);
+    const commitment = await Poseidon.hash(packed);
+    const intBob = mulPointEscalar(COMPLIANCE_PK, a); // a*C
+    const memoEpk = mulPointEscalar(Base8, a);
+
+    const event: UnprocessedEvent = {
+      type: "NEW_MEMO",
+      blockNumber: 1,
+      txHash: "0x00",
+      args: {
+        leafIndex: 0n,
+        commitment: "0x" + commitment.toBigInt().toString(16),
+        epkX: memoEpk[0],
+        epkY: memoEpk[1],
+        packedCiphertext: packed.map((f) => "0x" + f.toBigInt().toString(16)),
+        intermediateBobX: intBob[0],
+        intermediateBobY: intBob[1],
+      },
+    };
+    return { event, memoNote };
+  }
+
+  it("the recipient finds the memo via candidate iteration; a non-recipient finds nothing", async () => {
+    const bob = await DarkAccount.fromMnemonic(MNEMONIC);
+    const bobRepo = new KeyRepository(bob, COMPLIANCE_PK);
+    await bobRepo.ensureIncomingLookahead(2);
+
+    const ivkMod = toBjjScalar(await bob.getIncomingViewingKey(0n)).toBigInt();
+    const { event, memoNote } = await buildMemoEvent(
+      ivkMod,
+      await bob.getPublicSpendKey(),
+    );
+
+    const found = await new NoteProcessor(bobRepo, COMPLIANCE_PK).process(
+      event,
+    );
+    expect(found).not.toBeNull();
+    expect(found!.isTransfer).toBe(true);
+    expect(found!.note.owner.equals(memoNote.owner)).toBe(true);
+
+    const eve = await DarkAccount.fromMnemonic(
+      "legal winner thank year wave sausage worth useful legal winner thank yellow",
+    );
+    const eveRepo = new KeyRepository(eve, COMPLIANCE_PK);
+    await eveRepo.ensureIncomingLookahead(2);
+    const notFound = await new NoteProcessor(eveRepo, COMPLIANCE_PK).process(
+      event,
+    );
+    expect(notFound).toBeNull();
   });
 });

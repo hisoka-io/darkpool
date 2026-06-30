@@ -248,8 +248,8 @@ export class TestWallet {
     await tx.wait();
 
     const pub = proof.publicInputs.map((s) => toFr(s));
-    const memoCom = await Poseidon.hash(pub.slice(12, 19));
-    const changeCom = await Poseidon.hash(pub.slice(25, 32));
+    const memoCom = await Poseidon.hash(pub.slice(7, 14));
+    const changeCom = await Poseidon.hash(pub.slice(20, 27));
 
     return {
       memoCommitment: memoCom,
@@ -282,9 +282,9 @@ export class TestWallet {
     recipientSk: bigint,
   ) {
     const frInputs = publicInputs.map((s) => toFr(s));
-    const packedCt = frInputs.slice(12, 19);
-    const intBobX = frInputs[19];
-    const intBobY = frInputs[20];
+    const packedCt = frInputs.slice(7, 14);
+    const intBobX = frInputs[14];
+    const intBobY = frInputs[15];
 
     const ct = unpackCiphertext(packedCt);
     const intBobPoint: Point<bigint> = [intBobX.toBigInt(), intBobY.toBigInt()];

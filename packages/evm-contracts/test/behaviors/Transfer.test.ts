@@ -4,6 +4,7 @@ import {
   deployDarkPoolFixture,
   makeDeposit,
   COMPLIANCE_PK,
+  COMPLIANCE_SK,
 } from "../helpers/fixtures";
 import {
   toFr,
@@ -13,9 +14,11 @@ import {
   generateDLEQProof,
   computeOwner,
   signSpendBinding,
+  complianceDecrypt3Party,
+  unpackCiphertext,
 } from "@hisoka/wallets";
 import { proveTransfer, TransferInputs } from "@hisoka/prover";
-import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
+import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
 
 // Build a recipient spend-binding bundle from a viewing-key scalar (bobSk) and a
 // chosen spend-key scalar. The circuit checks Poseidon2(S) == recipientOwner,
@@ -106,8 +109,8 @@ describe("DarkPool Behavior: Private Transfer", function () {
       .and.to.emit(darkPool, "NewNote") // Change note
       .and.to.emit(darkPool, "NullifierSpent");
 
-    // Nullifier is index 9 in the transfer public-input layout
-    const nullifierHash = proof.publicInputs[9];
+    // Nullifier is index 4 in the transfer public-input layout
+    const nullifierHash = proof.publicInputs[4];
     expect(await darkPool.isNullifierSpent(nullifierHash)).to.equal(true);
   });
 
@@ -159,5 +162,101 @@ describe("DarkPool Behavior: Private Transfer", function () {
     await expect(
       darkPool.connect(alice).privateTransfer(proof.proof, proof.publicInputs),
     ).to.be.revertedWithCustomError(darkPool, "NullifierAlreadySpent");
+  });
+
+  it("PRIV-1: two payments to one recipient share no on-chain linkable field, and compliance still decrypts both", async function () {
+    const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
+
+    const bob_sk = 555n;
+    const bob_dleq = await generateDLEQProof(bob_sk, COMPLIANCE_PK);
+    const bob = await buildRecipientBinding(bob_sk, 777n);
+
+    async function transferToBob(
+      memoEph: bigint,
+      changeEph: bigint,
+    ): Promise<string[]> {
+      const { depositPlain, ephemeralSk, commitment, nk } = await makeDeposit(
+        darkPool,
+        token,
+        alice,
+        100n,
+      );
+      const tree = new LeanIMT(32);
+      await tree.insert(commitment);
+      const inputs: TransferInputs = {
+        merkleRoot: tree.getRoot(),
+        currentTimestamp: Math.floor(Date.now() / 1000),
+        compliancePk: COMPLIANCE_PK,
+        recipientB: bob_dleq.B,
+        recipientP: bob_dleq.P,
+        recipientOwner: bob.owner,
+        recipientProof: bob_dleq.pi,
+        recipientS: bob.S,
+        bindR: bob.bindR,
+        bindS: bob.bindS,
+        oldNote: depositPlain,
+        oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
+        nk,
+        oldNoteIndex: 0,
+        oldNotePath: Array(32).fill(toFr(0n)),
+        hashlockPreimage: toFr(0n),
+        memoNote: {
+          asset_id: depositPlain.asset_id,
+          value: toFr(40n),
+          secret: toFr(0n),
+          owner: bob.owner,
+          timelock: toFr(0n),
+          hashlock: toFr(0n),
+        },
+        memoEphemeralSk: toFr(memoEph),
+        changeNote: {
+          asset_id: depositPlain.asset_id,
+          value: toFr(60n),
+          secret: toFr(changeEph),
+          owner: depositPlain.owner,
+          timelock: toFr(0n),
+          hashlock: toFr(0n),
+        },
+        changeEphemeralSk: toFr(changeEph),
+      };
+      return (await proveTransfer(inputs)).publicInputs;
+    }
+
+    const p1 = await transferToBob(11111n, 22222n);
+    const p2 = await transferToBob(33333n, 44444n);
+
+    const norm = (x: string): string => toFr(x).toString();
+    expect(p1.length).to.equal(27);
+    expect(p2.length).to.equal(27);
+
+    // The demoted static recipient artifacts must not surface anywhere on-chain.
+    for (const pub of [p1, p2]) {
+      const set = pub.map(norm);
+      expect(set).to.not.include(norm(toFr(bob_dleq.P[0]).toString()));
+      expect(set).to.not.include(norm(toFr(bob_dleq.B[0]).toString()));
+      expect(set).to.not.include(norm(bob.owner.toString()));
+    }
+
+    // Past the protocol-public prefix [0..3] (root, timestamp, compliance x/y), no value repeats across
+    // the two payments: nullifier, memo_epk, memo_ct, int_bob, int_carol, change are all a-fresh.
+    const tail1 = new Set(p1.slice(4).map(norm));
+    const shared = p2
+      .slice(4)
+      .map(norm)
+      .filter((v) => tail1.has(v));
+    expect(shared).to.deep.equal([]);
+
+    // The non-negotiable invariant: compliance decrypts both memos via int_carol[16,17] + ciphertext[7..13].
+    for (const pub of [p1, p2]) {
+      const fr = pub.map((s) => toFr(s));
+      const intCarol: Point<bigint> = [fr[16].toBigInt(), fr[17].toBigInt()];
+      const ct = unpackCiphertext(fr.slice(7, 14));
+      const { note } = await complianceDecrypt3Party(
+        COMPLIANCE_SK,
+        intCarol,
+        ct,
+      );
+      expect(note.value.equals(toFr(40n))).to.equal(true);
+    }
   });
 });

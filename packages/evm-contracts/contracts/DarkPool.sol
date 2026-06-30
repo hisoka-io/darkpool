@@ -58,7 +58,6 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     event NewPrivateMemo(
         uint256 indexed leafIndex,
         bytes32 indexed commitment,
-        uint256 indexed recipientP_x,
         uint256 ephemeralPK_x,
         uint256 ephemeralPK_y,
         bytes32[7] packedCiphertext,
@@ -264,7 +263,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
-        if (_publicInputs.length != 32) revert InvalidInputsLength();
+        if (_publicInputs.length != 27) revert InvalidInputsLength();
         if (!merkleTree.isKnownRoot[_publicInputs[0]]) revert InvalidRoot();
         _verifyProofTimestamp(uint256(_publicInputs[1]));
         _verifyComplianceKey(_publicInputs[2], _publicInputs[3]);
@@ -272,9 +271,9 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         if (!transferVerifier.verify(_proof, _publicInputs))
             revert InvalidProof();
 
-        _spendNullifier(_publicInputs[9]);
+        _spendNullifier(_publicInputs[4]);
         _processTransferMemo(_publicInputs);
-        _processChange(_publicInputs, 25, 23, 24);
+        _processChange(_publicInputs, 20, 18, 19);
     }
 
     function join(
@@ -420,7 +419,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         Field.Type[] memory packedMemo = new Field.Type[](7);
         bytes32[7] memory packedMemoEvent;
         for (uint256 i = 0; i < 7; i++) {
-            bytes32 val = _publicInputs[12 + i];
+            bytes32 val = _publicInputs[7 + i];
             packedMemo[i] = Field.toField(uint256(val));
             packedMemoEvent[i] = val;
         }
@@ -430,14 +429,13 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         emit NewPrivateMemo(
             memoIndex,
             memoCommitment,
+            uint256(_publicInputs[5]),
             uint256(_publicInputs[6]),
-            uint256(_publicInputs[10]),
-            uint256(_publicInputs[11]),
             packedMemoEvent,
-            uint256(_publicInputs[19]),
-            uint256(_publicInputs[20]),
-            uint256(_publicInputs[21]),
-            uint256(_publicInputs[22])
+            uint256(_publicInputs[14]),
+            uint256(_publicInputs[15]),
+            uint256(_publicInputs[16]),
+            uint256(_publicInputs[17])
         );
     }
 

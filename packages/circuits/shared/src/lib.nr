@@ -14,6 +14,22 @@ pub global CIPHERTEXT_FIELDS: u32 = 7;
 pub global KEY_PURPOSE: Field = 0x0281a8425bea84c419aa615997d24dd06616356a715c72dc95be25985fd32e8d;
 pub global IV_PURPOSE: Field = 0x240f81dbabe617f804ce036eb97fb79d25005a52b2128ac6364b872889b4a48f;
 
+// Domain-separation tag for the DLEQ challenge (keccak256("hisoka.dleq.v1") % BN254_Fr); prevents
+// cross-protocol replay of a compliance DLEQ proof.
+pub global DLEQ_DOMAIN: Field = 0x1570eff8f2295a2eb1f2cf6cea827909fd713f0446dcbd7f1647496d89273366;
+
+// BabyJubJub prime-order subgroup order.
+pub global SUBORDER: Field =
+    2736030358979909402780800718157159386076813972158567259200215660948447373041;
+
+// Canonical subgroup scalar: non-zero and < SUBORDER. A BJJ scalar witness flows into a point (e.g.
+// owner = nk*B8) but nk also seeds the nullifier hash; without this, nk and nk+SUBORDER share the point
+// yet differ as a Poseidon preimage -> distinct nullifiers for one note (aliasing double-spend).
+pub fn assert_subgroup_scalar(x: Field) {
+    assert(x != 0, "scalar must be non-zero");
+    assert(x.lt(SUBORDER), "scalar not in BabyJubJub prime-order subgroup");
+}
+
 pub struct EncryptedNote {
     pub epk_x: Field,
     pub epk_y: Field,
@@ -25,7 +41,7 @@ pub fn encrypt_note_for_compliance(
     ephemeral_sk: Field,
     compliance_pk: Point,
 ) -> EncryptedNote {
-    assert(ephemeral_sk != 0, "ephemeral secret key cannot be zero");
+    assert_subgroup_scalar(ephemeral_sk);
 
     let epk = BJJ::new(ephemeral_sk).derive_public_key();
     let shared_secret = BJJ::new(ephemeral_sk).derive_shared_key(compliance_pk);

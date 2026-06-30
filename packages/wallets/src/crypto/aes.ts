@@ -1,6 +1,8 @@
 import { Aes128 } from "@aztec/foundation/crypto";
 import { PaddingError, SizeError } from "./types.js";
 
+const AES_BLOCK = 16;
+
 /** AES-128-CBC encrypt. 192-byte plaintext -> 208-byte ciphertext (PKCS#7). */
 export async function aes128Encrypt(
   plaintext: Buffer,
@@ -34,19 +36,17 @@ export async function aes128Decrypt(
     key,
   );
 
-  const lastByte = paddedPlaintext[paddedPlaintext.length - 1];
-
-  if (lastByte === 0 || lastByte > 16) {
-    throw new PaddingError(`padding byte out of range: ${lastByte}`);
-  }
-
+  // The note plaintext is a fixed 192 bytes (a multiple of the 16-byte block), so PKCS#7 always
+  // appends exactly one full block of 0x10. Verify it in constant time (fixed iteration count, no
+  // branch on decrypted content) to deny a padding-oracle timing side-channel on relayed memos.
+  const dataLen = paddedPlaintext.length - AES_BLOCK;
   let mismatch = 0;
-  for (let i = 0; i < lastByte; i++) {
-    mismatch |= paddedPlaintext[paddedPlaintext.length - 1 - i] ^ lastByte;
+  for (let i = 0; i < AES_BLOCK; i++) {
+    mismatch |= paddedPlaintext[dataLen + i] ^ AES_BLOCK;
   }
   if (mismatch !== 0) {
-    throw new PaddingError("inconsistent padding bytes");
+    throw new PaddingError("invalid PKCS#7 padding");
   }
 
-  return paddedPlaintext.slice(0, paddedPlaintext.length - lastByte);
+  return paddedPlaintext.slice(0, dataLen);
 }

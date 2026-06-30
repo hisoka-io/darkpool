@@ -117,19 +117,15 @@ export class KeyRepository implements IKeyRepository {
     return match;
   }
 
-  public tryMatchTransfer(
-    tagPx: bigint | string,
-  ): { key: bigint; index: number } | null {
-    const key = toFr(tagPx).toString();
-    const match = this.recipientKeyMap.get(key) || null;
-    if (match && match.index > this._highestMatchedIncoming) {
-      this._highestMatchedIncoming = match.index;
-    }
-    return match;
+  // No static on-chain tag remains; the recipient trial-decrypts every memo against each incoming ivk.
+  public getIncomingCandidates(): { key: bigint; index: number }[] {
+    return Array.from(this.recipientKeyMap.values());
   }
 
-  public getAllTags(): string[] {
-    return Array.from(this.recipientKeyMap.keys());
+  public recordIncomingMatch(index: number): void {
+    if (index > this._highestMatchedIncoming) {
+      this._highestMatchedIncoming = index;
+    }
   }
 
   public getState(): KeyRepoState {

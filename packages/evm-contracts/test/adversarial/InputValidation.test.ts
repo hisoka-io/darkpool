@@ -109,7 +109,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
 
     it("Transfer: should reject invalid Compliance Key", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
-      const inputs = Array(32).fill(randomBytes32());
+      const inputs = Array(27).fill(randomBytes32());
 
       inputs[0] = await darkPool.getCurrentRoot(); // pass root check
       inputs[1] = ethers.zeroPadValue(ethers.toBeHex(await time.latest()), 32); // pass time check

@@ -25,11 +25,8 @@ export interface IKeyRepository {
     epkX: bigint | string,
     epkY: bigint | string,
   ): { key: Fr; index: number } | null;
-  tryMatchTransfer(
-    tagPx: bigint | string,
-  ): { key: bigint; index: number } | null;
-
-  getAllTags(): string[];
+  getIncomingCandidates(): { key: bigint; index: number }[];
+  recordIncomingMatch(index: number): void;
 
   getState(): KeyRepoState;
   restore(state: KeyRepoState): Promise<void>;
