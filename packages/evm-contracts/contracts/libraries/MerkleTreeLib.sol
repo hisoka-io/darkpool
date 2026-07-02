@@ -15,6 +15,8 @@ library MerkleTreeLib {
 
     error TreeIsFull();
     error InvalidDepth();
+    error InvalidRootHistorySize();
+    error InvalidLeaf();
     error LevelOutOfBounds();
     error PositionOutOfBounds();
     error LeafIndexOutOfBounds();
@@ -47,6 +49,7 @@ library MerkleTreeLib {
         uint32 _rootHistorySize
     ) internal {
         if (_depth == 0 || _depth > 32) revert InvalidDepth();
+        if (_rootHistorySize == 0) revert InvalidRootHistorySize();
         self.TREE_DEPTH = _depth;
         self.ROOT_HISTORY_SIZE = _rootHistorySize;
         self.levels = new bytes32[][](_depth);
@@ -57,6 +60,7 @@ library MerkleTreeLib {
         Tree storage self,
         bytes32 _leaf
     ) internal returns (uint256) {
+        if (_leaf == bytes32(0)) revert InvalidLeaf();
         uint256 leafIndex = self.nextLeafIndex;
         if (leafIndex >= (1 << self.TREE_DEPTH)) {
             revert TreeIsFull();

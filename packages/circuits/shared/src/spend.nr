@@ -13,8 +13,6 @@ pub fn verify_spend(
     current_timestamp: Field,
     hashlock_preimage: Field,
 ) -> (Field, Field) {
-    // nk seeds both the owner point and the nullifier preimage; it MUST be a canonical subgroup scalar,
-    // else nk and nk+SUBORDER share the owner but yield different nullifiers (one note, many spends).
     assert_subgroup_scalar(nk);
 
     // asset_id is a 20-byte address; range-check it at the central spend consumer (conservation then

@@ -3,8 +3,6 @@ use ecdh::{bjj::BJJ, ECDHTrait};
 use edwards::{bjj::BabyJubJub, CurveTrait, ScalarField};
 use poseidon::poseidon2::Poseidon2;
 
-// Schnorr over BabyJubJub binding recipient_S (spend pubkey) to recipient_B (viewing key).
-// e via ScalarField<64> (full field element); the mul wraps mod curve order == TS mod-suborder e.
 pub fn verify_spend_binding(
     recipient_B: BabyJubJub,
     recipient_S: BabyJubJub,

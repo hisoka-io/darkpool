@@ -87,7 +87,7 @@ export class ScanEngine {
 
     const nullLogs = await this.contract.queryFilter(
       this.contract.filters.NullifierSpent(),
-      fromBlock,
+      Math.min(fromBlock, this.deploymentBlock),
     );
 
     const finalized = await this.finalizedBlock();

@@ -11,7 +11,9 @@ pub use spend_binding::verify_spend_binding;
 pub global TREE_DEPTH: u32 = 32;
 pub global CIPHERTEXT_FIELDS: u32 = 7;
 
+// label "hisoka.enc_key"
 pub global KEY_PURPOSE: Field = 0x0281a8425bea84c419aa615997d24dd06616356a715c72dc95be25985fd32e8d;
+// "hisoka.enc_iv"
 pub global IV_PURPOSE: Field = 0x240f81dbabe617f804ce036eb97fb79d25005a52b2128ac6364b872889b4a48f;
 
 // Domain-separation tag for the DLEQ challenge (keccak256("hisoka.dleq.v1") % BN254_Fr); prevents
@@ -19,6 +21,7 @@ pub global IV_PURPOSE: Field = 0x240f81dbabe617f804ce036eb97fb79d25005a52b2128ac
 pub global DLEQ_DOMAIN: Field = 0x1570eff8f2295a2eb1f2cf6cea827909fd713f0446dcbd7f1647496d89273366;
 
 // BabyJubJub prime-order subgroup order.
+// https://docs.iden3.io/publications/pdfs/Baby-Jubjub.pdf
 pub global SUBORDER: Field =
     2736030358979909402780800718157159386076813972158567259200215660948447373041;
 
@@ -33,7 +36,7 @@ pub fn assert_subgroup_scalar(x: Field) {
 pub struct EncryptedNote {
     pub epk_x: Field,
     pub epk_y: Field,
-    pub ciphertext: [Field; 7],
+    pub ciphertext: [Field; CIPHERTEXT_FIELDS],
 }
 
 pub fn encrypt_note_for_compliance(
@@ -103,7 +106,7 @@ pub fn encrypt_note(plaintext: [u8; 192], iv: [u8; 16], key: [u8; 16]) -> [u8; 2
     std::aes128::aes128_encrypt(plaintext, iv, key)
 }
 
-pub fn ciphertext_commitment(packed_ct: [Field; 7]) -> Field {
+pub fn ciphertext_commitment(packed_ct: [Field; CIPHERTEXT_FIELDS]) -> Field {
     Poseidon2::hash(
         [
             packed_ct[0],
@@ -114,14 +117,14 @@ pub fn ciphertext_commitment(packed_ct: [Field; 7]) -> Field {
             packed_ct[5],
             packed_ct[6],
         ],
-        7,
+        CIPHERTEXT_FIELDS,
     )
 }
 
-pub fn pack_ciphertext(ct: [u8; 208]) -> [Field; 7] {
-    let mut packed: [Field; 7] = [0; 7];
+pub fn pack_ciphertext(ct: [u8; 208]) -> [Field; CIPHERTEXT_FIELDS] {
+    let mut packed: [Field; CIPHERTEXT_FIELDS] = [0; CIPHERTEXT_FIELDS];
     let mut idx = 0;
-    for p in 0..7 {
+    for p in 0..CIPHERTEXT_FIELDS {
         let mut val: Field = 0;
         let bytes_in_this = if p < 6 { 31 } else { 22 };
         let mut power: Field = 1;

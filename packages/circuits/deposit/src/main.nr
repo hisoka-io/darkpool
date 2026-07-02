@@ -9,6 +9,8 @@ fn main(
 ) -> pub (Field, Field, Field, Field, [Field; 7]) {
     let _: [u8; 20] = note_plaintext.asset_id.to_be_bytes();
 
+    assert(note_plaintext.owner != 0, "deposit note owner must be non-zero");
+
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     let encrypted = encrypt_note_for_compliance(note_plaintext, ephemeral_sk, compliance_pk);
 
@@ -56,4 +58,27 @@ fn test_deposit_compile_check() {
     assert(epk_y == exp_epk_y);
     assert(val == note_plaintext.value as Field);
     assert(packed_ct == exp_ct);
+}
+
+#[test(should_fail_with = "deposit note owner must be non-zero")]
+fn audit_reject_zero_owner() {
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let note_plaintext = Note {
+        asset_id: 0x0000000000000000000000000d500b1d8e8ef31e21c99d1db9a6444d3adf1270,
+        value: 100,
+        secret: 0x000000000000000000000000000000000000000000000000000000000000007b,
+        owner: 0,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let ephemeral_sk = 0x0178e49f6c3773df9ae9f433b0cdabc9473c85156d10d8017ad0cdbb6b27aae0;
+
+    let _ = main(
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        note_plaintext,
+        ephemeral_sk,
+    );
 }

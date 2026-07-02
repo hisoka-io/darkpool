@@ -15,6 +15,9 @@ export class LeanIMT {
   }
 
   public async insert(leaf: Fr): Promise<Fr> {
+    if (leaf.equals(this.zeroValue)) {
+      throw new Error("leaf must be non-zero");
+    }
     const leafIndex = this.nextLeafIndex;
     const capacity = BigInt(2) ** BigInt(this.depth);
     if (BigInt(leafIndex) >= capacity) {
@@ -28,7 +31,10 @@ export class LeanIMT {
     let currentIndexInLevel = leafIndex;
 
     for (let level = 0; level < this.depth; ++level) {
-      const siblingIndex = currentIndexInLevel ^ 1;
+      const siblingIndex =
+        currentIndexInLevel % 2 === 0
+          ? currentIndexInLevel + 1
+          : currentIndexInLevel - 1;
       const siblingNode =
         siblingIndex < this.levels[level].length
           ? this.levels[level][siblingIndex]
@@ -78,7 +84,8 @@ export class LeanIMT {
     let currentIndex = index;
 
     for (let level = 0; level < this.depth; level++) {
-      const siblingIndex = currentIndex ^ 1;
+      const siblingIndex =
+        currentIndex % 2 === 0 ? currentIndex + 1 : currentIndex - 1;
 
       if (siblingIndex < this.levels[level].length) {
         path.push(this.levels[level][siblingIndex]);
