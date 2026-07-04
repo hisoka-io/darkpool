@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
+import { inspect } from "node:util";
 import { Wallet } from "ethers";
 import { Base8, mulPointEscalar, subOrder } from "@zk-kit/baby-jubjub";
 import { DarkAccount } from "../keys/DarkAccount";
@@ -20,6 +21,37 @@ describe("DarkAccount", () => {
       const sk1 = await account1.getSpendKey();
       const sk2 = await account2.getSpendKey();
       expect(sk1.equals(sk2)).toBe(true);
+    });
+
+    it("derives the identical account from case and whitespace variants of one mnemonic", async () => {
+      const canonical = await DarkAccount.fromMnemonic(testMnemonic);
+      const expected = await canonical.getSpendKey();
+
+      // ethers accepts these non-canonical renderings and canonicalizes them, but their raw strings
+      // differ; seeding from the raw input would silently derive divergent accounts.
+      const variants = [
+        testMnemonic.toUpperCase(),
+        "Test test test test test test test test test test test junk",
+        testMnemonic.replace(/ /g, "  "),
+      ];
+      for (const variant of variants) {
+        const account = await DarkAccount.fromMnemonic(variant);
+        const sk = await account.getSpendKey();
+        expect(sk.equals(expected)).toBe(true);
+      }
+    });
+
+    it("refuses to serialize or print key material", async () => {
+      const account = await DarkAccount.fromMnemonic(testMnemonic);
+      await account.getSpendKey();
+      await account.getViewKey();
+      await account.getNullifyingKey();
+
+      expect(() => JSON.stringify(account)).toThrow();
+
+      const printed = inspect(account);
+      expect(printed).toContain("redacted");
+      expect(printed).not.toMatch(/[0-9a-f]{16}/i);
     });
 
     it("should create an account deterministically from a signature", async () => {

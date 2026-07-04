@@ -85,6 +85,17 @@ export class DarkAccount implements IDarkAccount {
 
   private constructor(private readonly sk_root: Fr) {}
 
+  // Fail closed on JSON.stringify and redact on Node util.inspect -- the two key serialization/log paths.
+  // TS `private` is compile-time only, so field enumeration (spread, Object.keys, structuredClone) still
+  // exposes these; closing that needs `#private` fields. Symbol.for avoids a Node-only util import.
+  public toJSON(): never {
+    throw new DerivationError("refusing to serialize key material");
+  }
+
+  [Symbol.for("nodejs.util.inspect.custom")](): string {
+    return "DarkAccount <redacted>";
+  }
+
   public async getSpendKey(): Promise<Fr> {
     if (this._sk_spend === undefined) {
       this._sk_spend = await Kdf.derive("hisoka.spend", this.sk_root);
@@ -122,12 +133,16 @@ export class DarkAccount implements IDarkAccount {
   }
 
   public static async fromMnemonic(mnemonic: string): Promise<DarkAccount> {
+    let canonicalPhrase: string;
     try {
-      Mnemonic.fromPhrase(mnemonic);
+      // ethers reconstructs .phrase from entropy, so non-canonical renderings (mixed case, repeated
+      // whitespace) of one valid mnemonic collapse to a single phrase; seeding from the raw input would
+      // derive divergent accounts.
+      canonicalPhrase = Mnemonic.fromPhrase(mnemonic).phrase;
     } catch {
       throw new DerivationError("Invalid mnemonic");
     }
-    const seedBytes = await mnemonicToSeed(mnemonic);
+    const seedBytes = await mnemonicToSeed(canonicalPhrase);
     const seedHex = Array.from(seedBytes)
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");

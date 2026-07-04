@@ -167,6 +167,173 @@ fn audit_reject_noncanonical_index() {
     );
 }
 
+// The shared_secret is a free witness; mutating it re-derives a different (key,iv), a different
+// re-encrypted commitment, and so the inclusion proof no longer matches the root. Ownership rests on
+// the ciphertext commitment binding, not a plaintext one.
+#[test(should_fail)]
+fn audit_reject_mutated_shared_secret() {
+    let withdraw_value: u128 = 40;
+    let recipient = 0x1234567890123456789012345678901234567890;
+    let merkle_root = 0x05c1a73fa9dcd01b4cec5d9209592a5629421d0534d3f1decc791a463d969a77;
+    let current_timestamp = 0;
+    let intent_hash = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let old_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    // mutated last nibble vs test_withdraw_compile_check's shared_secret.
+    let old_shared_secret = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d10a;
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
+    let old_note_index = 0;
+    let old_note_path = [0; 32];
+    let hashlock_preimage = 0;
+
+    let change_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 60,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000190,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let change_ephemeral_sk = 0x039be029cb56876c17663612a723dfcb5cfffcb3f92bdc06331377df00d08be5;
+
+    let _ = main(
+        withdraw_value,
+        recipient,
+        merkle_root,
+        current_timestamp,
+        intent_hash,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        old_note,
+        old_shared_secret,
+        nk,
+        old_note_index,
+        old_note_path,
+        hashlock_preimage,
+        change_note,
+        change_ephemeral_sk,
+    );
+}
+
+// withdraw + change wrapping past 2^128 to equal the input triggers the u128 add overflow check, not a
+// silent modular wrap: value cannot be minted via overflow.
+#[test(should_fail)]
+fn audit_reject_conservation_overflow() {
+    let withdraw_value: u128 = 0x80000000000000000000000000000000;
+    let recipient = 0x1234567890123456789012345678901234567890;
+    let merkle_root = 0x05c1a73fa9dcd01b4cec5d9209592a5629421d0534d3f1decc791a463d969a77;
+    let current_timestamp = 0;
+    let intent_hash = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let old_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let old_shared_secret = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
+    let old_note_index = 0;
+    let old_note_path = [0; 32];
+    let hashlock_preimage = 0;
+
+    let change_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 0x80000000000000000000000000000064,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000190,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let change_ephemeral_sk = 0x039be029cb56876c17663612a723dfcb5cfffcb3f92bdc06331377df00d08be5;
+
+    let _ = main(
+        withdraw_value,
+        recipient,
+        merkle_root,
+        current_timestamp,
+        intent_hash,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        old_note,
+        old_shared_secret,
+        nk,
+        old_note_index,
+        old_note_path,
+        hashlock_preimage,
+        change_note,
+        change_ephemeral_sk,
+    );
+}
+
+// Outputs summing to more than the input (no wrap) violates conservation directly: the equality assert
+// rejects withdrawing more value than the spent note holds.
+#[test(should_fail)]
+fn audit_reject_value_inflation() {
+    let withdraw_value: u128 = 100;
+    let recipient = 0x1234567890123456789012345678901234567890;
+    let merkle_root = 0x05c1a73fa9dcd01b4cec5d9209592a5629421d0534d3f1decc791a463d969a77;
+    let current_timestamp = 0;
+    let intent_hash = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let old_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000064,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let old_shared_secret = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
+    let old_note_index = 0;
+    let old_note_path = [0; 32];
+    let hashlock_preimage = 0;
+
+    let change_note = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x0000000000000000000000000000000000000000000000000000000000000190,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let change_ephemeral_sk = 0x039be029cb56876c17663612a723dfcb5cfffcb3f92bdc06331377df00d08be5;
+
+    let _ = main(
+        withdraw_value,
+        recipient,
+        merkle_root,
+        current_timestamp,
+        intent_hash,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        old_note,
+        old_shared_secret,
+        nk,
+        old_note_index,
+        old_note_path,
+        hashlock_preimage,
+        change_note,
+        change_ephemeral_sk,
+    );
+}
+
 // Knowing old_shared_secret (the ECDH secret) does not grant spend authority: only the holder
 // of the recipient's nullifying key satisfies owner == Poseidon2(nk*B8).
 #[test(should_fail_with = "spender does not own this note")]

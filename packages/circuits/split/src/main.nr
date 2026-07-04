@@ -160,3 +160,193 @@ fn test_split_smoke() {
     assert(ct1 == exp_ct1);
     assert(ct2 == exp_ct2);
 }
+
+// A leaf index with a set bit at an empty (zero-sibling) level is non-canonical: the inclusion proof
+// rejects it, so one note has exactly one spendable index (no high-bit index malleability).
+#[test(should_fail_with = "non-canonical leaf index")]
+fn audit_reject_noncanonical_index() {
+    let merkle_root = 0x0a179299a5482960d4fba7025036e10187d940abb23f3935c5b510cf59619cf7;
+    let current_timestamp = 0;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
+
+    let note_in = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003f4,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let secret_in = 0x28ac5b086973c5b4c5086623df5f60d9ffb2fa26155fdcdd44b9c85049ef8fec;
+    // bit 0 is set, but level 0 is empty (sibling zero) -> non-canonical.
+    let index_in = 3;
+    let mut path_in = [0; 32];
+    path_in[1] = 0x0aba59c2a9ccbfef3b36e42af175c1a80ce75561fab3fb085c242d6f8b66e199;
+    let preimage_in = 0;
+
+    let note_out_1 = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 40,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let sk_out_1 = 0x00bb23254618a83067b02e833f90a901a7f5a0559324929722051d58a7b61443;
+
+    let note_out_2 = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 60,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let sk_out_2 = 0x037cd9321c280f024e594f89c9b775d6ebc8727202b6a2fc8792beda802c335e;
+
+    let _ = main(
+        merkle_root,
+        current_timestamp,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        note_in,
+        secret_in,
+        index_in,
+        path_in,
+        preimage_in,
+        note_out_1,
+        sk_out_1,
+        note_out_2,
+        sk_out_2,
+        nk,
+    );
+}
+
+// Outputs summing to more than the input (no wrap) violates conservation directly: the equality assert
+// rejects minting value across a split.
+#[test(should_fail)]
+fn audit_reject_value_inflation() {
+    let merkle_root = 0x0a179299a5482960d4fba7025036e10187d940abb23f3935c5b510cf59619cf7;
+    let current_timestamp = 0;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
+
+    let note_in = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003f4,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let secret_in = 0x28ac5b086973c5b4c5086623df5f60d9ffb2fa26155fdcdd44b9c85049ef8fec;
+    let index_in = 2;
+    let mut path_in = [0; 32];
+    path_in[1] = 0x0aba59c2a9ccbfef3b36e42af175c1a80ce75561fab3fb085c242d6f8b66e199;
+    let preimage_in = 0;
+
+    let note_out_1 = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let sk_out_1 = 0x00bb23254618a83067b02e833f90a901a7f5a0559324929722051d58a7b61443;
+
+    let note_out_2 = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let sk_out_2 = 0x037cd9321c280f024e594f89c9b775d6ebc8727202b6a2fc8792beda802c335e;
+
+    let _ = main(
+        merkle_root,
+        current_timestamp,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        note_in,
+        secret_in,
+        index_in,
+        path_in,
+        preimage_in,
+        note_out_1,
+        sk_out_1,
+        note_out_2,
+        sk_out_2,
+        nk,
+    );
+}
+
+// Two outputs whose u128 sum wraps past 2^128 to equal the input trigger the add overflow check, not a
+// silent modular wrap: value cannot be minted by splitting into overflowing outputs.
+#[test(should_fail)]
+fn audit_reject_conservation_overflow() {
+    let merkle_root = 0x0a179299a5482960d4fba7025036e10187d940abb23f3935c5b510cf59619cf7;
+    let current_timestamp = 0;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
+
+    let note_in = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003f4,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let secret_in = 0x28ac5b086973c5b4c5086623df5f60d9ffb2fa26155fdcdd44b9c85049ef8fec;
+    let index_in = 2;
+    let mut path_in = [0; 32];
+    path_in[1] = 0x0aba59c2a9ccbfef3b36e42af175c1a80ce75561fab3fb085c242d6f8b66e199;
+    let preimage_in = 0;
+
+    let note_out_1 = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 0x80000000000000000000000000000000,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let sk_out_1 = 0x00bb23254618a83067b02e833f90a901a7f5a0559324929722051d58a7b61443;
+
+    let note_out_2 = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 0x80000000000000000000000000000064,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let sk_out_2 = 0x037cd9321c280f024e594f89c9b775d6ebc8727202b6a2fc8792beda802c335e;
+
+    let _ = main(
+        merkle_root,
+        current_timestamp,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        note_in,
+        secret_in,
+        index_in,
+        path_in,
+        preimage_in,
+        note_out_1,
+        sk_out_1,
+        note_out_2,
+        sk_out_2,
+        nk,
+    );
+}

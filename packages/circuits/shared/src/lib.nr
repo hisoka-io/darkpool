@@ -1,6 +1,7 @@
 mod dleq;
 mod spend;
 mod spend_binding;
+mod harness;
 use ecdh::{bjj::BJJ, ECDHTrait, Point};
 use poseidon::poseidon2::Poseidon2;
 use std;

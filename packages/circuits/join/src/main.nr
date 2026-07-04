@@ -191,6 +191,77 @@ fn test_join_smoke() {
     assert(ct == exp_ct);
 }
 
+// An output claiming more than the sum of the two joined inputs violates conservation: the equality
+// assert rejects minting across a join. (Overflow of the input sum is not constructible here -- the
+// summands are merkle-committed inputs -- and the u128 add overflow check is covered by split/withdraw.)
+#[test(should_fail)]
+fn audit_reject_value_inflation() {
+    let merkle_root = 0x0aba59c2a9ccbfef3b36e42af175c1a80ce75561fab3fb085c242d6f8b66e199;
+    let current_timestamp = 0;
+    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
+
+    let note_a = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 100,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003f2,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let secret_a = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
+    let index_a = 0;
+    let mut path_a = [0; 32];
+    path_a[0] = 0x2be17ff320d0b3aeb5a392b367f651abb70676adccb81871c2fe787a20982c32;
+    let preimage_a = 0;
+
+    let note_b = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 50,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003f3,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let secret_b = 0x29b4a3c41682b85beb0c5d2178df291daa9706d02b16c4c4c93ddddef5deff00;
+    let index_b = 1;
+    let mut path_b = [0; 32];
+    path_b[0] = 0x2044d601c131beadcd213aaf6d83efcc17f8a2f3ad1f92d7d24850493142ad64;
+    let preimage_b = 0;
+
+    let note_out = Note {
+        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+        value: 200,
+        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
+        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
+        timelock: 0,
+        hashlock: 0,
+    };
+    let sk_out = 0x025b363d74ca244bb6bc1cdb6a3d3a279fd2176d8848d17fe927fd7616d55f71;
+
+    let _ = main(
+        merkle_root,
+        current_timestamp,
+        compliance_pubkey_x,
+        compliance_pubkey_y,
+        note_a,
+        secret_a,
+        index_a,
+        path_a,
+        preimage_a,
+        note_b,
+        secret_b,
+        index_b,
+        path_b,
+        preimage_b,
+        note_out,
+        sk_out,
+        nk,
+    );
+}
+
 #[test(should_fail_with = "non-canonical leaf index")]
 fn audit_reject_self_join_noncanonical_index() {
     let merkle_root = 0x0aba59c2a9ccbfef3b36e42af175c1a80ce75561fab3fb085c242d6f8b66e199;
