@@ -147,11 +147,15 @@ export async function deployUniswapFixture() {
     await getVerifierFactory("contracts/verifiers/GasPaymentVerifier.sol")
   ).deploy(GAS_OVERRIDES);
 
+  const MockRegistryFactory =
+    await ethers.getContractFactory("MockNoxRegistry");
+  const mockNoxRegistry = await MockRegistryFactory.deploy(GAS_OVERRIDES);
   const RewardPoolFactory = (await ethers.getContractFactory(
     "NoxRewardPool",
   )) as unknown as NoxRewardPool__factory;
   const rewardPool = await RewardPoolFactory.deploy(
     deployer.address,
+    await mockNoxRegistry.getAddress(),
     GAS_OVERRIDES,
   );
 

@@ -9,6 +9,7 @@ import {
   USDC_ADDRESS,
   DAI_ADDRESS,
   WBTC_ADDRESS,
+  SWAP_ROUTER,
   COMPLIANCE_PK,
 } from "../../fixtures";
 import {
@@ -170,6 +171,12 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
     console.log(
       `   Swapped 1 WETH -> DAI: ${ethers.formatUnits(log?.args.value, 18)} (min threshold: ${minDaiOutput} at ETH=$${ethUsd.toFixed(0)})`,
     );
+
+    // Output invariant: exactInput proceeds are fully forwarded, so the adaptor
+    // keeps no residue of the output asset.
+    const adaptorAddr = await uniswapAdaptor.getAddress();
+    const dai = await ethers.getContractAt("IERC20", DAI_ADDRESS);
+    expect(await dai.balanceOf(adaptorAddr)).to.equal(0n);
   });
 
   it("should swap WETH -> USDC -> WBTC (Exact Output) with Refund", async function () {
@@ -279,5 +286,13 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
     console.log(
       `   Refunded: ${ethers.formatEther(wethLog?.args.value)} WETH (min threshold: ${minRefund.toFixed(2)} at BTC=$${btcUsd.toFixed(0)}, ETH=$${ethUsd.toFixed(0)})`,
     );
+
+    // No residual router approval survives the multi-hop exactOutput swap, and
+    // the WBTC output plus WETH refund are fully forwarded (zero adaptor residue).
+    const adaptorAddr = await uniswapAdaptor.getAddress();
+    expect(await data.weth.allowance(adaptorAddr, SWAP_ROUTER)).to.equal(0n);
+    const wbtc = await ethers.getContractAt("IERC20", WBTC_ADDRESS);
+    expect(await wbtc.balanceOf(adaptorAddr)).to.equal(0n);
+    expect(await data.weth.balanceOf(adaptorAddr)).to.equal(0n);
   });
 });

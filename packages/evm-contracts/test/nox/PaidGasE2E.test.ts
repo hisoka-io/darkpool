@@ -54,8 +54,14 @@ async function deployFullStack() {
     "contracts/verifiers/GasPaymentVerifier.sol",
   );
 
+  const MockRegistryFactory =
+    await ethers.getContractFactory("MockNoxRegistry");
+  const mockNoxRegistry = await MockRegistryFactory.deploy();
   const RewardPoolFactory = await ethers.getContractFactory("NoxRewardPool");
-  const rewardPool = await RewardPoolFactory.deploy(deployer.address);
+  const rewardPool = await RewardPoolFactory.deploy(
+    deployer.address,
+    await mockNoxRegistry.getAddress(),
+  );
 
   const TokenFactory = await ethers.getContractFactory("MockERC20");
   const token = await TokenFactory.deploy("Mock", "MCK", 18);

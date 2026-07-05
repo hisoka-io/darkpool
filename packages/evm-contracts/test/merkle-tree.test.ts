@@ -214,5 +214,38 @@ describe("MerkleTreeLib", function () {
         );
       }
     });
+
+    it("should revert an oversized subtree instead of OOG-ing on a deep tree", async function () {
+      const DEEP_DEPTH = 32;
+      const HarnessFactory = (await ethers.getContractFactory(
+        "MerkleTreeLibHarness",
+        {
+          libraries: {
+            Poseidon2: await poseidon2Lib.getAddress(),
+          },
+        },
+      )) as unknown as MerkleTreeLibHarness__factory;
+      const deep = await HarnessFactory.deploy(DEEP_DEPTH, 10);
+
+      await deep.insert(ethers.zeroPadValue("0x01", 32));
+      await deep.insert(ethers.zeroPadValue("0x02", 32));
+
+      // 2^20 leaf slots for a tree holding 2 leaves: rejected before allocation
+      await expect(
+        deep.getSubtreeWithProof(20, 0),
+      ).to.be.revertedWithCustomError(deep, "SubtreeTooLarge");
+
+      // one level past the populated bound (2 leaves -> at most a 4-leaf subtree) also reverts
+      await expect(
+        deep.getSubtreeWithProof(3, 0),
+      ).to.be.revertedWithCustomError(deep, "SubtreeTooLarge");
+
+      // in-range request on the same deep tree still returns the correct subtree/proof
+      const [proof, leafs] = await deep.getSubtreeWithProof(1, 0);
+      expect(proof.length).to.equal(DEEP_DEPTH - 1);
+      expect(leafs.length).to.equal(2);
+      expect(leafs[0]).to.equal(ethers.zeroPadValue("0x01", 32));
+      expect(leafs[1]).to.equal(ethers.zeroPadValue("0x02", 32));
+    });
   });
 });

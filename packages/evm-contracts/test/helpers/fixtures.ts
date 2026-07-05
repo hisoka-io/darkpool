@@ -62,8 +62,14 @@ export async function deployDarkPoolFixture() {
     "contracts/verifiers/GasPaymentVerifier.sol",
   );
 
+  const MockRegistryFactory =
+    await ethers.getContractFactory("MockNoxRegistry");
+  const mockNoxRegistry = await MockRegistryFactory.deploy();
   const RewardPoolFactory = await ethers.getContractFactory("NoxRewardPool");
-  const rewardPool = await RewardPoolFactory.deploy(deployer.address);
+  const rewardPool = await RewardPoolFactory.deploy(
+    deployer.address,
+    await mockNoxRegistry.getAddress(),
+  );
 
   const token = await (
     (await ethers.getContractFactory(
@@ -100,6 +106,7 @@ export async function deployDarkPoolFixture() {
     darkPool,
     token,
     rewardPool,
+    mockNoxRegistry,
     deployer,
     alice,
     bob,

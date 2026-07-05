@@ -44,8 +44,9 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
     const registry = await RegistryFactory.deploy(
       deployer.address,
       await token.getAddress(),
-      0n, // minStake = 0 for testing
+      ethers.parseEther("1"), // minStake (>= floor)
       86400n, // unstakeDelay = 1 day (contract minimum)
+      ethers.parseEther("1"), // minStakeFloor
     );
 
     // Register the relayer as a privileged exit node
@@ -66,7 +67,15 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
 
   it("full flow: register → deposit → payRelayer → reward deposited", async function () {
     const ctx = await loadFixture(deployFullStack);
-    const { darkPool, token, rewardPool, relayer, registry, alice } = ctx;
+    const {
+      darkPool,
+      token,
+      rewardPool,
+      mockNoxRegistry,
+      relayer,
+      registry,
+      alice,
+    } = ctx;
 
     // 1. Verify relayer is registered on-chain
     const count = await registry.relayerCount();
@@ -151,7 +160,8 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
     );
     expect(poolBalanceAfter - poolBalanceBefore).to.equal(10n);
 
-    // 6. Admin distributes rewards to the relayer
+    // 6. Admin distributes rewards to the relayer (registered in the pool's registry)
+    await mockNoxRegistry.setActive(relayer.address, true);
     const relayerBalanceBefore = await token.balanceOf(relayer.address);
     await rewardPool.distributeRewards(
       await token.getAddress(),

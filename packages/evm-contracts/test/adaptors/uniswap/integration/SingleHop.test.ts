@@ -7,6 +7,7 @@ import {
   fetchLivePrices,
   WETH_ADDRESS,
   USDC_ADDRESS,
+  SWAP_ROUTER,
   COMPLIANCE_PK,
 } from "../../fixtures";
 import {
@@ -179,5 +180,13 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
     // 3. Check Ownership
     expect(usdcLog?.args.ownerX).to.equal(888n);
     expect(wethLog?.args.ownerX).to.equal(888n);
+
+    // No residual router approval survives the exactOutput swap (the router
+    // pulls less than amountInMaximum), and every proceed is forwarded so the
+    // adaptor holds zero of both the output and input asset afterward.
+    const adaptorAddr = await uniswapAdaptor.getAddress();
+    expect(await data.weth.allowance(adaptorAddr, SWAP_ROUTER)).to.equal(0n);
+    expect(await data.usdc.balanceOf(adaptorAddr)).to.equal(0n);
+    expect(await data.weth.balanceOf(adaptorAddr)).to.equal(0n);
   });
 });

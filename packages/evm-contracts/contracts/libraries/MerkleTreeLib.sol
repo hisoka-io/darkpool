@@ -20,6 +20,7 @@ library MerkleTreeLib {
     error LevelOutOfBounds();
     error PositionOutOfBounds();
     error LeafIndexOutOfBounds();
+    error SubtreeTooLarge();
 
     event LeafInserted(
         uint256 indexed leafIndex,
@@ -179,6 +180,12 @@ library MerkleTreeLib {
         if (treeLevel > self.TREE_DEPTH) revert LevelOutOfBounds();
         if (positionAtLevel >= (1 << (self.TREE_DEPTH - treeLevel)))
             revert PositionOutOfBounds();
+
+        // bound the leaf allocation to the populated set so an oversized subtree reverts instead of OOG-ing the view
+        uint256 maxSubtreeLeafs = self.nextLeafIndex == 0
+            ? 1
+            : self.nextLeafIndex << 1;
+        if ((1 << treeLevel) > maxSubtreeLeafs) revert SubtreeTooLarge();
 
         uint256 levelFromRoot = self.TREE_DEPTH - treeLevel;
 
