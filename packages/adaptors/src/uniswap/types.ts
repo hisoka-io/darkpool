@@ -8,7 +8,6 @@ export enum SwapType {
 export interface RecipientIdentity {
   ownerX: bigint;
   ownerY: bigint;
-  claimerOwner: bigint;
 }
 
 export interface ExactInputSingleParams {
@@ -18,6 +17,7 @@ export interface ExactInputSingleParams {
   fee: number;
   recipient: RecipientIdentity;
   amountOutMin: bigint;
+  salt: bigint;
 }
 
 export interface ExactInputParams {
@@ -25,6 +25,7 @@ export interface ExactInputParams {
   path: string;
   recipient: RecipientIdentity;
   amountOutMin: bigint;
+  salt: bigint;
 }
 
 export interface ExactOutputSingleParams {
@@ -35,6 +36,7 @@ export interface ExactOutputSingleParams {
   recipient: RecipientIdentity;
   amountOut: bigint;
   amountInMaximum: bigint;
+  salt: bigint;
 }
 
 export interface ExactOutputParams {
@@ -43,6 +45,7 @@ export interface ExactOutputParams {
   recipient: RecipientIdentity;
   amountOut: bigint;
   amountInMaximum: bigint;
+  salt: bigint;
 }
 
 export type UniswapSwapParams =

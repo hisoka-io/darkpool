@@ -35,7 +35,6 @@ contract UniswapAdaptor is ReentrancyGuard {
     struct RecipientIdentity {
         uint256 ownerX;
         uint256 ownerY;
-        uint256 claimerOwner;
     }
 
     struct ExactInputSingleParams {
@@ -44,11 +43,13 @@ contract UniswapAdaptor is ReentrancyGuard {
         uint24 fee;
         RecipientIdentity recipient;
         uint256 amountOutMin;
+        uint256 salt;
     }
     struct ExactInputParams {
         bytes path;
         RecipientIdentity recipient;
         uint256 amountOutMin;
+        uint256 salt;
     }
     struct ExactOutputSingleParams {
         address assetIn;
@@ -57,12 +58,14 @@ contract UniswapAdaptor is ReentrancyGuard {
         RecipientIdentity recipient;
         uint256 amountOut;
         uint256 amountInMaximum;
+        uint256 salt;
     }
     struct ExactOutputParams {
         bytes path;
         RecipientIdentity recipient;
         uint256 amountOut;
         uint256 amountInMaximum;
+        uint256 salt;
     }
 
     constructor(address _darkPool, address _uniswapRouter) {
@@ -159,7 +162,7 @@ contract UniswapAdaptor is ReentrancyGuard {
                 sqrtPriceLimitX96: 0
             });
         uint256 amountOut = UNISWAP_ROUTER.exactInputSingle(params);
-        _returnFunds(p.recipient, p.assetOut, amountOut);
+        _returnFunds(p.recipient, p.assetOut, amountOut, p.salt);
     }
 
     function _handleExactInput(
@@ -186,7 +189,7 @@ contract UniswapAdaptor is ReentrancyGuard {
                 amountOutMinimum: p.amountOutMin
             });
         uint256 amountOut = UNISWAP_ROUTER.exactInput(params);
-        _returnFunds(p.recipient, tokenOut, amountOut);
+        _returnFunds(p.recipient, tokenOut, amountOut, p.salt);
     }
 
     function _handleExactOutputSingle(
@@ -216,9 +219,14 @@ contract UniswapAdaptor is ReentrancyGuard {
             });
         uint256 amountInActual = UNISWAP_ROUTER.exactOutputSingle(params);
         IERC20(p.assetIn).forceApprove(address(UNISWAP_ROUTER), 0);
-        _returnFunds(p.recipient, p.assetOut, p.amountOut);
+        _returnFunds(p.recipient, p.assetOut, p.amountOut, p.salt);
         if (amountInActual < amountInMax) {
-            _returnFunds(p.recipient, p.assetIn, amountInMax - amountInActual);
+            _returnFunds(
+                p.recipient,
+                p.assetIn,
+                amountInMax - amountInActual,
+                p.salt
+            );
         }
     }
 
@@ -248,24 +256,25 @@ contract UniswapAdaptor is ReentrancyGuard {
             });
         uint256 amountInActual = UNISWAP_ROUTER.exactOutput(params);
         IERC20(tokenIn).forceApprove(address(UNISWAP_ROUTER), 0);
-        _returnFunds(p.recipient, tokenOut, p.amountOut);
+        _returnFunds(p.recipient, tokenOut, p.amountOut, p.salt);
         if (amountInActual < amountInMax) {
-            _returnFunds(p.recipient, tokenIn, amountInMax - amountInActual);
+            _returnFunds(
+                p.recipient,
+                tokenIn,
+                amountInMax - amountInActual,
+                p.salt
+            );
         }
     }
 
     function _returnFunds(
         RecipientIdentity memory r,
         address asset,
-        uint256 amount
+        uint256 amount,
+        uint256 salt
     ) internal {
         if (amount == 0) return;
         IERC20(asset).forceApprove(DARK_POOL, amount);
-        uint256 salt = uint256(
-            keccak256(
-                abi.encodePacked(block.timestamp, amount, asset, msg.sender)
-            )
-        ) % PRIME;
         IDarkPool(DARK_POOL).publicTransfer(
             r.ownerX,
             r.ownerY,
@@ -305,13 +314,20 @@ contract UniswapAdaptor is ReentrancyGuard {
                     uint256(uint160(p.assetOut)),
                     uint256(p.fee),
                     p.amountOutMin,
-                    p.recipient
+                    p.recipient,
+                    p.salt
                 );
         } else if (sType == SwapType.ExactInput) {
             ExactInputParams memory p = abi.decode(encoded, (ExactInputParams));
             uint256 pathHash = uint256(keccak256(p.path)) % PRIME;
             return
-                _hash5(uint256(sType), pathHash, p.amountOutMin, p.recipient);
+                _hash5(
+                    uint256(sType),
+                    pathHash,
+                    p.amountOutMin,
+                    p.recipient,
+                    p.salt
+                );
         } else if (sType == SwapType.ExactOutputSingle) {
             ExactOutputSingleParams memory p = abi.decode(
                 encoded,
@@ -325,7 +341,8 @@ contract UniswapAdaptor is ReentrancyGuard {
                     uint256(p.fee),
                     p.amountOut,
                     p.amountInMaximum,
-                    p.recipient
+                    p.recipient,
+                    p.salt
                 );
         } else if (sType == SwapType.ExactOutput) {
             ExactOutputParams memory p = abi.decode(
@@ -339,7 +356,8 @@ contract UniswapAdaptor is ReentrancyGuard {
                     pathHash,
                     p.amountOut,
                     p.amountInMaximum,
-                    p.recipient
+                    p.recipient,
+                    p.salt
                 );
         }
         revert UnsupportedSwapType();
@@ -351,7 +369,8 @@ contract UniswapAdaptor is ReentrancyGuard {
         uint256 c,
         uint256 d,
         uint256 e,
-        RecipientIdentity memory r
+        RecipientIdentity memory r,
+        uint256 salt
     ) internal pure returns (bytes32) {
         Field.Type[] memory f = new Field.Type[](8);
         f[0] = Field.toField(a);
@@ -361,14 +380,15 @@ contract UniswapAdaptor is ReentrancyGuard {
         f[4] = Field.toField(e);
         f[5] = Field.toField(r.ownerX);
         f[6] = Field.toField(r.ownerY);
-        f[7] = Field.toField(r.claimerOwner);
+        f[7] = Field.toField(salt);
         return Field.toBytes32(Poseidon2.hash(f));
     }
     function _hash5(
         uint256 a,
         uint256 b,
         uint256 c,
-        RecipientIdentity memory r
+        RecipientIdentity memory r,
+        uint256 salt
     ) internal pure returns (bytes32) {
         Field.Type[] memory f = new Field.Type[](6);
         f[0] = Field.toField(a);
@@ -376,7 +396,7 @@ contract UniswapAdaptor is ReentrancyGuard {
         f[2] = Field.toField(c);
         f[3] = Field.toField(r.ownerX);
         f[4] = Field.toField(r.ownerY);
-        f[5] = Field.toField(r.claimerOwner);
+        f[5] = Field.toField(salt);
         return Field.toBytes32(Poseidon2.hash(f));
     }
     function _hash8(
@@ -386,7 +406,8 @@ contract UniswapAdaptor is ReentrancyGuard {
         uint256 d,
         uint256 e,
         uint256 f,
-        RecipientIdentity memory r
+        RecipientIdentity memory r,
+        uint256 salt
     ) internal pure returns (bytes32) {
         Field.Type[] memory arr = new Field.Type[](9);
         arr[0] = Field.toField(a);
@@ -397,7 +418,7 @@ contract UniswapAdaptor is ReentrancyGuard {
         arr[5] = Field.toField(f);
         arr[6] = Field.toField(r.ownerX);
         arr[7] = Field.toField(r.ownerY);
-        arr[8] = Field.toField(r.claimerOwner);
+        arr[8] = Field.toField(salt);
         return Field.toBytes32(Poseidon2.hash(arr));
     }
     function _hashExactOutputHelper(
@@ -405,7 +426,8 @@ contract UniswapAdaptor is ReentrancyGuard {
         uint256 b,
         uint256 c,
         uint256 d,
-        RecipientIdentity memory r
+        RecipientIdentity memory r,
+        uint256 salt
     ) internal pure returns (bytes32) {
         Field.Type[] memory f = new Field.Type[](7);
         f[0] = Field.toField(a);
@@ -414,7 +436,7 @@ contract UniswapAdaptor is ReentrancyGuard {
         f[3] = Field.toField(d);
         f[4] = Field.toField(r.ownerX);
         f[5] = Field.toField(r.ownerY);
-        f[6] = Field.toField(r.claimerOwner);
+        f[6] = Field.toField(salt);
         return Field.toBytes32(Poseidon2.hash(f));
     }
 }

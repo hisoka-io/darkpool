@@ -40,8 +40,9 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
     const params = {
       type: SwapType.ExactInput,
       path,
-      recipient: { ownerX: 111n, ownerY: 222n, claimerOwner: 333n },
+      recipient: { ownerX: 111n, ownerY: 222n },
       amountOutMin: 0n,
+      salt: 333n,
     };
 
     // @ts-ignore adaptor intent params
@@ -57,17 +58,14 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
 
     const encodedParams = new ethers.AbiCoder().encode(
       [
-        "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOutMin)",
+        "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin, uint256 salt)",
       ],
       [
         [
           params.path,
-          [
-            params.recipient.ownerX,
-            params.recipient.ownerY,
-            params.recipient.claimerOwner,
-          ],
+          [params.recipient.ownerX, params.recipient.ownerY],
           params.amountOutMin,
+          params.salt,
         ],
       ],
     );
@@ -112,9 +110,10 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
     const params = {
       type: SwapType.ExactOutput,
       path,
-      recipient: { ownerX: 333n, ownerY: 444n, claimerOwner: 555n },
+      recipient: { ownerX: 333n, ownerY: 444n },
       amountOut: BigInt(TARGET_WBTC),
       amountInMaximum: BigInt(setup.amount),
+      salt: 555n,
     };
 
     // @ts-ignore
@@ -130,18 +129,15 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
 
     const encodedParams = new ethers.AbiCoder().encode(
       [
-        "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOut, uint256 amountInMaximum)",
+        "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOut, uint256 amountInMaximum, uint256 salt)",
       ],
       [
         [
           params.path,
-          [
-            params.recipient.ownerX,
-            params.recipient.ownerY,
-            params.recipient.claimerOwner,
-          ],
+          [params.recipient.ownerX, params.recipient.ownerY],
           params.amountOut,
           params.amountInMaximum,
+          params.salt,
         ],
       ],
     );

@@ -86,23 +86,6 @@ export interface JoinInputs {
   ephOut: Fr;
 }
 
-export interface GasPaymentInputs {
-  currentTimestamp: number;
-  paymentValue: Fr;
-  paymentAssetId: Fr;
-  relayerAddress: Fr;
-  executionHash: Fr;
-  compliancePk: Point<bigint>;
-
-  oldNote: NoteInput;
-  spendScalar: Fr;
-  oldNoteIndex: number;
-  oldNotePath: Fr[];
-
-  changeNote: NoteInput;
-  changeEph: Fr;
-}
-
 export interface PublicClaimInputs {
   memoId: Fr;
   compliancePk: Point<bigint>;

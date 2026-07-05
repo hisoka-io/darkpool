@@ -1,13 +1,10 @@
 import { ethers as ethersLib } from "ethers";
 import { toFr, addressToFr, Fr } from "@hisoka/wallets";
 import {
-  proveGasPayment,
   proveWithdraw,
   proveSplit,
   proveJoin,
   proveTransfer,
-  GasPaymentInputs,
-  ProofData,
 } from "@hisoka/prover";
 import { Point } from "@zk-kit/baby-jubjub";
 import { TestWallet } from "./TestWallet";
@@ -20,14 +17,10 @@ import {
 } from "./fixtures";
 import type { DarkPool, MockERC20 } from "../../typechain-types";
 
-const BN254_FR_MODULUS =
-  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-
-/** Wraps TestWallet with gas-paid RelayerMulticall transport: every non-deposit action is bundled with a
- * payRelayer proof that spends a separate shielded note to fund the relayer. */
+/** Wraps TestWallet with RelayerMulticall transport: every non-deposit action is relayed through the
+ * multicall so a third party submits the transaction. */
 export class MixnetWallet {
   public readonly base: TestWallet;
-  private gasPaymentFee = 1n;
 
   private constructor(
     base: TestWallet,
@@ -81,80 +74,12 @@ export class MixnetWallet {
     return this.base.getReceiveAddress();
   }
 
-  private computeExecutionHash(actionCalldata: string): Fr {
-    return toFr(
-      BigInt(ethersLib.keccak256(actionCalldata)) % BN254_FR_MODULUS,
-    );
-  }
-
   private async assetFr(): Promise<Fr> {
     return addressToFr(await this.base.token.getAddress());
   }
 
-  private async buildGasProof(
-    executionHash: Fr,
-    excludeLeafIndices: number[],
-  ): Promise<ProofData> {
-    const fee = this.gasPaymentFee;
-    const assetFr = await this.assetFr();
-    const exclude = new Set(excludeLeafIndices);
-
-    const note = this.utxoRepo
-      .getUnspentNotes()
-      .find(
-        (n) =>
-          n.note.assetId.equals(assetFr) &&
-          n.note.value >= fee &&
-          !exclude.has(n.leafIndex),
-      );
-    if (!note) {
-      throw new Error(
-        `No gas payment note (need >= ${fee}, excluding [${excludeLeafIndices.join(", ")}])`,
-      );
-    }
-
-    const { eph: changeEph } = await this.keyRepo.nextSelfEphemeral();
-    const change = await mintSelfNote(
-      changeEph,
-      note.note.value - fee,
-      await this.account.getSelfSpendKey(),
-      assetFr,
-    );
-
-    const gasInputs: GasPaymentInputs = {
-      currentTimestamp: Math.floor(Date.now() / 1000),
-      paymentValue: toFr(fee),
-      paymentAssetId: assetFr,
-      relayerAddress: addressToFr(this.relayerAddress),
-      executionHash,
-      compliancePk: COMPLIANCE_PK,
-      oldNote: noteToInput(note.note),
-      spendScalar: note.spendScalar,
-      oldNoteIndex: note.leafIndex,
-      oldNotePath: this.tree.getMerklePath(note.leafIndex),
-      changeNote: change.note,
-      changeEph,
-    };
-
-    return proveGasPayment(gasInputs);
-  }
-
-  private async submitPaidAction(
-    actionCalldata: string,
-    excludeLeafIndices: number[],
-  ): Promise<string> {
+  private async submitAction(actionCalldata: string): Promise<string> {
     const darkPoolAddr = await this.base.darkPool.getAddress();
-    const executionHash = this.computeExecutionHash(actionCalldata);
-    const gasProof = await this.buildGasProof(
-      executionHash,
-      excludeLeafIndices,
-    );
-
-    const iface = this.base.darkPool.interface;
-    const payRelayerData = iface.encodeFunctionData("payRelayer", [
-      ethersLib.hexlify(gasProof.proof),
-      gasProof.publicInputs,
-    ]);
 
     const multicallContract = new ethersLib.Contract(
       this.multicallAddress,
@@ -165,12 +90,6 @@ export class MixnetWallet {
     );
 
     const tx = await multicallContract.multicall([
-      {
-        target: darkPoolAddr,
-        data: payRelayerData,
-        value: 0n,
-        requireSuccess: true,
-      },
       {
         target: darkPoolAddr,
         data: actionCalldata,
@@ -216,9 +135,7 @@ export class MixnetWallet {
       "split",
       [proof.proof, proof.publicInputs],
     );
-    const txHash = await this.submitPaidAction(actionCalldata, [
-      input.leafIndex,
-    ]);
+    const txHash = await this.submitAction(actionCalldata);
     return { com1: out1.commitment, com2: out2.commitment, txHash };
   }
 
@@ -260,10 +177,7 @@ export class MixnetWallet {
       "join",
       [proof.proof, proof.publicInputs],
     );
-    const txHash = await this.submitPaidAction(actionCalldata, [
-      noteA.leafIndex,
-      noteB.leafIndex,
-    ]);
+    const txHash = await this.submitAction(actionCalldata);
     return { com: out.commitment, txHash };
   }
 
@@ -305,9 +219,7 @@ export class MixnetWallet {
       "withdraw",
       [proof.proof, proof.publicInputs],
     );
-    const txHash = await this.submitPaidAction(actionCalldata, [
-      input.leafIndex,
-    ]);
+    const txHash = await this.submitAction(actionCalldata);
     return { txHash, changeCom: change.commitment };
   }
 
@@ -364,9 +276,7 @@ export class MixnetWallet {
       "privateTransfer",
       [proof.proof, proof.publicInputs],
     );
-    const txHash = await this.submitPaidAction(actionCalldata, [
-      input.leafIndex,
-    ]);
+    const txHash = await this.submitAction(actionCalldata);
     return {
       memoCommitment: memo.commitment,
       changeCommitment: change.commitment,

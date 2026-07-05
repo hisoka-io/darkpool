@@ -125,3 +125,76 @@ fn audit_reject_value_inflation() {
         20,
     );
 }
+
+fn out1_valid() -> Note {
+    out_note(
+        40,
+        0x017131231dbfc29f6bdfb775d6e859c148b7379acc2844380ff9f824fa7073ad,
+    )
+}
+
+fn out2_valid() -> Note {
+    out_note(
+        60,
+        0x1fc1420fa8dd294ee9feaa5067000d40945bdc796e47ce5dfbfa4cbb4210ef8d,
+    )
+}
+
+#[test(should_fail_with = "out1 asset mismatch")]
+fn audit_reject_out_asset_mismatch() {
+    let mut out1 = out1_valid();
+    out1.asset_id = 0x00000000000000000000000000000000000000ff;
+    let _ = main(
+        0,
+        CX,
+        CY,
+        note_in(),
+        789,
+        0,
+        [0; TREE_DEPTH],
+        out1,
+        15,
+        out2_valid(),
+        20,
+    );
+}
+
+// Reusing one ephemeral across both outputs reuses the CEK (two-time pad): the distinctness guard rejects.
+#[test(should_fail_with = "ephemerals must be distinct")]
+fn audit_reject_reused_ephemeral() {
+    let _ = main(
+        0,
+        CX,
+        CY,
+        note_in(),
+        789,
+        0,
+        [0; TREE_DEPTH],
+        out1_valid(),
+        15,
+        out2_valid(),
+        15,
+    );
+}
+
+// A membership path that does not open to a real leaf emits a root the contract will not accept: the
+// emitted root must diverge from the single-leaf KAT root.
+#[test(should_fail)]
+fn audit_reject_non_membership() {
+    let mut path = [0; TREE_DEPTH];
+    path[0] = 0x0abc;
+    let (_, root, _, _, _, _, _, _, _, _) = main(
+        0,
+        CX,
+        CY,
+        note_in(),
+        789,
+        0,
+        path,
+        out1_valid(),
+        15,
+        out2_valid(),
+        20,
+    );
+    assert(root == 0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551);
+}

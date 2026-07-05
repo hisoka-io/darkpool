@@ -136,3 +136,48 @@ fn audit_reject_value_inflation() {
         8,
     );
 }
+
+#[test(should_fail_with = "asset mismatch")]
+fn audit_reject_change_asset_mismatch() {
+    let (cx, cy) = compliance();
+    let mut change = change_note();
+    change.asset_id = 0x00000000000000000000000000000000000000ff;
+    let _ = main(
+        40,
+        0,
+        0,
+        0,
+        cx,
+        cy,
+        spent_note(),
+        789,
+        0,
+        [0; TREE_DEPTH],
+        change,
+        8,
+    );
+}
+
+// A membership path that does not open to a real leaf yields a root the contract will not accept: the
+// emitted root must diverge from the single-leaf KAT root.
+#[test(should_fail)]
+fn audit_reject_non_membership() {
+    let (cx, cy) = compliance();
+    let mut path = [0; TREE_DEPTH];
+    path[0] = 0x0abc;
+    let (_, root, _, _, _, _, _) = main(
+        40,
+        0,
+        0,
+        0,
+        cx,
+        cy,
+        spent_note(),
+        789,
+        0,
+        path,
+        change_note(),
+        8,
+    );
+    assert(root == 0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551);
+}

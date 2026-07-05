@@ -192,9 +192,6 @@ export async function deployDarkPoolFixture() {
   const PublicClaimVerifier = await deployVerifier(
     "contracts/verifiers/PublicClaimVerifier.sol",
   );
-  const GasVerifier = await deployVerifier(
-    "contracts/verifiers/GasPaymentVerifier.sol",
-  );
 
   const MockRegistryFactory =
     await ethers.getContractFactory("MockNoxRegistry");
@@ -229,7 +226,6 @@ export async function deployDarkPoolFixture() {
     await JoinVerifier.getAddress(),
     await SplitVerifier.getAddress(),
     await PublicClaimVerifier.getAddress(),
-    await GasVerifier.getAddress(),
     await rewardPool.getAddress(),
     COMPLIANCE_PK[0],
     COMPLIANCE_PK[1],

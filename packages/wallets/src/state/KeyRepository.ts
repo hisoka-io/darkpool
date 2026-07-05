@@ -13,6 +13,13 @@ const DEFAULT_LOOKAHEAD_WINDOW = 20;
 // Tags are injective only for even-y points, so mint/issue roll to the next even-y index; this bound
 // only guards a non-terminating loop.
 const MAX_INDEX_ROLL = 256;
+// A corrupt persisted counter must never force an unbounded key-registration loop on restore.
+const MAX_KEY_INDEX = 1_000_000;
+
+function clampIndex(value: number, floor: number): number {
+  if (!Number.isFinite(value)) return floor;
+  return Math.min(Math.max(Math.floor(value), floor), MAX_KEY_INDEX);
+}
 
 export class KeyRepository implements IKeyRepository {
   #selfMintCounter = 0;
@@ -145,27 +152,30 @@ export class KeyRepository implements IKeyRepository {
   public async restore(state: KeyRepoState): Promise<void> {
     this.#selfMintCounter = Math.max(
       this.#selfMintCounter,
-      state.selfMintCounter,
+      clampIndex(state.selfMintCounter, 0),
     );
     this.#incomingIssueCounter = Math.max(
       this.#incomingIssueCounter,
-      state.incomingIssueCounter,
+      clampIndex(state.incomingIssueCounter, 0),
     );
     this.#highestMatchedSelf = Math.max(
       this.#highestMatchedSelf,
-      state.highestMatchedSelf,
+      clampIndex(state.highestMatchedSelf, -1),
     );
     this.#highestMatchedIncoming = Math.max(
       this.#highestMatchedIncoming,
-      state.highestMatchedIncoming,
+      clampIndex(state.highestMatchedIncoming, -1),
     );
 
-    const selfTarget = Math.max(state.selfScanIndex, this.#selfMintCounter);
+    const selfTarget = Math.max(
+      clampIndex(state.selfScanIndex, 0),
+      this.#selfMintCounter,
+    );
     while (this.#selfScanIndex < selfTarget) {
       await this.#registerSelf(this.#selfScanIndex++);
     }
     const incomingTarget = Math.max(
-      state.incomingScanIndex,
+      clampIndex(state.incomingScanIndex, 0),
       this.#incomingIssueCounter,
     );
     while (this.#incomingScanIndex < incomingTarget) {

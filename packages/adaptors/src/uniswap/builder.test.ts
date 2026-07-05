@@ -16,7 +16,8 @@ const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const WBTC = "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599";
 
-const recipient = { ownerX: 123n, ownerY: 456n, claimerOwner: 789n };
+const recipient = { ownerX: 123n, ownerY: 456n };
+const salt = 789n;
 
 const coder = AbiCoder.defaultAbiCoder();
 
@@ -27,6 +28,7 @@ const exactInputSingle: ExactInputSingleParams = {
   fee: 500,
   recipient,
   amountOutMin: 1000n,
+  salt,
 };
 
 const exactInput: ExactInputParams = {
@@ -34,6 +36,7 @@ const exactInput: ExactInputParams = {
   path: encodePath([WETH, USDC], [3000]),
   recipient,
   amountOutMin: 2000n,
+  salt,
 };
 
 const exactOutputSingle: ExactOutputSingleParams = {
@@ -44,6 +47,7 @@ const exactOutputSingle: ExactOutputSingleParams = {
   recipient,
   amountOut: 3000n,
   amountInMaximum: 9000n,
+  salt,
 };
 
 const exactOutput: ExactOutputParams = {
@@ -52,16 +56,17 @@ const exactOutput: ExactOutputParams = {
   recipient,
   amountOut: 4000n,
   amountInMaximum: 12000n,
+  salt,
 };
 
 const SINGLE_IN_TUPLE =
-  "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOutMin)";
+  "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin, uint256 salt)";
 const MULTI_IN_TUPLE =
-  "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOutMin)";
+  "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin, uint256 salt)";
 const SINGLE_OUT_TUPLE =
-  "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOut, uint256 amountInMaximum)";
+  "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOut, uint256 amountInMaximum, uint256 salt)";
 const MULTI_OUT_TUPLE =
-  "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOut, uint256 amountInMaximum)";
+  "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOut, uint256 amountInMaximum, uint256 salt)";
 
 function handRolled(params: UniswapSwapParams): string {
   switch (params.type) {
@@ -73,12 +78,9 @@ function handRolled(params: UniswapSwapParams): string {
             params.assetIn,
             params.assetOut,
             params.fee,
-            [
-              params.recipient.ownerX,
-              params.recipient.ownerY,
-              params.recipient.claimerOwner,
-            ],
+            [params.recipient.ownerX, params.recipient.ownerY],
             params.amountOutMin,
+            params.salt,
           ],
         ],
       );
@@ -88,12 +90,9 @@ function handRolled(params: UniswapSwapParams): string {
         [
           [
             params.path,
-            [
-              params.recipient.ownerX,
-              params.recipient.ownerY,
-              params.recipient.claimerOwner,
-            ],
+            [params.recipient.ownerX, params.recipient.ownerY],
             params.amountOutMin,
+            params.salt,
           ],
         ],
       );
@@ -105,13 +104,10 @@ function handRolled(params: UniswapSwapParams): string {
             params.assetIn,
             params.assetOut,
             params.fee,
-            [
-              params.recipient.ownerX,
-              params.recipient.ownerY,
-              params.recipient.claimerOwner,
-            ],
+            [params.recipient.ownerX, params.recipient.ownerY],
             params.amountOut,
             params.amountInMaximum,
+            params.salt,
           ],
         ],
       );
@@ -121,13 +117,10 @@ function handRolled(params: UniswapSwapParams): string {
         [
           [
             params.path,
-            [
-              params.recipient.ownerX,
-              params.recipient.ownerY,
-              params.recipient.claimerOwner,
-            ],
+            [params.recipient.ownerX, params.recipient.ownerY],
             params.amountOut,
             params.amountInMaximum,
+            params.salt,
           ],
         ],
       );
@@ -148,8 +141,8 @@ describe("buildSwapIntent", () => {
     expect(decoded.fee).toBe(BigInt(exactInputSingle.fee));
     expect(decoded.recipient.ownerX).toBe(recipient.ownerX);
     expect(decoded.recipient.ownerY).toBe(recipient.ownerY);
-    expect(decoded.recipient.claimerOwner).toBe(recipient.claimerOwner);
     expect(decoded.amountOutMin).toBe(exactInputSingle.amountOutMin);
+    expect(decoded.salt).toBe(exactInputSingle.salt);
 
     const direct = await hashUniswapIntent(exactInputSingle);
     expect(built.intentHash.toString()).toBe(direct.toString());
@@ -164,8 +157,8 @@ describe("buildSwapIntent", () => {
     expect(decoded.path).toBe(exactInput.path);
     expect(decoded.recipient.ownerX).toBe(recipient.ownerX);
     expect(decoded.recipient.ownerY).toBe(recipient.ownerY);
-    expect(decoded.recipient.claimerOwner).toBe(recipient.claimerOwner);
     expect(decoded.amountOutMin).toBe(exactInput.amountOutMin);
+    expect(decoded.salt).toBe(exactInput.salt);
 
     const direct = await hashUniswapIntent(exactInput);
     expect(built.intentHash.toString()).toBe(direct.toString());
@@ -182,9 +175,9 @@ describe("buildSwapIntent", () => {
     expect(decoded.fee).toBe(BigInt(exactOutputSingle.fee));
     expect(decoded.recipient.ownerX).toBe(recipient.ownerX);
     expect(decoded.recipient.ownerY).toBe(recipient.ownerY);
-    expect(decoded.recipient.claimerOwner).toBe(recipient.claimerOwner);
     expect(decoded.amountOut).toBe(exactOutputSingle.amountOut);
     expect(decoded.amountInMaximum).toBe(exactOutputSingle.amountInMaximum);
+    expect(decoded.salt).toBe(exactOutputSingle.salt);
 
     const direct = await hashUniswapIntent(exactOutputSingle);
     expect(built.intentHash.toString()).toBe(direct.toString());
@@ -199,9 +192,9 @@ describe("buildSwapIntent", () => {
     expect(decoded.path).toBe(exactOutput.path);
     expect(decoded.recipient.ownerX).toBe(recipient.ownerX);
     expect(decoded.recipient.ownerY).toBe(recipient.ownerY);
-    expect(decoded.recipient.claimerOwner).toBe(recipient.claimerOwner);
     expect(decoded.amountOut).toBe(exactOutput.amountOut);
     expect(decoded.amountInMaximum).toBe(exactOutput.amountInMaximum);
+    expect(decoded.salt).toBe(exactOutput.salt);
 
     const direct = await hashUniswapIntent(exactOutput);
     expect(built.intentHash.toString()).toBe(direct.toString());

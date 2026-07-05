@@ -13,7 +13,6 @@ const circuitPackagesNames = [
   "join",
   "split",
   "public_claim",
-  "gas_payment",
 ];
 const circuitsDir = resolve(__dirname, "../../circuits");
 const artifactsPath = circuitPackagesNames.map((circuitPackageName) =>
@@ -29,7 +28,6 @@ const outputPath = [
   resolve(verifiersDir, "JoinVerifier.sol"),
   resolve(verifiersDir, "SplitVerifier.sol"),
   resolve(verifiersDir, "PublicClaimVerifier.sol"),
-  resolve(verifiersDir, "GasPaymentVerifier.sol"),
 ];
 
 async function main() {

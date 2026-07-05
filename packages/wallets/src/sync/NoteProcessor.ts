@@ -7,7 +7,11 @@ import { demDecrypt } from "../crypto/dem.js";
 import { deriveCek, unwrapCek } from "../crypto/kem.js";
 import { computeNullifier, computePsi } from "../note/nullifier.js";
 import { leaf as computeLeaf, NoteV2 } from "../note/noteV2.js";
+import { publicKey, pubkeyOwner } from "../note/keys.js";
 import { UnprocessedEvent } from "./types.js";
+
+// asset ids are ERC20 addresses; anything at or above 2^160 cannot be a real asset.
+const ASSET_MODULUS = 1n << 160n;
 
 export class NoteProcessor {
   constructor(
@@ -109,6 +113,15 @@ export class NoteProcessor {
     // A tag collision or a corrupt event only yields a matching leaf for the true owner's note.
     const rebuilt = await computeLeaf(note);
     if (!rebuilt.equals(commitment)) return null;
+
+    // Defense-in-depth: an unspendable (owner 0), out-of-range-asset, or non-self-owned note is dropped
+    // even when its leaf matches, so a malformed on-chain commitment never enters the spendable set.
+    if (note.owner.toBigInt() === 0n) return null;
+    if (note.assetId.toBigInt() >= ASSET_MODULUS) return null;
+    if (!isIncoming) {
+      const selfOwner = await pubkeyOwner(publicKey(spendScalar));
+      if (!note.owner.equals(selfOwner)) return null;
+    }
 
     const nullifier = await computeNullifier(psi, new Fr(BigInt(leafIndex)));
     return {
