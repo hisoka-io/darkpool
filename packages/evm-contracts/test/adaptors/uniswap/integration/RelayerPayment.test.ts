@@ -41,8 +41,9 @@ describe("Relayer Safe Settlement: Integration", function () {
     const params = {
       type: SwapType.ExactInput,
       path,
-      recipient: { ownerX: 111n, ownerY: 222n, claimerOwner: 333n },
+      recipient: { ownerX: 111n, ownerY: 222n },
       amountOutMin: ethers.parseUnits("1000000", 6),
+      salt: 333n,
     };
     // @ts-ignore adaptor intent params
     const intentHash: Fr = await hashUniswapIntent(params);
@@ -62,17 +63,14 @@ describe("Relayer Safe Settlement: Integration", function () {
 
     const encodedParams = new ethers.AbiCoder().encode(
       [
-        "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOutMin)",
+        "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin, uint256 salt)",
       ],
       [
         [
           params.path,
-          [
-            params.recipient.ownerX,
-            params.recipient.ownerY,
-            params.recipient.claimerOwner,
-          ],
+          [params.recipient.ownerX, params.recipient.ownerY],
           params.amountOutMin,
+          params.salt,
         ],
       ],
     );

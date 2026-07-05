@@ -209,9 +209,6 @@ export async function deployUniswapFixture() {
   const PublicClaimVerifier = await (
     await getVerifierFactory("contracts/verifiers/PublicClaimVerifier.sol")
   ).deploy(GAS_OVERRIDES);
-  const GasVerifier = await (
-    await getVerifierFactory("contracts/verifiers/GasPaymentVerifier.sol")
-  ).deploy(GAS_OVERRIDES);
 
   const MockRegistryFactory =
     await ethers.getContractFactory("MockNoxRegistry");
@@ -239,7 +236,6 @@ export async function deployUniswapFixture() {
     await JoinVerifier.getAddress(),
     await SplitVerifier.getAddress(),
     await PublicClaimVerifier.getAddress(),
-    await GasVerifier.getAddress(),
     await rewardPool.getAddress(),
     COMPLIANCE_PK[0],
     COMPLIANCE_PK[1],
@@ -259,12 +255,6 @@ export async function deployUniswapFixture() {
     SWAP_ROUTER,
     GAS_OVERRIDES,
   );
-
-  await (
-    await darkPool
-      .connect(deployer)
-      .setAdaptor(await uniswapAdaptor.getAddress(), true)
-  ).wait();
 
   const wethContract = new ethers.Contract(WETH_ADDRESS, IWETH_ABI, alice);
   const tx = await wethContract.deposit({

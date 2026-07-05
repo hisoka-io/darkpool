@@ -20,7 +20,6 @@ const circuits = [
   "join",
   "split",
   "public_claim",
-  "gas_payment",
 ];
 const circuitsDir = resolve(__dirname, "../../circuits");
 const proverDir = resolve(__dirname, "..");

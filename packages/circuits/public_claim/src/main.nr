@@ -102,3 +102,45 @@ fn audit_reject_wrong_recipient_key() {
         31,
     );
 }
+
+// The minted note must carry exactly the public memo value: an inflated note_out is rejected.
+#[test(should_fail_with = "claim value mismatch")]
+fn audit_reject_claim_value_inflation() {
+    let mut inflated = note_out();
+    inflated.value = 200;
+    let _ = main(
+        0x0731300919ae74d1507ab3b22cac576da8c86deb8ddc11f24317b861f17f6f93,
+        CX,
+        CY,
+        0,
+        100,
+        0x1234567890123456789012345678901234567890,
+        0,
+        0x2a39f6a9afe8c569977ec299af985e30142d18ee451008ffd13fc0a2a36cf54e,
+        0x1d5a43dc73fe0493cce521cc92a4d34d4837214ce47871c587c567d2d0c72c8f,
+        0x004996117eaf098d97b6a42a8ec9c27b5ec30cdca90ffbdb6792eb4733c982d4,
+        0x3039,
+        inflated,
+        31,
+    );
+}
+
+// A memo_id that does not open to the claimed (value, asset, owner, salt) tuple is rejected.
+#[test(should_fail_with = "memo id mismatch")]
+fn audit_reject_memo_id_mismatch() {
+    let _ = main(
+        0x0731300919ae74d1507ab3b22cac576da8c86deb8ddc11f24317b861f17f6f94,
+        CX,
+        CY,
+        0,
+        100,
+        0x1234567890123456789012345678901234567890,
+        0,
+        0x2a39f6a9afe8c569977ec299af985e30142d18ee451008ffd13fc0a2a36cf54e,
+        0x1d5a43dc73fe0493cce521cc92a4d34d4837214ce47871c587c567d2d0c72c8f,
+        0x004996117eaf098d97b6a42a8ec9c27b5ec30cdca90ffbdb6792eb4733c982d4,
+        0x3039,
+        note_out(),
+        31,
+    );
+}

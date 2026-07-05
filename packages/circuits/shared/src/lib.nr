@@ -21,9 +21,9 @@ pub global TREE_DEPTH: u32 = 32;
 pub global SUBORDER: Field =
     2736030358979909402780800718157159386076813972158567259200215660948447373041;
 
-// Canonical subgroup scalar (non-zero, < SUBORDER): the scalar seeds both a point (owner) and a Poseidon
-// preimage (nullifier), and scalar vs scalar+SUBORDER alias the point but differ as preimage -> two
-// nullifiers for one note (double-spend).
+// Canonical subgroup scalar (non-zero, < SUBORDER): guarantees the scalar defines a well-defined curve
+// point and ECDH pad. Double-spend is bound by the canonical leaf_index and the membership-bound psi
+// nullifier elsewhere, not by this range check.
 pub fn assert_subgroup_scalar(x: Field) {
     assert(x != 0, "scalar must be non-zero");
     assert(x.lt(SUBORDER), "scalar not in BabyJubJub prime-order subgroup");

@@ -85,6 +85,20 @@ fn audit_noncanonical_index_rejected() {
     let _ = spend_at_zero(valid_note(), VALID_SCALAR, 7);
 }
 
+#[test(should_fail_with = "unexpected note version")]
+fn audit_mint_wrong_version() {
+    let mut note = valid_note();
+    note.note_version = 2;
+    let _ = mint::mint_self_note(note, 5, compliance());
+}
+
+#[test(should_fail_with = "unexpected note type")]
+fn audit_mint_wrong_type() {
+    let mut note = valid_note();
+    note.note_type = 1;
+    let _ = mint::mint_self_note(note, 5, compliance());
+}
+
 #[test(should_fail_with = "psi not bound to CEK")]
 fn audit_mint_unbound_psi_rejected() {
     let mut note = valid_note();

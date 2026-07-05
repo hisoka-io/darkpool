@@ -25,7 +25,7 @@ import {
   KeyRepository,
   computeOwner,
 } from "@hisoka/wallets";
-import { proveDeposit, proveGasPayment, proveSplit } from "@hisoka/prover";
+import { proveDeposit, proveSplit } from "@hisoka/prover";
 
 const SEED = process.env["SEED"] || "https://api.hisoka.io/seed";
 const PRIVATE_KEY =
@@ -43,13 +43,9 @@ const COMPLIANCE_PK: [bigint, bigint] = [
   846402003506115650658453623435352858314482596961745278718792737089180331275n,
 ];
 
-const BN254_FR_MODULUS =
-  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-
 const DARKPOOL_ABI = [
   "function deposit(bytes proof, bytes32[] publicInputs)",
   "function split(bytes proof, bytes32[] publicInputs)",
-  "function payRelayer(bytes proof, bytes32[] publicInputs)",
   "function getCurrentRoot() view returns (bytes32)",
   "function getMerklePath(uint256 leafIndex) view returns (bytes32[32])",
   "event NewNote(uint256 indexed leafIndex, bytes32 indexed commitment, uint256 ephemeralPK_x, uint256 ephemeralPK_y, bytes32[7] packedCiphertext)",
@@ -274,27 +270,18 @@ async function main() {
     `\nPhase 1 complete: ${depositedNotes.length} notes deposited on-chain via mixnet`,
   );
 
-  log("\n╔═══════════════════════════════════════════════════════╗");
-  log("║  PHASE 2: SPLIT (gas-paid via mixnet -- exit earns)  ║");
-  log("╚═══════════════════════════════════════════════════════╝\n");
+  log("\nPHASE 2: SPLIT (relayed via mixnet)\n");
 
   const actionNote = depositedNotes[0]!;
-  const gasPaymentNote = depositedNotes[1]!;
 
   const merkleRoot = await darkPool.getCurrentRoot();
   log(`Merkle root: ${merkleRoot.toString().slice(0, 18)}...`);
 
   const actionPath = await darkPool.getMerklePath(actionNote.leafIndex);
-  const gasPath = await darkPool.getMerklePath(gasPaymentNote.leafIndex);
   log(`Action note path: leaf=${actionNote.leafIndex}`);
-  log(`Gas note path: leaf=${gasPaymentNote.leafIndex}`);
 
   const actionSecret = await deriveSharedSecret(
     actionNote.ephemeralSk,
-    COMPLIANCE_PK,
-  );
-  const gasSecret = await deriveSharedSecret(
-    gasPaymentNote.ephemeralSk,
     COMPLIANCE_PK,
   );
 
@@ -342,62 +329,10 @@ async function main() {
     ethers.hexlify(splitProof.proof),
     splitProof.publicInputs.map((v: string) => ethers.zeroPadValue(v, 32)),
   ]);
-  const executionHash = toFr(
-    BigInt(ethers.keccak256(splitCalldata)) % BN254_FR_MODULUS,
-  );
-
-  const gasPaymentFee = ethers.parseEther("1"); // 1 token fee
-  const gasChangeValue = gasPaymentNote.note.value.toBigInt() - gasPaymentFee;
-  const { sk: changeEphSk } = await keyRepo.nextEphemeralParams();
-  const gasChangeNote: NotePlaintext = {
-    asset_id: gasPaymentNote.note.asset_id,
-    value: toFr(gasChangeValue),
-    secret: toFr(BigInt(ethers.hexlify(ethers.randomBytes(31)))),
-    owner,
-    timelock: toFr(0n),
-    hashlock: toFr(0n),
-  };
-
-  const topology = await fetch(SEED + "/topology").then((r) => r.json());
-  const exitNodes = topology.nodes.filter((n: any) => n.role === 2);
-  const relayer = exitNodes[Math.floor(Math.random() * exitNodes.length)];
-  log(`Relayer (exit node): ${relayer.address.slice(0, 14)}...`);
-
-  log("Building gas payment proof...");
-  const t2 = Date.now();
-  const gasProof = await proveGasPayment({
-    merkleRoot: toFr(BigInt(merkleRoot)),
-    currentTimestamp: Math.floor(Date.now() / 1000),
-    paymentValue: toFr(gasPaymentFee),
-    paymentAssetId: addressToFr(TOKEN),
-    relayerAddress: addressToFr(relayer.address),
-    executionHash,
-    compliancePk: COMPLIANCE_PK,
-    oldNote: gasPaymentNote.note,
-    oldSharedSecret: gasSecret,
-    nk,
-    oldNoteIndex: gasPaymentNote.leafIndex,
-    oldNotePath: gasPath.map((p: string) => toFr(BigInt(p))),
-    hashlockPreimage: toFr(0),
-    changeNote: gasChangeNote,
-    changeEphemeralSk: changeEphSk,
-  });
-  log(`Gas payment proof generated in ${Date.now() - t2}ms`);
-
-  const payRelayerCalldata = iface.encodeFunctionData("payRelayer", [
-    ethers.hexlify(gasProof.proof),
-    gasProof.publicInputs.map((v: string) => ethers.zeroPadValue(v, 32)),
-  ]);
 
   const multicallIface = new ethers.Interface(MULTICALL_ABI);
   const multicallCalldata = multicallIface.encodeFunctionData("multicall", [
     [
-      {
-        target: DARKPOOL,
-        data: payRelayerCalldata,
-        value: 0n,
-        requireSuccess: true,
-      },
       {
         target: DARKPOOL,
         data: splitCalldata,
@@ -407,10 +342,7 @@ async function main() {
     ],
   ]);
 
-  // Submit via mixnet -- exit node executes, earns the gas payment
-  log(
-    "\nSubmitting paid multicall via mixnet (exit node earns gas payment)...",
-  );
+  log("\nSubmitting split multicall via mixnet...");
   const t3 = Date.now();
   const resp = await client.submitTransaction(
     MULTICALL,
@@ -432,21 +364,11 @@ async function main() {
     throw new Error(`Multicall TX reverted: ${txHash}`);
   }
   log(`Confirmed! Block: ${receipt.blockNumber}, Gas: ${receipt.gasUsed}`);
-  log(
-    `Exit node earned gas payment of ${ethers.formatEther(gasPaymentFee)} NOX-STK`,
-  );
 
-
-  log("\n╔═══════════════════════════════════════════════════════╗");
-  log("║  SUMMARY                                             ║");
-  log("╚═══════════════════════════════════════════════════════╝");
+  log("\nSUMMARY");
   log(`  Deposits:     2 (broadcast via mixnet with real ZK proofs)`);
-  log(`  Splits:       1 (gas-paid via exit node with real ZK proofs)`);
-  log(
-    `  Gas payment:  ${ethers.formatEther(gasPaymentFee)} NOX-STK to exit node`,
-  );
+  log(`  Splits:       1 (relayed via mixnet with real ZK proofs)`);
   log(`  TX:           ${txHash}`);
-  log(`  Exit node revenue is now visible on map.hisoka.io`);
 
   client.disconnect();
   log("\nDone!");

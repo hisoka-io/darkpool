@@ -1,5 +1,5 @@
 import { Fr } from "@hisoka/wallets";
-import { AbiCoder } from "ethers";
+import { AbiCoder, randomBytes, toBigInt } from "ethers";
 import { hashUniswapIntent } from "./intent.js";
 import { UniswapSwapParams, SwapType, RecipientIdentity } from "./types.js";
 
@@ -8,10 +8,15 @@ export interface SwapIntent {
   encodedParams: string;
 }
 
-function recipientTuple(
-  recipient: RecipientIdentity,
-): [bigint, bigint, bigint] {
-  return [recipient.ownerX, recipient.ownerY, recipient.claimerOwner];
+// Fresh return-note salt bound into the swap intent hash: unpredictable, so a griefer cannot pre-post the
+// colliding public memo, and proof-bound, so a relayer cannot alter it. Nonzero and canonical (< field order).
+export function randomSalt(): bigint {
+  const s = toBigInt(randomBytes(32)) % Fr.MODULUS;
+  return s === 0n ? 1n : s;
+}
+
+function recipientTuple(recipient: RecipientIdentity): [bigint, bigint] {
+  return [recipient.ownerX, recipient.ownerY];
 }
 
 function encodeSwapParams(params: UniswapSwapParams): string {
@@ -20,7 +25,7 @@ function encodeSwapParams(params: UniswapSwapParams): string {
     case SwapType.ExactInputSingle:
       return coder.encode(
         [
-          "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOutMin)",
+          "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin, uint256 salt)",
         ],
         [
           [
@@ -29,6 +34,7 @@ function encodeSwapParams(params: UniswapSwapParams): string {
             params.fee,
             recipientTuple(params.recipient),
             params.amountOutMin,
+            params.salt,
           ],
         ],
       );
@@ -36,15 +42,22 @@ function encodeSwapParams(params: UniswapSwapParams): string {
     case SwapType.ExactInput:
       return coder.encode(
         [
-          "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOutMin)",
+          "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin, uint256 salt)",
         ],
-        [[params.path, recipientTuple(params.recipient), params.amountOutMin]],
+        [
+          [
+            params.path,
+            recipientTuple(params.recipient),
+            params.amountOutMin,
+            params.salt,
+          ],
+        ],
       );
 
     case SwapType.ExactOutputSingle:
       return coder.encode(
         [
-          "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOut, uint256 amountInMaximum)",
+          "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOut, uint256 amountInMaximum, uint256 salt)",
         ],
         [
           [
@@ -54,6 +67,7 @@ function encodeSwapParams(params: UniswapSwapParams): string {
             recipientTuple(params.recipient),
             params.amountOut,
             params.amountInMaximum,
+            params.salt,
           ],
         ],
       );
@@ -61,7 +75,7 @@ function encodeSwapParams(params: UniswapSwapParams): string {
     case SwapType.ExactOutput:
       return coder.encode(
         [
-          "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOut, uint256 amountInMaximum)",
+          "tuple(bytes path, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOut, uint256 amountInMaximum, uint256 salt)",
         ],
         [
           [
@@ -69,6 +83,7 @@ function encodeSwapParams(params: UniswapSwapParams): string {
             recipientTuple(params.recipient),
             params.amountOut,
             params.amountInMaximum,
+            params.salt,
           ],
         ],
       );

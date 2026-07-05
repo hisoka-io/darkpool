@@ -7,5 +7,4 @@ members = [
     "withdraw",
     "transfer",
     "public_claim",
-    "gas_payment",
 ]

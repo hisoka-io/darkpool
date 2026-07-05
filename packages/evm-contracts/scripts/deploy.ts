@@ -126,7 +126,7 @@ async function main() {
   console.log(`  Poseidon2: ${poseidon2Addr}`);
   console.log();
 
-  console.log("Step 2: Deploying 7 circuit verifiers...");
+  console.log("Step 2: Deploying 6 circuit verifiers...");
   const verifierPaths = [
     "contracts/verifiers/DepositVerifier.sol",
     "contracts/verifiers/WithdrawVerifier.sol",
@@ -134,7 +134,6 @@ async function main() {
     "contracts/verifiers/JoinVerifier.sol",
     "contracts/verifiers/SplitVerifier.sol",
     "contracts/verifiers/PublicClaimVerifier.sol",
-    "contracts/verifiers/GasPaymentVerifier.sol",
   ];
 
   const verifiers: { verifier: string; name: string }[] = [];
@@ -188,7 +187,6 @@ async function main() {
     verifiers[3].verifier, // join
     verifiers[4].verifier, // split
     verifiers[5].verifier, // publicClaim
-    verifiers[6].verifier, // gasPayment
     rewardPoolAddr,
     compliance.pk[0],
     compliance.pk[1],
@@ -214,7 +212,7 @@ async function main() {
 
   const swapRouter = process.env.SWAP_ROUTER;
   if (swapRouter && swapRouter !== ethers.ZeroAddress) {
-    console.log("Post-deploy: Deploying + registering UniswapAdaptor...");
+    console.log("Post-deploy: Deploying UniswapAdaptor...");
     const AdaptorFactory = await ethers.getContractFactory("UniswapAdaptor", {
       libraries: { Poseidon2: poseidon2Addr },
     });
@@ -224,18 +222,11 @@ async function main() {
     );
     await uniswapAdaptor.waitForDeployment();
     const adaptorAddr = await uniswapAdaptor.getAddress();
-    await (await darkPool.setAdaptor(adaptorAddr, true)).wait();
-    console.log(`  UniswapAdaptor: ${adaptorAddr} (registered via setAdaptor)`);
+    console.log(`  UniswapAdaptor: ${adaptorAddr}`);
     console.log();
   } else {
     console.log(
       "Post-deploy: SWAP_ROUTER not set; UniswapAdaptor not deployed.",
-    );
-    console.log(
-      "  CHECKLIST: any adaptor MUST be registered with darkPool.setAdaptor(adaptor, true)",
-    );
-    console.log(
-      "  atomically with its deployment (C-1 guard) or it is front-runnable.",
     );
     console.log();
   }
@@ -261,7 +252,6 @@ async function main() {
     verifiers[3].verifier,
     verifiers[4].verifier,
     verifiers[5].verifier,
-    verifiers[6].verifier,
     rewardPoolAddr,
     compliance.pk[0].toString(),
     compliance.pk[1].toString(),
@@ -297,7 +287,6 @@ async function main() {
       joinVerifier: verifiers[3].verifier,
       splitVerifier: verifiers[4].verifier,
       publicClaimVerifier: verifiers[5].verifier,
-      gasPaymentVerifier: verifiers[6].verifier,
       noxRewardPool: rewardPoolAddr,
       darkPool: darkPoolAddr,
       stakingToken: tokenAddr,
@@ -316,7 +305,6 @@ async function main() {
         verifiers[3].verifier,
         verifiers[4].verifier,
         verifiers[5].verifier,
-        verifiers[6].verifier,
         rewardPoolAddr,
         compliance.pk[0].toString(),
         compliance.pk[1].toString(),
@@ -340,7 +328,6 @@ async function main() {
       join: sha256File(path.join(circuitsDir, "join.json")),
       split: sha256File(path.join(circuitsDir, "split.json")),
       public_claim: sha256File(path.join(circuitsDir, "public_claim.json")),
-      gas_payment: sha256File(path.join(circuitsDir, "gas_payment.json")),
     },
   };
 

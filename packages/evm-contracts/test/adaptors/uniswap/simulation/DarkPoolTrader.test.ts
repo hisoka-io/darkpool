@@ -52,8 +52,8 @@ class TraderAgent {
       recipient: {
         ownerX: recipientPk[0],
         ownerY: recipientPk[1],
-        claimerOwner: 0n,
       },
+      salt: 1n,
     };
 
     const intentHash = await hashUniswapIntent(params);
@@ -66,19 +66,16 @@ class TraderAgent {
 
     const encodedParams = new ethers.AbiCoder().encode(
       [
-        "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOutMin)",
+        "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin, uint256 salt)",
       ],
       [
         [
           params.assetIn,
           params.assetOut,
           params.fee,
-          [
-            params.recipient.ownerX,
-            params.recipient.ownerY,
-            params.recipient.claimerOwner,
-          ],
+          [params.recipient.ownerX, params.recipient.ownerY],
           params.amountOutMin,
+          params.salt,
         ],
       ],
     );

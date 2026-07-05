@@ -17,7 +17,6 @@ import {HonkVerifier as TransferVerifier} from "./verifiers/TransferVerifier.sol
 import {HonkVerifier as JoinVerifier} from "./verifiers/JoinVerifier.sol";
 import {HonkVerifier as SplitVerifier} from "./verifiers/SplitVerifier.sol";
 import {HonkVerifier as PublicClaimVerifier} from "./verifiers/PublicClaimVerifier.sol";
-import {HonkVerifier as GasPaymentVerifier} from "./verifiers/GasPaymentVerifier.sol";
 
 import {NoxRewardPool} from "./nox/NoxRewardPool.sol";
 
@@ -49,7 +48,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     error MemoSpent();
     error MemoInvalid();
     error FeeOnTransferUnsupported();
-    error OnlyAdaptorMayPull();
+    error OnlyRecipientMayPull();
 
     event NewNote(
         uint256 indexed leafIndex,
@@ -91,17 +90,8 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         address relayer
     );
     event NullifierSpent(bytes32 indexed nullifierHash);
-    event AdaptorSet(address indexed adaptor, bool enabled);
     event PublicMemoSpent(bytes32 indexed memoId);
-    event GasPaymentProcessed(
-        bytes32 indexed nullifierHash,
-        address indexed relayer,
-        address indexed asset,
-        uint256 amount,
-        bytes32 executionHash
-    );
 
-    GasPaymentVerifier public immutable gasPaymentVerifier;
     NoxRewardPool public immutable rewardPool;
 
     MerkleTreeLib.Tree internal merkleTree;
@@ -116,7 +106,6 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     mapping(bytes32 => bool) public isNullifierSpent;
     mapping(bytes32 => bool) public isValidPublicMemo;
     mapping(bytes32 => bool) public isPublicMemoSpent;
-    mapping(address => bool) public isAdaptor;
 
     uint256 public immutable COMPLIANCE_PK_X;
     uint256 public immutable COMPLIANCE_PK_Y;
@@ -128,7 +117,6 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         address _joinVerifier,
         address _splitVerifier,
         address _publicClaimVerifier,
-        address _gasPaymentVerifier,
         address _rewardPool,
         uint256 _compliancePkX,
         uint256 _compliancePkY,
@@ -140,7 +128,6 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         if (_joinVerifier == address(0)) revert ZeroAddress();
         if (_splitVerifier == address(0)) revert ZeroAddress();
         if (_publicClaimVerifier == address(0)) revert ZeroAddress();
-        if (_gasPaymentVerifier == address(0)) revert ZeroAddress();
         if (_rewardPool == address(0)) revert ZeroAddress();
         if (_admin == address(0)) revert ZeroAddress();
 
@@ -154,7 +141,6 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         splitVerifier = SplitVerifier(_splitVerifier);
         publicClaimVerifier = PublicClaimVerifier(_publicClaimVerifier);
 
-        gasPaymentVerifier = GasPaymentVerifier(_gasPaymentVerifier);
         rewardPool = NoxRewardPool(_rewardPool);
 
         COMPLIANCE_PK_X = _compliancePkX;
@@ -168,17 +154,6 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
 
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
-    }
-
-    /// @notice Register/deregister an adaptor. A withdraw whose recipient is a registered
-    /// adaptor may only be initiated by that adaptor, blocking front-run strand griefing.
-    function setAdaptor(
-        address adaptor,
-        bool enabled
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (adaptor == address(0)) revert ZeroAddress();
-        isAdaptor[adaptor] = enabled;
-        emit AdaptorSet(adaptor, enabled);
     }
 
     /**
@@ -220,8 +195,8 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         if (_publicInputs.length != 19) revert InvalidInputsLength();
 
         address recipient = address(uint160(uint256(_publicInputs[1])));
-        if (isAdaptor[recipient] && msg.sender != recipient)
-            revert OnlyAdaptorMayPull();
+        if (recipient.code.length > 0 && msg.sender != recipient)
+            revert OnlyRecipientMayPull();
 
         if (!merkleTree.isKnownRoot[_publicInputs[7]]) revert InvalidRoot();
 
@@ -371,51 +346,6 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         emit PublicMemoSpent(memoId);
 
         _insertNote(_publicInputs, 4, 5, 6, 7);
-    }
-
-    /**
-     * @notice Pay an anonymous relayer's gas fee from a shielded note. execution_hash
-     * (_publicInputs[4]) is bound in the proof but not enforced on-chain; the relayer is
-     * trusted to perform the bound action.
-     * @dev Layout: [0] ts; [1] payment value; [2] payment asset; [3] relayer; [4] execution hash;
-     *      [5,6] compliance; [7] nullifier; [8] root; [9] change leaf; [10,11] change eph_pub;
-     *      [12..18] change ciphertext.
-     */
-    function payRelayer(
-        bytes calldata _proof,
-        bytes32[] calldata _publicInputs
-    ) external nonReentrant whenNotPaused {
-        if (_publicInputs.length != 19) revert InvalidInputsLength();
-
-        if (!merkleTree.isKnownRoot[_publicInputs[8]]) revert InvalidRoot();
-        _verifyProofTimestamp(uint256(_publicInputs[0]));
-        _verifyComplianceKey(_publicInputs[5], _publicInputs[6]);
-
-        if (!gasPaymentVerifier.verify(_proof, _publicInputs))
-            revert InvalidProof();
-
-        bytes32 nullifierHash = _publicInputs[7];
-        _spendNullifier(nullifierHash);
-
-        _insertNote(_publicInputs, 9, 10, 11, 12);
-
-        uint256 paymentValue = uint256(_publicInputs[1]);
-        address asset = address(uint160(uint256(_publicInputs[2])));
-        address relayer = address(uint160(uint256(_publicInputs[3])));
-        bytes32 executionHash = _publicInputs[4];
-
-        if (paymentValue > 0) {
-            IERC20(asset).forceApprove(address(rewardPool), paymentValue);
-            rewardPool.depositRewards(asset, paymentValue);
-        }
-
-        emit GasPaymentProcessed(
-            nullifierHash,
-            relayer,
-            asset,
-            paymentValue,
-            executionHash
-        );
     }
 
     function _insertNote(

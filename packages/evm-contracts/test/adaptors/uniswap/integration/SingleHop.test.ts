@@ -35,9 +35,10 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
       assetIn: WETH_ADDRESS,
       assetOut: USDC_ADDRESS,
       fee: 3000,
-      recipient: { ownerX: 888n, ownerY: 999n, claimerOwner: 1000n },
+      recipient: { ownerX: 888n, ownerY: 999n },
       amountOut: BigInt(TARGET_USDC),
       amountInMaximum: BigInt(setup.amount),
+      salt: 1000n,
     };
 
     // @ts-ignore adaptor intent params
@@ -53,20 +54,17 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
 
     const encodedParams = new ethers.AbiCoder().encode(
       [
-        "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOut, uint256 amountInMaximum)",
+        "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOut, uint256 amountInMaximum, uint256 salt)",
       ],
       [
         [
           params.assetIn,
           params.assetOut,
           params.fee,
-          [
-            params.recipient.ownerX,
-            params.recipient.ownerY,
-            params.recipient.claimerOwner,
-          ],
+          [params.recipient.ownerX, params.recipient.ownerY],
           params.amountOut,
           params.amountInMaximum,
+          params.salt,
         ],
       ],
     );

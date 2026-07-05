@@ -12,14 +12,15 @@ import { Fr } from "@hisoka/wallets";
 import { hashUniswapIntent, SwapType } from "@hisoka/adaptors";
 
 const EIS_TUPLE =
-  "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOutMin)";
+  "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin, uint256 salt)";
 
 function encodeEIS(p: {
   assetIn: string;
   assetOut: string;
   fee: number;
-  recipient: { ownerX: bigint; ownerY: bigint; claimerOwner: bigint };
+  recipient: { ownerX: bigint; ownerY: bigint };
   amountOutMin: bigint;
+  salt: bigint;
 }) {
   return new ethers.AbiCoder().encode(
     [EIS_TUPLE],
@@ -28,8 +29,9 @@ function encodeEIS(p: {
         p.assetIn,
         p.assetOut,
         p.fee,
-        [p.recipient.ownerX, p.recipient.ownerY, p.recipient.claimerOwner],
+        [p.recipient.ownerX, p.recipient.ownerY],
         p.amountOutMin,
+        p.salt,
       ],
     ],
   );
@@ -49,8 +51,9 @@ describe("Uniswap Adaptor: Security & Validation", function () {
     assetIn: WETH_ADDRESS,
     assetOut: USDC_ADDRESS,
     fee: 3000,
-    recipient: { ownerX: 777n, ownerY: 888n, claimerOwner: 999n },
+    recipient: { ownerX: 777n, ownerY: 888n },
     amountOutMin: 0n,
+    salt: 999n,
   };
 
   it("SECURITY: Should reject if Intent Params are modified (Hijack Attempt)", async function () {
@@ -174,7 +177,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
     ).to.be.revertedWithCustomError(darkPool, "NullifierAlreadySpent");
   });
 
-  it("C-1: blocks a direct withdraw to the adaptor from a non-adaptor caller", async function () {
+  it("C-1: blocks a direct withdraw to a contract recipient from a non-recipient caller", async function () {
     const data = await loadFixture(fixture);
     const { darkPool, attacker, uniswapAdaptor } = data;
     // @ts-ignore
@@ -187,11 +190,8 @@ describe("Uniswap Adaptor: Security & Validation", function () {
       recipient: await uniswapAdaptor.getAddress(),
       intentHash,
     });
-    expect(await darkPool.isAdaptor(await uniswapAdaptor.getAddress())).to.equal(
-      true,
-    );
     await expect(
       darkPool.connect(attacker).withdraw(proofHex, pubHex),
-    ).to.be.revertedWithCustomError(darkPool, "OnlyAdaptorMayPull");
+    ).to.be.revertedWithCustomError(darkPool, "OnlyRecipientMayPull");
   });
 });

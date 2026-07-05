@@ -7,5 +7,3 @@ export * from "./provers/transfer.js";
 export * from "./provers/join.js";
 export * from "./provers/split.js";
 export * from "./provers/public_claim.js";
-export * from "./provers/gas_payment.js";
-export * from "./utils.js";

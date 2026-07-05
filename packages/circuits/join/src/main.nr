@@ -133,3 +133,70 @@ fn audit_reject_value_inflation() {
         28,
     );
 }
+
+// Spending one leaf as both inputs yields equal nullifiers: the no-self-join guard must reject it.
+#[test(should_fail_with = "cannot join a note with itself")]
+fn audit_reject_self_join() {
+    let note_a = note(
+        100,
+        0x271c8cc2341079e393fa781a5e7b4664b27b649d4f0277a53110b7937ed9fada,
+    );
+    let note_out = note(
+        200,
+        0x09fb1bde9d635c97fa5a0884a8a38d961cec75db95e76629aabec8b63baec84a,
+    );
+    let mut path_a = [0; TREE_DEPTH];
+    path_a[0] = LEAF_B;
+    let _ = main(
+        0,
+        CX,
+        CY,
+        note_a,
+        789,
+        0,
+        path_a,
+        note_a,
+        789,
+        0,
+        path_a,
+        note_out,
+        28,
+    );
+}
+
+// A non-membership witness: note_b opened against a bogus sibling roots to a different subtree, so the
+// two inputs no longer share a root.
+#[test(should_fail_with = "inputs must share a root")]
+fn audit_reject_root_mismatch() {
+    let note_a = note(
+        100,
+        0x271c8cc2341079e393fa781a5e7b4664b27b649d4f0277a53110b7937ed9fada,
+    );
+    let note_b = note(
+        50,
+        0x22c2ddd73188e4c766c528228312ae28595623aba1a5c5341a8f7154943842d3,
+    );
+    let note_out = note(
+        150,
+        0x09fb1bde9d635c97fa5a0884a8a38d961cec75db95e76629aabec8b63baec84a,
+    );
+    let mut path_a = [0; TREE_DEPTH];
+    path_a[0] = LEAF_B;
+    let mut path_b = [0; TREE_DEPTH];
+    path_b[0] = 0x0abc;
+    let _ = main(
+        0,
+        CX,
+        CY,
+        note_a,
+        789,
+        0,
+        path_a,
+        note_b,
+        789,
+        1,
+        path_b,
+        note_out,
+        28,
+    );
+}

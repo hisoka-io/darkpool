@@ -22,7 +22,7 @@ export async function hashUniswapIntent(
         toFr(params.amountOutMin),
         toFr(params.recipient.ownerX),
         toFr(params.recipient.ownerY),
-        toFr(params.recipient.claimerOwner),
+        toFr(params.salt),
       ]);
 
     case SwapType.ExactInput:
@@ -32,7 +32,7 @@ export async function hashUniswapIntent(
         toFr(params.amountOutMin),
         toFr(params.recipient.ownerX),
         toFr(params.recipient.ownerY),
-        toFr(params.recipient.claimerOwner),
+        toFr(params.salt),
       ]);
 
     case SwapType.ExactOutputSingle:
@@ -45,7 +45,7 @@ export async function hashUniswapIntent(
         toFr(params.amountInMaximum),
         toFr(params.recipient.ownerX),
         toFr(params.recipient.ownerY),
-        toFr(params.recipient.claimerOwner),
+        toFr(params.salt),
       ]);
 
     case SwapType.ExactOutput:
@@ -56,7 +56,7 @@ export async function hashUniswapIntent(
         toFr(params.amountInMaximum),
         toFr(params.recipient.ownerX),
         toFr(params.recipient.ownerY),
-        toFr(params.recipient.claimerOwner),
+        toFr(params.salt),
       ]);
 
     default:
