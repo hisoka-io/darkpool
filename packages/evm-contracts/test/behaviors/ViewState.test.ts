@@ -23,7 +23,6 @@ describe("ViewState: getMerklePath Parity", function () {
     )) as unknown as Poseidon2__factory;
     poseidon2Lib = await Poseidon2Factory.deploy();
 
-    // Deploy MerkleTreeLibHarness with full depth
     const HarnessFactory = (await ethers.getContractFactory(
       "MerkleTreeLibHarness",
       {

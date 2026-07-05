@@ -7,25 +7,28 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+interface INoxRegistry {
+    function isActiveRelayer(address relayer) external view returns (bool);
+}
+
 /**
  * @title NoxRewardPool
  * @author Hisoka Protocol
- * @notice The centralized treasury for the NOX Relayer Network (v0).
- * @dev Collects gas fees (ERC20) and distributes them to Relayers based on work performed.
- *      This contract acts as a stateless escrow: it collects, holds, and distributes.
- *      Distribution logic is determined off-chain by the Distributor.
+ * @notice The centralized treasury for the NOX Relayer Network.
+ * @dev Escrow that collects ERC20 gas fees and distributes them to relayers; the split is
+ *      computed off-chain by the Distributor.
  */
 contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
-    /// @notice Role allowed to trigger reward distributions
     bytes32 public constant DISTRIBUTOR_ROLE = keccak256("DISTRIBUTOR_ROLE");
 
-    /// @notice Role for asset whitelist and emergency controls
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
 
-    /// @notice Whitelisted assets (e.g., WETH, USDC) allowed for gas payments.
-    /// @dev Prevents users from paying in griefing/spam tokens.
+    /// @notice Registry used to confirm reward recipients are network relayers.
+    INoxRegistry public immutable noxRegistry;
+
+    /// @notice Assets whitelisted for gas payments, blocking griefing/spam tokens.
     mapping(address => bool) public isSupportedAsset;
 
     mapping(address => uint256) public totalCollected;
@@ -56,18 +59,23 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
     error ZeroAmount();
     error TransferFailed();
     error InsufficientCollected();
-    error RewardAssetNotRescuable();
+    error RecipientNotRegistered();
+    error ExceedsRescuableBalance();
     error FeeOnTransferUnsupported();
 
     /**
      * @param _admin The initial admin and distributor.
+     * @param _noxRegistry The relayer registry; recipients must be registered relayers.
      */
-    constructor(address _admin) {
+    constructor(address _admin, address _noxRegistry) {
         if (_admin == address(0)) revert ZeroAddress();
+        if (_noxRegistry == address(0)) revert ZeroAddress();
 
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
         _grantRole(ADMIN_ROLE, _admin);
         _grantRole(DISTRIBUTOR_ROLE, _admin);
+
+        noxRegistry = INoxRegistry(_noxRegistry);
     }
 
     /**
@@ -123,6 +131,8 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
 
     /**
      * @notice Distributes accumulated fees to a list of relayers.
+     * @dev Recipients must be registered relayers. Checks-effects-interactions: solvency is verified and
+     *      accounting updated before any transfer.
      * @param _asset The ERC20 token to distribute (must be whitelisted).
      * @param _recipients Array of relayer addresses.
      * @param _amounts Array of amounts to send.
@@ -139,23 +149,27 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
         uint256 batchTotal = 0;
         for (uint256 i = 0; i < _recipients.length; i++) {
             address to = _recipients[i];
-            uint256 amount = _amounts[i];
-
             if (to == address(0)) revert ZeroAddress();
-            if (amount > 0) {
-                IERC20(_asset).safeTransfer(to, amount);
-                batchTotal += amount;
-            }
+            if (!noxRegistry.isActiveRelayer(to))
+                revert RecipientNotRegistered();
+            batchTotal += _amounts[i];
         }
 
         if (batchTotal > totalCollected[_asset] - totalDistributed[_asset])
             revert InsufficientCollected();
         totalDistributed[_asset] += batchTotal;
 
+        for (uint256 i = 0; i < _recipients.length; i++) {
+            if (_amounts[i] > 0) {
+                IERC20(_asset).safeTransfer(_recipients[i], _amounts[i]);
+            }
+        }
+
         emit RewardsDistributed(_asset, batchTotal, _recipients.length);
     }
 
-    /// @notice Rescue non-reward tokens sent here by mistake; reward assets are not rescuable.
+    /// @notice Rescue tokens that are not owed to relayers. Committed rewards (collected minus
+    ///         distributed) are never rescuable regardless of the whitelist flag; only the free surplus is.
     function rescueFunds(
         address _asset,
         address _to,
@@ -163,7 +177,11 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
     ) external nonReentrant onlyRole(ADMIN_ROLE) {
         if (_to == address(0)) revert ZeroAddress();
         if (_amount == 0) revert ZeroAmount();
-        if (isSupportedAsset[_asset]) revert RewardAssetNotRescuable();
+
+        uint256 committed = totalCollected[_asset] - totalDistributed[_asset];
+        uint256 liveBalance = IERC20(_asset).balanceOf(address(this));
+        uint256 free = liveBalance > committed ? liveBalance - committed : 0;
+        if (_amount > free) revert ExceedsRescuableBalance();
 
         IERC20(_asset).safeTransfer(_to, _amount);
         emit FundsRescued(_asset, _to, _amount);

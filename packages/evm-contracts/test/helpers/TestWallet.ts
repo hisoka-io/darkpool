@@ -1,51 +1,46 @@
-import { ContractRunner, ethers } from "ethers";
+import { ethers } from "ethers";
 import {
   DarkAccount,
-  NotePlaintext,
   LeanIMT,
+  Fr,
   toFr,
-  deriveSharedSecret,
+  addressToFr,
   KeyRepository,
   UtxoRepository,
   ScanEngine,
-  addressToFr,
-  recipientDecrypt3Party,
   WalletNote,
-  calculatePublicMemoId,
-  computeOwner,
-  deriveNullifier,
-  generateDLEQProof,
-  DLEQProof,
-  Poseidon,
-  Fr,
 } from "@hisoka/wallets";
 import {
   proveDeposit,
-  proveTransfer,
   proveWithdraw,
+  proveTransfer,
   provePublicClaim,
-  PublicClaimInputs,
-  DepositInputs,
-  TransferInputs,
   WithdrawInputs,
-  unpackCiphertext,
+  TransferInputs,
+  PublicClaimInputs,
+  ProofData,
 } from "@hisoka/prover";
-import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
+import { Point } from "@zk-kit/baby-jubjub";
+import {
+  COMPLIANCE_PK,
+  mintSelfNote,
+  mintIncomingNote,
+  noteToInput,
+  subgroupScalar,
+} from "./fixtures";
 import { DarkPool, MockERC20 } from "../../typechain-types";
 
-const COMPLIANCE_PK_POINT: Point<bigint> = mulPointEscalar(Base8, 987654321n);
-
 export interface WithdrawOptions {
-  asset?: string; // Address of token to withdraw (default: wallet's default token)
-  recipient?: string; // Address to send funds to (default: wallet signer)
-  intentHash?: Fr; // Intent hash for DeFi binding (default: 0)
+  asset?: string;
+  recipient?: string;
+  intentHash?: Fr;
 }
 
-export interface RecipientBinding {
-  owner: Fr; // recipient spend commitment = computeOwner(S)
-  S: Point<bigint>; // recipient public spend key
-  bindR: Point<bigint>; // spend-binding signature R
-  bindS: Fr; // spend-binding signature s
+/** The static receive handle a recipient hands a sender: the sender encrypts the memo to `inPub`. */
+export interface ReceiveAddress {
+  inKey: Fr;
+  inPub: Point<bigint>;
+  index: number;
 }
 
 export class TestWallet {
@@ -57,13 +52,13 @@ export class TestWallet {
   public fromBlock: number = 0;
 
   private constructor(
-    public readonly signer: ContractRunner & { address: string },
+    public readonly signer: ethers.ContractRunner & { address: string },
     public readonly darkPool: DarkPool,
-    public readonly token: MockERC20, // Default token
+    public readonly token: MockERC20,
   ) {}
 
   static async create(
-    signer: any,
+    signer: ethers.ContractRunner & { address: string; signMessage: (m: string) => Promise<string> },
     darkPool: DarkPool,
     token: MockERC20,
     fromBlock?: number,
@@ -73,27 +68,25 @@ export class TestWallet {
     wallet.account = await DarkAccount.fromSignature(signature);
 
     wallet.tree = new LeanIMT(32);
-    wallet.keyRepo = new KeyRepository(wallet.account, COMPLIANCE_PK_POINT);
+    wallet.keyRepo = new KeyRepository(wallet.account);
     wallet.utxoRepo = new UtxoRepository();
-
-    // fromBlock matters for mainnet forks (avoids scanning pre-deploy history)
     wallet.fromBlock = fromBlock ?? 0;
 
     wallet.scanEngine = new ScanEngine(
       darkPool as unknown as ethers.Contract,
       wallet.keyRepo,
       wallet.utxoRepo,
-      COMPLIANCE_PK_POINT,
+      COMPLIANCE_PK,
       wallet.tree,
     );
 
     return wallet;
   }
 
-  // --- HELPERS ---
   async syncTree(commitment: Fr) {
     await this.tree.insert(commitment);
   }
+
   get notes(): WalletNote[] {
     return this.utxoRepo.getAllNotes();
   }
@@ -103,40 +96,48 @@ export class TestWallet {
   }
 
   getBalance(asset?: string): bigint {
-    const safeAsset = asset || undefined;
     return this.utxoRepo.getBalance(
-      safeAsset ? addressToFr(safeAsset).toString() : undefined,
+      asset ? addressToFr(asset) : undefined,
     );
   }
 
-  // --- ACTIONS ---
+  private async assetFr(asset?: string): Promise<Fr> {
+    return addressToFr(asset ?? (await this.token.getAddress()));
+  }
+
+  private pickNote(assetFr: Fr, minValue: bigint): WalletNote {
+    const note = this.utxoRepo
+      .getUnspentNotes()
+      .find(
+        (n) =>
+          n.note.assetId.equals(assetFr) && n.note.value >= minValue,
+      );
+    if (!note) {
+      throw new Error(
+        `Insufficient funds: need >= ${minValue} of ${assetFr.toString()}`,
+      );
+    }
+    return note;
+  }
+
+  /** Issue the next incoming receive address (rolls to even-y, registers the discovery tag). */
+  async getReceiveAddress(): Promise<ReceiveAddress> {
+    const addr = await this.keyRepo.nextIncomingAddress();
+    return { inKey: addr.inKey, inPub: addr.inPub, index: addr.index };
+  }
 
   async deposit(amount: bigint, asset?: string) {
-    const { sk: ephemeralSk } = await this.keyRepo.nextEphemeralParams();
+    const assetFr = await this.assetFr(asset);
+    const { eph } = await this.keyRepo.nextSelfEphemeral();
+    const spendScalar = await this.account.getSelfSpendKey();
+    const built = await mintSelfNote(eph, amount, spendScalar, assetFr);
 
-    const tokenAddress = asset || (await this.token.getAddress());
-    const assetFr = addressToFr(tokenAddress);
+    const proof = await proveDeposit({
+      compliancePk: COMPLIANCE_PK,
+      note: built.note,
+      eph,
+    });
 
-    const owner = await computeOwner(await this.account.getPublicSpendKey());
-
-    const note: NotePlaintext = {
-      value: toFr(amount),
-      asset_id: assetFr,
-      secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      owner,
-      timelock: toFr(0n),
-      hashlock: toFr(0n),
-    };
-
-    const inputs: DepositInputs = {
-      notePlaintext: note,
-      ephemeralSk,
-      compliancePk: COMPLIANCE_PK_POINT,
-    };
-
-    const proof = await proveDeposit(inputs);
-
-    // Resolve a contract instance for a non-default token
     let tokenContract = this.token;
     if (asset && asset !== (await this.token.getAddress())) {
       tokenContract = new ethers.Contract(
@@ -156,216 +157,43 @@ export class TestWallet {
       .deposit(proof.proof, proof.publicInputs);
     const receipt = await tx.wait();
 
-    const pub = proof.publicInputs.map((s) => toFr(s));
-    const packedCt = pub.slice(6, 13);
-    const commitment = await Poseidon.hash(packedCt);
-
-    return { commitment, receipt };
+    return { commitment: built.commitment, receipt };
   }
 
-  async transfer(
+  async withdraw(
     amount: bigint,
-    recipientB: Point<bigint>,
-    recipientP: Point<bigint>,
-    recipientProof: any,
-    recipientBinding: RecipientBinding,
-    asset?: string,
-  ) {
-    const targetAssetFr = asset
-      ? addressToFr(asset)
-      : addressToFr(await this.token.getAddress());
+    options: WithdrawOptions = {},
+  ): Promise<ProofData> {
+    const assetFr = await this.assetFr(options.asset);
+    const recipient = options.recipient ?? this.signer.address;
+    const intentHash = options.intentHash ?? toFr(0n);
 
-    const notes = this.utxoRepo.getUnspentNotes();
-    const assetNotes = notes.filter((n) =>
-      n.note.asset_id.equals(targetAssetFr),
+    const input = this.pickNote(assetFr, amount);
+    const { eph: changeEph } = await this.keyRepo.nextSelfEphemeral();
+    const spendScalar = await this.account.getSelfSpendKey();
+    const change = await mintSelfNote(
+      changeEph,
+      input.note.value - amount,
+      spendScalar,
+      assetFr,
     );
-
-    const inputData = assetNotes.find((n) => n.note.value.toBigInt() >= amount);
-    if (!inputData)
-      throw new Error(
-        `Insufficient funds: Needed ${amount}, have notes: ${assetNotes.map((n) => n.note.value.toBigInt())}`,
-      );
-
-    const oldSharedSecret = inputData.spendingSecret;
-    const nk = await this.keyRepo.getNullifyingKey();
-
-    const path = this.tree.getMerklePath(inputData.leafIndex);
-    const root = this.tree.getRoot();
-    const changeValue = inputData.note.value.toBigInt() - amount;
-
-    const memoNote: NotePlaintext = {
-      asset_id: inputData.note.asset_id,
-      value: toFr(amount),
-      secret: toFr(0),
-      owner: recipientBinding.owner,
-      timelock: toFr(0),
-      hashlock: toFr(0),
-    };
-    // BJJ subgroup order - ephemeral keys must be reduced to this range
-    const BJJ_SUBGROUP_ORDER =
-      2736030358979909402780800718157159386076813972158567259200215660948447373041n;
-    const memoEphSk = toFr(
-      ethers.toBigInt(ethers.randomBytes(31)) % BJJ_SUBGROUP_ORDER,
-    );
-
-    const changeNote: NotePlaintext = {
-      asset_id: inputData.note.asset_id,
-      value: toFr(changeValue),
-      secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      owner: await computeOwner(await this.account.getPublicSpendKey()),
-      timelock: toFr(0),
-      hashlock: toFr(0),
-    };
-    const { sk: changeEphSk } = await this.keyRepo.nextEphemeralParams();
-
-    const inputs: TransferInputs = {
-      merkleRoot: root,
-      currentTimestamp: Math.floor(Date.now() / 1000),
-      compliancePk: COMPLIANCE_PK_POINT,
-      recipientB,
-      recipientP,
-      recipientOwner: recipientBinding.owner,
-      recipientProof,
-      recipientS: recipientBinding.S,
-      bindR: recipientBinding.bindR,
-      bindS: recipientBinding.bindS,
-      oldNote: inputData.note,
-      oldSharedSecret,
-      nk,
-      oldNoteIndex: inputData.leafIndex,
-      oldNotePath: path,
-      hashlockPreimage: toFr(0),
-      memoNote,
-      memoEphemeralSk: memoEphSk,
-      changeNote,
-      changeEphemeralSk: changeEphSk,
-    };
-
-    const proof = await proveTransfer(inputs);
-    const tx = await this.darkPool
-      .connect(this.signer)
-      .privateTransfer(proof.proof, proof.publicInputs);
-    await tx.wait();
-
-    const pub = proof.publicInputs.map((s) => toFr(s));
-    const memoCom = await Poseidon.hash(pub.slice(7, 14));
-    const changeCom = await Poseidon.hash(pub.slice(20, 27));
-
-    return {
-      memoCommitment: memoCom,
-      changeCommitment: changeCom,
-      publicInputs: proof.publicInputs,
-    };
-  }
-
-  async receiveData(index: bigint = 0n): Promise<
-    RecipientBinding & {
-      B: Point<bigint>;
-      P: Point<bigint>;
-      pi: DLEQProof;
-    }
-  > {
-    const ivk = await this.account.getIncomingViewingKey(index);
-    const { B, P, pi } = await generateDLEQProof(
-      ivk.toBigInt(),
-      COMPLIANCE_PK_POINT,
-    );
-    const S = await this.account.getPublicSpendKey();
-    const owner = await computeOwner(S);
-    const { R, s } = await this.account.signSpendBinding(index);
-    return { B, P, pi, owner, S, bindR: R, bindS: toFr(s) };
-  }
-
-  async receiveTransfer(
-    publicInputs: string[],
-    leafIndex: number,
-    recipientSk: bigint,
-  ) {
-    const frInputs = publicInputs.map((s) => toFr(s));
-    const packedCt = frInputs.slice(7, 14);
-    const intBobX = frInputs[14];
-    const intBobY = frInputs[15];
-
-    const ct = unpackCiphertext(packedCt);
-    const intBobPoint: Point<bigint> = [intBobX.toBigInt(), intBobY.toBigInt()];
-    const { note, sharedSecret } = await recipientDecrypt3Party(
-      recipientSk,
-      intBobPoint,
-      ct,
-    );
-    const commitment = await Poseidon.hash(packedCt);
-    const nk = await this.keyRepo.getNullifyingKey();
-
-    await this.utxoRepo.addNote({
-      note,
-      commitment,
-      leafIndex,
-      nullifier: await deriveNullifier(nk, commitment, leafIndex),
-      spendingSecret: sharedSecret,
-      isTransfer: true,
-      derivationIndex: 0,
-      spent: false,
-    });
-  }
-
-  /**
-   * Withdraw funds. If intentHash is set (DeFi), the proof is returned
-   * without submitting the TX (caller must submit to Adaptor).
-   */
-  async withdraw(amount: bigint, options: WithdrawOptions = {}) {
-    const targetAsset = options.asset || (await this.token.getAddress());
-    const targetRecipient = options.recipient || this.signer.address;
-    const intentHash = options.intentHash || toFr(0);
-
-    const targetAssetFr = addressToFr(targetAsset);
-
-    const notes = this.utxoRepo.getUnspentNotes();
-    const assetNotes = notes.filter((n) =>
-      n.note.asset_id.equals(targetAssetFr),
-    );
-
-    const inputData = assetNotes.find((n) => n.note.value.toBigInt() >= amount);
-    if (!inputData)
-      throw new Error(
-        `Insufficient funds for withdraw: Needed ${amount}, found ${assetNotes.length} notes`,
-      );
-
-    const oldSharedSecret = inputData.spendingSecret;
-    const nk = await this.keyRepo.getNullifyingKey();
-
-    const changeValue = inputData.note.value.toBigInt() - amount;
-
-    const changeNote: NotePlaintext = {
-      ...inputData.note,
-      value: toFr(changeValue),
-      secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      owner: await computeOwner(await this.account.getPublicSpendKey()),
-      timelock: toFr(0),
-      hashlock: toFr(0),
-    };
-
-    const { sk: changeEphSk } = await this.keyRepo.nextEphemeralParams();
 
     const inputs: WithdrawInputs = {
       withdrawValue: toFr(amount),
-      recipient: addressToFr(targetRecipient),
-      merkleRoot: this.tree.getRoot(),
+      recipient: addressToFr(recipient),
       currentTimestamp: Math.floor(Date.now() / 1000),
-      intentHash: intentHash,
-      compliancePk: COMPLIANCE_PK_POINT,
-      oldNote: inputData.note,
-      oldSharedSecret,
-      nk,
-      oldNoteIndex: inputData.leafIndex,
-      oldNotePath: this.tree.getMerklePath(inputData.leafIndex),
-      hashlockPreimage: toFr(0),
-      changeNote,
-      changeEphemeralSk: changeEphSk,
+      intentHash,
+      compliancePk: COMPLIANCE_PK,
+      oldNote: noteToInput(input.note),
+      spendScalar: input.spendScalar,
+      oldNoteIndex: input.leafIndex,
+      oldNotePath: this.tree.getMerklePath(input.leafIndex),
+      changeNote: change.note,
+      changeEph,
     };
 
     const proof = await proveWithdraw(inputs);
 
-    // DeFi intent (hash != 0): return the proof for the caller to submit to the adaptor.
     if (!intentHash.isZero()) {
       return proof;
     }
@@ -374,6 +202,58 @@ export class TestWallet {
       .connect(this.signer)
       .withdraw(proof.proof, proof.publicInputs);
     return proof;
+  }
+
+  async transfer(
+    amount: bigint,
+    recipientInPub: Point<bigint>,
+    asset?: string,
+  ) {
+    const assetFr = await this.assetFr(asset);
+    const input = this.pickNote(assetFr, amount);
+
+    const memoEph = subgroupScalar(ethers.toBigInt(ethers.randomBytes(16)));
+    const memo = await mintIncomingNote(
+      memoEph,
+      amount,
+      recipientInPub,
+      toFr(0n),
+      assetFr,
+    );
+
+    const { eph: changeEph } = await this.keyRepo.nextSelfEphemeral();
+    const spendScalar = await this.account.getSelfSpendKey();
+    const change = await mintSelfNote(
+      changeEph,
+      input.note.value - amount,
+      spendScalar,
+      assetFr,
+    );
+
+    const inputs: TransferInputs = {
+      currentTimestamp: Math.floor(Date.now() / 1000),
+      compliancePk: COMPLIANCE_PK,
+      recipientInPub,
+      oldNote: noteToInput(input.note),
+      spendScalar: input.spendScalar,
+      oldNoteIndex: input.leafIndex,
+      oldNotePath: this.tree.getMerklePath(input.leafIndex),
+      memoNote: memo.note,
+      memoEph,
+      changeNote: change.note,
+      changeEph,
+    };
+
+    const proof = await proveTransfer(inputs);
+    await this.darkPool
+      .connect(this.signer)
+      .privateTransfer(proof.proof, proof.publicInputs);
+
+    return {
+      memoCommitment: memo.commitment,
+      changeCommitment: change.commitment,
+      publicInputs: proof.publicInputs,
+    };
   }
 
   async claimPublic(
@@ -388,54 +268,24 @@ export class TestWallet {
     },
     recipientSk: Fr,
   ) {
-    const valFr = toFr(args.value);
     const assetFr = addressToFr(args.asset);
-    const timeFr = toFr(args.timelock);
-    const ownerXFr = toFr(args.ownerX);
-    const ownerYFr = toFr(args.ownerY);
-    const saltFr = toFr(args.salt);
-    const memoIdFr = toFr(args.memoId);
-
-    const claimerOwner = await computeOwner(
-      await this.account.getPublicSpendKey(),
-    );
-
-    const calcId = await calculatePublicMemoId(
-      valFr,
-      assetFr,
-      timeFr,
-      ownerXFr,
-      ownerYFr,
-      claimerOwner,
-      saltFr,
-    );
-    if (!calcId.equals(memoIdFr)) throw new Error("Local Memo ID mismatch");
-
-    const noteOut: NotePlaintext = {
-      value: valFr,
-      asset_id: assetFr,
-      secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      owner: claimerOwner,
-      timelock: toFr(0),
-      hashlock: toFr(0),
-    };
-
-    const { sk: skOut, nonce } = await this.keyRepo.nextEphemeralParams();
+    const { eph } = await this.keyRepo.nextSelfEphemeral();
+    const spendScalar = await this.account.getSelfSpendKey();
+    const noteOut = await mintSelfNote(eph, args.value, spendScalar, assetFr);
 
     const inputs: PublicClaimInputs = {
-      memoId: memoIdFr,
-      compliancePk: COMPLIANCE_PK_POINT,
+      memoId: toFr(args.memoId),
+      compliancePk: COMPLIANCE_PK,
       currentTimestamp: Math.floor(Date.now() / 1000),
-      claimerOwner,
-      val: valFr,
+      val: toFr(args.value),
       assetId: assetFr,
-      timelock: timeFr,
-      ownerX: ownerXFr,
-      ownerY: ownerYFr,
-      salt: saltFr,
+      timelock: toFr(args.timelock),
+      ownerX: toFr(args.ownerX),
+      ownerY: toFr(args.ownerY),
+      salt: toFr(args.salt),
       recipientSk,
-      noteOut,
-      skOut,
+      noteOut: noteOut.note,
+      eph,
     };
 
     const proof = await provePublicClaim(inputs);
@@ -443,27 +293,6 @@ export class TestWallet {
       .connect(this.signer)
       .publicClaim(proof.proof, proof.publicInputs);
 
-    const pub = proof.publicInputs.map((s) => toFr(s));
-    const packedCt = pub.slice(7, 14);
-    const commitment = await Poseidon.hash(packedCt);
-    const leafIndex = this.tree.nextLeafIndex;
-    const nk = await this.keyRepo.getNullifyingKey();
-    const nullifierHash = await deriveNullifier(nk, commitment, leafIndex);
-
-    const walletNote: WalletNote = {
-      note: noteOut,
-      leafIndex,
-      commitment,
-      nullifier: nullifierHash,
-      spendingSecret: await deriveSharedSecret(skOut, COMPLIANCE_PK_POINT),
-      isTransfer: false,
-      derivationIndex: Number(nonce.toBigInt()),
-      spent: false,
-    };
-
-    await this.utxoRepo.addNote(walletNote);
-    await this.tree.insert(commitment);
-
-    return { commitment };
+    return { commitment: noteOut.commitment };
   }
 }

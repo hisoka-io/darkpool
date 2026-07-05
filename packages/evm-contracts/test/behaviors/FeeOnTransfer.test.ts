@@ -4,9 +4,11 @@ import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployDarkPoolFixture,
   makeDeposit,
+  mintSelfNote,
+  evenYEphemeral,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import { toFr, addressToFr, NotePlaintext } from "@hisoka/wallets";
+import { toFr, addressToFr } from "@hisoka/wallets";
 import { proveDeposit } from "@hisoka/prover";
 import { MockFeeOnTransferERC20 } from "../../typechain-types";
 
@@ -22,18 +24,16 @@ describe("DarkPool Behavior: fee-on-transfer rejection", function () {
   }
 
   async function buildDepositProof(tokenAddr: string, amount: bigint) {
-    const note: NotePlaintext = {
-      value: toFr(amount),
-      asset_id: addressToFr(tokenAddr),
-      secret: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      owner: toFr(ethers.toBigInt(ethers.randomBytes(31))),
-      timelock: toFr(0n),
-      hashlock: toFr(0n),
-    };
+    const built = await mintSelfNote(
+      evenYEphemeral(12345n),
+      amount,
+      toFr(456n),
+      addressToFr(tokenAddr),
+    );
     return proveDeposit({
-      notePlaintext: note,
-      ephemeralSk: toFr(12345n),
       compliancePk: COMPLIANCE_PK,
+      note: built.note,
+      eph: built.eph,
     });
   }
 
@@ -65,7 +65,7 @@ describe("DarkPool Behavior: fee-on-transfer rejection", function () {
     await expect(
       darkPool
         .connect(alice)
-        .publicTransfer(1n, 2n, 3n, await fot.getAddress(), amount, 0n, 12345n),
+        .publicTransfer(1n, 2n, await fot.getAddress(), amount, 0n, 12345n),
     ).to.be.revertedWithCustomError(darkPool, "FeeOnTransferUnsupported");
   });
 });

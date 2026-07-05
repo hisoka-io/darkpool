@@ -1,225 +1,153 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { time, loadFixture } from "@nomicfoundation/hardhat-network-helpers";
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployDarkPoolFixture,
   makeDeposit,
+  mintSelfNote,
+  evenYEphemeral,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
 import {
+  Fr,
   toFr,
   addressToFr,
+  deriveCek,
+  computePsi,
+  pubkeyOwner,
+  publicKey,
   LeanIMT,
-  deriveSharedSecret,
-  NotePlaintext,
-  Poseidon,
 } from "@hisoka/wallets";
-import { proveWithdraw, WithdrawInputs } from "@hisoka/prover";
+import { proveDeposit, proveWithdraw, NoteInput } from "@hisoka/prover";
 
-describe("Integration: Programmability (Timelocks & Hashlocks)", function () {
-  it("should enforce Timelocks on withdrawals", async function () {
-    const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
-
-    // 1. Setup: Deposit 100
-    const { depositPlain, ephemeralSk, commitment, nk } = await makeDeposit(
-      darkPool,
-      token,
-      alice,
-      100n,
-    );
-    const tree = new LeanIMT(32);
-    await tree.insert(commitment);
-
-    // 2. Create a Time-Locked Note via Self-Transfer (Withdraw 0)
-    const unlockTime = (await time.latest()) + 3600;
-    const assetFr = addressToFr(await token.getAddress());
-
-    const lockedNote: NotePlaintext = {
+// A STANDARD note MUST have note_type == 0 and conditions_hash == 0; the mint circuit rejects
+// anything else. These tests pin that invariant.
+describe("Integration: Note-type invariants (STANDARD notes)", function () {
+  async function nonStandardNote(
+    assetFr: Fr,
+    overrides: Partial<NoteInput>,
+  ): Promise<{ note: NoteInput; eph: Fr }> {
+    const eph = evenYEphemeral(7n);
+    const cek = deriveCek(eph, COMPLIANCE_PK);
+    const psi = await computePsi(cek);
+    const owner = await pubkeyOwner(publicKey(toFr(456n)));
+    const note: NoteInput = {
+      noteVersion: toFr(1n),
+      assetId: assetFr,
+      noteType: toFr(0n),
+      conditionsHash: toFr(0n),
       value: toFr(100n),
-      asset_id: assetFr,
-      secret: toFr(123n),
-      owner: depositPlain.owner, // self-owned so it stays spendable with the same nk
-      timelock: toFr(unlockTime), // SET TIMELOCK
-      hashlock: toFr(0n),
+      owner,
+      psi,
+      parents: toFr(0n),
+      ...overrides,
     };
+    return { note, eph };
+  }
 
-    // Input to create the lock
-    const lockInputs: WithdrawInputs = {
-      withdrawValue: toFr(0n),
-      recipient: addressToFr(alice.address),
-      merkleRoot: tree.getRoot(),
-      currentTimestamp: await time.latest(),
-      intentHash: toFr(0),
-      compliancePk: COMPLIANCE_PK,
-      oldNote: depositPlain,
-      oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
-      nk,
-      oldNoteIndex: 0,
-      oldNotePath: Array(32).fill(toFr(0n)),
-      hashlockPreimage: toFr(0n),
-      changeNote: lockedNote,
-      changeEphemeralSk: toFr(999n),
-    };
+  it("rejects a deposit note with a non-zero conditions_hash", async function () {
+    const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
+    const assetFr = addressToFr(await token.getAddress());
+    const { note, eph } = await nonStandardNote(assetFr, {
+      conditionsHash: toFr(123n),
+    });
 
-    const lockProof = await proveWithdraw(lockInputs);
-    await darkPool
-      .connect(alice)
-      .withdraw(lockProof.proof, lockProof.publicInputs);
-
-    // Insert locked note (index 1). Withdraw layout: [10..16] is change_ct.
-    const lockedPub = lockProof.publicInputs.map((s) => toFr(s));
-    const lockedCt = lockedPub.slice(10, 17);
-    const lockedCommitment = await Poseidon.hash(lockedCt);
-    await tree.insert(lockedCommitment);
-
-    // 3. Spending the locked note immediately must fail
-    const lockedEphSk = toFr(999n);
-    const lockedSharedSecret = await deriveSharedSecret(
-      lockedEphSk,
-      COMPLIANCE_PK,
-    );
-
-    const spendPath = Array(32).fill(toFr(0n));
-    spendPath[0] = commitment; // sibling is index 0
-
-    const spendInputs: WithdrawInputs = {
-      withdrawValue: toFr(100n),
-      recipient: addressToFr(alice.address),
-      merkleRoot: tree.getRoot(),
-      currentTimestamp: await time.latest(), // now < unlockTime
-      intentHash: toFr(0),
-      compliancePk: COMPLIANCE_PK,
-      oldNote: lockedNote,
-      oldSharedSecret: lockedSharedSecret,
-      nk,
-      oldNoteIndex: 1,
-      oldNotePath: spendPath,
-      hashlockPreimage: toFr(0n),
-      changeNote: { ...lockedNote, value: toFr(0n) },
-      changeEphemeralSk: toFr(888n),
-    };
-
-    // Explicit check for failure
     let failed = false;
     try {
-      await proveWithdraw(spendInputs);
+      const proof = await proveDeposit({
+        compliancePk: COMPLIANCE_PK,
+        note,
+        eph,
+      });
+      await darkPool.connect(alice).deposit(proof.proof, proof.publicInputs);
     } catch {
       failed = true;
     }
-    expect(failed, "Proof generation should fail (Timelock not met)").to.equal(
+    expect(failed, "mint must reject a non-zero conditions_hash").to.equal(
       true,
-    );
-
-    // 4. Advance past the unlock time, then the spend should succeed
-    await time.increaseTo(unlockTime + 10);
-    spendInputs.currentTimestamp = await time.latest();
-
-    const validProof = await proveWithdraw(spendInputs);
-    await darkPool
-      .connect(alice)
-      .withdraw(validProof.proof, validProof.publicInputs);
-
-    // 10000 start - 100 dep + 0 wdw + 100 wdw = 10000
-    expect(await token.balanceOf(alice.address)).to.equal(
-      ethers.parseEther("10000"),
     );
   });
 
-  it("should enforce Hashlocks on withdrawals", async function () {
+  it("rejects a deposit note with a non-standard note_type", async function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
+    const assetFr = addressToFr(await token.getAddress());
+    const { note, eph } = await nonStandardNote(assetFr, {
+      noteType: toFr(1n),
+    });
 
-    // 1. Setup: Deposit 100
-    const { depositPlain, ephemeralSk, commitment, nk } = await makeDeposit(
-      darkPool,
-      token,
-      alice,
-      100n,
-    );
-    const tree = new LeanIMT(32);
-    await tree.insert(commitment);
-
-    // 2. Create Hashlocked Note
-    const secretPreimage = 1337n;
-    const hashlock = await Poseidon.hashScalar(toFr(secretPreimage));
-
-    const lockedNote: NotePlaintext = {
-      value: toFr(100n),
-      asset_id: depositPlain.asset_id,
-      secret: toFr(1n),
-      owner: depositPlain.owner, // self-owned so it stays spendable with the same nk
-      timelock: toFr(0n),
-      hashlock: hashlock, // SET HASHLOCK
-    };
-
-    const lockInputs: WithdrawInputs = {
-      withdrawValue: toFr(0n),
-      recipient: addressToFr(alice.address),
-      merkleRoot: tree.getRoot(),
-      currentTimestamp: await time.latest(),
-      intentHash: toFr(0),
-      compliancePk: COMPLIANCE_PK,
-      oldNote: depositPlain,
-      oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
-      nk,
-      oldNoteIndex: 0,
-      oldNotePath: Array(32).fill(toFr(0n)),
-      hashlockPreimage: toFr(0n),
-      changeNote: lockedNote,
-      changeEphemeralSk: toFr(999n),
-    };
-    const lockProof = await proveWithdraw(lockInputs);
-    await darkPool
-      .connect(alice)
-      .withdraw(lockProof.proof, lockProof.publicInputs);
-
-    // Insert locked note (index 1)
-    const lockedPub = lockProof.publicInputs.map((s) => toFr(s));
-    const lockedCommitment = await Poseidon.hash(lockedPub.slice(10, 17));
-    await tree.insert(lockedCommitment);
-
-    const lockedSharedSecret = await deriveSharedSecret(
-      toFr(999n),
-      COMPLIANCE_PK,
-    );
-    const spendPath = Array(32).fill(toFr(0n));
-    spendPath[0] = commitment;
-
-    // 3. Attempt Spend with WRONG Preimage
-    const badInputs: WithdrawInputs = {
-      withdrawValue: toFr(100n),
-      recipient: addressToFr(alice.address),
-      merkleRoot: tree.getRoot(),
-      currentTimestamp: await time.latest(),
-      intentHash: toFr(0),
-      compliancePk: COMPLIANCE_PK,
-      oldNote: lockedNote,
-      oldSharedSecret: lockedSharedSecret,
-      nk,
-      oldNoteIndex: 1,
-      oldNotePath: spendPath,
-      hashlockPreimage: toFr(999999n), // WRONG PREIMAGE
-      changeNote: { ...lockedNote, value: toFr(0n) },
-      changeEphemeralSk: toFr(888n),
-    };
-
-    // Explicit check
     let failed = false;
     try {
-      await proveWithdraw(badInputs);
+      const proof = await proveDeposit({
+        compliancePk: COMPLIANCE_PK,
+        note,
+        eph,
+      });
+      await darkPool.connect(alice).deposit(proof.proof, proof.publicInputs);
     } catch {
       failed = true;
     }
-    expect(failed, "Proof generation should fail (Wrong Preimage)").to.equal(
-      true,
+    expect(failed, "mint must reject a non-standard note_type").to.equal(true);
+  });
+
+  it("re-notes a deposited note to a fresh self note and re-spends it", async function () {
+    const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
+    const assetFr = addressToFr(await token.getAddress());
+
+    const dep = await makeDeposit(darkPool, token, alice, 100n);
+    const tree = new LeanIMT(32);
+    await tree.insert(dep.commitment);
+
+    // Withdraw 0: spend the deposit into a fresh self change note (index 1).
+    const reNote = await mintSelfNote(
+      evenYEphemeral(999n),
+      100n,
+      dep.spendScalar,
+      assetFr,
     );
-
-    // 4. Attempt Spend with CORRECT Preimage
-    const goodInputs = { ...badInputs, hashlockPreimage: toFr(secretPreimage) };
-    const validProof = await proveWithdraw(goodInputs);
-
+    const lockProof = await proveWithdraw({
+      withdrawValue: toFr(0n),
+      recipient: addressToFr(alice.address),
+      currentTimestamp: Math.floor(Date.now() / 1000),
+      intentHash: toFr(0n),
+      compliancePk: COMPLIANCE_PK,
+      oldNote: dep.built.note,
+      spendScalar: dep.spendScalar,
+      oldNoteIndex: 0,
+      oldNotePath: Array(32).fill(toFr(0n)),
+      changeNote: reNote.note,
+      changeEph: reNote.eph,
+    });
     await darkPool
       .connect(alice)
-      .withdraw(validProof.proof, validProof.publicInputs);
+      .withdraw(lockProof.proof, lockProof.publicInputs);
+    await tree.insert(reNote.commitment);
+
+    // Spend the re-noted note (index 1) fully to Alice.
+    const spendPath = Array(32).fill(toFr(0n));
+    spendPath[0] = dep.commitment;
+    const change = await mintSelfNote(
+      evenYEphemeral(1234n),
+      0n,
+      dep.spendScalar,
+      assetFr,
+    );
+    const spendProof = await proveWithdraw({
+      withdrawValue: toFr(100n),
+      recipient: addressToFr(alice.address),
+      currentTimestamp: Math.floor(Date.now() / 1000),
+      intentHash: toFr(0n),
+      compliancePk: COMPLIANCE_PK,
+      oldNote: reNote.note,
+      spendScalar: dep.spendScalar,
+      oldNoteIndex: 1,
+      oldNotePath: spendPath,
+      changeNote: change.note,
+      changeEph: change.eph,
+    });
+    await darkPool
+      .connect(alice)
+      .withdraw(spendProof.proof, spendProof.publicInputs);
+
     expect(await token.balanceOf(alice.address)).to.equal(
       ethers.parseEther("10000"),
     );

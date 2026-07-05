@@ -5,6 +5,7 @@ import { NoxRegistry, MockERC20 } from "../../typechain-types";
 
 describe("NoxRegistry (Identity & Staking)", function () {
   const MIN_STAKE = ethers.parseEther("1000");
+  const MIN_STAKE_FLOOR = ethers.parseEther("1");
   const UNSTAKE_DELAY = 7 * 24 * 60 * 60; // 7 Days
 
   async function deployFixture() {
@@ -24,6 +25,7 @@ describe("NoxRegistry (Identity & Staking)", function () {
       await token.getAddress(),
       MIN_STAKE,
       UNSTAKE_DELAY,
+      MIN_STAKE_FLOOR,
     )) as unknown as NoxRegistry;
 
     const SLASHER_ROLE = await registry.SLASHER_ROLE();
@@ -90,7 +92,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
       const { registry, admin, relayer, relayer2 } =
         await loadFixture(deployFixture);
 
-      // Order A: relayer first, then relayer2
       await registry
         .connect(admin)
         .registerPrivileged(relayer.address, sphinxKey, url, "", "", ROLE_FULL);
@@ -106,18 +107,15 @@ describe("NoxRegistry (Identity & Staking)", function () {
         );
       const fpOrderA = await registry.topologyFingerprint();
 
-      // Compute expected XOR (order doesn't matter)
       const expected = xorHashes(
         computeAddressHash(relayer.address),
         computeAddressHash(relayer2.address),
       );
       expect(fpOrderA).to.equal(expected);
 
-      // Deploy a fresh registry for Order B
       const { registry: registry2, admin: admin2 } =
         await loadFixture(deployFixture);
 
-      // Order B: relayer2 first, then relayer
       await registry2
         .connect(admin2)
         .registerPrivileged(
@@ -140,7 +138,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
       const { registry, admin, relayer, relayer2 } =
         await loadFixture(deployFixture);
 
-      // Register 2 nodes
       await registry
         .connect(admin)
         .registerPrivileged(relayer.address, sphinxKey, url, "", "", ROLE_FULL);
@@ -155,7 +152,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
           ROLE_FULL,
         );
 
-      // Unregister both
       await registry.connect(admin).forceUnregister(relayer.address);
       await registry.connect(admin).forceUnregister(relayer2.address);
 
@@ -166,24 +162,20 @@ describe("NoxRegistry (Identity & Staking)", function () {
     it("should handle re-registration correctly", async function () {
       const { registry, admin, relayer } = await loadFixture(deployFixture);
 
-      // Register
       await registry
         .connect(admin)
         .registerPrivileged(relayer.address, sphinxKey, url, "", "", ROLE_FULL);
       const fpAfterRegister = await registry.topologyFingerprint();
 
-      // Unregister
       await registry.connect(admin).forceUnregister(relayer.address);
       const fpAfterUnregister = await registry.topologyFingerprint();
       expect(fpAfterUnregister).to.equal(ethers.ZeroHash);
 
-      // Re-register
       await registry
         .connect(admin)
         .registerPrivileged(relayer.address, sphinxKey, url, "", "", ROLE_FULL);
       const fpAfterReregister = await registry.topologyFingerprint();
 
-      // Same fingerprint as after first registration
       expect(fpAfterReregister).to.equal(fpAfterRegister);
     });
 
@@ -253,7 +245,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
         .registerPrivileged(relayer.address, sphinxKey, url, "", "", ROLE_FULL);
       const fpBefore = await registry.topologyFingerprint();
 
-      // Rotate key
       await registry.connect(relayer).rotateKey(ethers.randomBytes(32));
       const fpAfter = await registry.topologyFingerprint();
 
@@ -551,24 +542,19 @@ describe("NoxRegistry (Identity & Staking)", function () {
         .register(sphinxKey, url, "", "", MIN_STAKE, ROLE_FULL);
       await registry.connect(relayer).requestUnstake();
 
-      // Advance time past unstake delay
       await time.increase(UNSTAKE_DELAY + 1);
 
       const balBefore = await token.balanceOf(relayer.address);
       await registry.connect(relayer).executeUnstake();
       const balAfter = await token.balanceOf(relayer.address);
 
-      // Tokens returned
       expect(balAfter - balBefore).to.equal(MIN_STAKE);
 
-      // Profile deleted
       const profile = await registry.relayers(relayer.address);
       expect(profile.isRegistered).to.equal(false);
 
-      // Relayer count decremented
       expect(await registry.relayerCount()).to.equal(0);
 
-      // Fingerprint back to zero
       expect(await registry.topologyFingerprint()).to.equal(ethers.ZeroHash);
     });
   });
@@ -583,7 +569,7 @@ describe("NoxRegistry (Identity & Staking)", function () {
         await loadFixture(deployFixture);
       await registry
         .connect(relayer)
-        .register(sphinxKey, url, "", "", MIN_STAKE, ROLE_FULL);
+        .register(sphinxKey, url, "", "", MIN_STAKE * 2n, ROLE_FULL);
 
       const slashAmount = ethers.parseEther("500");
       const slasherBalBefore = await token.balanceOf(slasher.address);
@@ -594,8 +580,9 @@ describe("NoxRegistry (Identity & Staking)", function () {
         .to.emit(registry, "Slashed")
         .withArgs(relayer.address, slashAmount, slasher.address);
 
+      // Remaining (1500) is still >= minStake, so the node stays registered and collateralized.
       const profile = await registry.relayers(relayer.address);
-      expect(profile.stakedAmount).to.equal(MIN_STAKE - slashAmount);
+      expect(profile.stakedAmount).to.equal(MIN_STAKE * 2n - slashAmount);
 
       const slasherBalAfter = await token.balanceOf(slasher.address);
       expect(slasherBalAfter - slasherBalBefore).to.equal(slashAmount);
@@ -613,7 +600,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
 
       await registry.connect(slasher).slash(relayer.address, overSlash);
 
-      // Only staked amount taken
       const profile = await registry.relayers(relayer.address);
       expect(profile.stakedAmount).to.equal(0);
 
@@ -905,6 +891,257 @@ describe("NoxRegistry (Identity & Staking)", function () {
       ).to.be.revertedWithCustomError(
         registry,
         "AccessControlUnauthorizedAccount",
+      );
+    });
+  });
+
+  describe("Unstake lifecycle, freeze, and collateral floor", function () {
+    const ROLE_FULL = 3;
+    const key = () => ethers.randomBytes(32);
+
+    async function registered() {
+      const ctx = await loadFixture(deployFixture);
+      await ctx.registry
+        .connect(ctx.relayer)
+        .register(key(), "/ip4/1.1.1.1/tcp/1", "", "", MIN_STAKE, ROLE_FULL);
+      return ctx;
+    }
+
+    it("cancelUnstake returns an unstaking node to active", async function () {
+      const { registry, relayer } = await registered();
+      await registry.connect(relayer).requestUnstake();
+      expect((await registry.relayers(relayer.address)).status).to.equal(2n);
+
+      await registry.connect(relayer).cancelUnstake();
+      const profile = await registry.relayers(relayer.address);
+      expect(profile.status).to.equal(1n);
+      expect(profile.unlockTime).to.equal(0n);
+
+      await registry.connect(relayer).addStake(MIN_STAKE);
+      expect((await registry.relayers(relayer.address)).stakedAmount).to.equal(
+        MIN_STAKE * 2n,
+      );
+    });
+
+    it("blocks addStake while an unstake is pending", async function () {
+      const { registry, relayer } = await registered();
+      await registry.connect(relayer).requestUnstake();
+      await expect(
+        registry.connect(relayer).addStake(MIN_STAKE),
+      ).to.be.revertedWithCustomError(registry, "UnstakeAlreadyRequested");
+    });
+
+    it("freeze blocks executeUnstake and cancelUnstake; unfreeze restores exit", async function () {
+      const { registry, relayer, slasher } = await registered();
+      await registry.connect(relayer).requestUnstake();
+      await time.increase(UNSTAKE_DELAY + 1);
+
+      await registry.connect(slasher).freeze(relayer.address);
+      await expect(
+        registry.connect(relayer).executeUnstake(),
+      ).to.be.revertedWithCustomError(registry, "NodeFrozen");
+      await expect(
+        registry.connect(relayer).cancelUnstake(),
+      ).to.be.revertedWithCustomError(registry, "NodeFrozen");
+
+      await registry.connect(slasher).unfreeze(relayer.address);
+      await expect(registry.connect(relayer).executeUnstake()).to.emit(
+        registry,
+        "Unstaked",
+      );
+    });
+
+    it("keeps a node slashable throughout the unstake cooldown", async function () {
+      const { registry, relayer, slasher } = await registered();
+      await registry.connect(relayer).requestUnstake();
+      await expect(
+        registry.connect(slasher).slash(relayer.address, MIN_STAKE),
+      ).to.emit(registry, "Slashed");
+      expect((await registry.relayers(relayer.address)).isRegistered).to.equal(
+        false,
+      );
+    });
+
+    it("restricts freeze to the slasher and rejects redundant freeze/unfreeze", async function () {
+      const { registry, relayer, slasher, attacker } = await registered();
+      await expect(
+        registry.connect(attacker).freeze(relayer.address),
+      ).to.be.revertedWithCustomError(
+        registry,
+        "AccessControlUnauthorizedAccount",
+      );
+      await expect(
+        registry.connect(slasher).unfreeze(relayer.address),
+      ).to.be.revertedWithCustomError(registry, "NotFrozen");
+      await registry.connect(slasher).freeze(relayer.address);
+      await expect(
+        registry.connect(slasher).freeze(relayer.address),
+      ).to.be.revertedWithCustomError(registry, "AlreadyFrozen");
+    });
+
+    it("deregisters and refunds the remainder when a slash drops stake below the floor", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { registry, relayer, slasher, token } = ctx;
+      await registry
+        .connect(relayer)
+        .register(
+          key(),
+          "/ip4/1.1.1.1/tcp/1",
+          "",
+          "",
+          MIN_STAKE * 2n,
+          ROLE_FULL,
+        );
+
+      const relayerBalBefore = await token.balanceOf(relayer.address);
+      // Slash 1500 of 2000 -> remaining 500 < minStake(1000) -> deregister + refund 500.
+      await registry
+        .connect(slasher)
+        .slash(relayer.address, MIN_STAKE + ethers.parseEther("500"));
+
+      expect((await registry.relayers(relayer.address)).isRegistered).to.equal(
+        false,
+      );
+      expect(await registry.relayerCount()).to.equal(0n);
+      expect(await token.balanceOf(relayer.address)).to.equal(
+        relayerBalBefore + ethers.parseEther("500"),
+      );
+    });
+
+    it("permissionlessly removes a node stranded by a minStake raise, exempting trusted nodes", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { registry, relayer, relayer2, admin, token } = ctx;
+
+      await registry
+        .connect(admin)
+        .registerPrivileged(
+          relayer2.address,
+          key(),
+          "/ip4/2.2.2.2/tcp/2",
+          "",
+          "",
+          ROLE_FULL,
+        );
+      await registry
+        .connect(relayer)
+        .register(key(), "/ip4/1.1.1.1/tcp/1", "", "", MIN_STAKE, ROLE_FULL);
+
+      await registry.connect(admin).updateConfig(MIN_STAKE * 2n, UNSTAKE_DELAY);
+
+      const balBefore = await token.balanceOf(relayer.address);
+      await registry
+        .connect(relayer2)
+        .removeUnderCollateralized(relayer.address);
+      expect((await registry.relayers(relayer.address)).isRegistered).to.equal(
+        false,
+      );
+      expect(await token.balanceOf(relayer.address)).to.equal(
+        balBefore + MIN_STAKE,
+      );
+
+      // A trusted zero-stake node is not removable this way.
+      await expect(
+        registry.connect(relayer).removeUnderCollateralized(relayer2.address),
+      ).to.be.revertedWithCustomError(registry, "NotUnderCollateralized");
+    });
+
+    it("blocks removeUnderCollateralized while a node is frozen", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { registry, relayer, slasher, admin } = ctx;
+      await registry
+        .connect(relayer)
+        .register(key(), "/ip4/1.1.1.1/tcp/1", "", "", MIN_STAKE, ROLE_FULL);
+      // Raise the floor so the node is under-collateralized, then freeze it pending investigation.
+      await registry.connect(admin).updateConfig(MIN_STAKE * 2n, UNSTAKE_DELAY);
+      await registry.connect(slasher).freeze(relayer.address);
+
+      await expect(
+        registry.connect(relayer).removeUnderCollateralized(relayer.address),
+      ).to.be.revertedWithCustomError(registry, "NodeFrozen");
+
+      // Once the slasher lifts the freeze, cleanup proceeds.
+      await registry.connect(slasher).unfreeze(relayer.address);
+      await expect(
+        registry.connect(relayer).removeUnderCollateralized(relayer.address),
+      ).to.emit(registry, "RelayerRemoved");
+    });
+
+    it("reverts slashing a zero-stake node", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { registry, relayer2, admin, slasher } = ctx;
+      await registry
+        .connect(admin)
+        .registerPrivileged(
+          relayer2.address,
+          key(),
+          "/ip4/2.2.2.2/tcp/2",
+          "",
+          "",
+          ROLE_FULL,
+        );
+      await expect(
+        registry.connect(slasher).slash(relayer2.address, MIN_STAKE),
+      ).to.be.revertedWithCustomError(registry, "NothingToSlash");
+    });
+
+    it("enforces the minStake floor at deploy and on updateConfig", async function () {
+      const { registry, admin, token } = await loadFixture(deployFixture);
+      const RegistryFactory = await ethers.getContractFactory("NoxRegistry");
+
+      await expect(
+        RegistryFactory.deploy(
+          admin.address,
+          await token.getAddress(),
+          MIN_STAKE_FLOOR - 1n,
+          UNSTAKE_DELAY,
+          MIN_STAKE_FLOOR,
+        ),
+      ).to.be.revertedWithCustomError(registry, "MinStakeBelowFloor");
+
+      await expect(
+        RegistryFactory.deploy(
+          admin.address,
+          await token.getAddress(),
+          MIN_STAKE,
+          UNSTAKE_DELAY,
+          0n,
+        ),
+      ).to.be.revertedWithCustomError(registry, "InvalidAmount");
+
+      await expect(
+        registry
+          .connect(admin)
+          .updateConfig(MIN_STAKE_FLOOR - 1n, UNSTAKE_DELAY),
+      ).to.be.revertedWithCustomError(registry, "MinStakeBelowFloor");
+    });
+
+    it("pauses churn paths while leaving incident levers callable", async function () {
+      const { registry, relayer, slasher, admin } = await registered();
+      await registry.connect(admin).pause();
+
+      await expect(
+        registry.connect(relayer).requestUnstake(),
+      ).to.be.revertedWithCustomError(registry, "EnforcedPause");
+      await expect(
+        registry.connect(relayer).rotateKey(key()),
+      ).to.be.revertedWithCustomError(registry, "EnforcedPause");
+      await expect(
+        registry.connect(relayer).updateRole(2),
+      ).to.be.revertedWithCustomError(registry, "EnforcedPause");
+
+      await expect(
+        registry.connect(slasher).slash(relayer.address, MIN_STAKE),
+      ).to.emit(registry, "Slashed");
+    });
+
+    it("allows executeUnstake while paused when matured and not frozen", async function () {
+      const { registry, relayer, admin } = await registered();
+      await registry.connect(relayer).requestUnstake();
+      await time.increase(UNSTAKE_DELAY + 1);
+      await registry.connect(admin).pause();
+      await expect(registry.connect(relayer).executeUnstake()).to.emit(
+        registry,
+        "Unstaked",
       );
     });
   });

@@ -1,28 +1,29 @@
 import {
   packPoint,
-  Point,
   unpackPoint,
+  Point,
   inCurve,
   mulPointEscalar,
   subOrder,
 } from "@zk-kit/baby-jubjub";
 import bs58check from "bs58check";
-import { DLEQProof } from "./crypto/dleq.js";
 
-export type HisokaAddressData = {
-  B: Point<bigint>;
-  P: Point<bigint>;
-  pi: DLEQProof;
-  S: Point<bigint>;
-  bindR: Point<bigint>;
-  bindS: bigint;
+// Recipient's incoming discovery key in_pub_j plus the diversifier index j that produced it.
+export type HisokaAddress = {
+  inPub: Point<bigint>;
+  index: bigint;
 };
 
 const ADDRESS_PREFIX = "hiso";
+const FIELD_BYTES = 32;
+const PAYLOAD_BYTES = FIELD_BYTES * 2;
 
 function bigintTo32BufferBE(num: bigint): Buffer {
   if (num < 0n) {
     throw new Error("Cannot convert negative bigint to buffer.");
+  }
+  if (num >= 1n << 256n) {
+    throw new Error("Value exceeds 32 bytes.");
   }
   let hex = num.toString(16);
   if (hex.length % 2 !== 0) {
@@ -32,80 +33,53 @@ function bigintTo32BufferBE(num: bigint): Buffer {
   return Buffer.from(paddedHex, "hex");
 }
 
-export function encodeHisokaAddress(data: HisokaAddressData): string {
-  const { B, P, pi, S, bindR, bindS } = data;
-  const { U, V, z } = pi;
+function assertValidPoint(point: Point<bigint>): void {
+  if (!inCurve(point)) {
+    throw new Error("Address point is not on the BabyJubJub curve.");
+  }
+  if (point[0] === 0n && point[1] === 1n) {
+    throw new Error("Address point is the identity.");
+  }
+  const [ox, oy] = mulPointEscalar(point, subOrder);
+  if (ox !== 0n || oy !== 1n) {
+    throw new Error("Address point is not in the prime-order subgroup.");
+  }
+}
 
+export function encodeHisokaAddress(addr: HisokaAddress): string {
+  assertValidPoint(addr.inPub);
   const payload = Buffer.concat([
-    bigintTo32BufferBE(packPoint(B)),
-    bigintTo32BufferBE(packPoint(P)),
-    bigintTo32BufferBE(packPoint(U)),
-    bigintTo32BufferBE(packPoint(V)),
-    bigintTo32BufferBE(z),
-    bigintTo32BufferBE(packPoint(S)),
-    bigintTo32BufferBE(packPoint(bindR)),
-    bigintTo32BufferBE(bindS),
+    bigintTo32BufferBE(packPoint(addr.inPub)),
+    bigintTo32BufferBE(addr.index),
   ]);
-
   return `${ADDRESS_PREFIX}_${bs58check.encode(payload)}`;
 }
 
-export function decodeHisokaAddress(address: string): HisokaAddressData {
+export function decodeHisokaAddress(address: string): HisokaAddress {
   const parts = address.split("_");
   if (parts.length !== 2 || parts[0] !== ADDRESS_PREFIX) {
     throw new Error("Invalid Hisoka address format or prefix.");
   }
 
-  const encodedPayload = parts[1];
-  const payload = bs58check.decode(encodedPayload);
-
-  if (payload.length !== 256) {
+  const payload = bs58check.decode(parts[1]);
+  if (payload.length !== PAYLOAD_BYTES) {
     throw new Error(
-      `Invalid payload length. Expected 256 bytes, got ${payload.length}.`,
+      `Invalid payload length. Expected ${PAYLOAD_BYTES} bytes, got ${payload.length}.`,
     );
   }
 
   const sliceToBigInt = (start: number): bigint => {
-    const slice = payload.subarray(start, start + 32);
-    const bufferSlice = Buffer.from(slice);
-    return BigInt("0x" + bufferSlice.toString("hex"));
+    const slice = Buffer.from(payload.subarray(start, start + FIELD_BYTES));
+    return BigInt("0x" + slice.toString("hex"));
   };
 
-  const packed_B = sliceToBigInt(0);
-  const packed_P = sliceToBigInt(32);
-  const packed_U = sliceToBigInt(64);
-  const packed_V = sliceToBigInt(96);
-  const z: bigint = sliceToBigInt(128);
-  const packed_S = sliceToBigInt(160);
-  const packed_R = sliceToBigInt(192);
-  const bindS: bigint = sliceToBigInt(224);
-
-  const B = unpackPoint(packed_B);
-  const P = unpackPoint(packed_P);
-  const U = unpackPoint(packed_U);
-  const V = unpackPoint(packed_V);
-  const S = unpackPoint(packed_S);
-  const bindR = unpackPoint(packed_R);
-
-  if (!B || !P || !U || !V || !S || !bindR) {
+  const inPub = unpackPoint(sliceToBigInt(0));
+  if (!inPub) {
     throw new Error(
-      "Failed to unpack one or more points from the address. The address may be corrupted or invalid.",
+      "Failed to unpack the address point. The address may be corrupted or invalid.",
     );
   }
+  assertValidPoint(inPub);
 
-  for (const point of [B, P, U, V, S, bindR]) {
-    if (!inCurve(point)) {
-      throw new Error("Decoded address point is not on the BabyJubJub curve.");
-    }
-    const [ox, oy] = mulPointEscalar(point, subOrder);
-    if (ox !== 0n || oy !== 1n) {
-      throw new Error(
-        "Decoded address point is not in the prime-order subgroup.",
-      );
-    }
-  }
-
-  const pi: DLEQProof = { U, V, z };
-
-  return { B, P, pi, S, bindR, bindS };
+  return { inPub, index: sliceToBigInt(FIELD_BYTES) };
 }

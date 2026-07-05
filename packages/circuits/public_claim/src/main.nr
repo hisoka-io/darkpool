@@ -1,13 +1,16 @@
 use ::ecdh::{bjj::BJJ, ECDHTrait, Point};
 use ::poseidon::poseidon2::Poseidon2;
-use ::shared::{assert_subgroup_scalar, encrypt_note_for_compliance, Note};
+use ::shared::{assert_subgroup_scalar, mint};
+use ::shared::note_v2::Note;
 
+// Claim a public memo into a shielded self note. The claimer proves the memo's owner key and mints note_out
+// to an owner of their choice (inside the encrypted note). The note owner is not a public value, so the
+// claim does not leak the destination.
 fn main(
     memo_id: pub Field,
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
     current_timestamp: pub Field,
-    claimer_owner: pub Field,
     val: Field,
     asset_id: Field,
     timelock: Field,
@@ -16,134 +19,86 @@ fn main(
     salt: Field,
     recipient_sk: Field,
     note_out: Note,
-    sk_out: Field,
-) -> pub (Field, Field, [Field; 7], Field) {
-    let computed_id = Poseidon2::hash(
-        [val, asset_id, timelock, owner_x, owner_y, claimer_owner, salt],
-        7,
-    );
-    assert(computed_id == memo_id);
+    eph: Field,
+) -> pub (Field, Field, Field, [Field; 7]) {
+    let computed_id = Poseidon2::hash([val, asset_id, timelock, owner_x, owner_y, salt], 6);
+    assert(computed_id == memo_id, "memo id mismatch");
     assert(
         (timelock == 0) | (current_timestamp as u64 >= timelock as u64),
         "Timelock has not expired",
     );
 
     assert_subgroup_scalar(recipient_sk);
-    let derived_pk = BJJ::new(recipient_sk).derive_public_key();
-    assert(derived_pk.x == owner_x);
-    assert(derived_pk.y == owner_y);
+    let derived = BJJ::new(recipient_sk).derive_public_key();
+    assert(derived.x == owner_x, "recipient key mismatch");
+    assert(derived.y == owner_y, "recipient key mismatch");
 
-    assert(note_out.value as Field == val);
-    assert(note_out.asset_id == asset_id);
-    assert(note_out.owner == claimer_owner, "note_out owner must equal claimer_owner");
+    assert(note_out.value as Field == val, "claim value mismatch");
+    assert(note_out.asset_id == asset_id, "claim asset mismatch");
 
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
-    let enc = encrypt_note_for_compliance(note_out, sk_out, compliance_pk);
+    mint::assert_valid_compliance_pk(compliance_pk);
+    let minted = mint::mint_self_note(note_out, eph, compliance_pk);
 
-    (enc.epk_x, enc.epk_y, enc.ciphertext, asset_id)
+    (minted.leaf, minted.eph_pub.x, minted.eph_pub.y, minted.ciphertext)
 }
 
-#[test]
-pub fn test_public_claim() {
-    let memo_id = 0x0147d1cca002f07222d2606742f4774208eb6a10bda5c630483c0a3866965e0d;
-    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
-
-    let val = 0x0000000000000000000000000000000000000000000000000000000000000064;
-    let asset_id = 0x0000000000000000000000001234567890123456789012345678901234567890;
-    let timelock = 0x0000000000000000000000000000000000000000000000000000000000000000;
-    let current_timestamp = 0x0000000000000000000000000000000000000000000000000000000067f0d400; // any timestamp is fine when timelock == 0
-    let owner_x = 0x2a39f6a9afe8c569977ec299af985e30142d18ee451008ffd13fc0a2a36cf54e;
-    let owner_y = 0x1d5a43dc73fe0493cce521cc92a4d34d4837214ce47871c587c567d2d0c72c8f;
-    let salt = 0x004996117eaf098d97b6a42a8ec9c27b5ec30cdca90ffbdb6792eb4733c982d4;
-    let claimer_owner = 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27;
-
-    let recipient_sk = 0x0000000000000000000000000000000000000000000000000000000000003039;
-
-    let note_out = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+fn note_out() -> Note {
+    Note {
+        note_version: 1,
+        asset_id: 0x1234567890123456789012345678901234567890,
+        note_type: 0,
+        conditions_hash: 0,
         value: 100,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let sk_out = 0x0000000000000000000000000000000000000000000000000000000000000309;
+        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
+        psi: 0x2b15d2a7e6a394714f0489affd8fcb29292b35d148d26453116782a6672edd12,
+        parents: 0,
+    }
+}
 
-    let exp_epk_x = 0x007b165412dfc16c9b23bd972c1e08e2473f8f7076762ca79e294320aa2bbd0c;
-    let exp_epk_y = 0x208a2955c2e744579fb8b03689b37ca2aa0c41bb561f0fe0e32b6091b3ef0dfa;
-    let exp_ct = [
-        0x00badb19c1485c1366b56585c3d7ac572d3dd1ebafcdb9d8b43bac5e280a056b,
-        0x004d73f3b84a4ac682f32c6b4f1610e3dd5f5bf07ea074109572feccf595024e,
-        0x002775cb2d3ac252728995a20611962630baad45c824d4e5458a1f2b2b2a999e,
-        0x00c6f7a267fca9f1f8bc0fec8838e68fabd57037d5372998af0a322c211853c0,
-        0x00168263efc224a2d101bafaf0171ed497263770e8e258e3b85767c35b1cd672,
-        0x004ddd62dbdf416823a033c923fca1e63046a0269c4e34f3397f40767595dc10,
-        0x0000000000000000000056bb1cadc0422640191916d5bbb258a957055f2aa25,
-    ];
+global CX: Field = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+global CY: Field = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
 
-    let (epk_x, epk_y, ct, asset_ret) = main(
-        memo_id,
-        compliance_pubkey_x,
-        compliance_pubkey_y,
-        current_timestamp,
-        claimer_owner,
-        val,
-        asset_id,
-        timelock,
-        owner_x,
-        owner_y,
-        salt,
-        recipient_sk,
-        note_out,
-        sk_out,
+// KAT: byte-identical to the TS/Solidity golden vector (recipient_sk 0x3039, memo of 6 fields, eph 31).
+#[test]
+fn test_public_claim_kat() {
+    let (leaf, epk_x, epk_y, ct) = main(
+        0x0731300919ae74d1507ab3b22cac576da8c86deb8ddc11f24317b861f17f6f93,
+        CX,
+        CY,
+        0,
+        100,
+        0x1234567890123456789012345678901234567890,
+        0,
+        0x2a39f6a9afe8c569977ec299af985e30142d18ee451008ffd13fc0a2a36cf54e,
+        0x1d5a43dc73fe0493cce521cc92a4d34d4837214ce47871c587c567d2d0c72c8f,
+        0x004996117eaf098d97b6a42a8ec9c27b5ec30cdca90ffbdb6792eb4733c982d4,
+        0x3039,
+        note_out(),
+        31,
     );
-
-    assert(epk_x == exp_epk_x);
-    assert(epk_y == exp_epk_y);
-    assert(ct == exp_ct);
-    assert(asset_ret == asset_id);
+    assert(leaf == 0x09a98ec0c22cfd2a253e128d36453471a20e6de6b049bc9e342c4dcfa5716fe2);
+    assert(epk_x == 0x1390b1c9d9a82d2159b46c2bb964b4b2f33fce1689896c95545db5582db57f2e);
+    assert(epk_y == 0x29cec8b61d518c9fb134222a259fb1aac3ef5a0e96ffe08d5f6102a388e5f488);
+    assert(ct[0] == 0x25b192408132608596a8fcb2580b40eef0ae69bac2ddd618919bfead13c9fc22);
+    assert(ct[6] == 0x1271e8440d429e8b2e2bfbe6f6cdae0c76b0238dac17d93e83c663b7d893761f);
 }
 
-#[test]
-pub fn test_public_claim_timelock_active() {
-    let memo_id = 0x0147d1cca002f07222d2606742f4774208eb6a10bda5c630483c0a3866965e0d;
-    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
-    let val = 0x0000000000000000000000000000000000000000000000000000000000000064;
-    let asset_id = 0x0000000000000000000000001234567890123456789012345678901234567890;
-
-    let timelock = 0x0;
-    let current_timestamp = 0x0000000000000000000000000000000000000000000000000000000067f0d400;
-    let owner_x = 0x2a39f6a9afe8c569977ec299af985e30142d18ee451008ffd13fc0a2a36cf54e;
-    let owner_y = 0x1d5a43dc73fe0493cce521cc92a4d34d4837214ce47871c587c567d2d0c72c8f;
-    let salt = 0x004996117eaf098d97b6a42a8ec9c27b5ec30cdca90ffbdb6792eb4733c982d4;
-    let claimer_owner = 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27;
-    let recipient_sk = 0x0000000000000000000000000000000000000000000000000000000000003039;
-    let note_out = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 100,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let sk_out = 0x0000000000000000000000000000000000000000000000000000000000000309;
-
+#[test(should_fail_with = "recipient key mismatch")]
+fn audit_reject_wrong_recipient_key() {
     let _ = main(
-        memo_id,
-        compliance_pubkey_x,
-        compliance_pubkey_y,
-        current_timestamp,
-        claimer_owner,
-        val,
-        asset_id,
-        timelock,
-        owner_x,
-        owner_y,
-        salt,
-        recipient_sk,
-        note_out,
-        sk_out,
+        0x0731300919ae74d1507ab3b22cac576da8c86deb8ddc11f24317b861f17f6f93,
+        CX,
+        CY,
+        0,
+        100,
+        0x1234567890123456789012345678901234567890,
+        0,
+        0x2a39f6a9afe8c569977ec299af985e30142d18ee451008ffd13fc0a2a36cf54e,
+        0x1d5a43dc73fe0493cce521cc92a4d34d4837214ce47871c587c567d2d0c72c8f,
+        0x004996117eaf098d97b6a42a8ec9c27b5ec30cdca90ffbdb6792eb4733c982d4,
+        0x303a,
+        note_out(),
+        31,
     );
 }

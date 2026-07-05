@@ -1,20 +1,20 @@
 import { Contract, EventLog } from "ethers";
 import {
-  NotePlaintext,
-  toFr,
-  unpackCiphertext,
-  complianceDecryptNote,
-  complianceDecrypt3Party,
-  deriveNullifier,
-  computeOwner,
   Fr,
+  toFr,
+  deriveCek,
+  demDecrypt,
+  computePsi,
+  computeNullifier,
+  leaf,
+  NoteV2,
 } from "@hisoka/wallets";
-import { Point, Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
+import { Point } from "@zk-kit/baby-jubjub";
 
 interface DecryptedRecord {
   commitment: string;
   nullifier: string;
-  note: NotePlaintext;
+  note: NoteV2;
   txHash: string;
   blockNumber: number;
   isTransfer: boolean;
@@ -22,36 +22,23 @@ interface DecryptedRecord {
 
 interface TransactionGraph {
   txHash: string;
-  inputs: DecryptedRecord[]; // Notes spent in this tx
-  outputs: DecryptedRecord[]; // Notes created in this tx
+  inputs: DecryptedRecord[];
+  outputs: DecryptedRecord[];
 }
 
+/** Compliance decrypts every note STRUCTURALLY: the content key is (complianceSk * eph_pub).x == (eph * C).x,
+ * so no per-recipient wrap or DLEQ is needed. psi (hence the nullifier) follows from the same key. */
 export class ComplianceService {
-  // DB: Commitment -> Decrypted Note
   private db: Map<string, DecryptedRecord> = new Map();
-  // DB: Nullifier -> Commitment (Reverse lookup to find source of a spend)
   private nullifierMap: Map<string, string> = new Map();
-  // Owner commitment -> nullifying key (the spender's nk is disclosed to the audit
-  // harness; compliance cannot derive the nullifier without it).
-  private ownerToNk: Map<string, Fr> = new Map();
 
   constructor(
     private readonly complianceSk: bigint,
     private readonly contract: Contract,
     private readonly fromBlock: number = 0,
-    private readonly auditNks: Fr[] = [],
   ) {}
 
-  /**
-   * Scans the chain, decrypts everything, and builds the state.
-   */
   async sync() {
-    for (const nk of this.auditNks) {
-      const owner = await computeOwner(mulPointEscalar(Base8, nk.toBigInt()));
-      this.ownerToNk.set(owner.toString(), nk);
-    }
-
-    // Query from deployment block to avoid RPC range limits on forks
     const noteEvents = await this.contract.queryFilter(
       this.contract.filters.NewNote(),
       this.fromBlock,
@@ -61,20 +48,14 @@ export class ComplianceService {
       this.fromBlock,
     );
 
-    // Path A: deposits/changes
     for (const ev of noteEvents) {
-      await this.processNewNote(ev as EventLog);
+      await this.decrypt(ev as EventLog, false);
     }
-
-    // Path B: transfers
     for (const ev of memoEvents) {
-      await this.processMemo(ev as EventLog);
+      await this.decrypt(ev as EventLog, true);
     }
   }
 
-  /**
-   * Reconstructs the flow of funds by grouping events by Transaction Hash.
-   */
   async traceTransactions(): Promise<TransactionGraph[]> {
     const spendEvents = await this.contract.queryFilter(
       this.contract.filters.NullifierSpent(),
@@ -82,23 +63,18 @@ export class ComplianceService {
     );
 
     const txs = new Map<string, { inputs: string[]; outputs: string[] }>();
-
     const getTx = (hash: string) => {
       if (!txs.has(hash)) txs.set(hash, { inputs: [], outputs: [] });
       return txs.get(hash)!;
     };
 
-    // Inputs: map each spent nullifier back to its source commitment
     for (const ev of spendEvents) {
       const tx = getTx(ev.transactionHash);
       const nf = (ev as EventLog).args.nullifierHash;
       const commitment = this.nullifierMap.get(nf);
-      if (commitment) {
-        tx.inputs.push(commitment);
-      }
+      if (commitment) tx.inputs.push(commitment);
     }
 
-    // Outputs: notes created in each tx
     for (const rec of this.db.values()) {
       const tx = getTx(rec.txHash);
       tx.outputs.push(rec.commitment);
@@ -112,68 +88,54 @@ export class ComplianceService {
         outputs: data.outputs.map((c) => this.db.get(c)!),
       });
     }
-
     return graph;
   }
 
-  private async processNewNote(event: EventLog) {
-    const { ephemeralPK_x, ephemeralPK_y, packedCiphertext } = event.args;
-    const epk: Point<bigint> = [ephemeralPK_x, ephemeralPK_y];
-    const packed = packedCiphertext.map((h: string) => toFr(h));
-    const ct = unpackCiphertext(packed);
+  private async decrypt(event: EventLog, isTransfer: boolean): Promise<void> {
+    const ephPub: Point<bigint> = [
+      BigInt(event.args.ephemeralPK_x),
+      BigInt(event.args.ephemeralPK_y),
+    ];
+    const ciphertext = (event.args.packedCiphertext as string[]).map((h) =>
+      toFr(h),
+    );
 
     try {
-      const note = await complianceDecryptNote(this.complianceSk, epk, ct);
+      const cek = deriveCek(new Fr(this.complianceSk), ephPub);
+      const plaintext = await demDecrypt(cek, ciphertext);
+      const psi = await computePsi(cek);
       const commitment = toFr(event.args.commitment);
       const leafIndex = Number(event.args.leafIndex);
-      const nk = this.ownerToNk.get(note.owner.toString());
-      const nf = nk
-        ? await deriveNullifier(nk, commitment, leafIndex)
-        : undefined;
-      this.storeRecord(event, note, nf, false);
+
+      const note: NoteV2 = {
+        noteVersion: plaintext[0],
+        assetId: plaintext[1],
+        noteType: plaintext[2],
+        conditionsHash: plaintext[3],
+        value: plaintext[4].toBigInt(),
+        owner: plaintext[5],
+        psi,
+        parents: plaintext[6],
+      };
+
+      const rebuilt = await leaf(note);
+      if (!rebuilt.equals(commitment)) return;
+
+      const nullifier = await computeNullifier(psi, new Fr(BigInt(leafIndex)));
+      this.store(event, note, nullifier, isTransfer);
     } catch {
-      /* Ignore failures */
+      /* a note this key cannot decrypt is skipped */
     }
   }
 
-  private async processMemo(event: EventLog) {
-    const {
-      commitment,
-      packedCiphertext,
-      leafIndex,
-      int_carol_x,
-      int_carol_y,
-    } = event.args;
-
-    const intermediate: Point<bigint> = [int_carol_x, int_carol_y];
-    const packed = packedCiphertext.map((h: string) => toFr(h));
-    const ct = unpackCiphertext(packed);
-
-    try {
-      const { note } = await complianceDecrypt3Party(
-        this.complianceSk,
-        intermediate,
-        ct,
-      );
-      const nk = this.ownerToNk.get(note.owner.toString());
-      const nf = nk
-        ? await deriveNullifier(nk, toFr(commitment), Number(leafIndex))
-        : undefined;
-      this.storeRecord(event, note, nf, true);
-    } catch {
-      /* Ignore */
-    }
-  }
-
-  private storeRecord(
+  private store(
     event: EventLog,
-    note: NotePlaintext,
-    nullifier: Fr | undefined,
+    note: NoteV2,
+    nullifier: Fr,
     isTransfer: boolean,
-  ) {
-    const commitStr = event.args.commitment;
-    const nfStr = nullifier ? nullifier.toString() : "";
-
+  ): void {
+    const commitStr = event.args.commitment as string;
+    const nfStr = nullifier.toString();
     this.db.set(commitStr, {
       commitment: commitStr,
       nullifier: nfStr,
@@ -182,7 +144,6 @@ export class ComplianceService {
       blockNumber: event.blockNumber,
       isTransfer,
     });
-
-    if (nullifier) this.nullifierMap.set(nfStr, commitStr);
+    this.nullifierMap.set(nfStr, commitStr);
   }
 }

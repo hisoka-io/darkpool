@@ -1,7 +1,12 @@
 import { assert, expect } from "chai";
 import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
-import { NoxRewardPool, MockERC20 } from "../../typechain-types";
+import {
+  NoxRewardPool,
+  MockERC20,
+  MockNoxRegistry,
+  NoxRegistry,
+} from "../../typechain-types";
 
 describe("NoxRewardPool (Treasury)", function () {
   async function deployFixture() {
@@ -20,9 +25,16 @@ describe("NoxRewardPool (Treasury)", function () {
       18,
     )) as unknown as MockERC20;
 
+    const RegistryFactory = await ethers.getContractFactory("MockNoxRegistry");
+    const mockRegistry =
+      (await RegistryFactory.deploy()) as unknown as MockNoxRegistry;
+    await mockRegistry.setActive(relayer1.address, true);
+    await mockRegistry.setActive(relayer2.address, true);
+
     const PoolFactory = await ethers.getContractFactory("NoxRewardPool");
     const pool = (await PoolFactory.deploy(
       admin.address,
+      await mockRegistry.getAddress(),
     )) as unknown as NoxRewardPool;
 
     const DISTRIBUTOR_ROLE = await pool.DISTRIBUTOR_ROLE();
@@ -38,6 +50,7 @@ describe("NoxRewardPool (Treasury)", function () {
 
     return {
       pool,
+      mockRegistry,
       token,
       unsupportedToken,
       admin,
@@ -182,6 +195,69 @@ describe("NoxRewardPool (Treasury)", function () {
       ).to.be.revertedWithCustomError(pool, "ZeroAddress");
     });
 
+    it("should revert distributing to a non-registered recipient", async function () {
+      const { pool, token, user, distributor } =
+        await loadFixture(deployFixture);
+      // `user` is not marked active in the mock registry.
+      await expect(
+        pool
+          .connect(distributor)
+          .distributeRewards(await token.getAddress(), [user.address], [100]),
+      ).to.be.revertedWithCustomError(pool, "RecipientNotRegistered");
+    });
+
+    it("gates distribution on the real NoxRegistry", async function () {
+      const [admin, , user, relayer1] = await ethers.getSigners();
+      const TokenFactory = await ethers.getContractFactory("MockERC20");
+      const token = (await TokenFactory.deploy(
+        "GasToken",
+        "GAS",
+        18,
+      )) as unknown as MockERC20;
+      const RegistryFactory = await ethers.getContractFactory("NoxRegistry");
+      const registry = (await RegistryFactory.deploy(
+        admin.address,
+        await token.getAddress(),
+        ethers.parseEther("1"),
+        86400,
+        ethers.parseEther("1"),
+      )) as unknown as NoxRegistry;
+      await registry
+        .connect(admin)
+        .registerPrivileged(
+          relayer1.address,
+          ethers.randomBytes(32),
+          "/ip4/1.1.1.1/tcp/1",
+          "",
+          "",
+          3,
+        );
+
+      const PoolFactory = await ethers.getContractFactory("NoxRewardPool");
+      const pool = (await PoolFactory.deploy(
+        admin.address,
+        await registry.getAddress(),
+      )) as unknown as NoxRewardPool;
+      const asset = await token.getAddress();
+      await pool.connect(admin).setAssetStatus(asset, true);
+      await token.mint(user.address, 1000);
+      await token
+        .connect(user)
+        .approve(await pool.getAddress(), ethers.MaxUint256);
+      await pool.connect(user).depositRewards(asset, 1000);
+
+      // A relayer registered on the real registry is eligible.
+      await expect(
+        pool.connect(admin).distributeRewards(asset, [relayer1.address], [500]),
+      ).to.emit(pool, "RewardsDistributed");
+      expect(await token.balanceOf(relayer1.address)).to.equal(500n);
+
+      // A non-registered address is rejected by the real registry gate.
+      await expect(
+        pool.connect(admin).distributeRewards(asset, [user.address], [100]),
+      ).to.be.revertedWithCustomError(pool, "RecipientNotRegistered");
+    });
+
     it("should revert if non-Distributor tries to distribute", async function () {
       const { pool, token, attacker, relayer1 } =
         await loadFixture(deployFixture);
@@ -198,17 +274,25 @@ describe("NoxRewardPool (Treasury)", function () {
   });
 
   describe("Emergency Functions", function () {
-    it("rescues foreign tokens but never the reward float", async function () {
-      const { pool, token, unsupportedToken, admin } =
+    it("rescues foreign tokens and free surplus but never the committed reward float", async function () {
+      const { pool, token, unsupportedToken, admin, user } =
         await loadFixture(deployFixture);
+      const asset = await token.getAddress();
 
-      await token.mint(await pool.getAddress(), 1000);
+      // Deposit rewards -> a committed float that must never be rescuable.
+      await pool.connect(user).depositRewards(asset, 1000);
       await expect(
-        pool
-          .connect(admin)
-          .rescueFunds(await token.getAddress(), admin.address, 1000),
-      ).to.be.revertedWithCustomError(pool, "RewardAssetNotRescuable");
+        pool.connect(admin).rescueFunds(asset, admin.address, 1000),
+      ).to.be.revertedWithCustomError(pool, "ExceedsRescuableBalance");
 
+      // De-whitelisting the reward asset does NOT unlock the committed float; the accounting invariant,
+      // not the whitelist flag, protects it.
+      await pool.connect(admin).setAssetStatus(asset, false);
+      await expect(
+        pool.connect(admin).rescueFunds(asset, admin.address, 1000),
+      ).to.be.revertedWithCustomError(pool, "ExceedsRescuableBalance");
+
+      // Foreign tokens sent here by mistake are fully rescuable.
       await unsupportedToken.mint(await pool.getAddress(), 1000);
       await expect(
         pool
@@ -221,6 +305,20 @@ describe("NoxRewardPool (Treasury)", function () {
       )
         .to.emit(pool, "FundsRescued")
         .withArgs(await unsupportedToken.getAddress(), admin.address, 1000);
+    });
+
+    it("rescues exactly the free surplus above the committed float", async function () {
+      const { pool, token, admin, user } = await loadFixture(deployFixture);
+      const asset = await token.getAddress();
+      await pool.connect(user).depositRewards(asset, 600); // committed float
+      await token.mint(await pool.getAddress(), 400); // free surplus, balance 1000
+
+      await expect(
+        pool.connect(admin).rescueFunds(asset, admin.address, 401),
+      ).to.be.revertedWithCustomError(pool, "ExceedsRescuableBalance");
+      await expect(
+        pool.connect(admin).rescueFunds(asset, admin.address, 400),
+      ).to.emit(pool, "FundsRescued");
     });
 
     it("should pause and block deposits/distributions", async function () {

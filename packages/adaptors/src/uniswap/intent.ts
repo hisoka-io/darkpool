@@ -8,15 +8,7 @@ function hashBytesToField(data: string): Fr {
   return new Fr(reduced);
 }
 
-/**
- * Compute Poseidon2 intent hash binding a withdrawal proof to swap parameters.
- * Field ordering MUST match Solidity UniswapAdaptor._calculateIntentHash() exactly:
- *
- *   ExactInputSingle(0): [type, assetIn, assetOut, fee, amountOutMin, ownerX, ownerY, claimerOwner]  (8 fields)
- *   ExactInput(1):       [type, keccak256(path) % PRIME, amountOutMin, ownerX, ownerY, claimerOwner]  (6 fields)
- *   ExactOutputSingle(2):[type, assetIn, assetOut, fee, amountOut, amountInMax, ownerX, ownerY, claimerOwner]  (9 fields)
- *   ExactOutput(3):      [type, keccak256(path) % PRIME, amountOut, amountInMax, ownerX, ownerY, claimerOwner]  (7 fields)
- */
+// Per-variant field order MUST match Solidity UniswapAdaptor._calculateIntentHash() exactly.
 export async function hashUniswapIntent(
   params: UniswapSwapParams,
 ): Promise<Fr> {

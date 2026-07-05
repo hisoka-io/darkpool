@@ -83,30 +83,41 @@ contract UniswapAdaptor is ReentrancyGuard {
         address proofRecipient = address(uint160(uint256(publicInputs[1])));
         if (proofRecipient != address(this)) revert InvalidProofRecipient();
 
-        publicInputs[4] = intentHash;
+        // Bind swap to proof: overwrite withdraw intent_hash (index 3); a tampered swap fails verification.
+        publicInputs[3] = intentHash;
 
         IDarkPool(DARK_POOL).withdraw(proof, publicInputs);
 
         uint256 withdrawnAmount = uint256(publicInputs[0]);
-        address withdrawnAsset = address(uint160(uint256(publicInputs[17])));
+        address withdrawnAsset = address(uint160(uint256(publicInputs[8])));
         uint256 balPreSwap = IERC20(withdrawnAsset).balanceOf(address(this));
 
+        address outAsset;
+        uint256 outPreBal;
         if (swapType == SwapType.ExactInputSingle) {
-            _handleExactInputSingle(
+            (outAsset, outPreBal) = _handleExactInputSingle(
                 withdrawnAmount,
                 withdrawnAsset,
                 encodedParams
             );
         } else if (swapType == SwapType.ExactInput) {
-            _handleExactInput(withdrawnAmount, withdrawnAsset, encodedParams);
+            (outAsset, outPreBal) = _handleExactInput(
+                withdrawnAmount,
+                withdrawnAsset,
+                encodedParams
+            );
         } else if (swapType == SwapType.ExactOutputSingle) {
-            _handleExactOutputSingle(
+            (outAsset, outPreBal) = _handleExactOutputSingle(
                 withdrawnAmount,
                 withdrawnAsset,
                 encodedParams
             );
         } else if (swapType == SwapType.ExactOutput) {
-            _handleExactOutput(withdrawnAmount, withdrawnAsset, encodedParams);
+            (outAsset, outPreBal) = _handleExactOutput(
+                withdrawnAmount,
+                withdrawnAsset,
+                encodedParams
+            );
         } else {
             revert UnsupportedSwapType();
         }
@@ -115,18 +126,26 @@ contract UniswapAdaptor is ReentrancyGuard {
             IERC20(withdrawnAsset).balanceOf(address(this)) !=
             balPreSwap - withdrawnAmount
         ) revert AssetMismatch();
+        // Skip when output == input asset: the assetIn check above already
+        // governs that balance and a separate net-zero check would false-revert.
+        if (
+            outAsset != withdrawnAsset &&
+            IERC20(outAsset).balanceOf(address(this)) != outPreBal
+        ) revert AssetMismatch();
     }
 
     function _handleExactInputSingle(
         uint256 amountIn,
         address withdrawnAsset,
         bytes calldata encoded
-    ) internal {
+    ) internal returns (address outAsset, uint256 outPreBal) {
         ExactInputSingleParams memory p = abi.decode(
             encoded,
             (ExactInputSingleParams)
         );
         if (p.assetIn != withdrawnAsset) revert AssetMismatch();
+        outAsset = p.assetOut;
+        outPreBal = IERC20(outAsset).balanceOf(address(this));
         IERC20(p.assetIn).forceApprove(address(UNISWAP_ROUTER), amountIn);
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
             .ExactInputSingleParams({
@@ -147,10 +166,15 @@ contract UniswapAdaptor is ReentrancyGuard {
         uint256 amountIn,
         address withdrawnAsset,
         bytes calldata encoded
-    ) internal {
+    ) internal returns (address outAsset, uint256 outPreBal) {
         ExactInputParams memory p = abi.decode(encoded, (ExactInputParams));
         address tokenIn = BytesLib.toAddress(p.path, 0);
         if (tokenIn != withdrawnAsset) revert AssetMismatch();
+
+        // Path: TokenIn -> ... -> TokenOut
+        address tokenOut = _getLastToken(p.path);
+        outAsset = tokenOut;
+        outPreBal = IERC20(tokenOut).balanceOf(address(this));
 
         IERC20(tokenIn).forceApprove(address(UNISWAP_ROUTER), amountIn);
         ISwapRouter.ExactInputParams memory params = ISwapRouter
@@ -162,9 +186,6 @@ contract UniswapAdaptor is ReentrancyGuard {
                 amountOutMinimum: p.amountOutMin
             });
         uint256 amountOut = UNISWAP_ROUTER.exactInput(params);
-
-        // Path: TokenIn -> ... -> TokenOut
-        address tokenOut = _getLastToken(p.path);
         _returnFunds(p.recipient, tokenOut, amountOut);
     }
 
@@ -172,13 +193,15 @@ contract UniswapAdaptor is ReentrancyGuard {
         uint256 amountInMax,
         address withdrawnAsset,
         bytes calldata encoded
-    ) internal {
+    ) internal returns (address outAsset, uint256 outPreBal) {
         ExactOutputSingleParams memory p = abi.decode(
             encoded,
             (ExactOutputSingleParams)
         );
         if (amountInMax != p.amountInMaximum) revert WithdrawAmountMismatch();
         if (p.assetIn != withdrawnAsset) revert AssetMismatch();
+        outAsset = p.assetOut;
+        outPreBal = IERC20(outAsset).balanceOf(address(this));
         IERC20(p.assetIn).forceApprove(address(UNISWAP_ROUTER), amountInMax);
         ISwapRouter.ExactOutputSingleParams memory params = ISwapRouter
             .ExactOutputSingleParams({
@@ -192,6 +215,7 @@ contract UniswapAdaptor is ReentrancyGuard {
                 sqrtPriceLimitX96: 0
             });
         uint256 amountInActual = UNISWAP_ROUTER.exactOutputSingle(params);
+        IERC20(p.assetIn).forceApprove(address(UNISWAP_ROUTER), 0);
         _returnFunds(p.recipient, p.assetOut, p.amountOut);
         if (amountInActual < amountInMax) {
             _returnFunds(p.recipient, p.assetIn, amountInMax - amountInActual);
@@ -202,7 +226,7 @@ contract UniswapAdaptor is ReentrancyGuard {
         uint256 amountInMax,
         address withdrawnAsset,
         bytes calldata encoded
-    ) internal {
+    ) internal returns (address outAsset, uint256 outPreBal) {
         ExactOutputParams memory p = abi.decode(encoded, (ExactOutputParams));
         if (amountInMax != p.amountInMaximum) revert WithdrawAmountMismatch();
 
@@ -210,6 +234,8 @@ contract UniswapAdaptor is ReentrancyGuard {
         address tokenIn = _getLastToken(p.path);
         if (tokenIn != withdrawnAsset) revert AssetMismatch();
         address tokenOut = BytesLib.toAddress(p.path, 0);
+        outAsset = tokenOut;
+        outPreBal = IERC20(tokenOut).balanceOf(address(this));
 
         IERC20(tokenIn).forceApprove(address(UNISWAP_ROUTER), amountInMax);
         ISwapRouter.ExactOutputParams memory params = ISwapRouter
@@ -221,6 +247,7 @@ contract UniswapAdaptor is ReentrancyGuard {
                 amountInMaximum: amountInMax
             });
         uint256 amountInActual = UNISWAP_ROUTER.exactOutput(params);
+        IERC20(tokenIn).forceApprove(address(UNISWAP_ROUTER), 0);
         _returnFunds(p.recipient, tokenOut, p.amountOut);
         if (amountInActual < amountInMax) {
             _returnFunds(p.recipient, tokenIn, amountInMax - amountInActual);
@@ -242,7 +269,6 @@ contract UniswapAdaptor is ReentrancyGuard {
         IDarkPool(DARK_POOL).publicTransfer(
             r.ownerX,
             r.ownerY,
-            r.claimerOwner,
             asset,
             amount,
             0,
@@ -255,8 +281,7 @@ contract UniswapAdaptor is ReentrancyGuard {
         if (len < 20) revert PathTooShort();
         address token;
         assembly {
-            // Load the last 20 bytes (path data starts at path+32); address sits
-            // in the top 20 bytes of the word, so shift right by 96 bits.
+            // Last 20 bytes of path, in the word's high bytes, so shift right 96 bits.
             let ptr := add(add(path, 32), sub(len, 20))
             let loaded := mload(ptr)
             token := shr(96, loaded)

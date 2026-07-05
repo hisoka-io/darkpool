@@ -1,28 +1,25 @@
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
-import { SpendBinding } from "./crypto/spendBinding.js";
+import { CanonicalAddress } from "./note/keys.js";
 
 export interface IKeyDeriver {
   derive(purpose: string, master: Fr, nonce?: Fr): Promise<Fr>;
 }
 
 export interface IUTXO {
-  getNullifierHash(
-    nk: Fr,
-    commitment: Fr,
-    leafIndex: number | bigint,
-  ): Promise<Fr>;
+  getNullifierHash(psi: Fr, leafIndex: number | bigint): Promise<Fr>;
 }
 
 export interface IDarkAccount {
-  getSpendKey(): Promise<Fr>;
   getViewKey(): Promise<Fr>;
-  getNullifyingKey(): Promise<Fr>;
-  getPublicSpendKey(): Promise<Point<bigint>>;
-  signSpendBinding(index: bigint): Promise<SpendBinding>;
 
-  getIncomingViewingKey(index: bigint): Promise<Fr>;
-  getPublicIncomingViewingKey(index: bigint): Promise<Point<bigint>>;
-  getEphemeralOutgoingKey(index: bigint): Promise<Fr>;
-  getPublicEphemeralOutgoingKey(index: bigint): Promise<Point<bigint>>;
+  getIncomingKey(index: bigint): Promise<Fr>;
+  getIncomingPub(index: bigint): Promise<Point<bigint>>;
+
+  getSelfEphemeral(index: bigint): Promise<Fr>;
+  getSelfSpendKey(): Promise<Fr>;
+  getSelfSpendPub(): Promise<Point<bigint>>;
+
+  canonicalIncomingAddress(startIndex: bigint): Promise<CanonicalAddress>;
+  canonicalSelfTag(startIndex: bigint): Promise<CanonicalAddress>;
 }

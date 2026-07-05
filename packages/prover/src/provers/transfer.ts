@@ -1,75 +1,24 @@
 import { generateProof } from "../prover-base.js";
 import { circuit } from "../generated/transfer_circuit.js";
 import { TransferInputs, ProofData } from "../types.js";
+import { marshalNote, pointHex } from "../marshal.js";
 
 export async function proveTransfer(
   inputs: TransferInputs,
 ): Promise<ProofData> {
-  const noirInputs = {
-    merkle_root: inputs.merkleRoot.toString(),
+  const c = pointHex(inputs.compliancePk);
+  return generateProof("transfer", circuit, {
     current_timestamp: inputs.currentTimestamp.toString(),
-    compliance_pubkey_x: `0x${inputs.compliancePk[0].toString(16)}`,
-    compliance_pubkey_y: `0x${inputs.compliancePk[1].toString(16)}`,
-    recipient_B: {
-      x: `0x${inputs.recipientB[0].toString(16)}`,
-      y: `0x${inputs.recipientB[1].toString(16)}`,
-    },
-    recipient_P: {
-      x: `0x${inputs.recipientP[0].toString(16)}`,
-      y: `0x${inputs.recipientP[1].toString(16)}`,
-    },
-    recipient_owner: inputs.recipientOwner.toString(),
-    recipient_proof: {
-      U: {
-        x: `0x${inputs.recipientProof.U[0].toString(16)}`,
-        y: `0x${inputs.recipientProof.U[1].toString(16)}`,
-      },
-      V: {
-        x: `0x${inputs.recipientProof.V[0].toString(16)}`,
-        y: `0x${inputs.recipientProof.V[1].toString(16)}`,
-      },
-      z: `0x${inputs.recipientProof.z.toString(16)}`,
-    },
-    recipient_S: {
-      x: `0x${inputs.recipientS[0].toString(16)}`,
-      y: `0x${inputs.recipientS[1].toString(16)}`,
-    },
-    bind_R: {
-      x: `0x${inputs.bindR[0].toString(16)}`,
-      y: `0x${inputs.bindR[1].toString(16)}`,
-    },
-    bind_s: inputs.bindS.toString(),
-    old_note: {
-      asset_id: inputs.oldNote.asset_id.toString(),
-      value: inputs.oldNote.value.toString(),
-      secret: inputs.oldNote.secret.toString(),
-      owner: inputs.oldNote.owner.toString(),
-      timelock: inputs.oldNote.timelock.toString(),
-      hashlock: inputs.oldNote.hashlock.toString(),
-    },
-    old_shared_secret: inputs.oldSharedSecret.toString(),
-    nk: inputs.nk.toString(),
+    compliance_pubkey_x: c.x,
+    compliance_pubkey_y: c.y,
+    recipient_in_pub: pointHex(inputs.recipientInPub),
+    old_note: marshalNote("transfer", inputs.oldNote),
+    spend_scalar: inputs.spendScalar.toString(),
     old_note_index: inputs.oldNoteIndex.toString(),
     old_note_path: inputs.oldNotePath.map((p) => p.toString()),
-    hashlock_preimage: inputs.hashlockPreimage.toString(),
-    memo_note: {
-      asset_id: inputs.memoNote.asset_id.toString(),
-      value: inputs.memoNote.value.toString(),
-      secret: inputs.memoNote.secret.toString(),
-      owner: inputs.memoNote.owner.toString(),
-      timelock: inputs.memoNote.timelock.toString(),
-      hashlock: inputs.memoNote.hashlock.toString(),
-    },
-    memo_ephemeral_sk: inputs.memoEphemeralSk.toString(),
-    change_note: {
-      asset_id: inputs.changeNote.asset_id.toString(),
-      value: inputs.changeNote.value.toString(),
-      secret: inputs.changeNote.secret.toString(),
-      owner: inputs.changeNote.owner.toString(),
-      timelock: inputs.changeNote.timelock.toString(),
-      hashlock: inputs.changeNote.hashlock.toString(),
-    },
-    change_ephemeral_sk: inputs.changeEphemeralSk.toString(),
-  };
-  return generateProof(circuit, noirInputs);
+    memo_note: marshalNote("transfer", inputs.memoNote),
+    memo_eph: inputs.memoEph.toString(),
+    change_note: marshalNote("transfer", inputs.changeNote),
+    change_eph: inputs.changeEph.toString(),
+  });
 }

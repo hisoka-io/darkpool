@@ -49,10 +49,10 @@ export class UtxoRepository implements IUtxoRepository {
             : assetId.toBigInt();
 
     for (const note of this.getUnspentNotes()) {
-      if (want !== undefined && note.note.asset_id.toBigInt() !== want) {
+      if (want !== undefined && note.note.assetId.toBigInt() !== want) {
         continue;
       }
-      total += note.note.value.toBigInt();
+      total += note.note.value;
     }
     return total;
   }

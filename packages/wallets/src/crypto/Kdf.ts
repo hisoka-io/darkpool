@@ -12,10 +12,7 @@ export class Kdf {
     const purposeFr = await stringToFr(purpose);
     const inputs = [master, purposeFr];
 
-    // Nonce=0 and absent nonce produce the same hash (2-input Poseidon).
-    // This is intentional: the first ephemeral key (nonce=0) uses the same
-    // derivation path as nonceless keys. Domain-separated purpose strings
-    // prevent cross-path collisions.
+    // Intentional: nonce=0 and absent nonce collapse to the same 2-input hash.
     if (nonce && !nonce.isZero()) {
       inputs.push(nonce);
     }

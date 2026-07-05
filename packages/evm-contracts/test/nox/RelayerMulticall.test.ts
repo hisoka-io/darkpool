@@ -45,7 +45,6 @@ describe("RelayerMulticall", function () {
     await expect(multicall.multicall(calls))
       .to.emit(multicall, "CallExecuted")
       .withArgs(0, true, (hexString: string) => {
-        // Decode the returned ABI string and check it equals the input message
         const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
           ["string"],
           hexString,

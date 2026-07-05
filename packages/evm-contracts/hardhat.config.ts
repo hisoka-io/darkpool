@@ -85,11 +85,33 @@ task("test:fork", "Runs adaptor tests (with mainnet fork)").setAction(
 
 const config: HardhatUserConfig = {
   solidity: {
-    version: "0.8.28",
-    settings: {
-      optimizer: {
-        enabled: true,
-        runs: 1,
+    compilers: [
+      {
+        version: "0.8.28",
+        settings: { optimizer: { enabled: true, runs: 1 } },
+      },
+    ],
+    // Poseidon2 is a delegatecalled public library, so recompiling it at high runs shrinks the
+    // permutation gas without touching DarkPool or the Honk verifiers (their bytecode and VK hashes are
+    // unchanged, keeping them under the EIP-170 limit that a global runs bump would breach). All four
+    // Poseidon sources need the override: an internal library inherits its consumer's settings, so the
+    // public Poseidon2 artifact only recompiles hot when its inlined helpers do too.
+    overrides: {
+      "contracts/Poseidon/Poseidon2.sol": {
+        version: "0.8.28",
+        settings: { optimizer: { enabled: true, runs: 1000000 } },
+      },
+      "contracts/Poseidon/Poseidon2Lib.sol": {
+        version: "0.8.28",
+        settings: { optimizer: { enabled: true, runs: 1000000 } },
+      },
+      "contracts/Poseidon/LibPoseidon2Yul.sol": {
+        version: "0.8.28",
+        settings: { optimizer: { enabled: true, runs: 1000000 } },
+      },
+      "contracts/Poseidon/Field.sol": {
+        version: "0.8.28",
+        settings: { optimizer: { enabled: true, runs: 1000000 } },
       },
     },
   },

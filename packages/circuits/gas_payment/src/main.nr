@@ -1,10 +1,10 @@
 use ::ecdh::Point;
-use ::shared::{
-    encrypt_note_for_compliance, lean_imt_inclusion_proof, Note, TREE_DEPTH, verify_spend,
-};
+use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
+use ::shared::note_v2::Note;
 
+// Spend one note, pay `payment_value` of `payment_asset_id` to a relayer, mint the self change note. The
+// relayer address and execution hash are public for the contract to bind but are not circuit-constrained.
 fn main(
-    merkle_root: pub Field,
     current_timestamp: pub Field,
     payment_value: pub u128,
     payment_asset_id: pub Field,
@@ -13,194 +13,101 @@ fn main(
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
     old_note: Note,
-    old_shared_secret: Field,
+    spend_scalar: Field,
     old_note_index: Field,
     old_note_path: [Field; TREE_DEPTH],
-    hashlock_preimage: Field,
-    nk: Field,
     change_note: Note,
-    change_ephemeral_sk: Field,
-) -> pub (Field, Field, Field, [Field; 7]) {
-    let (nullifier_hash, old_commitment) = verify_spend(
-        old_note,
-        old_shared_secret,
-        nk,
-        old_note_index,
-        current_timestamp,
-        hashlock_preimage,
-    );
-
-    let computed_root = lean_imt_inclusion_proof(old_commitment, old_note_index, old_note_path);
-    assert(computed_root == merkle_root);
-
-    assert(old_note.asset_id == payment_asset_id);
-    assert(change_note.asset_id == payment_asset_id);
-    assert(old_note.value == payment_value + change_note.value);
-
+    change_eph: Field,
+) -> pub (Field, Field, Field, Field, Field, [Field; 7]) {
+    let _ = current_timestamp;
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
-    let encrypted = encrypt_note_for_compliance(change_note, change_ephemeral_sk, compliance_pk);
+    mint::assert_valid_compliance_pk(compliance_pk);
 
-    (nullifier_hash, encrypted.epk_x, encrypted.epk_y, encrypted.ciphertext)
+    let (nullifier, computed_root) =
+        verify_spend(old_note, spend_scalar, old_note_index, old_note_path);
+
+    assert(old_note.asset_id == payment_asset_id, "old asset mismatch");
+    assert(change_note.asset_id == payment_asset_id, "change asset mismatch");
+    conservation::assert_conserved([old_note.value], [change_note.value], payment_value);
+
+    let change = mint::mint_self_note(change_note, change_eph, compliance_pk);
+
+    (nullifier, computed_root, change.leaf, change.eph_pub.x, change.eph_pub.y, change.ciphertext)
 }
 
+fn spent_note() -> Note {
+    Note {
+        note_version: 1,
+        asset_id: 0x1234567890123456789012345678901234567890,
+        note_type: 0,
+        conditions_hash: 0,
+        value: 100,
+        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
+        psi: 0x0981a88f9e119b057498a4ab99ed5379a1ea91c642454fc0c07aacc1f5cd5731,
+        parents: 0,
+    }
+}
+
+fn change_note() -> Note {
+    Note {
+        note_version: 1,
+        asset_id: 0x1234567890123456789012345678901234567890,
+        note_type: 0,
+        conditions_hash: 0,
+        value: 90,
+        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
+        psi: 0x2e0981a81b0e7a3152010b46fae7fe70b8ebf69b75d248a765d8fa482a34011b,
+        parents: 0,
+    }
+}
+
+global ASSET: Field = 0x1234567890123456789012345678901234567890;
+global CX: Field = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+global CY: Field = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+
+// KAT: byte-identical to the TS/Solidity golden vector (payment 10, change eph 29).
 #[test]
-fn test_gas_payment_compile() {
-    let merkle_root = 0x1d1fb81ebd879fa5c132a51e1dd95c6da39aa64d229c2c1f903bbe2eb189ed5b;
-    let current_timestamp = 0;
-    let payment_value: u128 = 10;
-    let payment_asset_id = 0x0000000000000000000000001234567890123456789012345678901234567890;
-    let relayer_address = 0x0000000000000000000000001111222233334444555566667777888899990000;
-    let execution_hash = 0x000000000000000000000000000000000000000000000000abcdef1234567890;
-    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
-
-    let old_note = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 100,
-        secret: 0x000000000000000000000000000000000000000000000000000000000000007b,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
-        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
-    };
-    let old_shared_secret = 0x084115db5f9e6cdbab427af0ffbd2cec18695ebd6ae0d2e2e672a6a4e4ba83ab;
-    let old_note_index = 0;
-    let old_note_path = [
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-    ];
-    let hashlock_preimage = 0;
-    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
-
-    let change_note = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 90,
-        secret: 0x0000000000000000000000000000000000000000000000000000000000000315,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
-        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
-    };
-    let change_ephemeral_sk = 0x056b90925a5ce3b760ab13d212189843a04d5d916018d6ba9cdd4270fe2d2986;
-
-    let exp_nullifier_hash = 0x1bdcdadf508c875d24171803cd5e05a734119b635c8b0bd1e2376db571be1ab5;
-    let exp_change_epk_x = 0x11adc553d6fa0d3334a0b0dbd5e7e256723a210d85d0fe65a9250baf031ec913;
-    let exp_change_epk_y = 0x14b62dcab493347cfbdeab6f59391861615ca4ef4d1965d482aafa346dfd2e49;
-    let exp_change_ct = [
-        0x001e19bdfa988b86df4506c3cd7c33dcd5d8ede2e60d8057304276baf0c7b2fc,
-        0x006b9e566b4f4cf6ec959c13dc93b73184294535b283043280bd4f0ff13c6c3a,
-        0x00eb566d9e2ecbfed7a66f51d22c19cf6f50d243da7701ed6d5d7fea5609e157,
-        0x00c257d1bcf971fe8d4a9e3d10b4cff273e4627a4de3931941df7d0b3016741d,
-        0x00dd859561db9d5974999b53b65d93c8d33c9aa225af72dac3b56926f55e8bc,
-        0x007294623491a17cb1618c6372372cd0c56ca4d19aadf00f5e37c7822832d41e,
-        0x0000000000000000000000d6a7c995b0299b35f67a6ed14bdbd3c766d834cb03ae,
-    ];
-
-    let (nf, epk_x, epk_y, ct) = main(
-        merkle_root,
-        current_timestamp,
-        payment_value,
-        payment_asset_id,
-        relayer_address,
-        execution_hash,
-        compliance_pubkey_x,
-        compliance_pubkey_y,
-        old_note,
-        old_shared_secret,
-        old_note_index,
-        old_note_path,
-        hashlock_preimage,
-        nk,
-        change_note,
-        change_ephemeral_sk,
+fn test_gas_payment_kat() {
+    let (nf, root, leaf, epk_x, epk_y, ct) = main(
+        0,
+        10,
+        ASSET,
+        0x1111,
+        0xabcdef,
+        CX,
+        CY,
+        spent_note(),
+        789,
+        0,
+        [0; TREE_DEPTH],
+        change_note(),
+        29,
     );
-
-    assert(nf == exp_nullifier_hash);
-    assert(epk_x == exp_change_epk_x);
-    assert(epk_y == exp_change_epk_y);
-    assert(ct == exp_change_ct);
+    assert(nf == 0x2761654f0b4e9f47ac9bafe900c723ead042a888da718a34b6ecc8036850755e);
+    assert(root == 0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551);
+    assert(leaf == 0x082093685c087c81fc0deba24eae846875771cb24476937895c908cc50b703fc);
+    assert(epk_x == 0x2290daef092cdb12c7c1d72dd140aa1025d8e8c07373278b43229b7cc0ca11a3);
+    assert(epk_y == 0x19177cace783d18d1f03782c343e2223071c4f1752de2d160c4c79740bdbae20);
+    assert(ct[0] == 0x2d485e329f43f0af2154f21aaa42f6a62119396dc67698bf3377aa6419b1ca54);
 }
 
-#[test(should_fail_with = "scalar must be non-zero")]
-fn test_gas_payment_zero_ephemeral_sk() {
-    let merkle_root = 0x1d1fb81ebd879fa5c132a51e1dd95c6da39aa64d229c2c1f903bbe2eb189ed5b;
-    let current_timestamp = 0;
-    let payment_value: u128 = 10;
-    let payment_asset_id = 0x0000000000000000000000001234567890123456789012345678901234567890;
-    let relayer_address = 0x0000000000000000000000001111222233334444555566667777888899990000;
-    let execution_hash = 0x000000000000000000000000000000000000000000000000abcdef1234567890;
-    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
-
-    let old_note = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 100,
-        secret: 0x000000000000000000000000000000000000000000000000000000000000007b,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let old_shared_secret = 0x084115db5f9e6cdbab427af0ffbd2cec18695ebd6ae0d2e2e672a6a4e4ba83ab;
-    let old_note_index = 0;
-    let old_note_path = [0; 32];
-    let hashlock_preimage = 0;
-    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
-
-    let change_note = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 90,
-        secret: 0x0000000000000000000000000000000000000000000000000000000000000315,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-
-    let change_ephemeral_sk = 0;
-
+#[test(should_fail_with = "value not conserved")]
+fn audit_reject_value_inflation() {
+    let mut inflated = change_note();
+    inflated.value = 100;
     let _ = main(
-        merkle_root,
-        current_timestamp,
-        payment_value,
-        payment_asset_id,
-        relayer_address,
-        execution_hash,
-        compliance_pubkey_x,
-        compliance_pubkey_y,
-        old_note,
-        old_shared_secret,
-        old_note_index,
-        old_note_path,
-        hashlock_preimage,
-        nk,
-        change_note,
-        change_ephemeral_sk,
+        0,
+        10,
+        ASSET,
+        0x1111,
+        0xabcdef,
+        CX,
+        CY,
+        spent_note(),
+        789,
+        0,
+        [0; TREE_DEPTH],
+        inflated,
+        29,
     );
 }

@@ -1,162 +1,127 @@
 use ::ecdh::Point;
-use ::shared::{
-    encrypt_note_for_compliance, lean_imt_inclusion_proof, Note, TREE_DEPTH, verify_spend,
-};
+use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
+use ::shared::note_v2::Note;
 
+// Spend one note into two self notes. Internal consolidation: no value leaves the pool, no asset output.
 fn main(
-    merkle_root: pub Field,
     current_timestamp: pub Field,
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
     note_in: Note,
-    secret_in: Field,
+    spend_scalar: Field,
     index_in: Field,
     path_in: [Field; TREE_DEPTH],
-    preimage_in: Field,
     note_out_1: Note,
-    sk_out_1: Field,
+    eph_1: Field,
     note_out_2: Note,
-    sk_out_2: Field,
-    nk: Field,
-) -> pub (Field, Field, Field, [Field; 7], Field, Field, [Field; 7], Field) {
-    let (nullifier_in, commitment_in) = verify_spend(
-        note_in,
-        secret_in,
-        nk,
-        index_in,
-        current_timestamp,
-        preimage_in,
-    );
-    let root = lean_imt_inclusion_proof(commitment_in, index_in, path_in);
-    assert(root == merkle_root);
-
-    assert(note_in.value == note_out_1.value + note_out_2.value);
-    assert(note_in.asset_id == note_out_1.asset_id);
-    assert(note_in.asset_id == note_out_2.asset_id);
-
+    eph_2: Field,
+) -> pub (Field, Field, Field, Field, Field, [Field; 7], Field, Field, Field, [Field; 7]) {
+    let _ = current_timestamp;
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
-    let enc_1 = encrypt_note_for_compliance(note_out_1, sk_out_1, compliance_pk);
-    let enc_2 = encrypt_note_for_compliance(note_out_2, sk_out_2, compliance_pk);
+    mint::assert_valid_compliance_pk(compliance_pk);
+
+    let (nullifier, computed_root) = verify_spend(note_in, spend_scalar, index_in, path_in);
+
+    assert(note_in.asset_id == note_out_1.asset_id, "out1 asset mismatch");
+    assert(note_in.asset_id == note_out_2.asset_id, "out2 asset mismatch");
+    assert(eph_1 != eph_2, "ephemerals must be distinct");
+    conservation::assert_conserved([note_in.value], [note_out_1.value, note_out_2.value], 0);
+
+    let out1 = mint::mint_self_note(note_out_1, eph_1, compliance_pk);
+    let out2 = mint::mint_self_note(note_out_2, eph_2, compliance_pk);
 
     (
-        nullifier_in, enc_1.epk_x, enc_1.epk_y, enc_1.ciphertext, enc_2.epk_x, enc_2.epk_y,
-        enc_2.ciphertext, note_in.asset_id,
+        nullifier, computed_root, out1.leaf, out1.eph_pub.x, out1.eph_pub.y, out1.ciphertext,
+        out2.leaf, out2.eph_pub.x, out2.eph_pub.y, out2.ciphertext,
     )
 }
 
-#[test]
-fn test_split_smoke() {
-    let merkle_root = 0x0a179299a5482960d4fba7025036e10187d940abb23f3935c5b510cf59619cf7;
-    let current_timestamp = 0;
-    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
-
-    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
-
-    let note_in = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
+fn note_in() -> Note {
+    Note {
+        note_version: 1,
+        asset_id: 0x1234567890123456789012345678901234567890,
+        note_type: 0,
+        conditions_hash: 0,
         value: 100,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003f4,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let secret_in = 0x28ac5b086973c5b4c5086623df5f60d9ffb2fa26155fdcdd44b9c85049ef8fec;
-    let index_in = 2;
-    let path_in = [
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0aba59c2a9ccbfef3b36e42af175c1a80ce75561fab3fb085c242d6f8b66e199,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-    ];
-    let preimage_in = 0;
+        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
+        psi: 0x0981a88f9e119b057498a4ab99ed5379a1ea91c642454fc0c07aacc1f5cd5731,
+        parents: 0,
+    }
+}
 
-    let note_out_1 = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 40,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let sk_out_1 = 0x00bb23254618a83067b02e833f90a901a7f5a0559324929722051d58a7b61443;
+fn out_note(value: u128, psi: Field) -> Note {
+    Note {
+        note_version: 1,
+        asset_id: 0x1234567890123456789012345678901234567890,
+        note_type: 0,
+        conditions_hash: 0,
+        value,
+        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
+        psi,
+        parents: 0,
+    }
+}
 
-    let note_out_2 = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 60,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let sk_out_2 = 0x037cd9321c280f024e594f89c9b775d6ebc8727202b6a2fc8792beda802c335e;
+global CX: Field = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+global CY: Field = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
 
-    let exp_nf = 0x23028e5ff1cddfa5e79c04e25f69683a6a32def08d8399656d9ccc52dbfdaa05;
-    let exp_ct1 = [
-        0x00ecb7c2028e2af7ac179e48c2c6d4322f8f856a512e8c793699fae9c705003b,
-        0x001d0864e4d2935c0fdedbc12fd4dc3d779f0667030e2b2682882a050ce2f4c6,
-        0x00c5af508bcd167711a28dc43eb5ada8a6ce5bef8405defdede59fc2bd3b2e09,
-        0x00725bb0201ac292956164d6094affaf21a5a28ed61280bbb6ee49335ed6aaed,
-        0x006969e61df329b19d4c0063c48eef1941cd3e6ad74ada6bc7213d034cd7a5cd,
-        0x002f951243f5ed0b54b8c6bace5e33dde03435c893abc040bd05565bad6377a1,
-        0x00000000000000000000bcdb0aa3149cb3e2a2a7bc4f45f312f87f9f196fed2a,
-    ];
-    let exp_ct2 = [
-        0x004aca314c38e8fb5125272643ca1019b3ff34500cb490428e15eb0814e8e531,
-        0x00fec54f12f40834e50e14177457702ccfad1e903298dc2bc646a062242e4a29,
-        0x00a9b7ba86323861e7b54a68ba537760a4c97db0c88f021ce7a6297a310fc0f7,
-        0x00ba0975592b18c535ceab6eaf3463b4a7a4986671a6aa9f05b73ebae8795e1c,
-        0x00ba0fac45e28f93e00973c3bcc49ce4cbe0e59ba0de215f6e3dd8f96efbbbb5,
-        0x0036b1553633207e46cc89b9e47c3be60187c1523c5ba529629c1dd5a4537a93,
-        0x000000000000000000008468040e8d503f30da270548980ee2bb3955e03a55ba,
-    ];
-
-    let (nf, _, _, ct1, _, _, ct2, _) = main(
-        merkle_root,
-        current_timestamp,
-        compliance_pubkey_x,
-        compliance_pubkey_y,
-        note_in,
-        secret_in,
-        index_in,
-        path_in,
-        preimage_in,
-        note_out_1,
-        sk_out_1,
-        note_out_2,
-        sk_out_2,
-        nk,
+// KAT: byte-identical to the TS/Solidity golden vector (eph 15, 20).
+#[test]
+fn test_split_kat() {
+    let out1 = out_note(
+        40,
+        0x017131231dbfc29f6bdfb775d6e859c148b7379acc2844380ff9f824fa7073ad,
     );
+    let out2 = out_note(
+        60,
+        0x1fc1420fa8dd294ee9feaa5067000d40945bdc796e47ce5dfbfa4cbb4210ef8d,
+    );
+    let (nf, root, l1, x1, y1, ct1, l2, x2, y2, ct2) = main(
+        0,
+        CX,
+        CY,
+        note_in(),
+        789,
+        0,
+        [0; TREE_DEPTH],
+        out1,
+        15,
+        out2,
+        20,
+    );
+    assert(nf == 0x2761654f0b4e9f47ac9bafe900c723ead042a888da718a34b6ecc8036850755e);
+    assert(root == 0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551);
+    assert(l1 == 0x0bd308584b129cd9d8a38aedd72cf9d96ae13c4170f583959403de31c48f557c);
+    assert(x1 == 0x0d2c8ddcfdd735e9fdd0d51538022ba533cfa83b81d2acec70b17f505c17f048);
+    assert(y1 == 0x0de8d63022d65a455c438aacda47f8bc4141566562eb1cab57e5085b62a5a75e);
+    assert(ct1[0] == 0x068ce47d657722bad36cdc4a62ea2eda509a4d750d3aed5a6217f6bac4126413);
+    assert(l2 == 0x1bd6da937554b7ddf449746023c99357419ff8b2481d7a93391a7610958421e0);
+    assert(x2 == 0x28f4a492bbfdf5eed5ad1b304b95fb96040be5e4281bd288b1955f61bfac0afa);
+    assert(y2 == 0x304087f15a044598525cf1fb00bae9c4f345802d0537c82c7038fd968d31029e);
+    assert(ct2[6] == 0x2169b27f06c7e58cd045788ab94ad891299566c4274efb8da2eccdc9985a02c2);
+}
 
-    assert(nf == exp_nf);
-    assert(ct1 == exp_ct1);
-    assert(ct2 == exp_ct2);
+#[test(should_fail_with = "value not conserved")]
+fn audit_reject_value_inflation() {
+    let out1 = out_note(
+        100,
+        0x017131231dbfc29f6bdfb775d6e859c148b7379acc2844380ff9f824fa7073ad,
+    );
+    let out2 = out_note(
+        60,
+        0x1fc1420fa8dd294ee9feaa5067000d40945bdc796e47ce5dfbfa4cbb4210ef8d,
+    );
+    let _ = main(
+        0,
+        CX,
+        CY,
+        note_in(),
+        789,
+        0,
+        [0; TREE_DEPTH],
+        out1,
+        15,
+        out2,
+        20,
+    );
 }

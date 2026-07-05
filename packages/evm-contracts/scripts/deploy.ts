@@ -103,7 +103,6 @@ async function main() {
   const startBlock = await ethers.provider.getBlockNumber();
   const startTime = new Date().toISOString();
 
-  // Step 0: Compliance keypair (reuse existing or generate fresh)
   let compliance: { sk: bigint; pk: Point<bigint> };
   const existingSk = process.env.COMPLIANCE_SECRET_KEY;
   if (existingSk) {
@@ -145,15 +144,40 @@ async function main() {
   }
   console.log();
 
-  console.log("Step 3: Deploying NoxRewardPool...");
+  console.log("Step 3: Deploying NOX-STK staking token...");
+  const TokenFactory = await ethers.getContractFactory("MockERC20");
+  const token = await TokenFactory.deploy("NOX Stake Token", "NOX-STK", 18);
+  await token.waitForDeployment();
+  const tokenAddr = await token.getAddress();
+  console.log(`  NOX-STK: ${tokenAddr}`);
+  console.log();
+
+  console.log("Step 4: Deploying NoxRegistry...");
+  const NoxRegistryFactory = await ethers.getContractFactory("NoxRegistry");
+  const noxRegistry = await NoxRegistryFactory.deploy(
+    deployer.address,
+    tokenAddr,
+    ethers.parseEther("1"), // minStake (>= floor)
+    86400n, // unstakeDelay = 1 day (contract minimum)
+    ethers.parseEther("1"), // minStakeFloor
+  );
+  await noxRegistry.waitForDeployment();
+  const noxRegistryAddr = await noxRegistry.getAddress();
+  console.log(`  NoxRegistry: ${noxRegistryAddr}`);
+  console.log();
+
+  console.log("Step 5: Deploying NoxRewardPool...");
   const RewardPoolFactory = await ethers.getContractFactory("NoxRewardPool");
-  const rewardPool = await RewardPoolFactory.deploy(deployer.address);
+  const rewardPool = await RewardPoolFactory.deploy(
+    deployer.address,
+    noxRegistryAddr,
+  );
   await rewardPool.waitForDeployment();
   const rewardPoolAddr = await rewardPool.getAddress();
   console.log(`  NoxRewardPool: ${rewardPoolAddr}`);
   console.log();
 
-  console.log("Step 4: Deploying DarkPool...");
+  console.log("Step 6: Deploying DarkPool...");
   const DarkPoolFactory = await ethers.getContractFactory("DarkPool", {
     libraries: { Poseidon2: poseidon2Addr },
   });
@@ -175,27 +199,6 @@ async function main() {
   console.log(`  DarkPool: ${darkPoolAddr}`);
   console.log();
 
-  console.log("Step 5: Deploying NOX-STK staking token...");
-  const TokenFactory = await ethers.getContractFactory("MockERC20");
-  const token = await TokenFactory.deploy("NOX Stake Token", "NOX-STK", 18);
-  await token.waitForDeployment();
-  const tokenAddr = await token.getAddress();
-  console.log(`  NOX-STK: ${tokenAddr}`);
-  console.log();
-
-  console.log("Step 6: Deploying NoxRegistry...");
-  const NoxRegistryFactory = await ethers.getContractFactory("NoxRegistry");
-  const noxRegistry = await NoxRegistryFactory.deploy(
-    deployer.address,
-    tokenAddr,
-    0n, // minStake = 0 for testnet (privileged registration)
-    86400n, // unstakeDelay = 1 day (contract minimum)
-  );
-  await noxRegistry.waitForDeployment();
-  const noxRegistryAddr = await noxRegistry.getAddress();
-  console.log(`  NoxRegistry: ${noxRegistryAddr}`);
-  console.log();
-
   console.log("Step 7: Deploying RelayerMulticall...");
   const MulticallFactory = await ethers.getContractFactory("RelayerMulticall");
   const multicall = await MulticallFactory.deploy();
@@ -215,14 +218,19 @@ async function main() {
     const AdaptorFactory = await ethers.getContractFactory("UniswapAdaptor", {
       libraries: { Poseidon2: poseidon2Addr },
     });
-    const uniswapAdaptor = await AdaptorFactory.deploy(darkPoolAddr, swapRouter);
+    const uniswapAdaptor = await AdaptorFactory.deploy(
+      darkPoolAddr,
+      swapRouter,
+    );
     await uniswapAdaptor.waitForDeployment();
     const adaptorAddr = await uniswapAdaptor.getAddress();
     await (await darkPool.setAdaptor(adaptorAddr, true)).wait();
     console.log(`  UniswapAdaptor: ${adaptorAddr} (registered via setAdaptor)`);
     console.log();
   } else {
-    console.log("Post-deploy: SWAP_ROUTER not set; UniswapAdaptor not deployed.");
+    console.log(
+      "Post-deploy: SWAP_ROUTER not set; UniswapAdaptor not deployed.",
+    );
     console.log(
       "  CHECKLIST: any adaptor MUST be registered with darkPool.setAdaptor(adaptor, true)",
     );

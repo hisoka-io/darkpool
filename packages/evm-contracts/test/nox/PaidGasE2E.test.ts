@@ -54,8 +54,14 @@ async function deployFullStack() {
     "contracts/verifiers/GasPaymentVerifier.sol",
   );
 
+  const MockRegistryFactory =
+    await ethers.getContractFactory("MockNoxRegistry");
+  const mockNoxRegistry = await MockRegistryFactory.deploy();
   const RewardPoolFactory = await ethers.getContractFactory("NoxRewardPool");
-  const rewardPool = await RewardPoolFactory.deploy(deployer.address);
+  const rewardPool = await RewardPoolFactory.deploy(
+    deployer.address,
+    await mockNoxRegistry.getAddress(),
+  );
 
   const TokenFactory = await ethers.getContractFactory("MockERC20");
   const token = await TokenFactory.deploy("Mock", "MCK", 18);
@@ -148,15 +154,11 @@ describe("Paid Gas Payment: Full Economy E2E", function () {
     );
 
     console.log("  [4] Alice transfers 30 to Bob (gas-paid multicall)...");
-    await bob.keyRepo.advanceIncomingKeys(1);
-    const bobR = await bob.receiveData(0n);
+    const bobAddr = await bob.getReceiveAddress();
 
     const { txHash: trfTx } = await alice.transferViaMixnet(
       ethers.parseEther("30"),
-      bobR.B,
-      bobR.P,
-      bobR.pi,
-      bobR,
+      bobAddr.inPub,
     );
     console.log(`    Transfer TX: ${trfTx}`);
 
@@ -181,7 +183,6 @@ describe("Paid Gas Payment: Full Economy E2E", function () {
     const bobBalAfter = await token.balanceOf(ctx.bob.address);
     expect(bobBalAfter - bobBalBefore).to.equal(ethers.parseEther("20"));
 
-    // Reward pool accumulated the gas payments
     const poolBalance = await token.balanceOf(
       await ctx.rewardPool.getAddress(),
     );

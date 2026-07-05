@@ -4,9 +4,12 @@ import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployDarkPoolFixture,
   makeDeposit,
+  mintSelfNote,
+  evenYEphemeral,
+  userSpendScalar,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import { toFr, addressToFr, NotePlaintext } from "@hisoka/wallets";
+import { addressToFr } from "@hisoka/wallets";
 import { proveDeposit } from "@hisoka/prover";
 
 describe("DarkPool Behavior: Deposit", function () {
@@ -19,7 +22,6 @@ describe("DarkPool Behavior: Deposit", function () {
 
     await makeDeposit(darkPool, token, alice, amount);
 
-    // Use balance deltas to avoid parallel-test interference
     expect(await token.balanceOf(await darkPool.getAddress())).to.equal(
       balBefore + amount,
     );
@@ -34,21 +36,15 @@ describe("DarkPool Behavior: Deposit", function () {
   it("should reject 0 value deposits", async function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
 
-    // Create inputs for 0 value (circuit might allow it, but contract should block it)
     const assetFr = addressToFr(await token.getAddress());
-    const note: NotePlaintext = {
-      value: toFr(0n),
-      asset_id: assetFr,
-      secret: toFr(1n),
-      owner: toFr(2n),
-      timelock: toFr(0n),
-      hashlock: toFr(0n),
-    };
-    const ephSk = toFr(123n);
+    const eph = evenYEphemeral(101n);
+    const spendScalar = await userSpendScalar(alice.address);
+    const built = await mintSelfNote(eph, 0n, spendScalar, assetFr);
+
     const proof = await proveDeposit({
-      notePlaintext: note,
-      ephemeralSk: ephSk,
       compliancePk: COMPLIANCE_PK,
+      note: built.note,
+      eph,
     });
 
     await expect(
