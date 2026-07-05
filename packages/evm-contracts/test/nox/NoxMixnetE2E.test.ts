@@ -93,7 +93,6 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     }
   });
 
-  // Category 1: Basic DeFi flow — deposit + split + transfer + withdraw
   it("Alice deposits, splits, transfers to Bob, Bob withdraws — all via mixnet", async function () {
     const { darkPool, token, alice, bob } = await loadFixture(
       deployDarkPoolFixture,
@@ -102,7 +101,6 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     const aliceWallet = await TestWallet.create(alice, darkPool, token);
     const bobWallet = await TestWallet.create(bob, darkPool, token);
 
-    // --- STEP 1: Alice deposits 100 (DIRECT — needs msg.sender) ---
     console.log("  [2] Alice deposits 100 tokens (direct)...");
     const DEPOSIT_AMT = ethers.parseEther("100");
     const depRes = await aliceWallet.deposit(DEPOSIT_AMT);
@@ -110,7 +108,6 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     await aliceWallet.sync();
     expect(aliceWallet.getBalance()).to.equal(DEPOSIT_AMT);
 
-    // --- STEP 2: Alice splits 100 → 60 + 40 (VIA MIXNET) ---
     console.log("  [3] Alice splits 100 → 60 + 40 (via mixnet)...");
     const SPLIT_A = ethers.parseEther("60");
     const SPLIT_B = ethers.parseEther("40");
@@ -190,7 +187,6 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     // 60 + 40 = 100: same total across two notes
     expect(aliceWallet.getBalance()).to.equal(DEPOSIT_AMT);
 
-    // --- STEP 3: Alice transfers 30 to Bob (VIA MIXNET) ---
     console.log("  [4] Alice transfers 30 to Bob (via mixnet)...");
     const TRANSFER_AMT = ethers.parseEther("30");
 
@@ -230,7 +226,6 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
       `    Bob: ${ethers.formatEther(bobWallet.getBalance())}, Alice: ${ethers.formatEther(aliceWallet.getBalance())}`,
     );
 
-    // --- STEP 4: Bob withdraws 20 (VIA MIXNET) ---
     console.log("  [5] Bob withdraws 20 (via mixnet)...");
     const WITHDRAW_AMT = ethers.parseEther("20");
 
@@ -251,7 +246,6 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     );
   });
 
-  // Category 2: Join operation
   it("Alice deposits twice, joins both notes into one", async function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
 
@@ -319,7 +313,6 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
 
     await darkPool.connect(alice).join(joinProof.proof, joinProof.publicInputs);
 
-    // Sync
     const joinPub = joinProof.publicInputs.map((s) => toFr(s));
     const joinCom = await Poseidon.hash(joinPub.slice(7, 14));
     await aliceWallet.syncTree(joinCom);
@@ -329,7 +322,6 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     console.log("  [OK] Join complete: 50 + 30 → 80");
   });
 
-  // Category 3: Web3 chain queries via mixnet
   it("should query chain state through the mixnet", async function () {
     // This test only works when the mesh exit nodes can reach the same chain (external Anvil).
     // Hardhat in-memory chain is not accessible from nox exit nodes.
@@ -377,7 +369,6 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     }
   });
 
-  // Category 4: Multi-asset support
   it("should handle multiple token types", async function () {
     const { darkPool, token, alice, bob } = await loadFixture(
       deployDarkPoolFixture,
@@ -441,13 +432,11 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
 
     expect(bobWallet.getBalance(tokenAddr)).to.equal(ethers.parseEther("20"));
     expect(aliceWallet.getBalance(tokenAddr)).to.equal(ethers.parseEther("30"));
-    // Token2 balance unchanged
     expect(aliceWallet.getBalance(token2Addr)).to.equal(100n * 10n ** 6n);
 
     console.log("  [OK] Multi-asset: two tokens managed independently");
   });
 
-  // Category 5: Public transfer + claim
   it("Alice public-transfers to Charlie, Charlie claims via mixnet", async function () {
     const { darkPool, token, alice, charlie } = await loadFixture(
       deployDarkPoolFixture,
@@ -514,7 +503,6 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     console.log("  [OK] Public transfer + claim flow complete");
   });
 
-  // Category 6: Concurrent operations
   it("Alice and Bob operate concurrently via mixnet", async function () {
     const { darkPool, token, alice, bob } = await loadFixture(
       deployDarkPoolFixture,
@@ -529,7 +517,6 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
       bobWallet.deposit(ethers.parseEther("50")),
     ]);
 
-    // Cross-sync trees
     await aliceWallet.syncTree(depA.commitment);
     await aliceWallet.syncTree(depB.commitment);
     await bobWallet.syncTree(depA.commitment);
@@ -560,7 +547,6 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     );
   });
 
-  // Category 7: Note scanning via mixnet (eth_getLogs)
   it("should discover notes via eth_getLogs through mixnet", async function () {
     console.log("\n  [1] Querying DarkPool events via mixnet...");
 

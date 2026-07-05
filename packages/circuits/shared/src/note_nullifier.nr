@@ -21,6 +21,5 @@ fn kat_psi_nullifier() {
     let nf = nullifier(note_psi, 3);
     assert(nf == 0x0ced8160f191dfff5c3432bc36f182188226143b294192021ea754f282075897);
 
-    // A 2-arity Poseidon2 of CEK differs from CEK: psi is a non-trivial hidden preimage of the commitment.
     assert(note_psi != cek);
 }

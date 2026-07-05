@@ -1,7 +1,6 @@
-//! Discovery-tag canonicalization: a tag is a point's .x, which aliases (x, +/-y) on twisted Edwards, so
-//! an injective Raven key REQUIRES the tag point to have even y (the wallet rolls the address/note index
-//! until even). even == canonical little-endian byte-0 LSB == 0. Ref: intmax2 utils/key.rs even-y address
-//! canonicalization.
+//! Discovery-tag canonicalization: a tag is a point's .x, which aliases (x, +/-y), so an injective Raven
+//! key REQUIRES even y (the wallet rolls until even). even == LE byte-0 LSB == 0. Ref: intmax2
+//! utils/key.rs even-y address canonicalization.
 
 use ecdh::Point;
 
@@ -12,8 +11,6 @@ pub fn is_even_y(p: Point) -> bool {
 
 #[test]
 fn test_is_even_y_kat() {
-    // Real BJJ pubkeys from the wallet key-derivation KAT (sk_root = 0x2a).
-    // in_pub_1 (odd y) is rolled OVER; in_pub_2 (even y) is the canonical tag point.
     let odd = Point {
         x: 0x1f082615764661f46f203a3d3d4336d5d7273bf17a67d15bd485a7f329f47c93,
         y: 0x288d616819eb80b160bc2157bdbbd872bfe393957ee45a4aa222587e58a1bb47,
@@ -25,7 +22,6 @@ fn test_is_even_y_kat() {
     assert(!is_even_y(odd));
     assert(is_even_y(even));
 
-    // Shared fixture in_pub_j (in_key_j = 789): odd y -> rejected.
     let fixture = Point {
         x: 0x158b1d9682257c0832785c20b002c360b7f84f59f253e667659cf90c1455f764,
         y: 0x132a0f65758b4775374cfc0a98d7f8a186e1cad626e4e4cd37b73532d7e50101,

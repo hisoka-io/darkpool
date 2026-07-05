@@ -1,111 +1,92 @@
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
-import { NotePlaintext, DLEQProof } from "@hisoka/wallets";
 
-export type { NotePlaintext };
+// Marshaled to the circuit's note_v2::Note struct.
+export interface NoteInput {
+  noteVersion: Fr;
+  assetId: Fr;
+  noteType: Fr;
+  conditionsHash: Fr;
+  value: Fr; // u128 range-checked at the marshal boundary
+  owner: Fr;
+  psi: Fr;
+  parents: Fr;
+}
 
 export interface DepositInputs {
-  notePlaintext: NotePlaintext;
-  ephemeralSk: Fr;
   compliancePk: Point<bigint>;
+  note: NoteInput;
+  eph: Fr;
 }
 
 export interface WithdrawInputs {
   withdrawValue: Fr;
   recipient: Fr;
-  merkleRoot: Fr;
   currentTimestamp: number;
   intentHash: Fr;
   compliancePk: Point<bigint>;
 
-  oldNote: NotePlaintext;
-  oldSharedSecret: Fr;
-  nk: Fr;
+  oldNote: NoteInput;
+  spendScalar: Fr;
   oldNoteIndex: number;
   oldNotePath: Fr[];
-  hashlockPreimage: Fr;
 
-  changeNote: NotePlaintext;
-  changeEphemeralSk: Fr;
+  changeNote: NoteInput;
+  changeEph: Fr;
 }
 
 export interface TransferInputs {
-  merkleRoot: Fr;
   currentTimestamp: number;
   compliancePk: Point<bigint>;
+  recipientInPub: Point<bigint>;
 
-  recipientB: Point<bigint>;
-  recipientP: Point<bigint>;
-  recipientOwner: Fr;
-  recipientProof: DLEQProof;
-  recipientS: Point<bigint>;
-  bindR: Point<bigint>;
-  bindS: Fr;
-
-  oldNote: NotePlaintext;
-  oldSharedSecret: Fr;
-  nk: Fr;
+  oldNote: NoteInput;
+  spendScalar: Fr;
   oldNoteIndex: number;
   oldNotePath: Fr[];
-  hashlockPreimage: Fr;
 
-  memoNote: NotePlaintext;
-  memoEphemeralSk: Fr;
+  memoNote: NoteInput;
+  memoEph: Fr;
 
-  changeNote: NotePlaintext;
-  changeEphemeralSk: Fr;
-}
-
-export interface ProofData {
-  proof: Uint8Array;
-  publicInputs: string[];
-  verified: boolean;
-}
-
-export interface JoinInputs {
-  merkleRoot: Fr;
-  currentTimestamp: number;
-  compliancePk: Point<bigint>;
-
-  noteA: NotePlaintext;
-  secretA: Fr;
-  indexA: number;
-  pathA: Fr[];
-  preimageA: Fr; // hashlock preimage
-
-  noteB: NotePlaintext;
-  secretB: Fr;
-  indexB: number;
-  pathB: Fr[];
-  preimageB: Fr;
-
-  nk: Fr;
-
-  noteOut: NotePlaintext;
-  skOut: Fr;
+  changeNote: NoteInput;
+  changeEph: Fr;
 }
 
 export interface SplitInputs {
-  merkleRoot: Fr;
   currentTimestamp: number;
   compliancePk: Point<bigint>;
 
-  noteIn: NotePlaintext;
-  secretIn: Fr;
+  noteIn: NoteInput;
+  spendScalar: Fr;
   indexIn: number;
   pathIn: Fr[];
-  preimageIn: Fr;
 
-  nk: Fr;
+  noteOut1: NoteInput;
+  eph1: Fr;
 
-  noteOut1: NotePlaintext;
-  skOut1: Fr;
-
-  noteOut2: NotePlaintext;
-  skOut2: Fr;
+  noteOut2: NoteInput;
+  eph2: Fr;
 }
+
+export interface JoinInputs {
+  currentTimestamp: number;
+  compliancePk: Point<bigint>;
+
+  noteA: NoteInput;
+  spendScalarA: Fr;
+  indexA: number;
+  pathA: Fr[];
+
+  noteB: NoteInput;
+  spendScalarB: Fr;
+  indexB: number;
+  pathB: Fr[];
+
+  noteOut: NoteInput;
+  ephOut: Fr;
+}
+
 export interface GasPaymentInputs {
-  merkleRoot: Fr;
   currentTimestamp: number;
   paymentValue: Fr;
   paymentAssetId: Fr;
@@ -113,22 +94,19 @@ export interface GasPaymentInputs {
   executionHash: Fr;
   compliancePk: Point<bigint>;
 
-  oldNote: NotePlaintext;
-  oldSharedSecret: Fr;
-  nk: Fr;
+  oldNote: NoteInput;
+  spendScalar: Fr;
   oldNoteIndex: number;
   oldNotePath: Fr[];
-  hashlockPreimage: Fr;
 
-  changeNote: NotePlaintext;
-  changeEphemeralSk: Fr;
+  changeNote: NoteInput;
+  changeEph: Fr;
 }
 
 export interface PublicClaimInputs {
   memoId: Fr;
   compliancePk: Point<bigint>;
   currentTimestamp: number;
-  claimerOwner: Fr;
 
   val: Fr;
   assetId: Fr;
@@ -138,6 +116,12 @@ export interface PublicClaimInputs {
   salt: Fr;
 
   recipientSk: Fr;
-  noteOut: NotePlaintext;
-  skOut: Fr;
+  noteOut: NoteInput;
+  eph: Fr;
+}
+
+export interface ProofData {
+  proof: Uint8Array;
+  publicInputs: string[];
+  verified: boolean;
 }

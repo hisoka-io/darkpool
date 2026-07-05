@@ -4,17 +4,14 @@ import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployDarkPoolFixture,
   makeDeposit,
+  mintSelfNote,
+  evenYEphemeral,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import {
-  toFr,
-  addressToFr,
-  LeanIMT,
-  deriveSharedSecret,
-} from "@hisoka/wallets";
+import { toFr, addressToFr, LeanIMT } from "@hisoka/wallets";
 import { proveWithdraw, WithdrawInputs } from "@hisoka/prover";
 
-const toBytes32 = (val: string) => ethers.zeroPadValue(val, 32);
+const toBytes32 = (val: bigint) => ethers.zeroPadValue(ethers.toBeHex(val), 32);
 
 describe("DarkPool Behavior: Withdraw", function () {
   async function prepareWithdraw(
@@ -23,31 +20,32 @@ describe("DarkPool Behavior: Withdraw", function () {
     recipient: string,
   ) {
     const { darkPool, alice, token } = ctx;
-    const {
-      depositPlain: realDep,
-      ephemeralSk,
-      commitment,
-      nk,
-    } = await makeDeposit(darkPool, token, alice, 100n);
+    const dep = await makeDeposit(darkPool, token, alice, 100n);
 
     const tree = new LeanIMT(32);
-    await tree.insert(commitment);
+    await tree.insert(dep.commitment);
+
+    const assetFr = addressToFr(await token.getAddress());
+    const changeEph = evenYEphemeral(4242n);
+    const change = await mintSelfNote(
+      changeEph,
+      100n - amount,
+      dep.spendScalar,
+      assetFr,
+    );
 
     const wdwInputs: WithdrawInputs = {
       withdrawValue: toFr(amount),
       recipient: addressToFr(recipient),
-      merkleRoot: tree.getRoot(),
       currentTimestamp: Math.floor(Date.now() / 1000),
       intentHash: toFr(0n),
       compliancePk: COMPLIANCE_PK,
-      oldNote: realDep,
-      oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
-      nk,
+      oldNote: dep.built.note,
+      spendScalar: dep.spendScalar,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
-      hashlockPreimage: toFr(0n),
-      changeNote: { ...realDep, value: toFr(100n - amount) },
-      changeEphemeralSk: toFr(999n),
+      changeNote: change.note,
+      changeEph,
     };
 
     const proof = await proveWithdraw(wdwInputs);
@@ -61,7 +59,6 @@ describe("DarkPool Behavior: Withdraw", function () {
 
     await darkPool.connect(alice).withdraw(proof.proof, proof.publicInputs);
 
-    // 10000 - 100 deposit + 40 withdraw
     expect(await token.balanceOf(alice.address)).to.equal(
       ethers.parseEther("10000") - 100n + 40n,
     );
@@ -84,9 +81,9 @@ describe("DarkPool Behavior: Withdraw", function () {
     const { darkPool, alice, attacker } = ctx;
     const { proof } = await prepareWithdraw(ctx, 100n, alice.address);
 
-    // Attacker rebinds the recipient (index 1); verifier must reject
+    // Recipient is public input [1]; rebinding it must break the proof.
     const tamperedInputs = [...proof.publicInputs];
-    tamperedInputs[1] = toBytes32(attacker.address);
+    tamperedInputs[1] = ethers.zeroPadValue(attacker.address, 32);
 
     await expect(
       darkPool.connect(attacker).withdraw(proof.proof, tamperedInputs),
@@ -94,17 +91,15 @@ describe("DarkPool Behavior: Withdraw", function () {
   });
 
   it("Should enforce Timestamp Validity", async function () {
-    // This tests contract-side check: proof timestamp vs block.timestamp
     const ctx = await loadFixture(deployDarkPoolFixture);
     const { darkPool, alice } = ctx;
     const { proof } = await prepareWithdraw(ctx, 100n, alice.address);
 
-    // Push timestamp (index 3) ~2h into the future (allowed window is +1h)
+    // Timestamp is public input [2]; push it ~2h ahead (allowed window is +1h).
     const tamperedInputs = [...proof.publicInputs];
-    const futureTime = Math.floor(Date.now() / 1000) + 7200;
-    tamperedInputs[3] = toBytes32("0x" + BigInt(futureTime).toString());
+    const futureTime = BigInt(Math.floor(Date.now() / 1000) + 7200);
+    tamperedInputs[2] = toBytes32(futureTime);
 
-    // Contract check: require(proofTimestamp <= block.timestamp + 1 hours)
     await expect(
       darkPool.connect(alice).withdraw(proof.proof, tamperedInputs),
     ).to.be.revertedWithCustomError(darkPool, "TimestampInvalid");

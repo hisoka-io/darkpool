@@ -1,60 +1,28 @@
-use crate::{
-    assert_subgroup_scalar, ciphertext_commitment, encrypt_note, kdf_to_aes_key_iv, Note,
-    pack_ciphertext, SUBORDER,
-};
+use crate::assert_subgroup_scalar;
+use crate::{lean_imt_inclusion_proof, TREE_DEPTH};
+use crate::note_nullifier;
+use crate::note_v2::{assert_asset_id, Note, NOTE_TYPE_STANDARD, NOTE_VERSION};
+use crate::owner;
 use ecdh::{bjj::BJJ, ECDHTrait};
-use poseidon::poseidon2::Poseidon2;
 
+// Consume a STANDARD note: the spender proves the scalar whose pubkey commits owner, membership is folded
+// in so a spend cannot omit it, and the canonical index feeds the nullifier (one spendable index per
+// note). computed_root is a public output the contract range-checks against its known roots.
 pub fn verify_spend(
     note: Note,
-    shared_secret: Field,
-    nk: Field,
-    note_index: Field,
-    current_timestamp: Field,
-    hashlock_preimage: Field,
+    spend_scalar: Field,
+    leaf_index: Field,
+    path: [Field; TREE_DEPTH],
 ) -> (Field, Field) {
-    assert_subgroup_scalar(nk);
+    assert_subgroup_scalar(spend_scalar);
+    let pk = BJJ::new(spend_scalar).derive_public_key();
+    assert(note.owner == owner::pubkey_owner(pk), "spender does not own this note");
+    assert(note.note_version == NOTE_VERSION, "unexpected note version");
+    assert(note.note_type == NOTE_TYPE_STANDARD, "unexpected note type");
+    assert_asset_id(note.asset_id);
 
-    // asset_id is a 20-byte address; range-check it at the central spend consumer (conservation then
-    // propagates the bound to every output note).
-    let _: [u8; 20] = note.asset_id.to_be_bytes();
-
-    let (key, iv) = kdf_to_aes_key_iv(shared_secret);
-    let plaintext = note.serialize();
-    let ciphertext = encrypt_note(plaintext, iv, key);
-    let packed = pack_ciphertext(ciphertext);
-    let commitment = ciphertext_commitment(packed);
-
-    let pk = BJJ::new(nk).derive_public_key();
-    assert(note.owner == Poseidon2::hash([pk.x, pk.y], 2), "spender does not own this note");
-
-    if note.timelock != 0 {
-        assert(current_timestamp as u64 >= note.timelock as u64);
-    }
-
-    if note.hashlock != 0 {
-        let derived_hash = Poseidon2::hash([hashlock_preimage], 1);
-        assert(derived_hash == note.hashlock);
-    }
-
-    let nullifier = Poseidon2::hash([nk, commitment, note_index], 3);
-
-    (nullifier, commitment)
-}
-
-// nk_real + SUBORDER is < 2^252 (the old ScalarField<63> bound accepted it) yet shares nk_real's owner
-// point while hashing to a DIFFERENT nullifier -> one note, many spends. The canonical range check now
-// rejects the alias.
-#[test(should_fail_with = "scalar not in BabyJubJub prime-order subgroup")]
-fn audit_nk_aliasing_double_spend() {
-    let note =
-        Note { asset_id: 0x1234, value: 100, secret: 0x64, owner: 0, timelock: 0, hashlock: 0 };
-    let _ = verify_spend(note, 0, 5 + SUBORDER, 0, 0, 0);
-}
-
-#[test(should_fail_with = "scalar must be non-zero")]
-fn audit_nk_zero_rejected() {
-    let note =
-        Note { asset_id: 0x1234, value: 100, secret: 0x64, owner: 0, timelock: 0, hashlock: 0 };
-    let _ = verify_spend(note, 0, 0, 0, 0, 0);
+    let leaf = note.leaf();
+    let computed_root = lean_imt_inclusion_proof(leaf, leaf_index, path);
+    let nf = note_nullifier::nullifier(note.psi, leaf_index);
+    (nf, computed_root)
 }

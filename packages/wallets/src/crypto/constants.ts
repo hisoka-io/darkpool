@@ -2,11 +2,6 @@
 export const BJJ_SUBGROUP_ORDER =
   2736030358979909402780800718157159386076813972158567259200215660948447373041n;
 
-/** DLEQ challenge domain-separation tag (keccak256("hisoka.dleq.v1") % BN254_Fr). Must match the Noir
- * `DLEQ_DOMAIN` global; prepended to the DLEQ challenge to prevent cross-protocol proof replay. */
-export const DLEQ_DOMAIN =
-  0x1570eff8f2295a2eb1f2cf6cea827909fd713f0446dcbd7f1647496d89273366n;
-
 /** Note-cipher keystream domain tag (keccak256("hisoka.enc.v1") % BN254_Fr). Must match Noir `ENC_DOMAIN`. */
 export const ENC_DOMAIN =
   0x1a0ef2d9219ffd1fa6aaa00b33818a7f5503303777b95cfcc6bb7653189dfca3n;

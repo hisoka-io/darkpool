@@ -92,7 +92,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
       const { registry, admin, relayer, relayer2 } =
         await loadFixture(deployFixture);
 
-      // Order A: relayer first, then relayer2
       await registry
         .connect(admin)
         .registerPrivileged(relayer.address, sphinxKey, url, "", "", ROLE_FULL);
@@ -108,18 +107,15 @@ describe("NoxRegistry (Identity & Staking)", function () {
         );
       const fpOrderA = await registry.topologyFingerprint();
 
-      // Compute expected XOR (order doesn't matter)
       const expected = xorHashes(
         computeAddressHash(relayer.address),
         computeAddressHash(relayer2.address),
       );
       expect(fpOrderA).to.equal(expected);
 
-      // Deploy a fresh registry for Order B
       const { registry: registry2, admin: admin2 } =
         await loadFixture(deployFixture);
 
-      // Order B: relayer2 first, then relayer
       await registry2
         .connect(admin2)
         .registerPrivileged(
@@ -142,7 +138,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
       const { registry, admin, relayer, relayer2 } =
         await loadFixture(deployFixture);
 
-      // Register 2 nodes
       await registry
         .connect(admin)
         .registerPrivileged(relayer.address, sphinxKey, url, "", "", ROLE_FULL);
@@ -157,7 +152,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
           ROLE_FULL,
         );
 
-      // Unregister both
       await registry.connect(admin).forceUnregister(relayer.address);
       await registry.connect(admin).forceUnregister(relayer2.address);
 
@@ -168,24 +162,20 @@ describe("NoxRegistry (Identity & Staking)", function () {
     it("should handle re-registration correctly", async function () {
       const { registry, admin, relayer } = await loadFixture(deployFixture);
 
-      // Register
       await registry
         .connect(admin)
         .registerPrivileged(relayer.address, sphinxKey, url, "", "", ROLE_FULL);
       const fpAfterRegister = await registry.topologyFingerprint();
 
-      // Unregister
       await registry.connect(admin).forceUnregister(relayer.address);
       const fpAfterUnregister = await registry.topologyFingerprint();
       expect(fpAfterUnregister).to.equal(ethers.ZeroHash);
 
-      // Re-register
       await registry
         .connect(admin)
         .registerPrivileged(relayer.address, sphinxKey, url, "", "", ROLE_FULL);
       const fpAfterReregister = await registry.topologyFingerprint();
 
-      // Same fingerprint as after first registration
       expect(fpAfterReregister).to.equal(fpAfterRegister);
     });
 
@@ -255,7 +245,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
         .registerPrivileged(relayer.address, sphinxKey, url, "", "", ROLE_FULL);
       const fpBefore = await registry.topologyFingerprint();
 
-      // Rotate key
       await registry.connect(relayer).rotateKey(ethers.randomBytes(32));
       const fpAfter = await registry.topologyFingerprint();
 
@@ -553,24 +542,19 @@ describe("NoxRegistry (Identity & Staking)", function () {
         .register(sphinxKey, url, "", "", MIN_STAKE, ROLE_FULL);
       await registry.connect(relayer).requestUnstake();
 
-      // Advance time past unstake delay
       await time.increase(UNSTAKE_DELAY + 1);
 
       const balBefore = await token.balanceOf(relayer.address);
       await registry.connect(relayer).executeUnstake();
       const balAfter = await token.balanceOf(relayer.address);
 
-      // Tokens returned
       expect(balAfter - balBefore).to.equal(MIN_STAKE);
 
-      // Profile deleted
       const profile = await registry.relayers(relayer.address);
       expect(profile.isRegistered).to.equal(false);
 
-      // Relayer count decremented
       expect(await registry.relayerCount()).to.equal(0);
 
-      // Fingerprint back to zero
       expect(await registry.topologyFingerprint()).to.equal(ethers.ZeroHash);
     });
   });
@@ -616,7 +600,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
 
       await registry.connect(slasher).slash(relayer.address, overSlash);
 
-      // Only staked amount taken
       const profile = await registry.relayers(relayer.address);
       expect(profile.stakedAmount).to.equal(0);
 

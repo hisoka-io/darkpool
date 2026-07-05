@@ -4,7 +4,16 @@ use poseidon::poseidon2::Poseidon2;
 pub global TWO_POW_32: Field = 4294967296;
 pub global TWO_POW_64: Field = 18446744073709551616;
 
-// One consumed input: (tree_num, leaf_index). u32 each -> a pair occupies 64 bits.
+// The wire-format seam and the only shipped note kind. A spend circuit rejects any other version/type.
+pub global NOTE_VERSION: Field = 1;
+pub global NOTE_TYPE_STANDARD: Field = 0;
+
+// asset_id is a 20-byte ERC20 address; a wider value is rejected so notes stay fungible with clean tokens.
+pub fn assert_asset_id(asset_id: Field) {
+    let _: [u8; 20] = asset_id.to_be_bytes();
+}
+
+// A consumed input; both fields u32 so a pair packs into 64 bits.
 pub struct Parent {
     pub tree_num: u32,
     pub leaf_index: u32,
@@ -24,8 +33,7 @@ pub struct Note {
 }
 
 impl Note {
-    // PLAINTEXT-commit leaf over all 8 fields; psi is one of the 8, not appended. Byte-identical to the TS
-    // `leaf`.
+    // PLAINTEXT-commit leaf over all 8 fields (psi is one of them). Byte-identical to the TS `leaf`.
     pub fn leaf(self) -> Field {
         Poseidon2::hash(
             [
@@ -43,8 +51,7 @@ impl Note {
     }
 }
 
-// Layout: pair p at (tree_num << 32 | leaf_index); pair0 in bits 0..63, pair1 in bits 64..127. Deposit = 0.
-// tree_num/leaf_index >= 2^32 are unrepresentable as u32, so truncation is structurally impossible.
+// pair0 in bits 0..63, pair1 in bits 64..127 (each: tree_num << 32 | leaf_index). Deposit = 0.
 pub fn pack_parents(parents: [Parent; 2]) -> Field {
     pack_pair(parents[0]) + pack_pair(parents[1]) * TWO_POW_64
 }

@@ -1,14 +1,14 @@
 import { Fr } from "@aztec/foundation/fields";
-import { NotePlaintext } from "../crypto/types.js";
+import { NoteV2 } from "../note/noteV2.js";
 
 export interface WalletNote {
-  note: NotePlaintext;
+  note: NoteV2;
   commitment: Fr;
   leafIndex: number;
   nullifier: Fr;
-  spendingSecret: Fr;
-  isTransfer: boolean;
-  derivationIndex: number;
+  spendScalar: Fr;
+  isIncoming: boolean;
+  derivationIndex: number | bigint;
   spent: boolean;
 }
 

@@ -1,75 +1,47 @@
-import { describe, it, expect, beforeAll } from "vitest";
-import { generateDLEQProof, signSpendBinding } from "../crypto";
+import { describe, it, expect } from "vitest";
+import { Point } from "@zk-kit/baby-jubjub";
 import {
   encodeHisokaAddress,
   decodeHisokaAddress,
-  HisokaAddressData,
+  HisokaAddress,
 } from "../address";
-import { mulPointEscalar, Base8, Point } from "@zk-kit/baby-jubjub";
 
-describe("Hisoka Address Encoding", () => {
-  let mockAddressData: HisokaAddressData;
+// Transfer-memo in_pub_j (gen_v2_fixtures.ts): an even-y prime-order point usable as a payment address.
+const IN_PUB: Point<bigint> = [
+  0x1b16e357953d68d73398c838aa883cc65ddae2aef75a4bc437e4232afdbe43c8n,
+  0x02d7ee0be055310d2895c5ed5090a8aa1c700e73c64294f1e817ec77f46b4fdcn,
+];
 
-  beforeAll(async () => {
-    const bob_ivk = 123456789n;
-    const carol_sk = 987654321n;
-    const carol_pk: Point<bigint> = mulPointEscalar(Base8, carol_sk);
-    const { B, P, pi } = await generateDLEQProof(bob_ivk, carol_pk);
+describe("Hisoka payment address (in_pub_j + diversifier index)", () => {
+  const addr: HisokaAddress = { inPub: IN_PUB, index: 7n };
 
-    const bob_nk = 555n;
-    const S = mulPointEscalar(Base8, bob_nk);
-    const binding = await signSpendBinding(bob_ivk, S, 222n);
-
-    mockAddressData = { B, P, pi, S, bindR: binding.R, bindS: binding.s };
+  it("round-trips encode/decode without loss", () => {
+    const decoded = decodeHisokaAddress(encodeHisokaAddress(addr));
+    expect(decoded.inPub[0]).toBe(IN_PUB[0]);
+    expect(decoded.inPub[1]).toBe(IN_PUB[1]);
+    expect(decoded.index).toBe(7n);
   });
 
-  it("should encode and decode symmetrically without data loss", () => {
-    const { B, P, pi, S, bindR, bindS } = mockAddressData;
-    const address = encodeHisokaAddress(mockAddressData);
-    const decodedData = decodeHisokaAddress(address);
-
-    expect(decodedData.B[0]).toEqual(B[0]);
-    expect(decodedData.B[1]).toEqual(B[1]);
-    expect(decodedData.P[0]).toEqual(P[0]);
-    expect(decodedData.P[1]).toEqual(P[1]);
-    expect(decodedData.pi.U[0]).toEqual(pi.U[0]);
-    expect(decodedData.pi.U[1]).toEqual(pi.U[1]);
-    expect(decodedData.pi.V[0]).toEqual(pi.V[0]);
-    expect(decodedData.pi.V[1]).toEqual(pi.V[1]);
-    expect(decodedData.pi.z).toEqual(pi.z);
-    expect(decodedData.S[0]).toEqual(S[0]);
-    expect(decodedData.S[1]).toEqual(S[1]);
-    expect(decodedData.bindR[0]).toEqual(bindR[0]);
-    expect(decodedData.bindR[1]).toEqual(bindR[1]);
-    expect(decodedData.bindS).toEqual(bindS);
+  it("uses the hiso_ prefix", () => {
+    expect(encodeHisokaAddress(addr).startsWith("hiso_")).toBe(true);
   });
 
-  it("should start with the correct prefix", () => {
-    const address = encodeHisokaAddress(mockAddressData);
-    expect(address.startsWith("hiso_")).toBe(true);
+  it("rejects a wrong prefix", () => {
+    const tampered = encodeHisokaAddress(addr).replace("hiso_", "invalid_");
+    expect(() => decodeHisokaAddress(tampered)).toThrow(/prefix/);
   });
 
-  it("should throw an error for an invalid prefix", () => {
-    const address = encodeHisokaAddress(mockAddressData);
-    const tamperedAddress = address.replace("hiso_", "invalid_");
-    expect(() => decodeHisokaAddress(tamperedAddress)).toThrow(
-      /Invalid Hisoka address format or prefix/,
-    );
+  it("rejects a corrupted checksum", () => {
+    const parts = encodeHisokaAddress(addr).split("_");
+    const last = parts[1].slice(-1);
+    const flipped = last === "A" ? "B" : "A";
+    const corrupted = `${parts[0]}_${parts[1].slice(0, -1)}${flipped}`;
+    expect(() => decodeHisokaAddress(corrupted)).toThrow(/checksum/i);
   });
 
-  it("should throw an error for a corrupted payload (checksum failure)", () => {
-    const address = encodeHisokaAddress(mockAddressData);
-
-    // Tamper with a character in the payload, ensuring it actually changes
-    const parts = address.split("_");
-    const lastChar = parts[1].slice(-1);
-    const flipped = lastChar === "A" ? "B" : "A";
-    const corruptedPayload = parts[1].slice(0, -1) + flipped;
-    const tamperedAddress = `${parts[0]}_${corruptedPayload}`;
-
-    // bs58check will throw on a checksum mismatch
-    expect(() => decodeHisokaAddress(tamperedAddress)).toThrow(
-      /Invalid checksum/,
-    );
+  it("rejects an off-curve point on encode", () => {
+    expect(() =>
+      encodeHisokaAddress({ inPub: [1n, 2n] as Point<bigint>, index: 0n }),
+    ).toThrow(/curve/);
   });
 });

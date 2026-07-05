@@ -5,8 +5,7 @@ pragma solidity ^0.8.25;
 import {Field} from "./Field.sol";
 import {LibPoseidon2Yul} from "./LibPoseidon2Yul.sol";
 
-// Poseidon2 hash function
-// Thin sponge shell over the Yul-optimized permutation in `LibPoseidon2Yul`.
+// Sponge shell over the Yul permutation in `LibPoseidon2Yul`.
 // Permutation source: https://github.com/zemse/poseidon2-evm (MIT)
 library Poseidon2Lib {
     using Field for *;
@@ -91,8 +90,7 @@ library Poseidon2Lib {
             }
         }
 
-        // Append the variable-length domain separator `1` after the standard
-        // payload, identical to the reference sponge implementation.
+        // Variable-length domain separator `1` appended after the payload (reference-sponge parity).
         if (is_variable_length) {
             if (cacheSize == RATE) {
                 (s0, s1, s2, s3) = _duplex(s0, s1, s2, s3, c0, c1, c2);

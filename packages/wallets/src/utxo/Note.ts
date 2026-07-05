@@ -1,25 +1,24 @@
 import { Fr } from "@aztec/foundation/fields";
-import { deriveNullifier } from "../crypto/nullifier.js";
-import { IUTXO } from "../interfaces.js";
 import { getAddress } from "ethers";
-import { NotePlaintext } from "../crypto/index.js";
+import { IUTXO } from "../interfaces.js";
+import { NoteV2 } from "../note/noteV2.js";
+import { computeNullifier } from "../note/nullifier.js";
+
+const TWO_POW_128 = 1n << 128n;
+// 32-byte Fr minus 20-byte EVM address leaves 12 leading zero bytes.
+const FR_TO_ADDRESS_OFFSET = 12;
 
 export class Note implements IUTXO {
-  constructor(public readonly plaintext: NotePlaintext) {
-    if (plaintext.value.toBigInt() < 0n) {
-      throw new Error("Note value cannot be negative.");
+  constructor(public readonly note: NoteV2) {
+    if (note.value < 0n || note.value >= TWO_POW_128) {
+      throw new Error("Note value out of u128 range.");
     }
-
-    if (plaintext.owner.isZero()) {
+    if (note.owner.isZero()) {
       throw new Error("Note owner (spend-key commitment) must be non-zero.");
     }
 
-    const fullBuffer = plaintext.asset_id.toBuffer();
-    // 32-byte Fr field element minus 20-byte EVM address = 12 leading zero bytes
-    const FR_TO_ADDRESS_OFFSET = 12;
-    const addressBytes = fullBuffer.slice(FR_TO_ADDRESS_OFFSET);
+    const addressBytes = note.assetId.toBuffer().slice(FR_TO_ADDRESS_OFFSET);
     const addressString = "0x" + Buffer.from(addressBytes).toString("hex");
-
     try {
       getAddress(addressString);
     } catch {
@@ -28,10 +27,9 @@ export class Note implements IUTXO {
   }
 
   public async getNullifierHash(
-    nk: Fr,
-    commitment: Fr,
+    psi: Fr,
     leafIndex: number | bigint,
   ): Promise<Fr> {
-    return await deriveNullifier(nk, commitment, leafIndex);
+    return computeNullifier(psi, new Fr(BigInt(leafIndex)));
   }
 }

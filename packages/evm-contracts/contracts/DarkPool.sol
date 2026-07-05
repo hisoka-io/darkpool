@@ -24,6 +24,9 @@ import {NoxRewardPool} from "./nox/NoxRewardPool.sol";
 /**
  * @title Hisoka DarkPool
  * @notice The core contract for the Hisoka privacy protocol.
+ * @dev Leaf = Poseidon2 over secret note fields, so the contract cannot recompute it: every minting
+ *      circuit emits the leaf and membership root as public outputs; the contract inserts the leaf and
+ *      validates the root against isKnownRoot. Ciphertext integrity is the circuit's psi binding.
  */
 contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -41,6 +44,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     error TimestampInvalid();
     error NullifierAlreadySpent();
     error ValueZero();
+    error ValueTooLarge();
     error MemoCollision();
     error MemoSpent();
     error MemoInvalid();
@@ -55,22 +59,20 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         bytes32[7] packedCiphertext
     );
 
+    /// @dev `tag` is the incoming Raven discovery key (in_pub_j.x); `cekWrap` wraps the content key to the
+    /// recipient. Indexed by tag so a recipient can fetch its memos by their static address tag.
     event NewPrivateMemo(
         uint256 indexed leafIndex,
         bytes32 indexed commitment,
+        uint256 indexed tag,
         uint256 ephemeralPK_x,
         uint256 ephemeralPK_y,
-        bytes32[7] packedCiphertext,
-        uint256 int_bob_x,
-        uint256 int_bob_y,
-        uint256 int_carol_x,
-        uint256 int_carol_y
+        uint256 cekWrap,
+        bytes32[7] packedCiphertext
     );
 
     event NewPublicMemo(
         bytes32 indexed memoId,
-        uint256 indexed ownerX,
-        uint256 ownerY,
         address asset,
         uint256 value,
         uint256 timelock,
@@ -181,30 +183,20 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
 
     /**
      * @notice Deposit public assets into the shielded pool.
+     * @dev Layout: [0,1] compliance; [2] leaf; [3,4] eph_pub; [5] value; [6] asset; [7..13] ciphertext.
      */
     function deposit(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
-        if (_publicInputs.length != 13) revert InvalidInputsLength();
+        if (_publicInputs.length != 14) revert InvalidInputsLength();
         _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
 
         if (!depositVerifier.verify(_proof, _publicInputs))
             revert InvalidProof();
 
-        Field.Type[] memory packed = new Field.Type[](7);
-        bytes32[7] memory packedEvent;
-        for (uint256 i = 0; i < 7; i++) {
-            bytes32 val = _publicInputs[6 + i];
-            packed[i] = Field.toField(uint256(val));
-            packedEvent[i] = val;
-        }
-
-        bytes32 commitment = Field.toBytes32(Poseidon2.hash(packed));
-        uint256 leafIndex = merkleTree.insert(commitment);
-
-        uint256 value = uint256(_publicInputs[4]);
-        address asset = address(uint160(uint256(_publicInputs[5])));
+        uint256 value = uint256(_publicInputs[5]);
+        address asset = address(uint160(uint256(_publicInputs[6])));
         if (value == 0) revert ValueZero();
 
         uint256 bal0 = IERC20(asset).balanceOf(address(this));
@@ -213,44 +205,39 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
             revert FeeOnTransferUnsupported();
         emit Deposited(msg.sender, asset, value);
 
-        emit NewNote(
-            leafIndex,
-            commitment,
-            uint256(_publicInputs[2]),
-            uint256(_publicInputs[3]),
-            packedEvent
-        );
+        _insertNote(_publicInputs, 2, 3, 4, 7);
     }
 
     /**
      * @notice Withdraw private assets to a public address.
+     * @dev Layout: [0] value; [1] recipient; [2] ts; [3] intent; [4,5] compliance; [6] nullifier;
+     *      [7] root; [8] asset; [9] change leaf; [10,11] change eph_pub; [12..18] change ciphertext.
      */
     function withdraw(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
-        if (_publicInputs.length != 18) revert InvalidInputsLength();
+        if (_publicInputs.length != 19) revert InvalidInputsLength();
 
         address recipient = address(uint160(uint256(_publicInputs[1])));
         if (isAdaptor[recipient] && msg.sender != recipient)
             revert OnlyAdaptorMayPull();
 
-        bytes32 root = _publicInputs[2];
-        if (!merkleTree.isKnownRoot[root]) revert InvalidRoot();
+        if (!merkleTree.isKnownRoot[_publicInputs[7]]) revert InvalidRoot();
 
-        _verifyProofTimestamp(uint256(_publicInputs[3]));
-        _verifyComplianceKey(_publicInputs[5], _publicInputs[6]);
+        _verifyProofTimestamp(uint256(_publicInputs[2]));
+        _verifyComplianceKey(_publicInputs[4], _publicInputs[5]);
 
         if (!withdrawVerifier.verify(_proof, _publicInputs))
             revert InvalidProof();
 
-        bytes32 nullifierHash = _publicInputs[7];
+        bytes32 nullifierHash = _publicInputs[6];
         _spendNullifier(nullifierHash);
 
-        _processChange(_publicInputs, 10, 8, 9);
+        _insertNote(_publicInputs, 9, 10, 11, 12);
 
         uint256 withdrawValue = uint256(_publicInputs[0]);
-        address asset = address(uint160(uint256(_publicInputs[17])));
+        address asset = address(uint160(uint256(_publicInputs[8])));
 
         if (withdrawValue > 0) {
             IERC20(asset).safeTransfer(recipient, withdrawValue);
@@ -259,74 +246,93 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         emit Withdrawal(nullifierHash, recipient, msg.sender);
     }
 
+    /**
+     * @notice Spend one note into a private memo to a recipient plus self change.
+     * @dev Layout: [0] ts; [1,2] compliance; [3] nullifier; [4] root; [5] memo leaf; [6,7] memo eph_pub;
+     *      [8] tag; [9] cek_wrap; [10..16] memo ciphertext; [17] change leaf; [18,19] change eph_pub;
+     *      [20..26] change ciphertext.
+     */
     function privateTransfer(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
         if (_publicInputs.length != 27) revert InvalidInputsLength();
-        if (!merkleTree.isKnownRoot[_publicInputs[0]]) revert InvalidRoot();
-        _verifyProofTimestamp(uint256(_publicInputs[1]));
-        _verifyComplianceKey(_publicInputs[2], _publicInputs[3]);
+        if (!merkleTree.isKnownRoot[_publicInputs[4]]) revert InvalidRoot();
+        _verifyProofTimestamp(uint256(_publicInputs[0]));
+        _verifyComplianceKey(_publicInputs[1], _publicInputs[2]);
 
         if (!transferVerifier.verify(_proof, _publicInputs))
             revert InvalidProof();
 
-        _spendNullifier(_publicInputs[4]);
-        _processTransferMemo(_publicInputs);
-        _processChange(_publicInputs, 20, 18, 19);
+        _spendNullifier(_publicInputs[3]);
+        _insertMemo(_publicInputs);
+        _insertNote(_publicInputs, 17, 18, 19, 20);
     }
 
+    /**
+     * @notice Join two notes into one.
+     * @dev Layout: [0] ts; [1,2] compliance; [3] nullifier_a; [4] nullifier_b; [5] root; [6] out leaf;
+     *      [7,8] out eph_pub; [9..15] out ciphertext.
+     */
     function join(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
         if (_publicInputs.length != 16) revert InvalidInputsLength();
-        if (!merkleTree.isKnownRoot[_publicInputs[0]]) revert InvalidRoot();
-        _verifyProofTimestamp(uint256(_publicInputs[1]));
-        _verifyComplianceKey(_publicInputs[2], _publicInputs[3]);
+        if (!merkleTree.isKnownRoot[_publicInputs[5]]) revert InvalidRoot();
+        _verifyProofTimestamp(uint256(_publicInputs[0]));
+        _verifyComplianceKey(_publicInputs[1], _publicInputs[2]);
 
         if (!joinVerifier.verify(_proof, _publicInputs)) revert InvalidProof();
 
+        _spendNullifier(_publicInputs[3]);
         _spendNullifier(_publicInputs[4]);
-        _spendNullifier(_publicInputs[5]);
-        _processChange(_publicInputs, 8, 6, 7);
+        _insertNote(_publicInputs, 6, 7, 8, 9);
     }
 
+    /**
+     * @notice Split one note into two.
+     * @dev Layout: [0] ts; [1,2] compliance; [3] nullifier; [4] root; [5] out1 leaf; [6,7] out1 eph_pub;
+     *      [8..14] out1 ciphertext; [15] out2 leaf; [16,17] out2 eph_pub; [18..24] out2 ciphertext.
+     */
     function split(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
-        if (_publicInputs.length != 24) revert InvalidInputsLength();
-        if (!merkleTree.isKnownRoot[_publicInputs[0]]) revert InvalidRoot();
-        _verifyProofTimestamp(uint256(_publicInputs[1]));
-        _verifyComplianceKey(_publicInputs[2], _publicInputs[3]);
+        if (_publicInputs.length != 25) revert InvalidInputsLength();
+        if (!merkleTree.isKnownRoot[_publicInputs[4]]) revert InvalidRoot();
+        _verifyProofTimestamp(uint256(_publicInputs[0]));
+        _verifyComplianceKey(_publicInputs[1], _publicInputs[2]);
 
         if (!splitVerifier.verify(_proof, _publicInputs)) revert InvalidProof();
 
-        _spendNullifier(_publicInputs[4]);
-        _processChange(_publicInputs, 7, 5, 6);
-        _processChange(_publicInputs, 16, 14, 15);
+        _spendNullifier(_publicInputs[3]);
+        _insertNote(_publicInputs, 5, 6, 7, 8);
+        _insertNote(_publicInputs, 15, 16, 17, 18);
     }
 
+    /**
+     * @notice Post a public memo redeemable by a designated key into the shielded pool.
+     * @dev memoId = Poseidon2(value, asset, timelock, ownerX, ownerY, salt) matches the public_claim circuit.
+     */
     function publicTransfer(
         uint256 _ownerX,
         uint256 _ownerY,
-        uint256 _claimerOwner,
         address _asset,
         uint256 _value,
         uint256 _timelock,
         uint256 _salt
     ) external nonReentrant whenNotPaused {
         if (_value == 0) revert ValueZero();
+        if (_value > type(uint128).max) revert ValueTooLarge();
 
-        Field.Type[] memory inputs = new Field.Type[](7);
+        Field.Type[] memory inputs = new Field.Type[](6);
         inputs[0] = Field.toField(_value);
         inputs[1] = Field.toField(uint256(uint160(_asset)));
         inputs[2] = Field.toField(_timelock);
         inputs[3] = Field.toField(_ownerX);
         inputs[4] = Field.toField(_ownerY);
-        inputs[5] = Field.toField(_claimerOwner);
-        inputs[6] = Field.toField(_salt);
+        inputs[5] = Field.toField(_salt);
 
         bytes32 memoId = Field.toBytes32(Poseidon2.hash(inputs));
 
@@ -338,30 +344,24 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
             revert FeeOnTransferUnsupported();
         isValidPublicMemo[memoId] = true;
 
-        emit NewPublicMemo(
-            memoId,
-            _ownerX,
-            _ownerY,
-            _asset,
-            _value,
-            _timelock,
-            _salt
-        );
+        emit NewPublicMemo(memoId, _asset, _value, _timelock, _salt);
     }
 
+    /**
+     * @notice Claim a public memo into a shielded self note.
+     * @dev Layout: [0] memoId; [1,2] compliance; [3] ts; [4] leaf; [5,6] eph_pub; [7..13] ciphertext.
+     */
     function publicClaim(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
-        if (_publicInputs.length != 15) revert InvalidInputsLength();
+        if (_publicInputs.length != 14) revert InvalidInputsLength();
 
         bytes32 memoId = _publicInputs[0];
         if (!isValidPublicMemo[memoId]) revert MemoInvalid();
         if (isPublicMemoSpent[memoId]) revert MemoSpent();
 
         _verifyComplianceKey(_publicInputs[1], _publicInputs[2]);
-
-        // Enforce that the timestamp the prover used matches on-chain time
         _verifyProofTimestamp(uint256(_publicInputs[3]));
 
         if (!publicClaimVerifier.verify(_proof, _publicInputs))
@@ -370,36 +370,39 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         isPublicMemoSpent[memoId] = true;
         emit PublicMemoSpent(memoId);
 
-        _processChange(_publicInputs, 7, 5, 6);
+        _insertNote(_publicInputs, 4, 5, 6, 7);
     }
 
     /**
-     * @notice Pay an anonymous relayer's gas fee from a shielded note. V0: execution_hash
-     * (_publicInputs[5]) is bound in the proof but NOT enforced on-chain; the relayer is
-     * trusted to perform the bound action (atomic on-chain enforcement is a future change).
+     * @notice Pay an anonymous relayer's gas fee from a shielded note. execution_hash
+     * (_publicInputs[4]) is bound in the proof but not enforced on-chain; the relayer is
+     * trusted to perform the bound action.
+     * @dev Layout: [0] ts; [1] payment value; [2] payment asset; [3] relayer; [4] execution hash;
+     *      [5,6] compliance; [7] nullifier; [8] root; [9] change leaf; [10,11] change eph_pub;
+     *      [12..18] change ciphertext.
      */
     function payRelayer(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
-        if (_publicInputs.length != 18) revert InvalidInputsLength();
+        if (_publicInputs.length != 19) revert InvalidInputsLength();
 
-        if (!merkleTree.isKnownRoot[_publicInputs[0]]) revert InvalidRoot();
-        _verifyProofTimestamp(uint256(_publicInputs[1]));
-        _verifyComplianceKey(_publicInputs[6], _publicInputs[7]);
+        if (!merkleTree.isKnownRoot[_publicInputs[8]]) revert InvalidRoot();
+        _verifyProofTimestamp(uint256(_publicInputs[0]));
+        _verifyComplianceKey(_publicInputs[5], _publicInputs[6]);
 
         if (!gasPaymentVerifier.verify(_proof, _publicInputs))
             revert InvalidProof();
 
-        bytes32 nullifierHash = _publicInputs[8];
+        bytes32 nullifierHash = _publicInputs[7];
         _spendNullifier(nullifierHash);
 
-        _processChange(_publicInputs, 11, 9, 10);
+        _insertNote(_publicInputs, 9, 10, 11, 12);
 
-        uint256 paymentValue = uint256(_publicInputs[2]);
-        address asset = address(uint160(uint256(_publicInputs[3])));
-        address relayer = address(uint160(uint256(_publicInputs[4])));
-        bytes32 executionHash = _publicInputs[5];
+        uint256 paymentValue = uint256(_publicInputs[1]);
+        address asset = address(uint160(uint256(_publicInputs[2])));
+        address relayer = address(uint160(uint256(_publicInputs[3])));
+        bytes32 executionHash = _publicInputs[4];
 
         if (paymentValue > 0) {
             IERC20(asset).forceApprove(address(rewardPool), paymentValue);
@@ -415,54 +418,47 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         );
     }
 
-    function _processTransferMemo(bytes32[] calldata _publicInputs) internal {
-        Field.Type[] memory packedMemo = new Field.Type[](7);
-        bytes32[7] memory packedMemoEvent;
-        for (uint256 i = 0; i < 7; i++) {
-            bytes32 val = _publicInputs[7 + i];
-            packedMemo[i] = Field.toField(uint256(val));
-            packedMemoEvent[i] = val;
-        }
-        bytes32 memoCommitment = Field.toBytes32(Poseidon2.hash(packedMemo));
-        uint256 memoIndex = merkleTree.insert(memoCommitment);
+    function _insertNote(
+        bytes32[] calldata _publicInputs,
+        uint256 leafIndex,
+        uint256 epkXIndex,
+        uint256 epkYIndex,
+        uint256 ctStartIndex
+    ) internal {
+        bytes32 commitment = _publicInputs[leafIndex];
+        uint256 insertedAt = merkleTree.insert(commitment);
 
-        emit NewPrivateMemo(
-            memoIndex,
-            memoCommitment,
-            uint256(_publicInputs[5]),
-            uint256(_publicInputs[6]),
-            packedMemoEvent,
-            uint256(_publicInputs[14]),
-            uint256(_publicInputs[15]),
-            uint256(_publicInputs[16]),
-            uint256(_publicInputs[17])
+        bytes32[7] memory ct;
+        for (uint256 i = 0; i < 7; i++) {
+            ct[i] = _publicInputs[ctStartIndex + i];
+        }
+
+        emit NewNote(
+            insertedAt,
+            commitment,
+            uint256(_publicInputs[epkXIndex]),
+            uint256(_publicInputs[epkYIndex]),
+            ct
         );
     }
 
-    function _processChange(
-        bytes32[] calldata _publicInputs,
-        uint256 ctStartIndex,
-        uint256 epkXIndex,
-        uint256 epkYIndex
-    ) internal {
-        Field.Type[] memory packedChange = new Field.Type[](7);
-        bytes32[7] memory packedChangeEvent;
-        for (uint256 i = 0; i < 7; i++) {
-            bytes32 val = _publicInputs[ctStartIndex + i];
-            packedChange[i] = Field.toField(uint256(val));
-            packedChangeEvent[i] = val;
-        }
-        bytes32 changeCommitment = Field.toBytes32(
-            Poseidon2.hash(packedChange)
-        );
-        uint256 changeIndex = merkleTree.insert(changeCommitment);
+    function _insertMemo(bytes32[] calldata _publicInputs) internal {
+        bytes32 commitment = _publicInputs[5];
+        uint256 insertedAt = merkleTree.insert(commitment);
 
-        emit NewNote(
-            changeIndex,
-            changeCommitment,
-            uint256(_publicInputs[epkXIndex]),
-            uint256(_publicInputs[epkYIndex]),
-            packedChangeEvent
+        bytes32[7] memory ct;
+        for (uint256 i = 0; i < 7; i++) {
+            ct[i] = _publicInputs[10 + i];
+        }
+
+        emit NewPrivateMemo(
+            insertedAt,
+            commitment,
+            uint256(_publicInputs[8]),
+            uint256(_publicInputs[6]),
+            uint256(_publicInputs[7]),
+            uint256(_publicInputs[9]),
+            ct
         );
     }
 

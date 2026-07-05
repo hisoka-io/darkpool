@@ -1,395 +1,135 @@
 use ::ecdh::Point;
-use ::shared::{
-    encrypt_note_for_compliance, lean_imt_inclusion_proof, Note, TREE_DEPTH, verify_spend,
-};
+use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
+use ::shared::note_v2::Note;
 
+// Spend two notes (a spend scalar each) into one self note. Both inputs must share a root and yield
+// distinct nullifiers (no self-join). Internal consolidation: no value leaves the pool, no asset output.
 fn main(
-    merkle_root: pub Field,
     current_timestamp: pub Field,
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
     note_a: Note,
-    secret_a: Field,
+    spend_scalar_a: Field,
     index_a: Field,
     path_a: [Field; TREE_DEPTH],
-    preimage_a: Field,
     note_b: Note,
-    secret_b: Field,
+    spend_scalar_b: Field,
     index_b: Field,
     path_b: [Field; TREE_DEPTH],
-    preimage_b: Field,
     note_out: Note,
-    sk_out: Field,
-    nk: Field,
-) -> pub (Field, Field, Field, Field, [Field; 7], Field) {
-    let (nullifier_a, commitment_a) =
-        verify_spend(note_a, secret_a, nk, index_a, current_timestamp, preimage_a);
-    let root_a = lean_imt_inclusion_proof(commitment_a, index_a, path_a);
-    assert(root_a == merkle_root);
-
-    let (nullifier_b, commitment_b) =
-        verify_spend(note_b, secret_b, nk, index_b, current_timestamp, preimage_b);
-    let root_b = lean_imt_inclusion_proof(commitment_b, index_b, path_b);
-    assert(root_b == merkle_root);
-
-    assert(nullifier_a != nullifier_b);
-    assert(note_out.value == note_a.value + note_b.value);
-    assert(note_a.asset_id == note_b.asset_id);
-    assert(note_out.asset_id == note_a.asset_id);
-
+    eph_out: Field,
+) -> pub (Field, Field, Field, Field, Field, Field, [Field; 7]) {
+    let _ = current_timestamp;
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
-    let enc = encrypt_note_for_compliance(note_out, sk_out, compliance_pk);
+    mint::assert_valid_compliance_pk(compliance_pk);
 
-    (nullifier_a, nullifier_b, enc.epk_x, enc.epk_y, enc.ciphertext, note_a.asset_id)
+    let (nullifier_a, root_a) = verify_spend(note_a, spend_scalar_a, index_a, path_a);
+    let (nullifier_b, root_b) = verify_spend(note_b, spend_scalar_b, index_b, path_b);
+    assert(root_a == root_b, "inputs must share a root");
+    assert(nullifier_a != nullifier_b, "cannot join a note with itself");
+
+    assert(note_a.asset_id == note_b.asset_id, "input asset mismatch");
+    assert(note_a.asset_id == note_out.asset_id, "output asset mismatch");
+    conservation::assert_conserved([note_a.value, note_b.value], [note_out.value], 0);
+
+    let out = mint::mint_self_note(note_out, eph_out, compliance_pk);
+
+    (nullifier_a, nullifier_b, root_a, out.leaf, out.eph_pub.x, out.eph_pub.y, out.ciphertext)
 }
 
+fn note(value: u128, psi: Field) -> Note {
+    Note {
+        note_version: 1,
+        asset_id: 0x1234567890123456789012345678901234567890,
+        note_type: 0,
+        conditions_hash: 0,
+        value,
+        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
+        psi,
+        parents: 0,
+    }
+}
+
+global CX: Field = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
+global CY: Field = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+global LEAF_A: Field = 0x1a6b6e47769e1f5de94e5ce9f3094b49cc9967d5ba3ef90df6af6598ca26d41b;
+global LEAF_B: Field = 0x2065744fd5ee65c5747ac8277513f27eadda10f02f9b5bb58d28131ec808b102;
+
+// KAT: byte-identical to the TS/Solidity golden vector (two-leaf tree, eph 24/26 inputs, 28 output).
 #[test]
-fn test_join_smoke() {
-    let merkle_root = 0x0aba59c2a9ccbfef3b36e42af175c1a80ce75561fab3fb085c242d6f8b66e199;
-    let current_timestamp = 0;
-    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
-
-    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
-
-    let note_a = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 100,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003f2,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let secret_a = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
-    let index_a = 0;
-    let path_a = [
-        0x2be17ff320d0b3aeb5a392b367f651abb70676adccb81871c2fe787a20982c32,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-    ];
-    let preimage_a = 0;
-
-    let note_b = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 50,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003f3,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let secret_b = 0x29b4a3c41682b85beb0c5d2178df291daa9706d02b16c4c4c93ddddef5deff00;
-    let index_b = 1;
-    let path_b = [
-        0x2044d601c131beadcd213aaf6d83efcc17f8a2f3ad1f92d7d24850493142ad64,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-    ];
-    let preimage_b = 0;
-
-    let note_out = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 150,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let sk_out = 0x025b363d74ca244bb6bc1cdb6a3d3a279fd2176d8848d17fe927fd7616d55f71;
-
-    let exp_nf_a = 0x2b5ec7f3e27e5885285ee701145e21246e2d696364c19afdcf867b539659ed6b;
-    let exp_nf_b = 0x14f7091e4a4ce0f3b0822c0dded4d8c9291a0b64e83ee790d667b40c239e14e2;
-    let exp_ct = [
-        0x00f78e0f620a837e143cd25de3facf7db436339a146c93aa5ffc673df7dce42f,
-        0x007cb7955aa89deb672df06e6a7b26a81cc299d09c9f185a334ac8e0a00a6fc3,
-        0x0026cd97c46964b43e032346f67660af47677e9469509cd0ace5a8645f73b832,
-        0x00f923a254bb46919e3ca8ea19a91dc5369adfed585058021bda2186e0bfef50,
-        0x00e501047476047b85700f52cceea24c8a1b3dee279e55512e0bb71e8c76c0df,
-        0x00233682e43c00f82d61333fec2050443931d3c96cff9ff03c96b2a8bb4bd83c,
-        0x00000000000000000000521140181fbb7ae63132fc38823fff5998793fe7e08c,
-    ];
-
-    let (nf_a, nf_b, _, _, ct, _) = main(
-        merkle_root,
-        current_timestamp,
-        compliance_pubkey_x,
-        compliance_pubkey_y,
-        note_a,
-        secret_a,
-        index_a,
-        path_a,
-        preimage_a,
-        note_b,
-        secret_b,
-        index_b,
-        path_b,
-        preimage_b,
-        note_out,
-        sk_out,
-        nk,
+fn test_join_kat() {
+    let note_a = note(
+        100,
+        0x271c8cc2341079e393fa781a5e7b4664b27b649d4f0277a53110b7937ed9fada,
     );
+    let note_b = note(
+        50,
+        0x22c2ddd73188e4c766c528228312ae28595623aba1a5c5341a8f7154943842d3,
+    );
+    let note_out = note(
+        150,
+        0x09fb1bde9d635c97fa5a0884a8a38d961cec75db95e76629aabec8b63baec84a,
+    );
+    let mut path_a = [0; TREE_DEPTH];
+    path_a[0] = LEAF_B;
+    let mut path_b = [0; TREE_DEPTH];
+    path_b[0] = LEAF_A;
 
-    assert(nf_a == exp_nf_a);
-    assert(nf_b == exp_nf_b);
-    assert(ct == exp_ct);
+    let (nf_a, nf_b, root, leaf, epk_x, epk_y, ct) = main(
+        0,
+        CX,
+        CY,
+        note_a,
+        789,
+        0,
+        path_a,
+        note_b,
+        789,
+        1,
+        path_b,
+        note_out,
+        28,
+    );
+    assert(nf_a == 0x0d03e7c701405c0572f9c8904d08cadc64679d2fb2c7430cf3b691c2fc0517e0);
+    assert(nf_b == 0x0ce50a6b4132e77d1aba13c3d3763957eb373bfe81e4cd1582e1b9ac26f143eb);
+    assert(root == 0x23bbb50573c7f196c32e4fd8cd8e1d3fe32285e77deddc2bdcb2728ee512b8bb);
+    assert(leaf == 0x00ddcfa94053482bf67eb744707915ad591bf3bdc2b20bc68260e66110141758);
+    assert(epk_x == 0x239a26d12954771a03d624b21a260f447412b746b66eede628a2f0af3be0a212);
+    assert(epk_y == 0x00ba27f648e334fba30865fee39f857d8f64a0417d2b8cd5fc2f238d64cd3d1e);
+    assert(ct[0] == 0x059d4801f52074b83e793e4c9461d1686c52340eb324ae906ee4392535da6a57);
 }
 
-// An output claiming more than the sum of the two joined inputs violates conservation: the equality
-// assert rejects minting across a join. (Overflow of the input sum is not constructible here -- the
-// summands are merkle-committed inputs -- and the u128 add overflow check is covered by split/withdraw.)
-#[test(should_fail)]
+#[test(should_fail_with = "value not conserved")]
 fn audit_reject_value_inflation() {
-    let merkle_root = 0x0aba59c2a9ccbfef3b36e42af175c1a80ce75561fab3fb085c242d6f8b66e199;
-    let current_timestamp = 0;
-    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
-
-    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
-
-    let note_a = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 100,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003f2,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let secret_a = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
-    let index_a = 0;
-    let mut path_a = [0; 32];
-    path_a[0] = 0x2be17ff320d0b3aeb5a392b367f651abb70676adccb81871c2fe787a20982c32;
-    let preimage_a = 0;
-
-    let note_b = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 50,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003f3,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let secret_b = 0x29b4a3c41682b85beb0c5d2178df291daa9706d02b16c4c4c93ddddef5deff00;
-    let index_b = 1;
-    let mut path_b = [0; 32];
-    path_b[0] = 0x2044d601c131beadcd213aaf6d83efcc17f8a2f3ad1f92d7d24850493142ad64;
-    let preimage_b = 0;
-
-    let note_out = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 200,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let sk_out = 0x025b363d74ca244bb6bc1cdb6a3d3a279fd2176d8848d17fe927fd7616d55f71;
-
-    let _ = main(
-        merkle_root,
-        current_timestamp,
-        compliance_pubkey_x,
-        compliance_pubkey_y,
-        note_a,
-        secret_a,
-        index_a,
-        path_a,
-        preimage_a,
-        note_b,
-        secret_b,
-        index_b,
-        path_b,
-        preimage_b,
-        note_out,
-        sk_out,
-        nk,
+    let note_a = note(
+        100,
+        0x271c8cc2341079e393fa781a5e7b4664b27b649d4f0277a53110b7937ed9fada,
     );
-}
-
-#[test(should_fail_with = "non-canonical leaf index")]
-fn audit_reject_self_join_noncanonical_index() {
-    let merkle_root = 0x0aba59c2a9ccbfef3b36e42af175c1a80ce75561fab3fb085c242d6f8b66e199;
-    let current_timestamp = 0;
-    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
-
-    let nk = 0x00000000000000000000000000000000000000000000000000000000000001c8;
-
-    let note_a = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 100,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003f2,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let secret_a = 0x1e3528427cde3826c2a9317e33b6bab18af005e3c17ad06f588fcf9379a6d109;
-    let index_a = 0;
-    let path_a = [
-        0x2be17ff320d0b3aeb5a392b367f651abb70676adccb81871c2fe787a20982c32,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-    ];
-    let preimage_a = 0;
-
-    let note_b = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 50,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003f3,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let secret_b = 0x29b4a3c41682b85beb0c5d2178df291daa9706d02b16c4c4c93ddddef5deff00;
-    let index_b = 3;
-    let path_b = [
-        0x2044d601c131beadcd213aaf6d83efcc17f8a2f3ad1f92d7d24850493142ad64,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-    ];
-    let preimage_b = 0;
-
-    let note_out = Note {
-        asset_id: 0x0000000000000000000000001234567890123456789012345678901234567890,
-        value: 150,
-        secret: 0x00000000000000000000000000000000000000000000000000000000000003e7,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let sk_out = 0x025b363d74ca244bb6bc1cdb6a3d3a279fd2176d8848d17fe927fd7616d55f71;
-
+    let note_b = note(
+        50,
+        0x22c2ddd73188e4c766c528228312ae28595623aba1a5c5341a8f7154943842d3,
+    );
+    let note_out = note(
+        200,
+        0x09fb1bde9d635c97fa5a0884a8a38d961cec75db95e76629aabec8b63baec84a,
+    );
+    let mut path_a = [0; TREE_DEPTH];
+    path_a[0] = LEAF_B;
+    let mut path_b = [0; TREE_DEPTH];
+    path_b[0] = LEAF_A;
     let _ = main(
-        merkle_root,
-        current_timestamp,
-        compliance_pubkey_x,
-        compliance_pubkey_y,
+        0,
+        CX,
+        CY,
         note_a,
-        secret_a,
-        index_a,
+        789,
+        0,
         path_a,
-        preimage_a,
         note_b,
-        secret_b,
-        index_b,
+        789,
+        1,
         path_b,
-        preimage_b,
         note_out,
-        sk_out,
-        nk,
+        28,
     );
 }

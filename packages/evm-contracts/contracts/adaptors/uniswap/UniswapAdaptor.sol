@@ -83,12 +83,13 @@ contract UniswapAdaptor is ReentrancyGuard {
         address proofRecipient = address(uint160(uint256(publicInputs[1])));
         if (proofRecipient != address(this)) revert InvalidProofRecipient();
 
-        publicInputs[4] = intentHash;
+        // Bind swap to proof: overwrite withdraw intent_hash (index 3); a tampered swap fails verification.
+        publicInputs[3] = intentHash;
 
         IDarkPool(DARK_POOL).withdraw(proof, publicInputs);
 
         uint256 withdrawnAmount = uint256(publicInputs[0]);
-        address withdrawnAsset = address(uint160(uint256(publicInputs[17])));
+        address withdrawnAsset = address(uint160(uint256(publicInputs[8])));
         uint256 balPreSwap = IERC20(withdrawnAsset).balanceOf(address(this));
 
         address outAsset;
@@ -268,7 +269,6 @@ contract UniswapAdaptor is ReentrancyGuard {
         IDarkPool(DARK_POOL).publicTransfer(
             r.ownerX,
             r.ownerY,
-            r.claimerOwner,
             asset,
             amount,
             0,
@@ -281,8 +281,7 @@ contract UniswapAdaptor is ReentrancyGuard {
         if (len < 20) revert PathTooShort();
         address token;
         assembly {
-            // Load the last 20 bytes (path data starts at path+32); address sits
-            // in the top 20 bytes of the word, so shift right by 96 bits.
+            // Last 20 bytes of path, in the word's high bytes, so shift right 96 bits.
             let ptr := add(add(path, 32), sub(len, 20))
             let loaded := mload(ptr)
             token := shr(96, loaded)

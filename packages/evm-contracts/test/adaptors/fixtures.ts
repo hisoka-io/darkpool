@@ -1,15 +1,24 @@
 import { ethers } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
-import { toFr, Kdf, toBjjScalar } from "@hisoka/wallets";
+import { toFr, addressToFr, LeanIMT, Fr } from "@hisoka/wallets";
+import { proveDeposit, proveWithdraw, WithdrawInputs } from "@hisoka/prover";
 import {
-  DarkPool__factory,
+  mintSelfNote,
+  evenYEphemeral,
+  userSpendScalar,
+  BuiltNote,
+  COMPLIANCE_PK as HELPER_COMPLIANCE_PK,
+} from "../helpers/fixtures";
+import {
+  DarkPool,
   IERC20,
+  MockERC20,
   UniswapAdaptor__factory,
+  DarkPool__factory,
   NoxRewardPool__factory,
 } from "../../typechain-types";
 
-// --- MAINNET CONSTANTS ---
 export const WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 export const USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 export const SWAP_ROUTER = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
@@ -68,21 +77,78 @@ export async function fetchLivePrices(): Promise<{
   return { ethUsd, btcUsd };
 }
 
-// --- CRYPTO CONSTANTS ---
 export const COMPLIANCE_SK = 987654321n;
 export const COMPLIANCE_PK: Point<bigint> = mulPointEscalar(
   Base8,
   COMPLIANCE_SK,
 );
-export const SK_VIEW = toFr(123456789n);
-export const NONCE = toFr(1n);
 
-export async function depositEphemeralParams() {
-  return {
-    ephemeral_sk_used: toBjjScalar(
-      await Kdf.derive("hisoka.ephemeral", SK_VIEW, NONCE),
-    ),
+/** Deposit a spendable WETH self note for `alice` and return it plus a single-leaf tree at index 0. */
+export async function setupAdaptorNote(
+  data: { darkPool: DarkPool; weth: IERC20; alice: { address: string } },
+  amountEth: string = "10",
+): Promise<{ built: BuiltNote; tree: LeanIMT; amount: bigint; spendScalar: Fr }> {
+  const amount = ethers.parseEther(amountEth);
+  const assetFr = addressToFr(WETH_ADDRESS);
+  const spendScalar = await userSpendScalar(data.alice.address);
+  const built = await mintSelfNote(evenYEphemeral(1n), amount, spendScalar, assetFr);
+
+  const proof = await proveDeposit({
+    compliancePk: HELPER_COMPLIANCE_PK,
+    note: built.note,
+    eph: built.eph,
+  });
+
+  await (
+    await (data.weth as unknown as MockERC20)
+      .connect(data.alice as never)
+      .approve(await data.darkPool.getAddress(), amount)
+  ).wait();
+  await data.darkPool
+    .connect(data.alice as never)
+    .deposit(proof.proof, proof.publicInputs);
+
+  const tree = new LeanIMT(32);
+  await tree.insert(built.commitment);
+
+  return { built, tree, amount, spendScalar };
+}
+
+/** Build a v2 withdraw proof that spends `built` (index 0, single-leaf tree) fully to `recipient`, bound to
+ * `intentHash`. Returns the raw proof plus the hex-encoded forms the adaptor entrypoint expects. */
+export async function buildAdaptorWithdraw(args: {
+  built: BuiltNote;
+  spendScalar: Fr;
+  tree: LeanIMT;
+  amount: bigint;
+  recipient: string;
+  intentHash: Fr;
+}): Promise<{ proof: Uint8Array; proofHex: string; pubHex: string[] }> {
+  const change = await mintSelfNote(
+    evenYEphemeral(999n),
+    0n,
+    args.spendScalar,
+    addressToFr(WETH_ADDRESS),
+  );
+  const inputs: WithdrawInputs = {
+    withdrawValue: toFr(args.amount),
+    recipient: addressToFr(args.recipient),
+    currentTimestamp: Math.floor(Date.now() / 1000),
+    intentHash: args.intentHash,
+    compliancePk: HELPER_COMPLIANCE_PK,
+    oldNote: args.built.note,
+    spendScalar: args.spendScalar,
+    oldNoteIndex: 0,
+    oldNotePath: Array(32).fill(toFr(0n)),
+    changeNote: change.note,
+    changeEph: change.eph,
   };
+  const proof = await proveWithdraw(inputs);
+  const proofHex = "0x" + Buffer.from(proof.proof).toString("hex");
+  const pubHex = proof.publicInputs.map(
+    (i) => "0x" + BigInt(i).toString(16).padStart(64, "0"),
+  );
+  return { proof: proof.proof, proofHex, pubHex };
 }
 
 const GAS_OVERRIDES = {

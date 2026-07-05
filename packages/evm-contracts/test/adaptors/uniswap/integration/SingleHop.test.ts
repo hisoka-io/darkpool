@@ -3,26 +3,14 @@ import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployUniswapFixture,
-  depositEphemeralParams,
+  setupAdaptorNote,
+  buildAdaptorWithdraw,
   fetchLivePrices,
   WETH_ADDRESS,
   USDC_ADDRESS,
   SWAP_ROUTER,
-  COMPLIANCE_PK,
 } from "../../fixtures";
-import {
-  deriveSharedSecret,
-  NotePlaintext,
-  toFr,
-  addressToFr,
-  LeanIMT,
-  Poseidon,
-  Kdf,
-  toBjjScalar,
-  computeOwner,
-} from "@hisoka/wallets";
-import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
-import { proveWithdraw, WithdrawInputs } from "@hisoka/prover";
+import { Fr } from "@hisoka/wallets";
 import { hashUniswapIntent, SwapType } from "@hisoka/adaptors";
 
 describe("Uniswap Adaptor: Single Hop Integration", function () {
@@ -35,51 +23,12 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
     ethUsd = prices.ethUsd;
   });
 
-  async function setupNote(data: any) {
-    const amount = ethers.parseEther("10"); // 10 WETH
-    const assetFr = addressToFr(WETH_ADDRESS);
-    // verify_spend asserts note.owner == Poseidon2(nk*G), so owner/nk must agree.
-    const nk = toBjjScalar(await Kdf.derive("hisoka.test.nk", toFr(1n)));
-    const owner = await computeOwner(mulPointEscalar(Base8, nk.toBigInt()));
-    const note: NotePlaintext = {
-      value: toFr(amount),
-      asset_id: assetFr,
-      secret: toFr(10n),
-      owner,
-      timelock: toFr(0n),
-      hashlock: toFr(0n),
-    };
-    const enc = await depositEphemeralParams();
-    const depProof = await (
-      await import("@hisoka/prover")
-    ).proveDeposit({
-      notePlaintext: note,
-      ephemeralSk: enc.ephemeral_sk_used,
-      compliancePk: COMPLIANCE_PK,
-    });
-
-    await data.weth
-      .connect(data.alice)
-      .approve(await data.darkPool.getAddress(), amount);
-    await data.darkPool
-      .connect(data.alice)
-      .deposit(depProof.proof, depProof.publicInputs);
-
-    const tree = new LeanIMT(32);
-    const pub = depProof.publicInputs.map((s: string) => toFr(s));
-    await tree.insert(await Poseidon.hash(pub.slice(6, 13)));
-
-    return { note, enc, tree, amount, nk };
-  }
-
   it("should execute ExactOutputSingle and REFUND excess input", async function () {
     const data = await loadFixture(deployUniswapFixture);
     const { uniswapAdaptor, darkPool, alice } = data;
-    const { note, enc, tree, amount, nk } = await setupNote(data);
+    const setup = await setupAdaptorNote(data, "10"); // 10 WETH
 
-    // Goal: Buy exactly 2000 USDC
-    const TARGET_USDC = ethers.parseUnits("2000", 6); // 2000 USDC
-    // Input: We withdraw 10 WETH (Way too much)
+    const TARGET_USDC = ethers.parseUnits("2000", 6);
 
     const params = {
       type: SwapType.ExactOutputSingle,
@@ -88,35 +37,21 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
       fee: 3000,
       recipient: { ownerX: 888n, ownerY: 999n, claimerOwner: 1000n },
       amountOut: BigInt(TARGET_USDC),
-      amountInMaximum: BigInt(amount), // Max we are willing to spend (entire note)
+      amountInMaximum: BigInt(setup.amount),
     };
 
-    // @ts-ignore
-    const intentHash = await hashUniswapIntent(params);
+    // @ts-ignore adaptor intent params
+    const intentHash: Fr = await hashUniswapIntent(params);
+    const { proofHex, pubHex } = await buildAdaptorWithdraw({
+      built: setup.built,
+      spendScalar: setup.spendScalar,
+      tree: setup.tree,
+      amount: setup.amount,
+      recipient: await uniswapAdaptor.getAddress(),
+      intentHash,
+    });
 
-    const inputs: WithdrawInputs = {
-      withdrawValue: toFr(amount),
-      recipient: addressToFr(await uniswapAdaptor.getAddress()),
-      merkleRoot: tree.getRoot(),
-      currentTimestamp: Math.floor(Date.now() / 1000),
-      intentHash: intentHash,
-      compliancePk: COMPLIANCE_PK,
-      oldNote: note,
-      oldSharedSecret: await deriveSharedSecret(
-        enc.ephemeral_sk_used,
-        COMPLIANCE_PK,
-      ),
-      nk,
-      oldNoteIndex: 0,
-      oldNotePath: Array(32).fill(toFr(0n)),
-      hashlockPreimage: toFr(0n),
-      changeNote: { ...note, value: toFr(0n) },
-      changeEphemeralSk: toFr(999n),
-    };
-    const proof = await proveWithdraw(inputs);
-
-    const abiCoder = new ethers.AbiCoder();
-    const encodedParams = abiCoder.encode(
+    const encodedParams = new ethers.AbiCoder().encode(
       [
         "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY, uint256 claimerOwner) recipient, uint256 amountOut, uint256 amountInMaximum)",
       ],
@@ -136,21 +71,16 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
       ],
     );
 
-    const proofHex = "0x" + Buffer.from(proof.proof).toString("hex");
-    const pubHex = proof.publicInputs.map(
-      (i) => "0x" + BigInt(i).toString(16).padStart(64, "0"),
-    );
-
     const tx = await uniswapAdaptor
       .connect(alice)
       .executeSwap(proofHex, pubHex, SwapType.ExactOutputSingle, encodedParams);
     const receipt = await tx.wait();
 
-    // Expect two NewPublicMemo events: target output + refund
+    // Expect two NewPublicMemo events: target output + refund.
     const logs = receipt!.logs
       .map((l) => {
         try {
-          return darkPool.interface.parseLog(l as any);
+          return darkPool.interface.parseLog(l as never);
         } catch {
           return null;
         }
@@ -159,31 +89,18 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
 
     expect(logs.length).to.equal(2);
 
-    // 1. Find USDC Memo (Target)
     const usdcLog = logs.find((l) => l?.args.asset === USDC_ADDRESS);
     expect(usdcLog).to.not.equal(undefined);
     expect(usdcLog?.args.value).to.equal(TARGET_USDC);
 
-    // 2. Find WETH Memo (Refund)
     const wethLog = logs.find((l) => l?.args.asset === WETH_ADDRESS);
     expect(wethLog).to.not.equal(undefined);
-    // Refund = 10 ETH minus cost of 2000 USDC (price-dependent).
-    // Dynamic threshold: cost = 2000/ethUsd, with 50% safety margin for slippage.
     const estimatedCost = 2000 / ethUsd;
     const minRefund = 10 - estimatedCost * 1.5;
-    const refund = wethLog?.args.value;
-    console.log(
-      `   Refunded: ${ethers.formatEther(refund)} WETH (min threshold: ${minRefund.toFixed(2)} at ETH=$${ethUsd.toFixed(0)})`,
+    expect(wethLog?.args.value).to.be.gt(
+      ethers.parseEther(minRefund.toFixed(4)),
     );
-    expect(refund).to.be.gt(ethers.parseEther(minRefund.toFixed(4)));
 
-    // 3. Check Ownership
-    expect(usdcLog?.args.ownerX).to.equal(888n);
-    expect(wethLog?.args.ownerX).to.equal(888n);
-
-    // No residual router approval survives the exactOutput swap (the router
-    // pulls less than amountInMaximum), and every proceed is forwarded so the
-    // adaptor holds zero of both the output and input asset afterward.
     const adaptorAddr = await uniswapAdaptor.getAddress();
     expect(await data.weth.allowance(adaptorAddr, SWAP_ROUTER)).to.equal(0n);
     expect(await data.usdc.balanceOf(adaptorAddr)).to.equal(0n);

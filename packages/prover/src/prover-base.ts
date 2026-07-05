@@ -1,6 +1,7 @@
 import { Barretenberg, UltraHonkBackend } from "@aztec/bb.js";
 import { CompiledCircuit, InputMap, Noir } from "@noir-lang/noir_js";
 import { ProofData } from "./types.js";
+import { ProofError } from "./errors.js";
 
 const BB_THREADS = Math.max(
   1,
@@ -18,6 +19,7 @@ export async function ensureBBInitialized(): Promise<Barretenberg> {
 }
 
 export async function generateProof(
+  circuitName: string,
   rawCircuit: { bytecode: string; abi: unknown },
   noirInputs: InputMap,
 ): Promise<ProofData> {
@@ -26,14 +28,22 @@ export async function generateProof(
   const api = await ensureBBInitialized();
   const backend = new UltraHonkBackend(circuit.bytecode, api);
 
-  const { witness } = await noir.execute(noirInputs);
-  const { proof, publicInputs } = await backend.generateProof(witness, {
-    verifierTarget: "evm-no-zk",
-  });
-  const verified = await backend.verifyProof(
-    { proof, publicInputs },
-    { verifierTarget: "evm-no-zk" },
-  );
+  try {
+    const { witness } = await noir.execute(noirInputs);
+    const { proof, publicInputs } = await backend.generateProof(witness, {
+      verifierTarget: "evm-no-zk",
+    });
+    const verified = await backend.verifyProof(
+      { proof, publicInputs },
+      { verifierTarget: "evm-no-zk" },
+    );
 
-  return { proof, publicInputs, verified };
+    return { proof, publicInputs, verified };
+  } catch (err) {
+    throw new ProofError(
+      circuitName,
+      err instanceof Error ? err.message : String(err),
+      err,
+    );
+  }
 }

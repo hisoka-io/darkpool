@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { Point, mulPointEscalar, Base8 } from "@zk-kit/baby-jubjub";
 import { DarkAccount } from "../keys/DarkAccount";
 import { KeyRepository } from "../state/KeyRepository";
 import { UtxoRepository } from "../state/UtxoRepository";
@@ -7,55 +6,63 @@ import { toFr } from "../crypto/fields";
 import { WalletNote } from "../state/types";
 
 const MNEMONIC = "test test test test test test test test test test test junk";
-const COMPLIANCE_PK: Point<bigint> = mulPointEscalar(Base8, 987654321n);
 
 describe("Scan robustness", () => {
-  it("recenters the ephemeral window on a match (gap-limit)", async () => {
+  it("matches a registered even-y self tag and misses an unknown tag", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const keyRepo = new KeyRepository(account, COMPLIANCE_PK);
+    const repo = new KeyRepository(account);
 
-    await keyRepo.ensureEphemeralLookahead(5);
-    const epk4 = await account.getPublicEphemeralOutgoingKey(4n);
-    expect(keyRepo.tryMatchDeposit(epk4[0], epk4[1])?.index).toBe(4);
+    const minted = await repo.nextSelfEphemeral();
+    expect(repo.matchSelfTag(minted.ephPub[0])?.index).toBe(minted.index);
+    expect(repo.matchSelfTag(minted.ephPub[0] + 1n)).toBeNull();
+  });
 
-    const advanced = await keyRepo.ensureEphemeralLookahead(5);
-    expect(advanced).toBe(true);
+  it("advances the self lookahead after a high match (gap-limit recenter)", async () => {
+    const account = await DarkAccount.fromMnemonic(MNEMONIC);
+    const repo = new KeyRepository(account);
 
-    const epk9 = await account.getPublicEphemeralOutgoingKey(9n);
-    expect(keyRepo.tryMatchDeposit(epk9[0], epk9[1])).not.toBeNull();
+    await repo.ensureSelfLookahead(5);
+    await repo.nextSelfEphemeral();
+    const high = await repo.nextSelfEphemeral();
+    repo.matchSelfTag(high.ephPub[0]);
+
+    expect(await repo.ensureSelfLookahead(5)).toBe(true);
   });
 
   it("restores scan cursors so high-index self-notes stay matchable", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const repo = new KeyRepository(account, COMPLIANCE_PK);
-    for (let i = 0; i < 8; i++) await repo.nextEphemeralParams();
+    const repo = new KeyRepository(account);
+
+    const mints = [];
+    for (let i = 0; i < 8; i++) mints.push(await repo.nextSelfEphemeral());
+    const last = mints[mints.length - 1]!;
 
     const state = repo.getState();
-    expect(state.nextEphemeralNonce).toBe(8);
+    expect(state.selfMintCounter).toBe(last.index + 1);
 
-    const fresh = new KeyRepository(account, COMPLIANCE_PK);
+    const fresh = new KeyRepository(account);
     await fresh.restore(state);
-
-    const epk7 = await account.getPublicEphemeralOutgoingKey(7n);
-    expect(fresh.tryMatchDeposit(epk7[0], epk7[1])).not.toBeNull();
+    expect(fresh.matchSelfTag(last.ephPub[0])?.index).toBe(last.index);
   });
 
   it("never resurrects a spent note on re-add", async () => {
     const repo = new UtxoRepository();
     const note: WalletNote = {
       note: {
-        asset_id: toFr(1n),
-        value: toFr(100n),
-        secret: toFr(0n),
-        owner: toFr(0n),
-        timelock: toFr(0n),
-        hashlock: toFr(0n),
+        noteVersion: toFr(1n),
+        assetId: toFr(1n),
+        noteType: toFr(0n),
+        conditionsHash: toFr(0n),
+        value: 100n,
+        owner: toFr(7n),
+        psi: toFr(9n),
+        parents: toFr(0n),
       },
       commitment: toFr(5n),
       leafIndex: 0,
       nullifier: toFr(42n),
-      spendingSecret: toFr(0n),
-      isTransfer: false,
+      spendScalar: toFr(0n),
+      isIncoming: false,
       derivationIndex: 0,
       spent: false,
     };

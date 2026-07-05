@@ -4,7 +4,7 @@ import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { deployDarkPoolFixture, COMPLIANCE_SK } from "../helpers/fixtures";
 import { TestWallet } from "../helpers/TestWallet";
 import { ComplianceService } from "../helpers/ComplianceService";
-import { Fr, toFr } from "@hisoka/wallets";
+import { Fr } from "@hisoka/wallets";
 import { Contract } from "ethers";
 
 describe("Compliance: Traceability & Auditing", function () {
@@ -20,85 +20,48 @@ describe("Compliance: Traceability & Auditing", function () {
     const wCharlie = await TestWallet.create(charlie, darkPool, token);
 
     const syncAll = async (c: Fr) => {
-      const fr = c;
-      await wAlice.syncTree(fr);
-      await wBob.syncTree(fr);
-      await wCharlie.syncTree(fr);
+      await wAlice.syncTree(c);
+      await wBob.syncTree(c);
+      await wCharlie.syncTree(c);
     };
 
-    // --- 1. Alice Deposits 100 ---
     const dep = await wAlice.deposit(ethers.parseEther("100"));
     await syncAll(dep.commitment);
     await wAlice.sync();
 
-    // --- 2. Alice -> Bob (50) ---
-    await wBob.keyRepo.advanceIncomingKeys(1);
-    const bobAddr = await wBob.receiveData(0n);
-
-    const tx1 = await wAlice.transfer(
-      ethers.parseEther("50"),
-      bobAddr.B,
-      bobAddr.P,
-      bobAddr.pi,
-      bobAddr,
-    );
+    const bobAddr = await wBob.getReceiveAddress();
+    const tx1 = await wAlice.transfer(ethers.parseEther("50"), bobAddr.inPub);
     await syncAll(tx1.memoCommitment);
     await syncAll(tx1.changeCommitment);
     await wBob.sync();
 
-    // --- 3. Bob -> Charlie (25) ---
-    await wCharlie.keyRepo.advanceIncomingKeys(1);
-    const charlieAddr = await wCharlie.receiveData(0n);
-
-    const tx2 = await wBob.transfer(
-      ethers.parseEther("25"),
-      charlieAddr.B,
-      charlieAddr.P,
-      charlieAddr.pi,
-      charlieAddr,
-    );
+    const charlieAddr = await wCharlie.getReceiveAddress();
+    const tx2 = await wBob.transfer(ethers.parseEther("25"), charlieAddr.inPub);
     await syncAll(tx2.memoCommitment);
     await syncAll(tx2.changeCommitment);
     await wCharlie.sync();
 
-    // --- 4. Charlie -> Alice (10) ---
-    await wAlice.keyRepo.advanceIncomingKeys(1);
-    const aliceAddr = await wAlice.receiveData(0n);
+    const aliceAddr = await wAlice.getReceiveAddress();
+    await wCharlie.transfer(ethers.parseEther("10"), aliceAddr.inPub);
 
-    await wCharlie.transfer(
-      ethers.parseEther("10"),
-      aliceAddr.B,
-      aliceAddr.P,
-      aliceAddr.pi,
-      aliceAddr,
-    );
-
-    // Compliance investigation
-    console.log("\n[Compliance] Starting Forensic Scan...");
     const auditor = new ComplianceService(
       COMPLIANCE_SK,
       darkPool as unknown as Contract,
       0,
-      [
-        await wAlice.account.getNullifyingKey(),
-        await wBob.account.getNullifyingKey(),
-        await wCharlie.account.getNullifyingKey(),
-      ],
     );
     await auditor.sync();
     const graph = await auditor.traceTransactions();
-    console.log(`[Compliance] Reconstructed ${graph.length} Transactions.`);
 
-    // TX 1: Deposit
+    // TX 1: Deposit (no spent inputs, one 100 output)
     const depositTx = graph.find(
       (tx) =>
         tx.inputs.length === 0 &&
-        tx.outputs[0].note.value.equals(toFr(ethers.parseEther("100"))),
+        tx.outputs[0].note.value === ethers.parseEther("100"),
     );
     expect(depositTx).to.not.equal(undefined);
     const aliceNoteCommitment = depositTx!.outputs[0].commitment;
 
-    // TX 2: Alice -> Bob (100 -> 50 + 50)
+    // TX 2: Alice -> Bob (100 -> 50 memo + 50 change)
     const txAliceToBob = graph.find((tx) =>
       tx.inputs.some((i) => i.commitment === aliceNoteCommitment),
     );
@@ -106,9 +69,7 @@ describe("Compliance: Traceability & Auditing", function () {
     expect(txAliceToBob!.outputs.length).to.equal(2);
 
     const bobMemo = txAliceToBob!.outputs.find(
-      (o) =>
-        o.note.value.equals(toFr(ethers.parseEther("50"))) &&
-        o.isTransfer === true,
+      (o) => o.note.value === ethers.parseEther("50") && o.isTransfer === true,
     );
     expect(
       bobMemo,
@@ -122,9 +83,7 @@ describe("Compliance: Traceability & Auditing", function () {
     expect(txBobToCharlie).to.not.equal(undefined);
 
     const charlieMemo = txBobToCharlie!.outputs.find(
-      (o) =>
-        o.note.value.equals(toFr(ethers.parseEther("25"))) &&
-        o.isTransfer === true,
+      (o) => o.note.value === ethers.parseEther("25") && o.isTransfer === true,
     );
     expect(charlieMemo).to.not.equal(undefined);
 
@@ -135,14 +94,8 @@ describe("Compliance: Traceability & Auditing", function () {
     expect(txCharlieToAlice).to.not.equal(undefined);
 
     const aliceReceived = txCharlieToAlice!.outputs.find(
-      (o) =>
-        o.note.value.equals(toFr(ethers.parseEther("10"))) &&
-        o.isTransfer === true,
+      (o) => o.note.value === ethers.parseEther("10") && o.isTransfer === true,
     );
     expect(aliceReceived).to.not.equal(undefined);
-
-    console.log(
-      "[OK] Traceability Verified: Deposit -> Alice -> Bob -> Charlie -> Alice",
-    );
   });
 });

@@ -1,19 +1,17 @@
-//! Zero-AES Poseidon2 stream DEM: CTR over a Poseidon2 PRF keyed by CEK (Poseidon2 eprint 2023/323).
-//! Operates on the 7 TRANSMITTED note fields directly (no AES, no byte-packing), fixed index order
-//! k=0..6: [note_version, asset_id, note_type, conditions_hash, value, owner, parents]. psi is derived
-//! from CEK and is NEVER transmitted. Order/sign MUST match TS wallets/src/crypto/dem.ts.
+//! Poseidon2 stream DEM keyed by CEK (Poseidon2 eprint 2023/323). Order/sign MUST match TS
+//! wallets/src/crypto/dem.ts. Operates on the 7 transmitted note fields, fixed order k=0..6:
+//! [note_version, asset_id, note_type, conditions_hash, value, owner, parents]; psi is never transmitted.
 
 use crate::domains::ENC_DOMAIN;
 use poseidon::poseidon2::Poseidon2;
 
 pub global DEM_FIELDS: u32 = 7;
 
-// keystream[k] = Poseidon2(CEK, ENC_DOMAIN, k); each field uses an independent 3-input permutation.
 pub fn dem_keystream(cek: Field, k: u32) -> Field {
     Poseidon2::hash([cek, ENC_DOMAIN, k as Field], 3)
 }
 
-// encrypt: ciphertext[k] = plaintext[k] + keystream[k] (native mod p). Sign LOCKED (decrypt subtracts).
+// Sign LOCKED: encrypt adds the keystream (mod p), decrypt subtracts.
 pub fn dem_encrypt(cek: Field, plaintext: [Field; DEM_FIELDS]) -> [Field; DEM_FIELDS] {
     let mut ciphertext: [Field; DEM_FIELDS] = [0; DEM_FIELDS];
     for k in 0..DEM_FIELDS {
@@ -22,7 +20,6 @@ pub fn dem_encrypt(cek: Field, plaintext: [Field; DEM_FIELDS]) -> [Field; DEM_FI
     ciphertext
 }
 
-// decrypt: plaintext[k] = ciphertext[k] - keystream[k] (native mod p).
 pub fn dem_decrypt(cek: Field, ciphertext: [Field; DEM_FIELDS]) -> [Field; DEM_FIELDS] {
     let mut plaintext: [Field; DEM_FIELDS] = [0; DEM_FIELDS];
     for k in 0..DEM_FIELDS {

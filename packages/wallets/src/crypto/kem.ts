@@ -14,7 +14,7 @@ function assertSubgroupScalar(scalar: Fr): void {
 }
 
 // Reject off-curve, identity, and non-prime-order public points before any ECDH, matching the in-circuit
-// point checks (master 3.2 WN-2, 6 C1'); a low-order point would leak a scalar via the cofactor.
+// point checks; a low-order point would leak a scalar via the cofactor.
 function assertValidPoint(p: Point<bigint>): void {
   if (!inCurve(p)) {
     throw new Error("KEM point is not on the BabyJubJub curve");

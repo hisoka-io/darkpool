@@ -1,4 +1,5 @@
 export * from "./types.js";
+export * from "./errors.js";
 export * from "./prover-base.js";
 export * from "./provers/deposit.js";
 export * from "./provers/withdraw.js";

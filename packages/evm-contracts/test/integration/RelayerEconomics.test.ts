@@ -1,12 +1,8 @@
 /**
  * Relayer Economics Integration Test
  *
- * Full flow: relayer registers in NoxRegistry → user deposits to DarkPool →
- * relayer pays gas via payRelayer → reward deposited to NoxRewardPool →
- * admin distributes rewards to relayer.
- *
- * This is the first test that connects NoxRegistry + DarkPool + NoxRewardPool
- * in a single flow, proving the complete relayer incentive mechanism works.
+ * Full flow: relayer registers in NoxRegistry, user deposits to DarkPool, relayer pays gas via payRelayer,
+ * reward deposited to NoxRewardPool, admin distributes rewards to relayer.
  */
 import { expect } from "chai";
 import { ethers } from "hardhat";
@@ -14,14 +10,11 @@ import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployDarkPoolFixture,
   makeDeposit,
+  mintSelfNote,
+  evenYEphemeral,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import {
-  toFr,
-  addressToFr,
-  LeanIMT,
-  deriveSharedSecret,
-} from "@hisoka/wallets";
+import { toFr, addressToFr, LeanIMT } from "@hisoka/wallets";
 import { proveGasPayment, GasPaymentInputs } from "@hisoka/prover";
 import { NoxRegistry__factory } from "../../typechain-types";
 
@@ -31,9 +24,6 @@ const BN254_FR_MODULUS =
 describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool)", function () {
   this.timeout(120_000);
 
-  /**
-   * Extended fixture: deploys DarkPool + NoxRegistry with a registered relayer.
-   */
   async function deployFullStack() {
     const ctx = await deployDarkPoolFixture();
     const { deployer, relayer, token } = ctx;
@@ -44,12 +34,11 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
     const registry = await RegistryFactory.deploy(
       deployer.address,
       await token.getAddress(),
-      ethers.parseEther("1"), // minStake (>= floor)
-      86400n, // unstakeDelay = 1 day (contract minimum)
-      ethers.parseEther("1"), // minStakeFloor
+      ethers.parseEther("1"),
+      86400n,
+      ethers.parseEther("1"),
     );
 
-    // Register the relayer as a privileged exit node
     const sphinxKey = ethers.randomBytes(32);
     const relayerUrl = "/ip4/127.0.0.1/tcp/9000";
 
@@ -59,13 +48,13 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
       relayerUrl,
       "",
       "",
-      2, // role = Exit
+      2,
     );
 
     return { ...ctx, registry, sphinxKey, relayerUrl };
   }
 
-  it("full flow: register → deposit → payRelayer → reward deposited", async function () {
+  it("full flow: register -> deposit -> payRelayer -> reward deposited", async function () {
     const ctx = await loadFixture(deployFullStack);
     const {
       darkPool,
@@ -76,55 +65,40 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
       registry,
       alice,
     } = ctx;
+    const assetFr = addressToFr(await token.getAddress());
 
-    // 1. Verify relayer is registered on-chain
     const count = await registry.relayerCount();
     expect(count).to.equal(1n);
     const fingerprint = await registry.topologyFingerprint();
     expect(fingerprint).to.not.equal(ethers.ZeroHash);
 
-    // 2. Alice deposits 100 tokens
-    const {
-      depositPlain: notePlaintext,
-      ephemeralSk,
-      commitment,
-      nk,
-    } = await makeDeposit(darkPool, token, alice, 100n);
+    const dep = await makeDeposit(darkPool, token, alice, 100n);
 
-    const tree = new LeanIMT(32);
-    await tree.insert(commitment);
-
-    // 3. Relayer pays 10 tokens gas from the deposited note
     const executionHash = toFr(
       BigInt(ethers.keccak256(ethers.toUtf8Bytes("batch_tx_payload"))) %
         BN254_FR_MODULUS,
     );
 
-    const changeNote = {
-      asset_id: notePlaintext.asset_id,
-      value: toFr(90n), // 100 - 10 = 90 change
-      secret: toFr(789n),
-      owner: notePlaintext.owner,
-      timelock: toFr(0n),
-      hashlock: toFr(0n),
-    };
+    const change = await mintSelfNote(
+      evenYEphemeral(888n),
+      90n,
+      dep.spendScalar,
+      assetFr,
+    );
 
     const gasInputs: GasPaymentInputs = {
-      merkleRoot: tree.getRoot(),
       currentTimestamp: Math.floor(Date.now() / 1000),
       paymentValue: toFr(10n),
-      paymentAssetId: notePlaintext.asset_id,
+      paymentAssetId: assetFr,
       relayerAddress: addressToFr(relayer.address),
       executionHash,
       compliancePk: COMPLIANCE_PK,
-      oldNote: notePlaintext,
-      oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
-      nk,
+      oldNote: dep.built.note,
+      spendScalar: dep.spendScalar,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
-      hashlockPreimage: toFr(0n),
-      changeNote,
-      changeEphemeralSk: toFr(888n),
+      changeNote: change.note,
+      changeEph: change.eph,
     };
 
     const gasProof = await proveGasPayment(gasInputs);
@@ -133,13 +107,11 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
       await rewardPool.getAddress(),
     );
 
-    const tx = await darkPool.connect(relayer).payRelayer(
-      gasProof.proof,
-      gasProof.publicInputs.map((v) => ethers.zeroPadValue(v, 32)),
-    );
+    const tx = await darkPool
+      .connect(relayer)
+      .payRelayer(gasProof.proof, gasProof.publicInputs);
     const receipt = await tx.wait();
 
-    // 4. Verify GasPaymentProcessed event
     const gasEvent = receipt?.logs.find((log) => {
       try {
         return (
@@ -154,13 +126,11 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
     });
     expect(gasEvent).to.not.equal(undefined);
 
-    // 5. Verify reward deposited to NoxRewardPool
     const poolBalanceAfter = await token.balanceOf(
       await rewardPool.getAddress(),
     );
     expect(poolBalanceAfter - poolBalanceBefore).to.equal(10n);
 
-    // 6. Admin distributes rewards to the relayer (registered in the pool's registry)
     await mockNoxRegistry.setActive(relayer.address, true);
     const relayerBalanceBefore = await token.balanceOf(relayer.address);
     await rewardPool.distributeRewards(
@@ -175,68 +145,53 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
   it("payRelayer nullifier prevents double-claiming the same note", async function () {
     const ctx = await loadFixture(deployFullStack);
     const { darkPool, token, relayer, alice } = ctx;
+    const assetFr = addressToFr(await token.getAddress());
 
-    const {
-      depositPlain: notePlaintext,
-      ephemeralSk,
-      commitment,
-      nk,
-    } = await makeDeposit(darkPool, token, alice, 100n);
-
-    const tree = new LeanIMT(32);
-    await tree.insert(commitment);
+    const dep = await makeDeposit(darkPool, token, alice, 100n);
 
     const executionHash = toFr(
       BigInt(ethers.keccak256(ethers.toUtf8Bytes("double_spend_test"))) %
         BN254_FR_MODULUS,
     );
 
-    const changeNote = {
-      asset_id: notePlaintext.asset_id,
-      value: toFr(90n),
-      secret: toFr(789n),
-      owner: notePlaintext.owner,
-      timelock: toFr(0n),
-      hashlock: toFr(0n),
-    };
+    const change = await mintSelfNote(
+      evenYEphemeral(888n),
+      90n,
+      dep.spendScalar,
+      assetFr,
+    );
 
     const gasInputs: GasPaymentInputs = {
-      merkleRoot: tree.getRoot(),
       currentTimestamp: Math.floor(Date.now() / 1000),
       paymentValue: toFr(10n),
-      paymentAssetId: notePlaintext.asset_id,
+      paymentAssetId: assetFr,
       relayerAddress: addressToFr(relayer.address),
       executionHash,
       compliancePk: COMPLIANCE_PK,
-      oldNote: notePlaintext,
-      oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
-      nk,
+      oldNote: dep.built.note,
+      spendScalar: dep.spendScalar,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
-      hashlockPreimage: toFr(0n),
-      changeNote,
-      changeEphemeralSk: toFr(888n),
+      changeNote: change.note,
+      changeEph: change.eph,
     };
 
     const gasProof = await proveGasPayment(gasInputs);
-    const publicInputs = gasProof.publicInputs.map((v) =>
-      ethers.zeroPadValue(v, 32),
-    );
 
-    // First use succeeds
-    await darkPool.connect(relayer).payRelayer(gasProof.proof, publicInputs);
+    await darkPool
+      .connect(relayer)
+      .payRelayer(gasProof.proof, gasProof.publicInputs);
 
-    // Second use with same nullifier reverts
     await expect(
-      darkPool.connect(relayer).payRelayer(gasProof.proof, publicInputs),
+      darkPool.connect(relayer).payRelayer(gasProof.proof, gasProof.publicInputs),
     ).to.be.revertedWithCustomError(darkPool, "NullifierAlreadySpent");
   });
 
   it("reward pool tracks cumulative deposits from multiple gas payments", async function () {
     const ctx = await loadFixture(deployFullStack);
     const { darkPool, token, rewardPool, relayer, alice } = ctx;
+    const assetFr = addressToFr(await token.getAddress());
 
-    // Make 3 deposits
     const deposits = [];
     for (let i = 0; i < 3; i++) {
       deposits.push(await makeDeposit(darkPool, token, alice, 50n));
@@ -251,44 +206,34 @@ describe("Integration: Relayer Economics (NoxRegistry + DarkPool + NoxRewardPool
       await rewardPool.getAddress(),
     );
 
-    // Pay gas from each deposit (5 tokens each = 15 total)
     for (let i = 0; i < 3; i++) {
       const executionHash = toFr(BigInt(i + 1));
-      const changeNote = {
-        asset_id: deposits[i]!.depositPlain.asset_id,
-        value: toFr(45n), // 50 - 5
-        secret: toFr(BigInt(100 + i)),
-        owner: deposits[i]!.depositPlain.owner,
-        timelock: toFr(0n),
-        hashlock: toFr(0n),
-      };
+      const change = await mintSelfNote(
+        evenYEphemeral(BigInt(300 + i)),
+        45n,
+        deposits[i]!.spendScalar,
+        assetFr,
+      );
 
       const gasInputs: GasPaymentInputs = {
-        merkleRoot: tree.getRoot(),
         currentTimestamp: Math.floor(Date.now() / 1000),
         paymentValue: toFr(5n),
-        paymentAssetId: deposits[i]!.depositPlain.asset_id,
+        paymentAssetId: assetFr,
         relayerAddress: addressToFr(relayer.address),
         executionHash,
         compliancePk: COMPLIANCE_PK,
-        oldNote: deposits[i]!.depositPlain,
-        oldSharedSecret: await deriveSharedSecret(
-          deposits[i]!.ephemeralSk,
-          COMPLIANCE_PK,
-        ),
-        nk: deposits[i]!.nk,
+        oldNote: deposits[i]!.built.note,
+        spendScalar: deposits[i]!.spendScalar,
         oldNoteIndex: i,
         oldNotePath: tree.getMerklePath(i),
-        hashlockPreimage: toFr(0n),
-        changeNote,
-        changeEphemeralSk: toFr(BigInt(300 + i)),
+        changeNote: change.note,
+        changeEph: change.eph,
       };
 
       const gasProof = await proveGasPayment(gasInputs);
-      await darkPool.connect(relayer).payRelayer(
-        gasProof.proof,
-        gasProof.publicInputs.map((v) => ethers.zeroPadValue(v, 32)),
-      );
+      await darkPool
+        .connect(relayer)
+        .payRelayer(gasProof.proof, gasProof.publicInputs);
     }
 
     const poolBalanceAfter = await token.balanceOf(

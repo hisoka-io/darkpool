@@ -3,22 +3,21 @@ use ecdh::{bjj::BJJ, ECDHTrait, Point};
 use edwards::CurveTrait;
 use poseidon::poseidon2::Poseidon2;
 
-// CEK = (eph * C).x -- the compliance-secret content-encryption key. eph must be a subgroup scalar.
+// CEK = (eph * C).x, the compliance-shared content-encryption key.
 pub fn derive_cek(eph: Field, compliance_pk: Point) -> Field {
     assert_subgroup_scalar(eph);
     BJJ::new(eph).derive_shared_key(compliance_pk)
 }
 
-// INCOMING memo wrap: cek_wrap = cek + Poseidon2((eph*in_pub).x) (mod p). Field addition mirrors the
-// stream DEM; unwrap subtracts the same pad.
+// Incoming memo wrap: cek_wrap = cek + Poseidon2((eph*in_pub).x), mod p; unwrap subtracts the same pad.
 pub fn wrap_cek(cek: Field, eph: Field, in_pub: Point) -> Field {
     assert_subgroup_scalar(eph);
     let pad = BJJ::new(eph).derive_shared_key(in_pub);
     cek + Poseidon2::hash([pad], 1)
 }
 
-// Recipient unwrap from in_key + on-chain eph_pub (no eph): ECDH symmetry makes (in_key*eph_pub).x
-// equal (eph*in_pub).x, so the recovered pad matches wrap_cek's and returns the original cek.
+// ECDH symmetry: (in_key*eph_pub).x == (eph*in_pub).x, so the recipient recovers wrap_cek's pad from
+// in_key + on-chain eph_pub without eph.
 pub fn unwrap_cek(cek_wrap: Field, in_key: Field, eph_pub: Point) -> Field {
     assert_subgroup_scalar(in_key);
     let pad = BJJ::new(in_key).derive_shared_key(eph_pub);

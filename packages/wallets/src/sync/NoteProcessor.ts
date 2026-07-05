@@ -2,18 +2,11 @@ import { Point } from "@zk-kit/baby-jubjub";
 import { Fr } from "@aztec/foundation/fields";
 import { WalletNote } from "../state/types.js";
 import { IKeyRepository } from "../repositories.js";
-import {
-  unpackNotePlaintext,
-  unpackCiphertext,
-  aes128Decrypt,
-  kdfToAesKeyIV,
-  deriveSharedSecret,
-  recipientDecrypt3Party,
-  deriveNullifier,
-  toFr,
-  PaddingError,
-  NotePlaintext,
-} from "../crypto/index.js";
+import { toFr } from "../crypto/fields.js";
+import { demDecrypt } from "../crypto/dem.js";
+import { deriveCek, unwrapCek } from "../crypto/kem.js";
+import { computeNullifier, computePsi } from "../note/nullifier.js";
+import { leaf as computeLeaf, NoteV2 } from "../note/noteV2.js";
 import { UnprocessedEvent } from "./types.js";
 
 export class NoteProcessor {
@@ -25,7 +18,8 @@ export class NoteProcessor {
   public async process(event: UnprocessedEvent): Promise<WalletNote | null> {
     if (event.type === "NEW_NOTE") {
       return this.processNewNote(event);
-    } else if (event.type === "NEW_MEMO") {
+    }
+    if (event.type === "NEW_MEMO") {
       return this.processMemo(event);
     }
     return null;
@@ -35,39 +29,24 @@ export class NoteProcessor {
     event: UnprocessedEvent,
   ): Promise<WalletNote | null> {
     try {
-      const { epkX, epkY, packedCiphertext } = event.args;
-      const match = this.keyRepository.tryMatchDeposit(epkX, epkY);
+      const match = this.keyRepository.matchSelfTag(event.args.ephemeralX);
       if (!match) return null;
 
-      const packed = packedCiphertext.map((h) => toFr(h));
-      const ciphertext = unpackCiphertext(packed);
-      const sharedSecret = await deriveSharedSecret(
-        match.key,
-        this.compliancePk,
-      );
-      const { key, iv } = await kdfToAesKeyIV(sharedSecret);
-      const plaintext = await aes128Decrypt(ciphertext, key, iv);
-      const note = unpackNotePlaintext(plaintext);
+      const cek = deriveCek(match.eph, this.compliancePk);
       const commitment = toFr(event.args.commitment);
       const leafIndex = Number(event.args.leafIndex);
-      const nk = await this.keyRepository.getNullifyingKey();
-      const nullifier = await deriveNullifier(nk, commitment, leafIndex);
-
-      return {
-        note,
+      const walletNote = await this.recover(
+        cek,
+        event.args.packedCiphertext,
         commitment,
         leafIndex,
-        nullifier,
-        spendingSecret: sharedSecret,
-        isTransfer: false,
-        derivationIndex: match.index,
-        spent: false,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "unknown error";
-      console.warn(
-        `[NoteProcessor] processNewNote failed (block=${event.blockNumber}, leaf=${event.args.leafIndex}): ${msg}`,
+        await this.keyRepository.getSelfSpendScalar(),
+        false,
+        match.index,
       );
+      return walletNote;
+    } catch (err) {
+      this.warn("processNewNote", event, err);
       return null;
     }
   }
@@ -76,61 +55,78 @@ export class NoteProcessor {
     event: UnprocessedEvent,
   ): Promise<WalletNote | null> {
     try {
-      const { intermediateBobX, intermediateBobY, packedCiphertext } =
-        event.args;
-      if (!intermediateBobX || !intermediateBobY) return null;
+      const { tag, cekWrap, ephemeralX, ephemeralY } = event.args;
+      if (tag === undefined || cekWrap === undefined) return null;
 
-      const intPoint: Point<bigint> = [
-        BigInt(intermediateBobX),
-        BigInt(intermediateBobY),
-      ];
-      const packed = packedCiphertext.map((h) => toFr(h));
-      const ciphertext = unpackCiphertext(packed);
+      const match = this.keyRepository.matchIncomingTag(tag);
+      if (!match) return null;
 
-      // No static tag: recover S_point = ivk * int_bob for each candidate ivk and trial-decrypt. A wrong
-      // ivk yields a garbage AES key whose PKCS#7 padding fails (~2^-128 false-accept), so the first
-      // candidate that decrypts cleanly owns the note.
-      let decrypted: { note: NotePlaintext; sharedSecret: Fr } | null = null;
-      let matchIndex = -1;
-      for (const cand of this.keyRepository.getIncomingCandidates()) {
-        try {
-          decrypted = await recipientDecrypt3Party(
-            cand.key,
-            intPoint,
-            ciphertext,
-          );
-          matchIndex = cand.index;
-          break;
-        } catch (e) {
-          if (e instanceof PaddingError) continue;
-          throw e;
-        }
-      }
-      if (!decrypted) return null;
-
-      this.keyRepository.recordIncomingMatch(matchIndex);
-
+      const ephPub: Point<bigint> = [ephemeralX, ephemeralY];
+      const cek = await unwrapCek(new Fr(cekWrap), match.inKey, ephPub);
       const commitment = toFr(event.args.commitment);
-      const index = event.args.leafIndex;
-      const nk = await this.keyRepository.getNullifyingKey();
-      const nullifier = await deriveNullifier(nk, commitment, Number(index));
-
-      return {
-        note: decrypted.note,
+      const leafIndex = Number(event.args.leafIndex);
+      const walletNote = await this.recover(
+        cek,
+        event.args.packedCiphertext,
         commitment,
-        leafIndex: Number(index),
-        nullifier,
-        spendingSecret: decrypted.sharedSecret,
-        isTransfer: true,
-        derivationIndex: matchIndex,
-        spent: false,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "unknown error";
-      console.warn(
-        `[NoteProcessor] processMemo failed (block=${event.blockNumber}, leaf=${event.args.leafIndex}): ${msg}`,
+        leafIndex,
+        match.inKey,
+        true,
+        match.index,
       );
+      if (walletNote) this.keyRepository.recordIncomingMatch(match.index);
+      return walletNote;
+    } catch (err) {
+      this.warn("processMemo", event, err);
       return null;
     }
+  }
+
+  private async recover(
+    cek: Fr,
+    packedCiphertext: string[],
+    commitment: Fr,
+    leafIndex: number,
+    spendScalar: Fr,
+    isIncoming: boolean,
+    derivationIndex: number,
+  ): Promise<WalletNote | null> {
+    const ciphertext = packedCiphertext.map((h) => toFr(h));
+    const plaintext = await demDecrypt(cek, ciphertext);
+    const psi = await computePsi(cek);
+
+    const note: NoteV2 = {
+      noteVersion: plaintext[0],
+      assetId: plaintext[1],
+      noteType: plaintext[2],
+      conditionsHash: plaintext[3],
+      value: plaintext[4].toBigInt(),
+      owner: plaintext[5],
+      psi,
+      parents: plaintext[6],
+    };
+
+    // A tag collision or a corrupt event only yields a matching leaf for the true owner's note.
+    const rebuilt = await computeLeaf(note);
+    if (!rebuilt.equals(commitment)) return null;
+
+    const nullifier = await computeNullifier(psi, new Fr(BigInt(leafIndex)));
+    return {
+      note,
+      commitment,
+      leafIndex,
+      nullifier,
+      spendScalar,
+      isIncoming,
+      derivationIndex,
+      spent: false,
+    };
+  }
+
+  private warn(where: string, event: UnprocessedEvent, err: unknown): void {
+    const msg = err instanceof Error ? err.message : "unknown error";
+    console.warn(
+      `[NoteProcessor] ${where} failed (block=${event.blockNumber}, leaf=${event.args.leafIndex}): ${msg}`,
+    );
   }
 }

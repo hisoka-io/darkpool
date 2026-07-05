@@ -27,17 +27,13 @@ import {
 } from "@hisoka/wallets";
 import { proveDeposit, proveGasPayment, proveSplit } from "@hisoka/prover";
 
-// ============================================================================
-// Configuration
-// ============================================================================
-
 const SEED = process.env["SEED"] || "https://api.hisoka.io/seed";
 const PRIVATE_KEY =
   process.env["PRIVATE_KEY"] ||
   "3e8a4387dce9ecce4d3dabf84e8d3883074a4756ae369906175e8ca40f52af68";
 const ARB_RPC = "https://sepolia-rollup.arbitrum.io/rpc";
 
-// Live contracts (Arbitrum Sepolia, 2026-04-03)
+// Live contracts (Arbitrum Sepolia)
 const DARKPOOL = "0x7A3B2A44559A4b66cCA2E207cd8aDE5b23BE6b7B";
 const TOKEN = "0x208be235AAB9b8b5d86285b2684c8e6743e662b5";
 const MULTICALL = "0xe626Cfc690408Cc6d4b5eE202dDE1C411223e6AE";
@@ -72,9 +68,6 @@ const ERC20_ABI = [
 const log = (msg: string) =>
   console.log(`[${new Date().toISOString().slice(11, 23)}] ${msg}`);
 
-// ============================================================================
-// Helpers
-// ============================================================================
 
 interface DepositedNote {
   note: NotePlaintext;
@@ -144,9 +137,6 @@ function parseNewNoteEvent(receipt: ethers.TransactionReceipt): {
   throw new Error("NewNote event not found in receipt");
 }
 
-// ============================================================================
-// Main
-// ============================================================================
 
 async function main() {
   log("╔═══════════════════════════════════════════════════════╗");
@@ -160,7 +150,6 @@ async function main() {
   const balance = await provider.getBalance(signer.address);
   log(`ETH: ${ethers.formatEther(balance)}`);
 
-  // Connect to mixnet
   log("\nConnecting to NOX mixnet...");
   const client = await NoxClient.connect({
     seeds: [SEED + "/topology"],
@@ -171,7 +160,6 @@ async function main() {
   });
   log("Connected to mixnet!");
 
-  // Ensure token balance
   const token = new ethers.Contract(TOKEN, ERC20_ABI, signer);
   let tokenBal = await token.balanceOf(signer.address);
   if (tokenBal < ethers.parseEther("1000")) {
@@ -183,11 +171,9 @@ async function main() {
   }
   log(`NOX-STK: ${ethers.formatEther(tokenBal)}`);
 
-  // Approve DarkPool
   await (await token.approve(DARKPOOL, ethers.MaxUint256)).wait();
   log("DarkPool approved for token spending");
 
-  // Create dark account from signature
   const sig = await signer.signMessage("hisoka.darkpool.account.v1");
   const account = await DarkAccount.fromSignature(sig);
   const keyRepo = new KeyRepository(account, COMPLIANCE_PK);
@@ -197,9 +183,6 @@ async function main() {
   const nk = await keyRepo.getNullifyingKey();
   const owner = await computeOwner(await account.getPublicSpendKey());
 
-  // ========================================================================
-  // PHASE 1: Deposits (user signs, broadcasts via mixnet)
-  // ========================================================================
 
   log("\n╔═══════════════════════════════════════════════════════╗");
   log("║  PHASE 1: DEPOSITS (broadcast via mixnet)            ║");
@@ -291,10 +274,6 @@ async function main() {
     `\nPhase 1 complete: ${depositedNotes.length} notes deposited on-chain via mixnet`,
   );
 
-  // ========================================================================
-  // PHASE 2: Split via paid multicall (exit node submits, earns revenue)
-  // ========================================================================
-
   log("\n╔═══════════════════════════════════════════════════════╗");
   log("║  PHASE 2: SPLIT (gas-paid via mixnet -- exit earns)  ║");
   log("╚═══════════════════════════════════════════════════════╝\n");
@@ -302,7 +281,6 @@ async function main() {
   const actionNote = depositedNotes[0]!;
   const gasPaymentNote = depositedNotes[1]!;
 
-  // Get Merkle root and paths from on-chain
   const merkleRoot = await darkPool.getCurrentRoot();
   log(`Merkle root: ${merkleRoot.toString().slice(0, 18)}...`);
 
@@ -311,7 +289,6 @@ async function main() {
   log(`Action note path: leaf=${actionNote.leafIndex}`);
   log(`Gas note path: leaf=${gasPaymentNote.leafIndex}`);
 
-  // Derive shared secrets for note spending
   const actionSecret = await deriveSharedSecret(
     actionNote.ephemeralSk,
     COMPLIANCE_PK,
@@ -361,7 +338,6 @@ async function main() {
   });
   log(`Split proof generated in ${Date.now() - t1}ms`);
 
-  // Build gas payment proof
   const splitCalldata = iface.encodeFunctionData("split", [
     ethers.hexlify(splitProof.proof),
     splitProof.publicInputs.map((v: string) => ethers.zeroPadValue(v, 32)),
@@ -382,7 +358,6 @@ async function main() {
     hashlock: toFr(0n),
   };
 
-  // Pick a random exit node as relayer address
   const topology = await fetch(SEED + "/topology").then((r) => r.json());
   const exitNodes = topology.nodes.filter((n: any) => n.role === 2);
   const relayer = exitNodes[Math.floor(Math.random() * exitNodes.length)];
@@ -409,7 +384,6 @@ async function main() {
   });
   log(`Gas payment proof generated in ${Date.now() - t2}ms`);
 
-  // Encode multicall: [payRelayer, split]
   const payRelayerCalldata = iface.encodeFunctionData("payRelayer", [
     ethers.hexlify(gasProof.proof),
     gasProof.publicInputs.map((v: string) => ethers.zeroPadValue(v, 32)),
@@ -462,9 +436,6 @@ async function main() {
     `Exit node earned gas payment of ${ethers.formatEther(gasPaymentFee)} NOX-STK`,
   );
 
-  // ========================================================================
-  // Summary
-  // ========================================================================
 
   log("\n╔═══════════════════════════════════════════════════════╗");
   log("║  SUMMARY                                             ║");

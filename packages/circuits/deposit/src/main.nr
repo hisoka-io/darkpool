@@ -1,84 +1,77 @@
 use ::ecdh::Point;
-use ::shared::{encrypt_note_for_compliance, Note};
+use ::shared::mint;
+use ::shared::note_v2::Note;
 
+// Deposit is a pure self-mint: value and asset are public (the contract moves the ERC20 in the clear), the
+// leaf commits the plaintext note, and eph_pub.x is the self discovery tag.
 fn main(
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
-    note_plaintext: Note,
-    ephemeral_sk: Field,
-) -> pub (Field, Field, Field, Field, [Field; 7]) {
-    let _: [u8; 20] = note_plaintext.asset_id.to_be_bytes();
-
-    assert(note_plaintext.owner != 0, "deposit note owner must be non-zero");
-
+    note: Note,
+    eph: Field,
+) -> pub (Field, Field, Field, Field, Field, [Field; 7]) {
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
-    let encrypted = encrypt_note_for_compliance(note_plaintext, ephemeral_sk, compliance_pk);
+    mint::assert_valid_compliance_pk(compliance_pk);
+
+    let minted = mint::mint_self_note(note, eph, compliance_pk);
 
     (
-        encrypted.epk_x, encrypted.epk_y, note_plaintext.value as Field, note_plaintext.asset_id,
-        encrypted.ciphertext,
+        minted.leaf, minted.eph_pub.x, minted.eph_pub.y, note.value as Field, note.asset_id,
+        minted.ciphertext,
     )
 }
 
-#[test]
-fn test_deposit_compile_check() {
-    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
-
-    let note_plaintext = Note {
-        asset_id: 0x0000000000000000000000000d500b1d8e8ef31e21c99d1db9a6444d3adf1270,
+fn fixture_note() -> Note {
+    Note {
+        note_version: 1,
+        asset_id: 0x1234567890123456789012345678901234567890,
+        note_type: 0,
+        conditions_hash: 0,
         value: 100,
-        secret: 0x000000000000000000000000000000000000000000000000000000000000007b,
-        owner: 0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27,
-        timelock: 0x0000000000000000000000000000000000000000000000000000000000000000,
-        hashlock: 0x0000000000000000000000000000000000000000000000000000000000000000,
-    };
-    let ephemeral_sk = 0x0178e49f6c3773df9ae9f433b0cdabc9473c85156d10d8017ad0cdbb6b27aae0;
-
-    let exp_epk_x = 0x03cd3c013a82b3e9a5e460e7eedd6594365577b3e68803bf77642ee29bb6aaa1;
-    let exp_epk_y = 0x157fea669cb4e5f724d8722bab1c14d709de22ceb136f511919b8ec8c5b868cf;
-    let exp_ct = [
-        0x00a1c5a084acf0b2e26482562982f71a1f667126aa0cdb52a3b8a892ee4545ef,
-        0x00b70c58836e817de954b7150fa6513354d5a2c3b1625154659dd61d7c68c883,
-        0x007c7b240dc5610519f96d3a11c7f36be54d767c21f87bfc48b8844ea7ec42a6,
-        0x005be05492bb08891f33e559fbcb87ea2be82d7b1eb7594cb8c6ebfd0398eb9a,
-        0x00666b4537ecf60310c2a84cfce9327b96b616c964015e8e42131521b027c5f1,
-        0x00f3fdcb556420f34f2c8fb6ed026ca73c5167dc478acb890a41feb0f5efa6a6,
-        0x000000000000000000003ebc0d93f1910b1703f31b332f31aba20a816671da8f,
-    ];
-
-    let (epk_x, epk_y, val, _, packed_ct) = main(
-        compliance_pubkey_x,
-        compliance_pubkey_y,
-        note_plaintext,
-        ephemeral_sk,
-    );
-
-    assert(epk_x == exp_epk_x);
-    assert(epk_y == exp_epk_y);
-    assert(val == note_plaintext.value as Field);
-    assert(packed_ct == exp_ct);
+        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
+        psi: 0x0981a88f9e119b057498a4ab99ed5379a1ea91c642454fc0c07aacc1f5cd5731,
+        parents: 0,
+    }
 }
 
-#[test(should_fail_with = "deposit note owner must be non-zero")]
+// KAT: byte-identical to the TS/Solidity golden vector (sandbox gen_v2_fixtures, eph=5).
+#[test]
+fn test_deposit_kat() {
+    let (leaf, epk_x, epk_y, value, asset, ct) = main(
+        0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111,
+        0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8,
+        fixture_note(),
+        5,
+    );
+    assert(leaf == 0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551);
+    assert(epk_x == 0x1961ff2315812fd2f3e459a258f5ded2dde68cd35c79c8b9fb443e1860e1fbe4);
+    assert(epk_y == 0x217d990737cc33efe8db5485973124fdd98c866783f0d81ffccfffe7102a9c6a);
+    assert(value == 100);
+    assert(asset == 0x1234567890123456789012345678901234567890);
+    assert(ct[0] == 0x13e12fd48ec5eefe22cea1ccf4f29e16f8883011140afbe24dfe35a049b34f1d);
+    assert(ct[6] == 0x0f0c848a687a5d761bda9b0043218db11eddbbdab55c4bec7d5dae04c89182cb);
+}
+
+#[test(should_fail_with = "note owner must be non-zero")]
 fn audit_reject_zero_owner() {
-    let compliance_pubkey_x = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-    let compliance_pubkey_y = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
-
-    let note_plaintext = Note {
-        asset_id: 0x0000000000000000000000000d500b1d8e8ef31e21c99d1db9a6444d3adf1270,
-        value: 100,
-        secret: 0x000000000000000000000000000000000000000000000000000000000000007b,
-        owner: 0,
-        timelock: 0,
-        hashlock: 0,
-    };
-    let ephemeral_sk = 0x0178e49f6c3773df9ae9f433b0cdabc9473c85156d10d8017ad0cdbb6b27aae0;
-
+    let mut note = fixture_note();
+    note.owner = 0;
     let _ = main(
-        compliance_pubkey_x,
-        compliance_pubkey_y,
-        note_plaintext,
-        ephemeral_sk,
+        0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111,
+        0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8,
+        note,
+        5,
+    );
+}
+
+#[test(should_fail_with = "psi not bound to CEK")]
+fn audit_reject_unbound_psi() {
+    let mut note = fixture_note();
+    note.psi = note.psi + 1;
+    let _ = main(
+        0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111,
+        0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8,
+        note,
+        5,
     );
 }

@@ -1,31 +1,44 @@
 import { Fr } from "@aztec/foundation/fields";
+import { Point } from "@zk-kit/baby-jubjub";
 import { WalletNote } from "./state/types.js";
 
 export interface KeyRepoState {
-  nextEphemeralNonce: number;
-  ephemeralIndex: number;
-  incomingIndex: number;
-  highestMatchedEphemeral: number;
+  // Persist BEFORE mint: a rolled-back self-eph index reuses eph/CEK/psi/tag (two-time-pad + clustering).
+  selfMintCounter: number;
+  selfScanIndex: number;
+  incomingIssueCounter: number;
+  incomingScanIndex: number;
+  highestMatchedSelf: number;
   highestMatchedIncoming: number;
 }
 
+export interface SelfEphemeral {
+  eph: Fr;
+  ephPub: Point<bigint>;
+  index: number;
+}
+
+export interface IncomingAddress {
+  inKey: Fr;
+  inPub: Point<bigint>;
+  index: number;
+}
+
 export interface IKeyRepository {
-  readonly ephemeralIndex: number;
-  readonly incomingIndex: number;
+  readonly selfScanIndex: number;
+  readonly incomingScanIndex: number;
 
-  getNullifyingKey(): Promise<Fr>;
-  nextEphemeralParams(): Promise<{ sk: Fr; nonce: Fr }>;
-  advanceEphemeralKeys(count?: number): Promise<void>;
-  advanceIncomingKeys(count?: number): Promise<void>;
+  nextSelfEphemeral(): Promise<SelfEphemeral>;
+  nextIncomingAddress(): Promise<IncomingAddress>;
 
-  ensureEphemeralLookahead(window: number): Promise<boolean>;
+  getSelfSpendScalar(): Promise<Fr>;
+  getSelfSpendPub(): Promise<Point<bigint>>;
+
+  ensureSelfLookahead(window: number): Promise<boolean>;
   ensureIncomingLookahead(window: number): Promise<boolean>;
 
-  tryMatchDeposit(
-    epkX: bigint | string,
-    epkY: bigint | string,
-  ): { key: Fr; index: number } | null;
-  getIncomingCandidates(): { key: bigint; index: number }[];
+  matchSelfTag(tag: bigint | string): { eph: Fr; index: number } | null;
+  matchIncomingTag(tag: bigint | string): { inKey: Fr; index: number } | null;
   recordIncomingMatch(index: number): void;
 
   getState(): KeyRepoState;

@@ -10,11 +10,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 /**
  * @title NoxRegistry
  * @author Hisoka Protocol
- * @notice The "Phonebook" for the NOX Mixnet.
- * @dev V0 Features:
- *      - Sybil resistance via Staking (Community).
- *      - Bootstrapping via Admin Whitelist (Privileged).
- *      - Admin "God Mode" to remove bad actors during Beta.
+ * @notice The "Phonebook" for the NOX Mixnet: staked community relayers plus an admin whitelist
+ *         for bootstrap, with admin removal of bad actors.
  */
 contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
@@ -62,11 +59,10 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
 
     mapping(address => RelayerProfile) public relayers;
 
-    /// @notice Node role for each registered relayer (1=Relay, 2=Exit, 3=Full).
-    /// @dev Unset (0) treated as Full for backward compatibility.
+    /// @notice Node role for each registered relayer (1=Relay, 2=Exit, 3=Full); unset (0) reads as Full.
     mapping(address => uint8) public nodeRoles;
 
-    /// @notice Enforces sphinxKey uniqueness - prevents two nodes from sharing a key.
+    /// @notice sphinxKey -> owner, enforcing key uniqueness across nodes.
     mapping(bytes32 => address) public sphinxKeyOwner;
 
     event RelayerRegistered(
@@ -154,11 +150,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         // XOR identity: empty set = bytes32(0). No genesis hash needed.
     }
 
-    /**
-     * @dev XOR a node's identity hash into the topology fingerprint.
-     *      Self-inverse: XOR to add, XOR again to remove.
-     *      fingerprint = XOR(keccak256(abi.encodePacked(addr)) for each registered addr)
-     */
+    /// @dev Self-inverse: XOR to add a node, XOR again to remove it.
     function _xorAddressIntoFingerprint(address nodeAddress) private {
         bytes32 prevFingerprint = topologyFingerprint;
         topologyFingerprint =
@@ -167,8 +159,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         emit TopologyFingerprintUpdated(topologyFingerprint, prevFingerprint);
     }
 
-    /// @dev Full deregistration: clears the profile, key ownership, role, and the fingerprint term.
-    ///      Stake handling (return vs burn) is the caller's responsibility.
+    /// @dev Clears all node state; stake handling (return vs burn) is the caller's responsibility.
     function _removeRelayer(address _relayer, bytes32 _sphinxKey) private {
         delete sphinxKeyOwner[_sphinxKey];
         delete relayers[_relayer];
@@ -177,7 +168,6 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         _xorAddressIntoFingerprint(_relayer);
     }
 
-    // Community registration (staked)
     function register(
         bytes32 _sphinxKey,
         string calldata _url,
@@ -224,9 +214,8 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice Bootstrap the network with trusted nodes (No stake required).
-     * @dev BETA: Privileged relayers have no stake and cannot be financially slashed.
-     *      Use forceUnregister() to remove misbehaving privileged nodes.
+     * @notice Bootstrap the network with trusted nodes (no stake required).
+     * @dev Zero-stake nodes cannot be financially slashed; remove them with forceUnregister().
      */
     function registerPrivileged(
         address _relayer,
@@ -249,7 +238,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
             url: _url,
             ingressUrl: _ingressUrl,
             metadataUrl: _metadataUrl,
-            stakedAmount: 0, // Trusted
+            stakedAmount: 0,
             unlockTime: 0,
             isRegistered: true,
             status: RelayerStatus.Registered,
@@ -433,9 +422,8 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice Topology Cleanup.
-     * NOTE: Any remaining stake is RETURNED to the owner to prevent locking.
-     * If you want to burn it, call `slash()` *before* `forceUnregister()`.
+     * @notice Admin removal of a node; remaining stake is returned to the owner (call `slash()`
+     *         first to burn it instead).
      */
     function forceUnregister(
         address _relayer
@@ -466,8 +454,7 @@ contract NoxRegistry is AccessControl, ReentrancyGuard, Pausable {
         return relayers[_relayer].isRegistered;
     }
 
-    /// @notice Get the node role for a registered relayer.
-    /// @dev Returns ROLE_FULL (3) for unset values (backward compatibility).
+    /// @notice Node role for a registered relayer; unset (0) reads as ROLE_FULL.
     function getNodeRole(address _relayer) external view returns (uint8) {
         uint8 role = nodeRoles[_relayer];
         return role == 0 ? ROLE_FULL : role;

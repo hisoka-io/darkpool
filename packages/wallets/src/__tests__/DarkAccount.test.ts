@@ -4,48 +4,54 @@ import { Wallet } from "ethers";
 import { Base8, mulPointEscalar, subOrder } from "@zk-kit/baby-jubjub";
 import { DarkAccount } from "../keys/DarkAccount";
 import { Kdf } from "../crypto/Kdf";
+import { isEvenY } from "../note/keys";
 
-describe("DarkAccount", () => {
-  const testMnemonic =
-    "test test test test test test test test test test test junk";
-  const testMessage = "Hisoka Dark Account Setup";
+const MNEMONIC = "test test test test test test test test test test test junk";
+const MESSAGE = "Hisoka Dark Account Setup";
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+describe("DarkAccount (Option A)", () => {
+  afterEach(() => vi.restoreAllMocks());
 
-  describe("Core Key Derivation", () => {
-    it("should create an account deterministically from a mnemonic", async () => {
-      const account1 = await DarkAccount.fromMnemonic(testMnemonic);
-      const account2 = await DarkAccount.fromMnemonic(testMnemonic);
-      const sk1 = await account1.getSpendKey();
-      const sk2 = await account2.getSpendKey();
-      expect(sk1.equals(sk2)).toBe(true);
+  describe("root derivation", () => {
+    it("derives one account deterministically from a mnemonic", async () => {
+      const a = await DarkAccount.fromMnemonic(MNEMONIC);
+      const b = await DarkAccount.fromMnemonic(MNEMONIC);
+      expect((await a.getViewKey()).equals(await b.getViewKey())).toBe(true);
     });
 
-    it("derives the identical account from case and whitespace variants of one mnemonic", async () => {
-      const canonical = await DarkAccount.fromMnemonic(testMnemonic);
-      const expected = await canonical.getSpendKey();
-
-      // ethers accepts these non-canonical renderings and canonicalizes them, but their raw strings
-      // differ; seeding from the raw input would silently derive divergent accounts.
+    it("collapses case and whitespace variants of one mnemonic to one account", async () => {
+      const canonical = await (await DarkAccount.fromMnemonic(MNEMONIC)).getViewKey();
       const variants = [
-        testMnemonic.toUpperCase(),
+        MNEMONIC.toUpperCase(),
         "Test test test test test test test test test test test junk",
-        testMnemonic.replace(/ /g, "  "),
+        MNEMONIC.replace(/ /g, "  "),
       ];
       for (const variant of variants) {
-        const account = await DarkAccount.fromMnemonic(variant);
-        const sk = await account.getSpendKey();
-        expect(sk.equals(expected)).toBe(true);
+        const view = await (await DarkAccount.fromMnemonic(variant)).getViewKey();
+        expect(view.equals(canonical)).toBe(true);
       }
     });
 
-    it("refuses to serialize or print key material", async () => {
-      const account = await DarkAccount.fromMnemonic(testMnemonic);
-      await account.getSpendKey();
+    it("derives one account deterministically from a signature", async () => {
+      const eoa = Wallet.createRandom();
+      const signature = await eoa.signMessage(MESSAGE);
+      const a = await DarkAccount.fromSignature(signature);
+      const b = await DarkAccount.fromSignature(signature);
+      expect((await a.getViewKey()).equals(await b.getViewKey())).toBe(true);
+    });
+
+    it("rejects an invalid mnemonic", async () => {
+      await expect(
+        DarkAccount.fromMnemonic("not a valid mnemonic phrase at all"),
+      ).rejects.toThrow(/mnemonic/i);
+    });
+  });
+
+  describe("key-material redaction", () => {
+    it("refuses JSON serialization and redacts on inspect", async () => {
+      const account = await DarkAccount.fromMnemonic(MNEMONIC);
       await account.getViewKey();
-      await account.getNullifyingKey();
+      await account.getSelfSpendKey();
 
       expect(() => JSON.stringify(account)).toThrow();
 
@@ -53,107 +59,89 @@ describe("DarkAccount", () => {
       expect(printed).toContain("redacted");
       expect(printed).not.toMatch(/[0-9a-f]{16}/i);
     });
+  });
 
-    it("should create an account deterministically from a signature", async () => {
-      const eoa = Wallet.createRandom();
-      const signature = await eoa.signMessage(testMessage);
-      const account1 = await DarkAccount.fromSignature(signature);
-      const account2 = await DarkAccount.fromSignature(signature);
-      const sk1 = await account1.getSpendKey();
-      const sk2 = await account2.getSpendKey();
-      expect(sk1.equals(sk2)).toBe(true);
-    });
-
-    it("should derive sk_spend and sk_view correctly", async () => {
-      const account = await DarkAccount.fromMnemonic(testMnemonic);
-      const sk_spend = await account.getSpendKey();
-      const sk_view = await account.getViewKey();
-
-      expect(sk_spend).toBeDefined();
-      expect(sk_view).toBeDefined();
-      expect(sk_spend.equals(sk_view)).toBe(false);
-      expect(sk_spend.isZero()).toBe(false);
-    });
-
-    it("should cache master keys after the first call", async () => {
-      const account = await DarkAccount.fromMnemonic(testMnemonic);
+  describe("view-key caching", () => {
+    it("caches the view key after the first derivation", async () => {
+      const account = await DarkAccount.fromMnemonic(MNEMONIC);
       const deriveSpy = vi.spyOn(Kdf, "derive");
-
-      await account.getSpendKey();
       await account.getViewKey();
-
-      expect(deriveSpy).toHaveBeenCalledTimes(2);
-
-      // Cached: second calls must not re-derive master keys.
-      await account.getSpendKey();
       await account.getViewKey();
-      expect(deriveSpy).toHaveBeenCalledTimes(2);
+      expect(deriveSpy).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe("Optimized Viewing Key Branch", () => {
+  describe("Option A key surface", () => {
     let account: DarkAccount;
     beforeAll(async () => {
-      account = await DarkAccount.fromMnemonic(testMnemonic);
+      account = await DarkAccount.fromMnemonic(MNEMONIC);
     });
 
-    it("should derive deterministic per-transaction incoming viewing keys (ivk)", async () => {
-      const ivk1_a = await account.getIncomingViewingKey(1n);
-      const ivk1_b = await account.getIncomingViewingKey(1n);
-      const ivk2 = await account.getIncomingViewingKey(2n);
-      expect(ivk1_a.equals(ivk1_b)).toBe(true);
-      expect(ivk1_a.equals(ivk2)).toBe(false);
+    it("domain-separates view, self-spend, incoming, and self-ephemeral keys", async () => {
+      const keys = [
+        await account.getViewKey(),
+        await account.getSelfSpendKey(),
+        await account.getIncomingKey(0n),
+        await account.getSelfEphemeral(0n),
+      ];
+      const distinct = new Set(keys.map((k) => k.toString()));
+      expect(distinct.size).toBe(keys.length);
+      for (const k of keys.slice(1)) expect(k.isZero()).toBe(false);
     });
 
-    it("should derive deterministic per-transaction ephemeral outgoing keys (esk)", async () => {
-      const esk1_a = await account.getEphemeralOutgoingKey(1n);
-      const esk1_b = await account.getEphemeralOutgoingKey(1n);
-      const esk2 = await account.getEphemeralOutgoingKey(2n);
-      expect(esk1_a.equals(esk1_b)).toBe(true);
-      expect(esk1_a.equals(esk2)).toBe(false);
+    it("derives deterministic per-index incoming keys with matching public keys", async () => {
+      const in1a = await account.getIncomingKey(1n);
+      const in1b = await account.getIncomingKey(1n);
+      const in2 = await account.getIncomingKey(2n);
+      expect(in1a.equals(in1b)).toBe(true);
+      expect(in1a.equals(in2)).toBe(false);
+
+      const pub = await account.getIncomingPub(1n);
+      const expected = mulPointEscalar(Base8, in1a.toBigInt());
+      expect(pub[0]).toBe(expected[0]);
+      expect(pub[1]).toBe(expected[1]);
     });
 
-    it("should derive different ivk and esk for the same index due to different domain separators", async () => {
-      const ivk = await account.getIncomingViewingKey(123n);
-      const esk = await account.getEphemeralOutgoingKey(123n);
-      expect(ivk.equals(esk)).toBe(false);
+    it("derives deterministic per-index self ephemerals and a stable self-spend pub", async () => {
+      const e1a = await account.getSelfEphemeral(1n);
+      const e1b = await account.getSelfEphemeral(1n);
+      const e2 = await account.getSelfEphemeral(2n);
+      expect(e1a.equals(e1b)).toBe(true);
+      expect(e1a.equals(e2)).toBe(false);
+
+      const spendPub = await account.getSelfSpendPub();
+      const expected = mulPointEscalar(
+        Base8,
+        (await account.getSelfSpendKey()).toBigInt(),
+      );
+      expect(spendPub[0]).toBe(expected[0]);
+      expect(spendPub[1]).toBe(expected[1]);
     });
 
-    it("should derive a valid public Incoming Viewing Key", async () => {
-      const IVK = await account.getPublicIncomingViewingKey(1n);
-      expect(IVK).toBeDefined();
-      expect(IVK.length).toBe(2);
-      expect(typeof IVK[0]).toBe("bigint");
-    });
-
-    it("should derive a valid public Ephemeral Outgoing Key", async () => {
-      const EPK = await account.getPublicEphemeralOutgoingKey(1n);
-      expect(EPK).toBeDefined();
-      expect(EPK.length).toBe(2);
-      expect(typeof EPK[0]).toBe("bigint");
+    it("keeps every derived scalar inside the prime-order subgroup", async () => {
+      for (const i of [0n, 1n, 5n, 42n]) {
+        const inKey = (await account.getIncomingKey(i)).toBigInt();
+        const eph = (await account.getSelfEphemeral(i)).toBigInt();
+        expect(inKey).toBeGreaterThan(0n);
+        expect(inKey).toBeLessThan(subOrder);
+        expect(eph).toBeGreaterThan(0n);
+        expect(eph).toBeLessThan(subOrder);
+      }
     });
   });
 
-  describe("KH-3 invariant (scalar in sub-order, public = Base8 * scalar)", () => {
-    it("derives reduced view/ephemeral scalars consistent with their public keys", async () => {
-      const account = await DarkAccount.fromMnemonic(testMnemonic);
-      for (const i of [0n, 1n, 5n, 42n]) {
-        const ivk = (await account.getIncomingViewingKey(i)).toBigInt();
-        expect(ivk).toBeGreaterThan(0n);
-        expect(ivk).toBeLessThan(subOrder);
-        const ivkPub = await account.getPublicIncomingViewingKey(i);
-        const expIvkPub = mulPointEscalar(Base8, ivk);
-        expect(ivkPub[0]).toBe(expIvkPub[0]);
-        expect(ivkPub[1]).toBe(expIvkPub[1]);
+  describe("canonical even-y discovery tags", () => {
+    it("rolls incoming and self tags to an even-y point", async () => {
+      const account = await DarkAccount.fromMnemonic(MNEMONIC);
+      const incoming = await account.canonicalIncomingAddress(0n);
+      const self = await account.canonicalSelfTag(0n);
 
-        const esk = (await account.getEphemeralOutgoingKey(i)).toBigInt();
-        expect(esk).toBeGreaterThan(0n);
-        expect(esk).toBeLessThan(subOrder);
-        const eskPub = await account.getPublicEphemeralOutgoingKey(i);
-        const expEskPub = mulPointEscalar(Base8, esk);
-        expect(eskPub[0]).toBe(expEskPub[0]);
-        expect(eskPub[1]).toBe(expEskPub[1]);
-      }
+      expect(isEvenY(incoming.pub)).toBe(true);
+      expect(isEvenY(self.pub)).toBe(true);
+      expect(incoming.tag.toBigInt()).toBe(incoming.pub[0]);
+      expect(self.tag.toBigInt()).toBe(self.pub[0]);
+      expect(incoming.index).toBeGreaterThanOrEqual(0n);
+      expect(self.index).toBeGreaterThanOrEqual(0n);
     });
   });
 });

@@ -134,7 +134,6 @@ describe("MerkleTreeLib", function () {
         );
       }
 
-      // Remaining slots are zero
       for (let i = 8; i < leafs.length; i++) {
         expect(leafs[i]).to.equal(ethers.ZeroHash);
       }

@@ -1,68 +1,94 @@
 import { Fr } from "@aztec/foundation/fields";
-import { Point, mulPointEscalar } from "@zk-kit/baby-jubjub";
+import { Point } from "@zk-kit/baby-jubjub";
 import { DarkAccount } from "../keys/DarkAccount.js";
-import { toFr } from "../crypto/fields.js";
-import { BJJ_SUBGROUP_ORDER } from "../crypto/constants.js";
-import { IKeyRepository, KeyRepoState } from "../repositories.js";
+import { isEvenY, publicKey } from "../note/keys.js";
+import {
+  IKeyRepository,
+  IncomingAddress,
+  KeyRepoState,
+  SelfEphemeral,
+} from "../repositories.js";
 
 const DEFAULT_LOOKAHEAD_WINDOW = 20;
+// Tags are injective only for even-y points, so mint/issue roll to the next even-y index; this bound
+// only guards a non-terminating loop.
+const MAX_INDEX_ROLL = 256;
 
 export class KeyRepository implements IKeyRepository {
-  private _ephemeralIndex: number = 0;
-  private _incomingIndex: number = 0;
-  private _nextEphemeralNonce: number = 0;
-  private _highestMatchedEphemeral: number = -1;
-  private _highestMatchedIncoming: number = -1;
+  #selfMintCounter = 0;
+  #selfScanIndex = 0;
+  #incomingIssueCounter = 0;
+  #incomingScanIndex = 0;
+  #highestMatchedSelf = -1;
+  #highestMatchedIncoming = -1;
 
-  private ephemeralKeyMap: Map<string, { key: Fr; index: number }> = new Map();
-  private recipientKeyMap: Map<string, { key: bigint; index: number }> =
-    new Map();
+  #selfMap = new Map<string, { eph: Fr; index: number }>();
+  #incomingMap = new Map<string, { inKey: Fr; index: number }>();
 
-  constructor(
-    private readonly account: DarkAccount,
-    private readonly compliancePk: Point<bigint>,
-  ) {}
+  // Serializes the durable counters so two concurrent mints/issues can never reserve the same index.
+  #lock: Promise<unknown> = Promise.resolve();
 
-  public get ephemeralIndex(): number {
-    return this._ephemeralIndex;
+  constructor(private readonly account: DarkAccount) {}
+
+  public get selfScanIndex(): number {
+    return this.#selfScanIndex;
   }
-  public get incomingIndex(): number {
-    return this._incomingIndex;
-  }
-
-  public async getNullifyingKey(): Promise<Fr> {
-    return this.account.getNullifyingKey();
+  public get incomingScanIndex(): number {
+    return this.#incomingScanIndex;
   }
 
-  public async nextEphemeralParams(): Promise<{ sk: Fr; nonce: Fr }> {
-    const idx = this._nextEphemeralNonce++;
-    const nonce = toFr(idx);
-    const sk = await this.account.getEphemeralOutgoingKey(BigInt(idx));
-    const skMod = toFr(sk.toBigInt() % BJJ_SUBGROUP_ORDER);
-    await this.registerEphemeralKey(idx);
-    return { sk: skMod, nonce };
+  public getSelfSpendScalar(): Promise<Fr> {
+    return this.account.getSelfSpendKey();
+  }
+  public getSelfSpendPub(): Promise<Point<bigint>> {
+    return this.account.getSelfSpendPub();
   }
 
-  public async advanceEphemeralKeys(count: number = 1): Promise<void> {
-    for (let i = 0; i < count; i++) {
-      await this.registerEphemeralKey(this._ephemeralIndex++);
-    }
+  public nextSelfEphemeral(): Promise<SelfEphemeral> {
+    return this.#withLock(async () => {
+      const start = this.#selfMintCounter;
+      for (let index = start; index < start + MAX_INDEX_ROLL; index++) {
+        const eph = await this.account.getSelfEphemeral(BigInt(index));
+        const ephPub = publicKey(eph);
+        if (!isEvenY(ephPub)) continue;
+        this.#selfMintCounter = index + 1;
+        this.#selfMap.set(tagKey(ephPub[0]), { eph, index });
+        if (this.#selfScanIndex < index + 1) this.#selfScanIndex = index + 1;
+        return { eph, ephPub, index };
+      }
+      throw new Error(
+        `no even-y self ephemeral within ${MAX_INDEX_ROLL} indices from ${start}`,
+      );
+    });
   }
 
-  public async advanceIncomingKeys(count: number = 1): Promise<void> {
-    for (let i = 0; i < count; i++) {
-      await this.registerIncomingKey(this._incomingIndex++);
-    }
+  public nextIncomingAddress(): Promise<IncomingAddress> {
+    return this.#withLock(async () => {
+      const start = this.#incomingIssueCounter;
+      for (let index = start; index < start + MAX_INDEX_ROLL; index++) {
+        const inKey = await this.account.getIncomingKey(BigInt(index));
+        const inPub = publicKey(inKey);
+        if (!isEvenY(inPub)) continue;
+        this.#incomingIssueCounter = index + 1;
+        this.#incomingMap.set(tagKey(inPub[0]), { inKey, index });
+        if (this.#incomingScanIndex < index + 1)
+          this.#incomingScanIndex = index + 1;
+        return { inKey, inPub, index };
+      }
+      throw new Error(
+        `no even-y incoming address within ${MAX_INDEX_ROLL} indices from ${start}`,
+      );
+    });
   }
 
-  public async ensureEphemeralLookahead(window: number): Promise<boolean> {
+  public async ensureSelfLookahead(window: number): Promise<boolean> {
     const target = Math.max(
-      this._ephemeralIndex,
-      this._highestMatchedEphemeral + 1 + window,
+      this.#selfScanIndex,
+      this.#highestMatchedSelf + 1 + window,
     );
     let advanced = false;
-    while (this._ephemeralIndex < target) {
-      await this.registerEphemeralKey(this._ephemeralIndex++);
+    while (this.#selfScanIndex < target) {
+      await this.#registerSelf(this.#selfScanIndex++);
       advanced = true;
     }
     return advanced;
@@ -70,102 +96,112 @@ export class KeyRepository implements IKeyRepository {
 
   public async ensureIncomingLookahead(window: number): Promise<boolean> {
     const target = Math.max(
-      this._incomingIndex,
-      this._highestMatchedIncoming + 1 + window,
+      this.#incomingScanIndex,
+      this.#highestMatchedIncoming + 1 + window,
     );
     let advanced = false;
-    while (this._incomingIndex < target) {
-      await this.registerIncomingKey(this._incomingIndex++);
+    while (this.#incomingScanIndex < target) {
+      await this.#registerIncoming(this.#incomingScanIndex++);
       advanced = true;
     }
     return advanced;
   }
 
-  private async registerEphemeralKey(index: number): Promise<void> {
-    const idxBi = BigInt(index);
-    const ephPk = await this.account.getPublicEphemeralOutgoingKey(idxBi);
-    const lookupKey = this.formatPointKey(ephPk);
-
-    if (!this.ephemeralKeyMap.has(lookupKey)) {
-      const ephSk = await this.account.getEphemeralOutgoingKey(idxBi);
-      const ephSkMod = toFr(ephSk.toBigInt() % BJJ_SUBGROUP_ORDER);
-      this.ephemeralKeyMap.set(lookupKey, { key: ephSkMod, index });
-    }
-  }
-
-  private async registerIncomingKey(index: number): Promise<void> {
-    const idxBi = BigInt(index);
-    const recipientSk = await this.account.getIncomingViewingKey(idxBi);
-    const recipientSkMod = recipientSk.toBigInt() % BJJ_SUBGROUP_ORDER;
-    const P = mulPointEscalar(this.compliancePk, recipientSkMod);
-    const tagKey = toFr(P[0]).toString();
-
-    if (!this.recipientKeyMap.has(tagKey)) {
-      this.recipientKeyMap.set(tagKey, { key: recipientSkMod, index });
-    }
-  }
-
-  public tryMatchDeposit(
-    epkX: bigint | string,
-    epkY: bigint | string,
-  ): { key: Fr; index: number } | null {
-    const key = this.formatPointKey([BigInt(epkX), BigInt(epkY)]);
-    const match = this.ephemeralKeyMap.get(key) || null;
-    if (match && match.index > this._highestMatchedEphemeral) {
-      this._highestMatchedEphemeral = match.index;
+  public matchSelfTag(tag: bigint | string): { eph: Fr; index: number } | null {
+    const match = this.#selfMap.get(tagKey(BigInt(tag))) ?? null;
+    if (match && match.index > this.#highestMatchedSelf) {
+      this.#highestMatchedSelf = match.index;
     }
     return match;
   }
 
-  // No static on-chain tag remains; the recipient trial-decrypts every memo against each incoming ivk.
-  public getIncomingCandidates(): { key: bigint; index: number }[] {
-    return Array.from(this.recipientKeyMap.values());
+  public matchIncomingTag(
+    tag: bigint | string,
+  ): { inKey: Fr; index: number } | null {
+    const match = this.#incomingMap.get(tagKey(BigInt(tag))) ?? null;
+    if (match && match.index > this.#highestMatchedIncoming) {
+      this.#highestMatchedIncoming = match.index;
+    }
+    return match;
   }
 
   public recordIncomingMatch(index: number): void {
-    if (index > this._highestMatchedIncoming) {
-      this._highestMatchedIncoming = index;
+    if (index > this.#highestMatchedIncoming) {
+      this.#highestMatchedIncoming = index;
     }
   }
 
   public getState(): KeyRepoState {
     return {
-      nextEphemeralNonce: this._nextEphemeralNonce,
-      ephemeralIndex: this._ephemeralIndex,
-      incomingIndex: this._incomingIndex,
-      highestMatchedEphemeral: this._highestMatchedEphemeral,
-      highestMatchedIncoming: this._highestMatchedIncoming,
+      selfMintCounter: this.#selfMintCounter,
+      selfScanIndex: this.#selfScanIndex,
+      incomingIssueCounter: this.#incomingIssueCounter,
+      incomingScanIndex: this.#incomingScanIndex,
+      highestMatchedSelf: this.#highestMatchedSelf,
+      highestMatchedIncoming: this.#highestMatchedIncoming,
     };
   }
 
   public async restore(state: KeyRepoState): Promise<void> {
-    this._nextEphemeralNonce = Math.max(
-      this._nextEphemeralNonce,
-      state.nextEphemeralNonce,
+    this.#selfMintCounter = Math.max(
+      this.#selfMintCounter,
+      state.selfMintCounter,
     );
-    this._highestMatchedEphemeral = Math.max(
-      this._highestMatchedEphemeral,
-      state.highestMatchedEphemeral,
+    this.#incomingIssueCounter = Math.max(
+      this.#incomingIssueCounter,
+      state.incomingIssueCounter,
     );
-    this._highestMatchedIncoming = Math.max(
-      this._highestMatchedIncoming,
+    this.#highestMatchedSelf = Math.max(
+      this.#highestMatchedSelf,
+      state.highestMatchedSelf,
+    );
+    this.#highestMatchedIncoming = Math.max(
+      this.#highestMatchedIncoming,
       state.highestMatchedIncoming,
     );
-    const ephTarget = Math.max(state.ephemeralIndex, this._nextEphemeralNonce);
-    while (this._ephemeralIndex < ephTarget) {
-      await this.registerEphemeralKey(this._ephemeralIndex++);
+
+    const selfTarget = Math.max(state.selfScanIndex, this.#selfMintCounter);
+    while (this.#selfScanIndex < selfTarget) {
+      await this.#registerSelf(this.#selfScanIndex++);
     }
-    while (this._incomingIndex < state.incomingIndex) {
-      await this.registerIncomingKey(this._incomingIndex++);
+    const incomingTarget = Math.max(
+      state.incomingScanIndex,
+      this.#incomingIssueCounter,
+    );
+    while (this.#incomingScanIndex < incomingTarget) {
+      await this.#registerIncoming(this.#incomingScanIndex++);
     }
 
-    await this.ensureEphemeralLookahead(DEFAULT_LOOKAHEAD_WINDOW);
+    await this.ensureSelfLookahead(DEFAULT_LOOKAHEAD_WINDOW);
     await this.ensureIncomingLookahead(DEFAULT_LOOKAHEAD_WINDOW);
   }
 
-  private formatPointKey(p: Point<bigint>): string {
-    const x = toFr(p[0]).toString();
-    const y = toFr(p[1]).toString();
-    return `${x}_${y}`;
+  async #registerSelf(index: number): Promise<void> {
+    const eph = await this.account.getSelfEphemeral(BigInt(index));
+    const ephPub = publicKey(eph);
+    if (!isEvenY(ephPub)) return;
+    const key = tagKey(ephPub[0]);
+    if (!this.#selfMap.has(key)) this.#selfMap.set(key, { eph, index });
   }
+
+  async #registerIncoming(index: number): Promise<void> {
+    const inKey = await this.account.getIncomingKey(BigInt(index));
+    const inPub = publicKey(inKey);
+    if (!isEvenY(inPub)) return;
+    const key = tagKey(inPub[0]);
+    if (!this.#incomingMap.has(key)) this.#incomingMap.set(key, { inKey, index });
+  }
+
+  #withLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.#lock.then(fn, fn);
+    this.#lock = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+}
+
+function tagKey(x: bigint): string {
+  return new Fr(x).toString();
 }

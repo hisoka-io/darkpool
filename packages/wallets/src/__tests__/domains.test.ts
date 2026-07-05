@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { keccak256, toUtf8Bytes } from "ethers";
-import { ENC_DOMAIN, PSI_DOMAIN, DLEQ_DOMAIN } from "../crypto/constants.js";
+import { ENC_DOMAIN, PSI_DOMAIN } from "../crypto/constants.js";
 import { stringToFr } from "../crypto/fields.js";
 
 const P =
@@ -12,13 +12,10 @@ describe("note-format domain tags (parity)", () => {
   it("match keccak256(label) % BN254_Fr", () => {
     expect(ENC_DOMAIN).toBe(domainOf("hisoka.enc.v1"));
     expect(PSI_DOMAIN).toBe(domainOf("hisoka.psi.v1"));
-    expect(DLEQ_DOMAIN).toBe(domainOf("hisoka.dleq.v1"));
   });
 
   it("are pairwise distinct", () => {
     expect(ENC_DOMAIN).not.toBe(PSI_DOMAIN);
-    expect(ENC_DOMAIN).not.toBe(DLEQ_DOMAIN);
-    expect(PSI_DOMAIN).not.toBe(DLEQ_DOMAIN);
   });
 
   it("KAT: exact field values match the Noir ENC_DOMAIN/PSI_DOMAIN globals", () => {

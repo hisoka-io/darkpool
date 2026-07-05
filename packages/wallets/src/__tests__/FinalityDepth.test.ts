@@ -41,7 +41,7 @@ function fakeContract(leaves: Leaf[], head: { value: number }): Contract {
 describe("ScanEngine finality depth", () => {
   it("holds unfinalized leaves out of the committed tree, inserts once finalized", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const keyRepo = new KeyRepository(account, COMPLIANCE_PK);
+    const keyRepo = new KeyRepository(account);
     const utxoRepo = new UtxoRepository();
     const tree = new LeanIMT(32);
 
@@ -75,7 +75,7 @@ describe("ScanEngine finality depth", () => {
 
   it("finalityDepth 0 is optimistic (inserts immediately)", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const keyRepo = new KeyRepository(account, COMPLIANCE_PK);
+    const keyRepo = new KeyRepository(account);
     const utxoRepo = new UtxoRepository();
     const tree = new LeanIMT(32);
 

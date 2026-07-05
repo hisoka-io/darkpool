@@ -103,7 +103,6 @@ async function main() {
   const startBlock = await ethers.provider.getBlockNumber();
   const startTime = new Date().toISOString();
 
-  // Step 0: Compliance keypair (reuse existing or generate fresh)
   let compliance: { sk: bigint; pk: Point<bigint> };
   const existingSk = process.env.COMPLIANCE_SECRET_KEY;
   if (existingSk) {

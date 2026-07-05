@@ -3,65 +3,51 @@ import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployDarkPoolFixture,
   makeDeposit,
+  mintSelfNote,
+  mintIncomingNote,
+  evenYEphemeral,
+  subgroupScalar,
   COMPLIANCE_SK,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
 import {
-  toFr,
   Fr,
-  LeanIMT,
-  deriveSharedSecret,
-  NotePlaintext,
-  generateDLEQProof,
-  complianceDecryptNote,
-  complianceDecrypt3Party,
-  computeOwner,
-  deriveNullifier,
-  signSpendBinding,
-  toBjjScalar,
+  toFr,
+  addressToFr,
+  publicKey,
+  deriveCek,
+  demDecrypt,
+  computePsi,
+  computeNullifier,
+  NoteV2,
 } from "@hisoka/wallets";
-import {
-  proveTransfer,
-  TransferInputs,
-  unpackCiphertext,
-} from "@hisoka/prover";
-import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
+import { proveTransfer, TransferInputs } from "@hisoka/prover";
+import { Point } from "@zk-kit/baby-jubjub";
 import { DarkPool } from "../../typechain-types";
 
+// Compliance reads every note structurally: CEK = (complianceSk * eph_pub).x, psi -> nullifier follows.
 class ComplianceTool {
-  // Map of NullifierHash -> DecryptedNote
   public observedNotes: Map<
     string,
-    { note: NotePlaintext; type: "DEPOSIT" | "MEMO" | "CHANGE" }
+    { note: NoteV2; type: "NOTE" | "MEMO" }
   > = new Map();
   public spentNullifiers: Set<string> = new Set();
 
-  // The nullifier is Poseidon2(nk, commitment, leafIndex) and binds to the
-  // spender's nullifying key. Compliance reconstructs spend correlation with
-  // the spender's nk supplied by the audit harness.
   constructor(
     public readonly complianceSk: bigint,
     public readonly contract: DarkPool,
-    public readonly spenderNk: Fr,
   ) {}
 
-  // Simulate indexing by fetching all events
   async sync() {
-    // NewNote: deposits / changes
     const noteEvents = await this.contract.queryFilter(
       this.contract.filters.NewNote(),
     );
-    for (const ev of noteEvents) {
-      await this.tryDecryptNote(ev);
-    }
+    for (const ev of noteEvents) await this.decrypt(ev, "NOTE");
 
-    // NewPrivateMemo: transfers
     const memoEvents = await this.contract.queryFilter(
       this.contract.filters.NewPrivateMemo(),
     );
-    for (const ev of memoEvents) {
-      await this.tryDecryptMemo(ev);
-    }
+    for (const ev of memoEvents) await this.decrypt(ev, "MEMO");
 
     const nullEvents = await this.contract.queryFilter(
       this.contract.filters.NullifierSpent(),
@@ -71,150 +57,102 @@ class ComplianceTool {
     }
   }
 
-  // 2-party decryption (deposit/change)
-  async tryDecryptNote(event: any) {
-    const { ephemeralPK_x, ephemeralPK_y, packedCiphertext } = event.args;
-    const epk: Point<bigint> = [ephemeralPK_x, ephemeralPK_y];
-    const packedFr = packedCiphertext.map((h: string) => toFr(h));
-    const ciphertext = unpackCiphertext(packedFr);
-
+  private async decrypt(event: any, type: "NOTE" | "MEMO") {
+    const ephPub: Point<bigint> = [
+      BigInt(event.args.ephemeralPK_x),
+      BigInt(event.args.ephemeralPK_y),
+    ];
+    const ciphertext = (event.args.packedCiphertext as string[]).map((h) =>
+      toFr(h),
+    );
     try {
-      const note = await complianceDecryptNote(
-        this.complianceSk,
-        epk,
-        ciphertext,
-      );
-
-      const commitment = toFr(event.args.commitment);
+      const cek = deriveCek(new Fr(this.complianceSk), ephPub);
+      const plaintext = await demDecrypt(cek, ciphertext);
+      const psi = await computePsi(cek);
       const leafIndex = Number(event.args.leafIndex);
-      const nf = await deriveNullifier(this.spenderNk, commitment, leafIndex);
-      this.observedNotes.set(nf.toString(), { note, type: "DEPOSIT" });
+      const note: NoteV2 = {
+        noteVersion: plaintext[0],
+        assetId: plaintext[1],
+        noteType: plaintext[2],
+        conditionsHash: plaintext[3],
+        value: plaintext[4].toBigInt(),
+        owner: plaintext[5],
+        psi,
+        parents: plaintext[6],
+      };
+      const nf = await computeNullifier(psi, new Fr(BigInt(leafIndex)));
+      this.observedNotes.set(nf.toString(), { note, type });
     } catch {
-      // Compliance should read all NewNotes; ignore any that fail to decrypt
+      /* undecryptable note skipped */
     }
   }
 
-  // 3-party decryption (transfer)
-  async tryDecryptMemo(event: any) {
-    const {
-      packedCiphertext,
-      int_carol_x,
-      int_carol_y,
-      leafIndex,
-      commitment,
-    } = event.args;
-
-    const intermediate: Point<bigint> = [int_carol_x, int_carol_y];
-    const packedFr = packedCiphertext.map((h: string) => toFr(h));
-    const ciphertext = unpackCiphertext(packedFr);
-
-    try {
-      const { note } = await complianceDecrypt3Party(
-        this.complianceSk,
-        intermediate,
-        ciphertext,
-      );
-
-      const nf = await deriveNullifier(
-        this.spenderNk,
-        toFr(commitment),
-        leafIndex,
-      );
-
-      this.observedNotes.set(nf.toString(), { note, type: "MEMO" });
-    } catch {
-      // Ignore notes that fail to decrypt
-    }
-  }
-
-  generateReport() {
-    const report = [];
-    for (const [nf, data] of this.observedNotes.entries()) {
-      report.push({
-        type: data.type,
-        amount: data.note.value.toBigInt(), // Use bigint for cleaner assertion
-        asset: data.note.asset_id.toString(),
-        status: this.spentNullifiers.has(nf) ? "SPENT" : "UNSPENT",
-        nullifier: nf,
-      });
-    }
-    return report;
+  report() {
+    return Array.from(this.observedNotes.entries()).map(([nf, data]) => ({
+      type: data.type,
+      amount: data.note.value,
+      status: this.spentNullifiers.has(nf) ? "SPENT" : "UNSPENT",
+    }));
   }
 }
 
 describe("Integration: Compliance God View", function () {
   it("should successfully trace a Deposit -> Transfer flow", async function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
+    const assetFr = addressToFr(await token.getAddress());
 
-    // --- 1. ALICE DEPOSITS 100 ---
-    const { depositPlain, ephemeralSk, commitment, nk } = await makeDeposit(
-      darkPool,
-      token,
-      alice,
-      100n,
+    const dep = await makeDeposit(darkPool, token, alice, 100n);
+
+    const bobInKey = evenYEphemeral(555n);
+    const bobInPub = publicKey(bobInKey);
+
+    const memo = await mintIncomingNote(
+      subgroupScalar(12n),
+      40n,
+      bobInPub,
+      bobInKey,
+      assetFr,
+    );
+    const change = await mintSelfNote(
+      evenYEphemeral(34n),
+      60n,
+      dep.spendScalar,
+      assetFr,
     );
 
-    // --- 2. ALICE TRANSFERS 40 TO BOB ---
-    // (This spends the 100 note, creates 40 Memo + 60 Change)
-    const tree = new LeanIMT(32);
-    await tree.insert(commitment);
-    const bobIvk = 555n;
-    const bob_dleq = await generateDLEQProof(bobIvk, COMPLIANCE_PK);
-
-    // Bob's spend key set: S = nk_bob*G, owner = Poseidon2(S), plus a spend
-    // binding signed with Bob's viewing key (recipient_B = bobIvk*G).
-    const bobNk = toBjjScalar(toFr(777n));
-    const bobS = mulPointEscalar(Base8, bobNk.toBigInt());
-    const recipientOwner = await computeOwner(bobS);
-    const bobBinding = await signSpendBinding(bobIvk, bobS, 123456789n);
-
     const transferInputs: TransferInputs = {
-      merkleRoot: tree.getRoot(),
       currentTimestamp: Math.floor(Date.now() / 1000),
       compliancePk: COMPLIANCE_PK,
-      recipientB: bob_dleq.B,
-      recipientP: bob_dleq.P,
-      recipientOwner,
-      recipientProof: bob_dleq.pi,
-      recipientS: bobS,
-      bindR: bobBinding.R,
-      bindS: toFr(bobBinding.s),
-      oldNote: depositPlain,
-      oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
-      nk,
+      recipientInPub: bobInPub,
+      oldNote: dep.built.note,
+      spendScalar: dep.spendScalar,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
-      hashlockPreimage: toFr(0n),
-      memoNote: { ...depositPlain, value: toFr(40n), owner: recipientOwner }, // 40 to Bob
-      memoEphemeralSk: toFr(12n),
-      changeNote: { ...depositPlain, value: toFr(60n) }, // 60 Change (self-owned)
-      changeEphemeralSk: toFr(34n),
+      memoNote: memo.note,
+      memoEph: memo.eph,
+      changeNote: change.note,
+      changeEph: change.eph,
     };
     const trfProof = await proveTransfer(transferInputs);
     await darkPool
       .connect(alice)
       .privateTransfer(trfProof.proof, trfProof.publicInputs);
 
-    // --- 3. COMPLIANCE AUDIT ---
-    const tool = new ComplianceTool(COMPLIANCE_SK, darkPool, nk);
+    const tool = new ComplianceTool(COMPLIANCE_SK, darkPool);
     await tool.sync();
-
-    const report = tool.generateReport();
+    const report = tool.report();
 
     expect(report.length).to.equal(3); // Deposit, Memo, Change
 
-    // 1. The Deposit (100) -> Should be SPENT
     const depEntry = report.find((r) => r.amount === 100n);
     expect(depEntry).to.not.equal(undefined);
     expect(depEntry?.status).to.equal("SPENT");
 
-    // 2. The Memo (40) -> Should be UNSPENT
     const memoEntry = report.find((r) => r.amount === 40n && r.type === "MEMO");
     expect(memoEntry).to.not.equal(undefined);
     expect(memoEntry?.status).to.equal("UNSPENT");
 
-    // 3. The Change (60) -> Should be UNSPENT
-    const changeEntry = report.find((r) => r.amount === 60n); // Default type is DEPOSIT in logic but logic treats change as 'DEPOSIT' type currently due to same event
+    const changeEntry = report.find((r) => r.amount === 60n);
     expect(changeEntry).to.not.equal(undefined);
     expect(changeEntry?.status).to.equal("UNSPENT");
   });

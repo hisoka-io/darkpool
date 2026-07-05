@@ -4,20 +4,18 @@ import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployDarkPoolFixture,
   makeDeposit,
+  mintSelfNote,
+  evenYEphemeral,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import {
-  toFr,
-  addressToFr,
-  LeanIMT,
-  deriveSharedSecret,
-} from "@hisoka/wallets";
+import { toFr, addressToFr } from "@hisoka/wallets";
 import { proveGasPayment, GasPaymentInputs } from "@hisoka/prover";
 
-const toBytes32 = (val: string) => ethers.zeroPadValue(val, 32);
+const BN254_FR_MODULUS =
+  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
 describe("DarkPool Behavior: PayRelayer", function () {
-  this.timeout(120_000); // ZK proof generation takes time
+  this.timeout(120_000);
 
   async function prepareGasPayment(
     ctx: Awaited<ReturnType<typeof deployDarkPoolFixture>>,
@@ -25,56 +23,40 @@ describe("DarkPool Behavior: PayRelayer", function () {
     noteValue: bigint = 100n,
   ) {
     const { darkPool, alice, token, relayer } = ctx;
+    const assetFr = addressToFr(await token.getAddress());
 
-    const {
-      depositPlain: notePlaintext,
-      ephemeralSk,
-      commitment,
-      nk,
-    } = await makeDeposit(darkPool, token, alice, noteValue);
-
-    const tree = new LeanIMT(32);
-    await tree.insert(commitment);
+    const dep = await makeDeposit(darkPool, token, alice, noteValue);
 
     const relayerAddress = await relayer.getAddress();
-    // keccak256 output overflows BN254 Fr ~75% of the time — reduce mod Fr
-    const BN254_FR_MODULUS =
-      21888242871839275222246405745257275088548364400416034343698204186575808495617n;
     const executionHash = toFr(
       BigInt(ethers.keccak256(ethers.toUtf8Bytes("test_execution_payload"))) %
         BN254_FR_MODULUS,
     );
 
-    const changeValue = noteValue - paymentAmount;
-    const changeNote = {
-      asset_id: notePlaintext.asset_id,
-      value: toFr(changeValue),
-      secret: toFr(789n),
-      owner: notePlaintext.owner,
-      timelock: toFr(0n),
-      hashlock: toFr(0n),
-    };
+    const change = await mintSelfNote(
+      evenYEphemeral(888n),
+      noteValue - paymentAmount,
+      dep.spendScalar,
+      assetFr,
+    );
 
     const inputs: GasPaymentInputs = {
-      merkleRoot: tree.getRoot(),
       currentTimestamp: Math.floor(Date.now() / 1000),
       paymentValue: toFr(paymentAmount),
-      paymentAssetId: notePlaintext.asset_id,
+      paymentAssetId: assetFr,
       relayerAddress: addressToFr(relayerAddress),
       executionHash,
       compliancePk: COMPLIANCE_PK,
-      oldNote: notePlaintext,
-      oldSharedSecret: await deriveSharedSecret(ephemeralSk, COMPLIANCE_PK),
-      nk,
+      oldNote: dep.built.note,
+      spendScalar: dep.spendScalar,
       oldNoteIndex: 0,
       oldNotePath: Array(32).fill(toFr(0n)),
-      hashlockPreimage: toFr(0n),
-      changeNote,
-      changeEphemeralSk: toFr(888n),
+      changeNote: change.note,
+      changeEph: change.eph,
     };
 
     const proof = await proveGasPayment(inputs);
-    return { proof, inputs, relayerAddress, changeNote };
+    return { proof, inputs, relayerAddress };
   }
 
   it("should allow valid gas payment and emit GasPaymentProcessed", async function () {
@@ -85,7 +67,7 @@ describe("DarkPool Behavior: PayRelayer", function () {
 
     const tx = await darkPool
       .connect(relayer)
-      .payRelayer(proof.proof, proof.publicInputs.map(toBytes32));
+      .payRelayer(proof.proof, proof.publicInputs);
 
     const receipt = await tx.wait();
     const event = receipt?.logs.find((log) => {
@@ -120,7 +102,7 @@ describe("DarkPool Behavior: PayRelayer", function () {
 
     const tx = await darkPool
       .connect(relayer)
-      .payRelayer(proof.proof, proof.publicInputs.map(toBytes32));
+      .payRelayer(proof.proof, proof.publicInputs);
 
     const receipt = await tx.wait();
     const newNoteEvent = receipt?.logs.find((log) => {
@@ -146,9 +128,7 @@ describe("DarkPool Behavior: PayRelayer", function () {
 
     const { proof } = await prepareGasPayment(ctx, 10n, 100n);
 
-    await darkPool
-      .connect(relayer)
-      .payRelayer(proof.proof, proof.publicInputs.map(toBytes32));
+    await darkPool.connect(relayer).payRelayer(proof.proof, proof.publicInputs);
 
     const balanceAfter = await token.balanceOf(await rewardPool.getAddress());
     expect(balanceAfter - balanceBefore).to.equal(10n);
@@ -160,16 +140,10 @@ describe("DarkPool Behavior: PayRelayer", function () {
 
     const { proof } = await prepareGasPayment(ctx, 10n, 100n);
 
-    // First call succeeds
-    await darkPool
-      .connect(relayer)
-      .payRelayer(proof.proof, proof.publicInputs.map(toBytes32));
+    await darkPool.connect(relayer).payRelayer(proof.proof, proof.publicInputs);
 
-    // Second call with same proof should revert (nullifier already spent)
     await expect(
-      darkPool
-        .connect(relayer)
-        .payRelayer(proof.proof, proof.publicInputs.map(toBytes32)),
+      darkPool.connect(relayer).payRelayer(proof.proof, proof.publicInputs),
     ).to.be.revertedWithCustomError(darkPool, "NullifierAlreadySpent");
   });
 
@@ -193,13 +167,9 @@ describe("DarkPool Behavior: PayRelayer", function () {
 
     const balanceBefore = await token.balanceOf(await rewardPool.getAddress());
 
-    // Zero payment is valid (no transfer, just spends the note)
-    await darkPool
-      .connect(relayer)
-      .payRelayer(proof.proof, proof.publicInputs.map(toBytes32));
+    await darkPool.connect(relayer).payRelayer(proof.proof, proof.publicInputs);
 
     const balanceAfter = await token.balanceOf(await rewardPool.getAddress());
-    // No transfer should happen
     expect(balanceAfter).to.equal(balanceBefore);
   });
 });

@@ -29,11 +29,8 @@ library MerkleTreeLib {
     );
     event RootSaved(uint256 indexed rootIndex, bytes32 root);
 
-    /// @notice The Merkle Tree Data Structure.
-    /// @dev Root history uses a ring buffer (default size=100). If 100+ leaves are inserted
-    ///      between a user's proof generation and submission, the referenced root will be
-    ///      evicted and `isKnownRoot` returns false. Client implementations should detect
-    ///      root staleness before submitting proofs.
+    /// @dev Root history is a ring buffer; a root evicted after ROOT_HISTORY_SIZE later inserts
+    ///      makes `isKnownRoot` false, so clients must submit proofs before their root goes stale.
     struct Tree {
         uint256 TREE_DEPTH;
         uint256 ROOT_HISTORY_SIZE;
@@ -142,13 +139,7 @@ library MerkleTreeLib {
         return self.roots[indexToReturn];
     }
 
-    /**
-     * @notice Returns the sibling path for a given leaf index.
-     * @dev Used by light clients to generate ZK proofs without syncing the whole tree.
-     * @param self The tree storage
-     * @param leafIndex The index of the leaf to get the path for
-     * @return path Array of 32 sibling nodes (from leaf level up to root)
-     */
+    /// @notice Sibling path (32 nodes, leaf level up to root) for light clients to build proofs.
     function getMerklePath(
         Tree storage self,
         uint256 leafIndex

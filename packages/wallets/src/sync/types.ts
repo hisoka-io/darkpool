@@ -7,12 +7,12 @@ export interface UnprocessedEvent {
   args: {
     leafIndex: bigint;
     commitment: string;
-
-    epkX: bigint;
-    epkY: bigint;
+    ephemeralX: bigint;
+    ephemeralY: bigint;
     packedCiphertext: string[];
-    intermediateBobX?: bigint;
-    intermediateBobY?: bigint;
+    // NEW_MEMO only: tag == in_pub_j.x, cekWrap wraps the content key to the recipient.
+    tag?: bigint;
+    cekWrap?: bigint;
   };
 }
 

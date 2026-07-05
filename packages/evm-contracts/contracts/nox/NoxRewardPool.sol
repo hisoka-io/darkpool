@@ -14,25 +14,21 @@ interface INoxRegistry {
 /**
  * @title NoxRewardPool
  * @author Hisoka Protocol
- * @notice The centralized treasury for the NOX Relayer Network (v0).
- * @dev Collects gas fees (ERC20) and distributes them to Relayers based on work performed.
- *      This contract acts as a stateless escrow: it collects, holds, and distributes.
- *      Distribution logic is determined off-chain by the Distributor.
+ * @notice The centralized treasury for the NOX Relayer Network.
+ * @dev Escrow that collects ERC20 gas fees and distributes them to relayers; the split is
+ *      computed off-chain by the Distributor.
  */
 contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
-    /// @notice Role allowed to trigger reward distributions
     bytes32 public constant DISTRIBUTOR_ROLE = keccak256("DISTRIBUTOR_ROLE");
 
-    /// @notice Role for asset whitelist and emergency controls
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
 
     /// @notice Registry used to confirm reward recipients are network relayers.
     INoxRegistry public immutable noxRegistry;
 
-    /// @notice Whitelisted assets (e.g., WETH, USDC) allowed for gas payments.
-    /// @dev Prevents users from paying in griefing/spam tokens.
+    /// @notice Assets whitelisted for gas payments, blocking griefing/spam tokens.
     mapping(address => bool) public isSupportedAsset;
 
     mapping(address => uint256) public totalCollected;
