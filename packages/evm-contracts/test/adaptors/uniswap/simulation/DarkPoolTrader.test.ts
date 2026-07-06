@@ -152,7 +152,12 @@ describe("Simulation: The DarkPool Trader (Multi-User DeFi)", function () {
       weth as never,
       fromBlock,
     );
-    const wBob = await TestWallet.create(bob, darkPool, weth as never, fromBlock);
+    const wBob = await TestWallet.create(
+      bob,
+      darkPool,
+      weth as never,
+      fromBlock,
+    );
 
     const aliceAgent = new TraderAgent(wAlice, uniswapAdaptor, darkPool);
     const bobAgent = new TraderAgent(wBob, uniswapAdaptor, darkPool);
@@ -162,7 +167,11 @@ describe("Simulation: The DarkPool Trader (Multi-User DeFi)", function () {
     await wAlice.sync();
 
     const SWAP_AMT = ethers.parseEther("2");
-    const swap1Res = await aliceAgent.swap(WETH_ADDRESS, USDC_ADDRESS, SWAP_AMT);
+    const swap1Res = await aliceAgent.swap(
+      WETH_ADDRESS,
+      USDC_ADDRESS,
+      SWAP_AMT,
+    );
     const usdcReceived = swap1Res[0].amount;
 
     await wBob.sync();
@@ -178,7 +187,11 @@ describe("Simulation: The DarkPool Trader (Multi-User DeFi)", function () {
       .find((n) => n.note.assetId.equals(addressToFr(USDC_ADDRESS)))!;
     expect(bobUsdcNote.isIncoming).to.equal(true);
 
-    const swap2Res = await bobAgent.swap(USDC_ADDRESS, WBTC_ADDRESS, usdcReceived);
+    const swap2Res = await bobAgent.swap(
+      USDC_ADDRESS,
+      WBTC_ADDRESS,
+      usdcReceived,
+    );
     const wbtcReceived = swap2Res[0].amount;
     await wBob.sync();
 

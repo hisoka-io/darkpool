@@ -85,7 +85,13 @@ describe("ScanEngine finality depth", () => {
     ];
     const contract = fakeContract(leaves, { value: 100 });
 
-    const engine = new ScanEngine(contract, keyRepo, utxoRepo, COMPLIANCE_PK, tree);
+    const engine = new ScanEngine(
+      contract,
+      keyRepo,
+      utxoRepo,
+      COMPLIANCE_PK,
+      tree,
+    );
     await engine.sync(0);
     expect(tree.nextLeafIndex).toBe(2);
   });

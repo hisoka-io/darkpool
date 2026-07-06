@@ -77,7 +77,12 @@ describe("Relayer Safe Settlement: Integration", function () {
 
     const swapData = uniswapAdaptor.interface.encodeFunctionData(
       "executeSwap",
-      [swapProof.proofHex, swapProof.pubHex, SwapType.ExactInput, encodedParams],
+      [
+        swapProof.proofHex,
+        swapProof.pubHex,
+        SwapType.ExactInput,
+        encodedParams,
+      ],
     );
 
     const calls = [

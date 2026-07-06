@@ -20,14 +20,18 @@ describe("DarkAccount (Option A)", () => {
     });
 
     it("collapses case and whitespace variants of one mnemonic to one account", async () => {
-      const canonical = await (await DarkAccount.fromMnemonic(MNEMONIC)).getViewKey();
+      const canonical = await (
+        await DarkAccount.fromMnemonic(MNEMONIC)
+      ).getViewKey();
       const variants = [
         MNEMONIC.toUpperCase(),
         "Test test test test test test test test test test test junk",
         MNEMONIC.replace(/ /g, "  "),
       ];
       for (const variant of variants) {
-        const view = await (await DarkAccount.fromMnemonic(variant)).getViewKey();
+        const view = await (
+          await DarkAccount.fromMnemonic(variant)
+        ).getViewKey();
         expect(view.equals(canonical)).toBe(true);
       }
     });

@@ -89,9 +89,7 @@ function encodeSwapParams(params: UniswapSwapParams): string {
       );
 
     default:
-      throw new Error(
-        `Unknown SwapType: ${(params as { type: number }).type}`,
-      );
+      throw new Error(`Unknown SwapType: ${(params as { type: number }).type}`);
   }
 }
 

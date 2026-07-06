@@ -27,6 +27,9 @@ fn main(
     let (nullifier_b, root_b) = verify_spend(note_b, spend_scalar_b, index_b, path_b);
     assert(root_a == root_b, "inputs must share a root");
     assert(nullifier_a != nullifier_b, "cannot join a note with itself");
+    // Canonical input order: pack_parents is positional, so index_a < index_b pins one note_out.parents
+    // commitment per consumed set and defeats a prover reordering the two inputs.
+    assert(index_a.lt(index_b), "join inputs must be strictly index-ordered");
 
     assert(note_a.asset_id == note_b.asset_id, "input asset mismatch");
     assert(note_a.asset_id == note_out.asset_id, "output asset mismatch");
@@ -198,6 +201,45 @@ fn audit_reject_self_join() {
         789,
         0,
         path_a,
+        note_out,
+        28,
+    );
+}
+
+// Swapping the two inputs (a at index 1, b at index 0) consumes the SAME set in reversed order; the
+// strict-order guard rejects it so note_out.parents has one canonical form per consumed set.
+#[test(should_fail_with = "join inputs must be strictly index-ordered")]
+fn audit_reject_unordered_inputs() {
+    let note_a = note(
+        100,
+        0x271c8cc2341079e393fa781a5e7b4664b27b649d4f0277a53110b7937ed9fada,
+    );
+    let note_b = note(
+        50,
+        0x22c2ddd73188e4c766c528228312ae28595623aba1a5c5341a8f7154943842d3,
+    );
+    let mut note_out = note(
+        150,
+        0x09fb1bde9d635c97fa5a0884a8a38d961cec75db95e76629aabec8b63baec84a,
+    );
+    note_out.parents = 0x100000000;
+    // note_b lives at index 1, note_a at index 0; passing b first drives index_a = 1 > index_b = 0.
+    let mut path_b_at_1 = [0; TREE_DEPTH];
+    path_b_at_1[0] = LEAF_A;
+    let mut path_a_at_0 = [0; TREE_DEPTH];
+    path_a_at_0[0] = LEAF_B;
+    let _ = main(
+        0,
+        CX,
+        CY,
+        note_b,
+        789,
+        1,
+        path_b_at_1,
+        note_a,
+        789,
+        0,
+        path_a_at_0,
         note_out,
         28,
     );

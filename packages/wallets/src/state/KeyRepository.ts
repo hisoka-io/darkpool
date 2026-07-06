@@ -199,7 +199,8 @@ export class KeyRepository implements IKeyRepository {
     const inPub = publicKey(inKey);
     if (!isEvenY(inPub)) return;
     const key = tagKey(inPub[0]);
-    if (!this.#incomingMap.has(key)) this.#incomingMap.set(key, { inKey, index });
+    if (!this.#incomingMap.has(key))
+      this.#incomingMap.set(key, { inKey, index });
   }
 
   #withLock<T>(fn: () => Promise<T>): Promise<T> {

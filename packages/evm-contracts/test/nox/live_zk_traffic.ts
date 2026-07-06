@@ -64,7 +64,6 @@ const ERC20_ABI = [
 const log = (msg: string) =>
   console.log(`[${new Date().toISOString().slice(11, 23)}] ${msg}`);
 
-
 interface DepositedNote {
   note: NotePlaintext;
   ephemeralSk: Fr;
@@ -133,7 +132,6 @@ function parseNewNoteEvent(receipt: ethers.TransactionReceipt): {
   throw new Error("NewNote event not found in receipt");
 }
 
-
 async function main() {
   log("╔═══════════════════════════════════════════════════════╗");
   log("║  LIVE ZK TRAFFIC GENERATOR -- Real Noir Proofs       ║");
@@ -178,7 +176,6 @@ async function main() {
   // Spend material for self-owned notes: verify_spend asserts owner == Poseidon2(nk*G).
   const nk = await keyRepo.getNullifyingKey();
   const owner = await computeOwner(await account.getPublicSpendKey());
-
 
   log("\n╔═══════════════════════════════════════════════════════╗");
   log("║  PHASE 1: DEPOSITS (broadcast via mixnet)            ║");

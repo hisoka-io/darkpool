@@ -89,8 +89,7 @@ describe("UUPS upgrade-safety (CI-7)", function () {
   it("reverts UUPSUnauthorizedCallContext on upgradeToAndCall against the raw impl", async function () {
     const { proxyAddr, DarkPoolFactory, upgrader } =
       await deployDistinctRoles();
-    const implAddr =
-      await upgrades.erc1967.getImplementationAddress(proxyAddr);
+    const implAddr = await upgrades.erc1967.getImplementationAddress(proxyAddr);
     const impl = DarkPoolFactory.attach(implAddr) as unknown as DarkPool;
 
     // onlyProxy runs before access control: a delegate-less call on the logic contract must revert.
@@ -121,8 +120,7 @@ describe("UUPS upgrade-safety (CI-7)", function () {
 
   it("locks the impl via _disableInitializers: direct initialize reverts and _initialized == uint64.max", async function () {
     const { proxyAddr, DarkPoolFactory, params } = await deployDistinctRoles();
-    const implAddr =
-      await upgrades.erc1967.getImplementationAddress(proxyAddr);
+    const implAddr = await upgrades.erc1967.getImplementationAddress(proxyAddr);
     const impl = DarkPoolFactory.attach(implAddr) as unknown as DarkPool;
 
     await expect(impl.initialize(params)).to.be.revertedWithCustomError(
@@ -162,15 +160,15 @@ describe("UUPS upgrade-safety (CI-7)", function () {
 
   it("gates roles: guardian PAUSER can pause but cannot unpause or upgrade; admin can unpause", async function () {
     const { proxy, proxyAddr, admin, pauser } = await deployDistinctRoles();
-    const implAddr =
-      await upgrades.erc1967.getImplementationAddress(proxyAddr);
+    const implAddr = await upgrades.erc1967.getImplementationAddress(proxyAddr);
 
     await proxy.connect(pauser).pause();
     expect(await proxy.paused()).to.equal(true);
 
-    await expect(
-      proxy.connect(pauser).unpause(),
-    ).to.be.revertedWithCustomError(proxy, "AccessControlUnauthorizedAccount");
+    await expect(proxy.connect(pauser).unpause()).to.be.revertedWithCustomError(
+      proxy,
+      "AccessControlUnauthorizedAccount",
+    );
 
     await expect(
       proxy.connect(pauser).upgradeToAndCall(implAddr, "0x"),
