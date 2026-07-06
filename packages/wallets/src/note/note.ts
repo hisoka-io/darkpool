@@ -2,17 +2,17 @@ import { Fr } from "@aztec/foundation/fields";
 import { Poseidon } from "../crypto/Poseidon.js";
 
 const U32_MAX = 0xffffffffn;
+const TWO_POW_32 = 1n << 32n;
 const TWO_POW_64 = 1n << 64n;
 const TWO_POW_128 = 1n << 128n;
 
-/** One consumed input in the lineage list: (treeNum, leafIndex), each a u32. */
+/** One consumed input in the lineage list, located by its u32 leaf index. */
 export interface Parent {
-  treeNum: number;
   leafIndex: number;
 }
 
 /** Committed note plaintext, ordered STABLE-FIRST (matches Noir `Note`). `value` is u128. */
-export interface NoteV2 {
+export interface Note {
   noteVersion: Fr;
   assetId: Fr;
   noteType: Fr;
@@ -24,7 +24,7 @@ export interface NoteV2 {
 }
 
 /** PLAINTEXT-commit leaf over all 8 fields; psi is one of the 8, not appended. Byte-identical to Noir `Note::leaf`. */
-export async function leaf(note: NoteV2): Promise<Fr> {
+export async function leaf(note: Note): Promise<Fr> {
   if (note.value < 0n || note.value >= TWO_POW_128) {
     throw new Error(`note value out of u128 range: ${note.value}`);
   }
@@ -47,31 +47,20 @@ function assertU32(name: string, value: number): bigint {
   return BigInt(value);
 }
 
-function packPair(p: Parent): bigint {
-  const treeNum = assertU32("treeNum", p.treeNum);
-  const leafIndex = assertU32("leafIndex", p.leafIndex);
-  return (treeNum << 32n) + leafIndex;
-}
-
-/** Pack up to 2 parents: pair0 in bits 0..63, pair1 in bits 64..127. Deposit = [{0,0},{0,0}] -> 0. */
+/** Pack 2 leaf indexes little-endian: index0 in bits 0..31, index1 in bits 32..63. Deposit = 0. */
 export function packParents(parents: [Parent, Parent]): Fr {
-  return new Fr(packPair(parents[0]) + packPair(parents[1]) * TWO_POW_64);
-}
-
-function unpackPair(pair: bigint): Parent {
-  return {
-    treeNum: Number((pair >> 32n) & U32_MAX),
-    leafIndex: Number(pair & U32_MAX),
-  };
+  const index0 = assertU32("leafIndex", parents[0].leafIndex);
+  const index1 = assertU32("leafIndex", parents[1].leafIndex);
+  return new Fr(index0 + index1 * TWO_POW_32);
 }
 
 export function unpackParents(packed: Fr): [Parent, Parent] {
   const value = packed.toBigInt();
-  if (value >= TWO_POW_128) {
-    throw new Error("packed parents exceeds 2^128");
+  if (value >= TWO_POW_64) {
+    throw new Error("packed parents exceeds 2^64");
   }
   return [
-    unpackPair(value & (TWO_POW_64 - 1n)),
-    unpackPair((value >> 64n) & (TWO_POW_64 - 1n)),
+    { leafIndex: Number(value & U32_MAX) },
+    { leafIndex: Number((value >> 32n) & U32_MAX) },
   ];
 }

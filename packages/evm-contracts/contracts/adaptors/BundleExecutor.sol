@@ -9,8 +9,9 @@ import {IDarkPool} from "../interfaces/IDarkPool.sol";
 /**
  * @title BundleExecutor
  * @notice Permissionless atomic executor: pulls one shielded withdraw to itself, runs a caller-bound call
- *         bundle (treasury fee, swap, distribution), and asserts it holds zero balance of the withdrawn and
- *         declared assets when it returns. Holds funds only within `execute`; grants no standing allowances.
+ *         bundle (treasury fee, swap, distribution), and asserts it holds zero residual over the union of the
+ *         withdrawn asset, every bound call's approve token, and the declared assetsToClear when it returns.
+ *         Holds funds only within `execute`; grants no standing allowances.
  * @dev The bundle is bound to the proof through the withdraw layout's free public input [3] (intent hash):
  *      `execute` recomputes the hash from the exact `boundCalls/deadline/assetsToClear` and overwrites [3],
  *      so a relayer that alters any call makes the proof fail verification. A raw withdraw to this contract
@@ -72,8 +73,9 @@ contract BundleExecutor is ReentrancyGuard {
         address[] calldata assetsToClear
     ) public pure returns (uint256) {
         return
-            uint256(keccak256(abi.encode(boundCalls, deadline, assetsToClear))) %
-            BN254_P;
+            uint256(
+                keccak256(abi.encode(boundCalls, deadline, assetsToClear))
+            ) % BN254_P;
     }
 
     /**
@@ -92,7 +94,8 @@ contract BundleExecutor is ReentrancyGuard {
         address[] calldata assetsToClear
     ) external nonReentrant {
         if (block.timestamp > deadline) revert ExpiredDeadline();
-        if (publicInputs.length != WITHDRAW_INPUTS) revert InvalidInputsLength();
+        if (publicInputs.length != WITHDRAW_INPUTS)
+            revert InvalidInputsLength();
 
         uint256 intentHash = intentHashOf(boundCalls, deadline, assetsToClear);
         publicInputs[INTENT_IDX] = bytes32(intentHash);
@@ -134,16 +137,44 @@ contract BundleExecutor is ReentrancyGuard {
         address withdrawnAsset = address(
             uint160(uint256(publicInputs[ASSET_IDX]))
         );
-        if (IERC20(withdrawnAsset).balanceOf(address(this)) != 0)
-            revert ResidualBalance(withdrawnAsset);
+        address[] memory checked = new address[](
+            1 + boundCalls.length + assetsToClear.length
+        );
+        uint256 checkedCount = _assertZeroResidual(withdrawnAsset, checked, 0);
+        for (uint256 i; i < boundCalls.length; ++i)
+            checkedCount = _assertZeroResidual(
+                boundCalls[i].approveToken,
+                checked,
+                checkedCount
+            );
         for (uint256 i; i < assetsToClear.length; ++i)
-            if (IERC20(assetsToClear[i]).balanceOf(address(this)) != 0)
-                revert ResidualBalance(assetsToClear[i]);
+            checkedCount = _assertZeroResidual(
+                assetsToClear[i],
+                checked,
+                checkedCount
+            );
 
         emit BundleExecuted(
             publicInputs[NULLIFIER_IDX],
             intentHash,
             boundCalls.length
         );
+    }
+
+    /// @dev Reverts ResidualBalance if `asset` holds a nonzero balance here; skips the zero address and
+    ///      assets already checked, so the withdrawn-asset / approve-token / assetsToClear union is verified
+    ///      once each. `checked` accumulates the distinct assets seen; the new count is returned.
+    function _assertZeroResidual(
+        address asset,
+        address[] memory checked,
+        uint256 checkedCount
+    ) private view returns (uint256) {
+        if (asset == address(0)) return checkedCount;
+        for (uint256 i; i < checkedCount; ++i)
+            if (checked[i] == asset) return checkedCount;
+        if (IERC20(asset).balanceOf(address(this)) != 0)
+            revert ResidualBalance(asset);
+        checked[checkedCount] = asset;
+        return checkedCount + 1;
     }
 }

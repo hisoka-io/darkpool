@@ -1,6 +1,7 @@
 import type { HardhatUserConfig } from "hardhat/config";
 import { task } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
+import "@openzeppelin/hardhat-upgrades";
 import "@nomicfoundation/hardhat-verify";
 import "tsconfig-paths/register";
 import * as fs from "fs";
@@ -50,10 +51,14 @@ task("test:fast", "Runs core logic tests (no fork)")
       "test/behaviors",
       "test/integration",
       "test/nox",
+      "test/upgrade",
     ];
+    // The setup file is loaded first so its process handlers are installed before any test executes;
+    // hardhat's programmatic (serial) Mocha ignores the `mocha.require` list, so it is wired here instead.
+    const setup = "test/setup/fail-on-unhandled-rejection.ts";
     const files = ["test/merkle-tree.test.ts", "test/poseidon-parity.test.ts"];
 
-    let testFiles: string[] = [];
+    let testFiles: string[] = fs.existsSync(setup) ? [setup] : [];
     for (const d of dirs) testFiles = testFiles.concat(getTestFiles(d));
     testFiles = testFiles.concat(files.filter((f) => fs.existsSync(f)));
 

@@ -9,7 +9,7 @@ import { ScanEngine } from "../sync/ScanEngine";
 import { deriveCek } from "../crypto/kem";
 import { demEncrypt } from "../crypto/dem";
 import { computePsi } from "../note/nullifier";
-import { leaf, NoteV2 } from "../note/noteV2";
+import { leaf, Note } from "../note/note";
 import { isEvenY, publicKey, pubkeyOwner } from "../note/keys";
 
 const MNEMONIC = "test test test test test test test test test test test junk";
@@ -48,7 +48,7 @@ async function selfNoteEvent(
   const cek = deriveCek(eph, COMPLIANCE_PK);
   const psi = await computePsi(cek);
   const owner = await pubkeyOwner(await account.getSelfSpendPub());
-  const note: NoteV2 = {
+  const note: Note = {
     noteVersion: new Fr(1n),
     assetId: ASSET,
     noteType: new Fr(0n),

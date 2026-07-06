@@ -7,7 +7,7 @@ import {
   evenYEphemeral,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import { toFr, addressToFr, LeanIMT } from "@hisoka/wallets";
+import { toFr, addressToFr, packParents, LeanIMT } from "@hisoka/wallets";
 import { proveJoin, JoinInputs, proveSplit, SplitInputs } from "@hisoka/prover";
 
 describe("DarkPool Behavior: Split & Join", function () {
@@ -35,6 +35,7 @@ describe("DarkPool Behavior: Split & Join", function () {
         150n,
         depA.spendScalar,
         assetFr,
+        packParents([{ leafIndex: 0 }, { leafIndex: 1 }]),
       );
 
       const inputs: JoinInputs = {
@@ -54,7 +55,9 @@ describe("DarkPool Behavior: Split & Join", function () {
 
       const proof = await proveJoin(inputs);
 
-      await expect(darkPool.connect(alice).join(proof.proof, proof.publicInputs))
+      await expect(
+        darkPool.connect(alice).join(proof.proof, proof.publicInputs),
+      )
         .to.emit(darkPool, "NewNote")
         .and.to.emit(darkPool, "NullifierSpent");
 

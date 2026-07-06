@@ -68,6 +68,6 @@ describe("DarkPool Behavior: Deposit", function () {
 
     await expect(
       darkPool.connect(alice).deposit(proof.proof, tamperedInputs),
-    ).to.be.revertedWithCustomError(darkPool, "InvalidComplianceKey");
+    ).to.be.revertedWithCustomError(darkPool, "ComplianceKeyStale");
   });
 });

@@ -11,7 +11,7 @@ import {
   userSpendScalar,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import { toFr, addressToFr, LeanIMT, Fr } from "@hisoka/wallets";
+import { toFr, addressToFr, packParents, LeanIMT, Fr } from "@hisoka/wallets";
 import {
   proveWithdraw,
   proveTransfer,
@@ -174,7 +174,9 @@ describe("Semantic public-input index trace", function () {
     assertField(pi, 17, change.commitment.toBigInt(), "change leaf");
     expect(bi(pi[3]!)).to.not.equal(root.toBigInt());
     expect(bi(pi[3]!)).to.not.equal(memo.commitment.toBigInt());
-    await darkPool.connect(alice).privateTransfer(proof.proof, proof.publicInputs);
+    await darkPool
+      .connect(alice)
+      .privateTransfer(proof.proof, proof.publicInputs);
     expect(await darkPool.isNullifierSpent(pi[3]!)).to.equal(true);
   });
 
@@ -194,6 +196,7 @@ describe("Semantic public-input index trace", function () {
       150n,
       depA.spendScalar,
       asset,
+      packParents([{ leafIndex: 0 }, { leafIndex: 1 }]),
     );
     const inputs: JoinInputs = {
       currentTimestamp: Math.floor(Date.now() / 1000),
@@ -283,9 +286,7 @@ describe("Semantic public-input index trace", function () {
     const value = 77n;
     const salt = 4242n;
 
-    await token
-      .connect(alice)
-      .approve(await darkPool.getAddress(), value);
+    await token.connect(alice).approve(await darkPool.getAddress(), value);
     const ptTx = await darkPool
       .connect(alice)
       .publicTransfer(
@@ -298,7 +299,12 @@ describe("Semantic public-input index trace", function () {
       );
     const ptReceipt = await ptTx.wait();
     const memoLog = ptReceipt!.logs.find(
-      (l): l is typeof l & { fragment?: { name: string }; args: { memoId: string } } =>
+      (
+        l,
+      ): l is typeof l & {
+        fragment?: { name: string };
+        args: { memoId: string };
+      } =>
         (l as { fragment?: { name: string } }).fragment?.name ===
         "NewPublicMemo",
     );

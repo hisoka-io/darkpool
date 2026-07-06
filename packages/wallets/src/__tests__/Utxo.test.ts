@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Fr } from "@aztec/foundation/fields";
-import { Note } from "../utxo/Note";
-import { NoteV2 } from "../note/noteV2";
+import { Utxo } from "../utxo/Utxo";
+import { Note } from "../note/note";
 
 // Deposit-fixture anchors (gen_v2_fixtures.ts): a self note of value 100 to owner_self.
 const ASSET = new Fr(0x1234567890123456789012345678901234567890n);
@@ -15,7 +15,7 @@ const NULLIFIER_AT_0 = new Fr(
   0x2761654f0b4e9f47ac9bafe900c723ead042a888da718a34b6ecc8036850755en,
 );
 
-function depositNote(overrides: Partial<NoteV2> = {}): NoteV2 {
+function depositNote(overrides: Partial<Note> = {}): Note {
   return {
     noteVersion: new Fr(1n),
     assetId: ASSET,
@@ -29,25 +29,25 @@ function depositNote(overrides: Partial<NoteV2> = {}): NoteV2 {
   };
 }
 
-describe("Note (v2 UTXO)", () => {
+describe("Utxo", () => {
   it("computes the deposit-fixture nullifier at leaf index 0", async () => {
-    const note = new Note(depositNote());
+    const note = new Utxo(depositNote());
     const nullifier = await note.getNullifierHash(DEPOSIT_PSI, 0);
     expect(nullifier.equals(NULLIFIER_AT_0)).toBe(true);
   });
 
   it("binds the nullifier to the leaf position", async () => {
-    const note = new Note(depositNote());
+    const note = new Utxo(depositNote());
     const at0 = await note.getNullifierHash(DEPOSIT_PSI, 0);
     const at1 = await note.getNullifierHash(DEPOSIT_PSI, 1);
     expect(at0.equals(at1)).toBe(false);
   });
 
   it("rejects a value outside u128 range", () => {
-    expect(() => new Note(depositNote({ value: 1n << 128n }))).toThrow(/u128/);
+    expect(() => new Utxo(depositNote({ value: 1n << 128n }))).toThrow(/u128/);
   });
 
   it("rejects a zero owner", () => {
-    expect(() => new Note(depositNote({ owner: new Fr(0n) }))).toThrow(/owner/);
+    expect(() => new Utxo(depositNote({ owner: new Fr(0n) }))).toThrow(/owner/);
   });
 });

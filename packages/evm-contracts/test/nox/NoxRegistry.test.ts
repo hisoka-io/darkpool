@@ -1,5 +1,5 @@
 import { assert, expect } from "chai";
-import { ethers } from "hardhat";
+import { ethers, upgrades } from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 import { NoxRegistry, MockERC20 } from "../../typechain-types";
 
@@ -20,13 +20,24 @@ describe("NoxRegistry (Identity & Staking)", function () {
     )) as unknown as MockERC20;
 
     const RegistryFactory = await ethers.getContractFactory("NoxRegistry");
-    const registry = (await RegistryFactory.deploy(
-      admin.address,
-      await token.getAddress(),
-      MIN_STAKE,
-      UNSTAKE_DELAY,
-      MIN_STAKE_FLOOR,
+    const registry = (await upgrades.deployProxy(
+      RegistryFactory,
+      [
+        [
+          0,
+          admin.address,
+          await token.getAddress(),
+          MIN_STAKE,
+          UNSTAKE_DELAY,
+          MIN_STAKE_FLOOR,
+          admin.address,
+          admin.address,
+          admin.address,
+        ],
+      ],
+      { kind: "uups" },
     )) as unknown as NoxRegistry;
+    await registry.waitForDeployment();
 
     const SLASHER_ROLE = await registry.SLASHER_ROLE();
     await registry.connect(admin).grantRole(SLASHER_ROLE, slasher.address);
@@ -1084,27 +1095,47 @@ describe("NoxRegistry (Identity & Staking)", function () {
       ).to.be.revertedWithCustomError(registry, "NothingToSlash");
     });
 
-    it("enforces the minStake floor at deploy and on updateConfig", async function () {
+    it("enforces the minStake floor at initialize and on updateConfig", async function () {
       const { registry, admin, token } = await loadFixture(deployFixture);
       const RegistryFactory = await ethers.getContractFactory("NoxRegistry");
 
       await expect(
-        RegistryFactory.deploy(
-          admin.address,
-          await token.getAddress(),
-          MIN_STAKE_FLOOR - 1n,
-          UNSTAKE_DELAY,
-          MIN_STAKE_FLOOR,
+        upgrades.deployProxy(
+          RegistryFactory,
+          [
+            [
+              0,
+              admin.address,
+              await token.getAddress(),
+              MIN_STAKE_FLOOR - 1n,
+              UNSTAKE_DELAY,
+              MIN_STAKE_FLOOR,
+              admin.address,
+              admin.address,
+              admin.address,
+            ],
+          ],
+          { kind: "uups" },
         ),
       ).to.be.revertedWithCustomError(registry, "MinStakeBelowFloor");
 
       await expect(
-        RegistryFactory.deploy(
-          admin.address,
-          await token.getAddress(),
-          MIN_STAKE,
-          UNSTAKE_DELAY,
-          0n,
+        upgrades.deployProxy(
+          RegistryFactory,
+          [
+            [
+              0,
+              admin.address,
+              await token.getAddress(),
+              MIN_STAKE,
+              UNSTAKE_DELAY,
+              0n,
+              admin.address,
+              admin.address,
+              admin.address,
+            ],
+          ],
+          { kind: "uups" },
         ),
       ).to.be.revertedWithCustomError(registry, "InvalidAmount");
 

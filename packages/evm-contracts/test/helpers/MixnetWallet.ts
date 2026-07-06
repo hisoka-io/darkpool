@@ -1,5 +1,5 @@
 import { ethers as ethersLib } from "ethers";
-import { toFr, addressToFr, Fr } from "@hisoka/wallets";
+import { toFr, addressToFr, packParents, Fr } from "@hisoka/wallets";
 import {
   proveWithdraw,
   proveSplit,
@@ -113,10 +113,26 @@ export class MixnetWallet {
     if (!input) throw new Error(`No note with >= ${total} for split`);
 
     const spendScalar = await this.account.getSelfSpendKey();
+    const parents = packParents([
+      { leafIndex: Number(input.leafIndex) },
+      { leafIndex: 0 },
+    ]);
     const { eph: eph1 } = await this.keyRepo.nextSelfEphemeral();
-    const out1 = await mintSelfNote(eph1, amountA, spendScalar, assetFr);
+    const out1 = await mintSelfNote(
+      eph1,
+      amountA,
+      spendScalar,
+      assetFr,
+      parents,
+    );
     const { eph: eph2 } = await this.keyRepo.nextSelfEphemeral();
-    const out2 = await mintSelfNote(eph2, amountB, spendScalar, assetFr);
+    const out2 = await mintSelfNote(
+      eph2,
+      amountB,
+      spendScalar,
+      assetFr,
+      parents,
+    );
 
     const proof = await proveSplit({
       currentTimestamp: Math.floor(Date.now() / 1000),
@@ -156,6 +172,10 @@ export class MixnetWallet {
       noteA.note.value + noteB.note.value,
       spendScalar,
       assetFr,
+      packParents([
+        { leafIndex: Number(noteA.leafIndex) },
+        { leafIndex: Number(noteB.leafIndex) },
+      ]),
     );
 
     const proof = await proveJoin({
@@ -199,6 +219,7 @@ export class MixnetWallet {
       input.note.value - amount,
       spendScalar,
       assetFr,
+      packParents([{ leafIndex: Number(input.leafIndex) }, { leafIndex: 0 }]),
     );
 
     const proof = await proveWithdraw({
@@ -241,12 +262,17 @@ export class MixnetWallet {
     const memoEph = subgroupScalar(
       ethersLib.toBigInt(ethersLib.randomBytes(16)),
     );
+    const parents = packParents([
+      { leafIndex: Number(input.leafIndex) },
+      { leafIndex: 0 },
+    ]);
     const memo = await mintIncomingNote(
       memoEph,
       amount,
       recipientInPub,
       toFr(0n),
       assetFr,
+      parents,
     );
 
     const spendScalar = await this.account.getSelfSpendKey();
@@ -256,6 +282,7 @@ export class MixnetWallet {
       input.note.value - amount,
       spendScalar,
       assetFr,
+      parents,
     );
 
     const proof = await proveTransfer({

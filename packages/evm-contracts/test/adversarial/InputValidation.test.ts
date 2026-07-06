@@ -82,7 +82,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
 
       await expect(
         darkPool.connect(alice).deposit(DUMMY_PROOF, inputs),
-      ).to.be.revertedWithCustomError(darkPool, "InvalidComplianceKey");
+      ).to.be.revertedWithCustomError(darkPool, "ComplianceKeyStale");
     });
 
     it("Withdraw: should reject invalid Compliance Key Y", async function () {
@@ -100,7 +100,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
 
       await expect(
         darkPool.connect(alice).withdraw(DUMMY_PROOF, inputs),
-      ).to.be.revertedWithCustomError(darkPool, "InvalidComplianceKey");
+      ).to.be.revertedWithCustomError(darkPool, "ComplianceKeyStale");
     });
 
     it("Transfer: should reject invalid Compliance Key", async function () {
@@ -115,7 +115,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
 
       await expect(
         darkPool.connect(alice).privateTransfer(DUMMY_PROOF, inputs),
-      ).to.be.revertedWithCustomError(darkPool, "InvalidComplianceKey");
+      ).to.be.revertedWithCustomError(darkPool, "ComplianceKeyStale");
     });
   });
 
@@ -145,7 +145,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
       // Passing the timestamp check, the next gate is the compliance-key check.
       await expect(
         darkPool.connect(alice).withdraw(DUMMY_PROOF, inputs),
-      ).to.be.revertedWithCustomError(darkPool, "InvalidComplianceKey");
+      ).to.be.revertedWithCustomError(darkPool, "ComplianceKeyStale");
     });
   });
 

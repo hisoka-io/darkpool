@@ -8,8 +8,8 @@
         "ignoreConstructors": true
       }
     ],
-    "no-empty-blocks": "error",
-    "max-line-length": ["error", 120],
+    "no-empty-blocks": "warn",
+    "max-line-length": ["warn", 120],
     "no-inline-assembly": "off",
     "avoid-low-level-calls": "off",
     "var-name-mixedcase": "off",

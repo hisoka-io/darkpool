@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.25;
 
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {AccessControlDefaultAdminRulesUpgradeable} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -16,24 +17,72 @@ interface INoxRegistry {
  * @author Hisoka Protocol
  * @notice The centralized treasury for the NOX Relayer Network.
  * @dev Escrow that collects ERC20 gas fees and distributes them to relayers; the split is
- *      computed off-chain by the Distributor.
+ *      computed off-chain by the Distributor. UUPS proxy: all mutable state lives in an ERC-7201
+ *      namespace; the registry link is set in initialize (never zero under the proxy). Upgrades
+ *      gated by UPGRADER_ROLE.
  */
-contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
+contract NoxRewardPool is
+    Initializable,
+    UUPSUpgradeable,
+    AccessControlDefaultAdminRulesUpgradeable,
+    PausableUpgradeable
+{
     using SafeERC20 for IERC20;
 
     bytes32 public constant DISTRIBUTOR_ROLE = keccak256("DISTRIBUTOR_ROLE");
 
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
 
-    /// @notice Registry used to confirm reward recipients are network relayers.
-    INoxRegistry public immutable noxRegistry;
+    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
-    /// @notice Assets whitelisted for gas payments, blocking griefing/spam tokens.
-    mapping(address => bool) public isSupportedAsset;
+    uint256 private constant NOT_ENTERED = 1;
+    uint256 private constant ENTERED = 2;
 
-    mapping(address => uint256) public totalCollected;
+    /// @custom:storage-location erc7201:hisoka.nox.rewardpool
+    struct RewardPoolStorage {
+        INoxRegistry noxRegistry;
+        mapping(address => bool) isSupportedAsset;
+        mapping(address => uint256) totalCollected;
+        mapping(address => uint256) totalDistributed;
+    }
 
-    mapping(address => uint256) public totalDistributed;
+    /// @dev Inlined upgradeable reentrancy guard against OZ's canonical namespace; contracts-upgradeable
+    /// 5.6.1 dropped ReentrancyGuardUpgradeable once the base became stateless.
+    /// @custom:storage-location erc7201:openzeppelin.storage.ReentrancyGuard
+    struct ReentrancyStorage {
+        uint256 status;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("hisoka.nox.rewardpool")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant REWARDPOOL_LOCATION =
+        0x54fc6109d79aa70b8d075edff760cc58b2a4f172bcefb22efc43c410f648fa00;
+    // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ReentrancyGuard")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant REENTRANCY_LOCATION =
+        0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
+
+    function _rewardPool() private pure returns (RewardPoolStorage storage $) {
+        assembly {
+            $.slot := REWARDPOOL_LOCATION
+        }
+    }
+
+    function _reentrancyStorage()
+        private
+        pure
+        returns (ReentrancyStorage storage $)
+    {
+        assembly {
+            $.slot := REENTRANCY_LOCATION
+        }
+    }
+
+    modifier nonReentrant() {
+        ReentrancyStorage storage $ = _reentrancyStorage();
+        if ($.status == ENTERED) revert ReentrancyGuardReentrantCall();
+        $.status = ENTERED;
+        _;
+        $.status = NOT_ENTERED;
+    }
 
     event AssetStatusChanged(address indexed asset, bool isSupported);
     event RewardsDeposited(
@@ -62,21 +111,50 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
     error RecipientNotRegistered();
     error ExceedsRescuableBalance();
     error FeeOnTransferUnsupported();
+    error ReentrancyGuardReentrantCall();
+
+    struct InitParams {
+        uint48 initialAdminDelay;
+        address initialAdmin;
+        address noxRegistry;
+        address admin;
+        address distributor;
+        address upgrader;
+    }
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
 
     /**
-     * @param _admin The initial admin and distributor.
-     * @param _noxRegistry The relayer registry; recipients must be registered relayers.
+     * @notice One-time proxy initialization. Grants roles to the passed-in governance addresses
+     *         (never msg.sender) and links the relayer registry. Callable exactly once.
      */
-    constructor(address _admin, address _noxRegistry) {
-        if (_admin == address(0)) revert ZeroAddress();
-        if (_noxRegistry == address(0)) revert ZeroAddress();
+    function initialize(InitParams calldata p) external initializer {
+        if (p.initialAdmin == address(0)) revert ZeroAddress();
+        if (p.noxRegistry == address(0)) revert ZeroAddress();
+        if (p.admin == address(0)) revert ZeroAddress();
+        if (p.distributor == address(0)) revert ZeroAddress();
+        if (p.upgrader == address(0)) revert ZeroAddress();
 
-        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
-        _grantRole(ADMIN_ROLE, _admin);
-        _grantRole(DISTRIBUTOR_ROLE, _admin);
+        __AccessControlDefaultAdminRules_init(
+            p.initialAdminDelay,
+            p.initialAdmin
+        );
+        __Pausable_init();
+        _reentrancyStorage().status = NOT_ENTERED;
 
-        noxRegistry = INoxRegistry(_noxRegistry);
+        _grantRole(ADMIN_ROLE, p.admin);
+        _grantRole(DISTRIBUTOR_ROLE, p.distributor);
+        _grantRole(UPGRADER_ROLE, p.upgrader);
+
+        _rewardPool().noxRegistry = INoxRegistry(p.noxRegistry);
     }
+
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyRole(UPGRADER_ROLE) {}
 
     /**
      * @notice Toggle support for a gas token (e.g., USDC, WETH).
@@ -89,7 +167,7 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
         bool _status
     ) external onlyRole(ADMIN_ROLE) {
         if (_asset == address(0)) revert ZeroAddress();
-        isSupportedAsset[_asset] = _status;
+        _rewardPool().isSupportedAsset[_asset] = _status;
         emit AssetStatusChanged(_asset, _status);
     }
 
@@ -117,14 +195,15 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
         uint256 _amount
     ) external nonReentrant whenNotPaused {
         if (_amount == 0) revert ZeroAmount();
-        if (!isSupportedAsset[_asset]) revert AssetNotSupported();
+        RewardPoolStorage storage $ = _rewardPool();
+        if (!$.isSupportedAsset[_asset]) revert AssetNotSupported();
 
         uint256 bal0 = IERC20(_asset).balanceOf(address(this));
         IERC20(_asset).safeTransferFrom(msg.sender, address(this), _amount);
         if (IERC20(_asset).balanceOf(address(this)) - bal0 != _amount)
             revert FeeOnTransferUnsupported();
 
-        totalCollected[_asset] += _amount;
+        $.totalCollected[_asset] += _amount;
 
         emit RewardsDeposited(_asset, msg.sender, _amount);
     }
@@ -142,7 +221,8 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
         address[] calldata _recipients,
         uint256[] calldata _amounts
     ) external nonReentrant whenNotPaused onlyRole(DISTRIBUTOR_ROLE) {
-        if (!isSupportedAsset[_asset]) revert AssetNotSupported();
+        RewardPoolStorage storage $ = _rewardPool();
+        if (!$.isSupportedAsset[_asset]) revert AssetNotSupported();
         if (_recipients.length != _amounts.length) revert ArrayLengthMismatch();
         if (_recipients.length == 0) revert ArrayLengthMismatch();
 
@@ -150,14 +230,14 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
         for (uint256 i = 0; i < _recipients.length; i++) {
             address to = _recipients[i];
             if (to == address(0)) revert ZeroAddress();
-            if (!noxRegistry.isActiveRelayer(to))
+            if (!$.noxRegistry.isActiveRelayer(to))
                 revert RecipientNotRegistered();
             batchTotal += _amounts[i];
         }
 
-        if (batchTotal > totalCollected[_asset] - totalDistributed[_asset])
+        if (batchTotal > $.totalCollected[_asset] - $.totalDistributed[_asset])
             revert InsufficientCollected();
-        totalDistributed[_asset] += batchTotal;
+        $.totalDistributed[_asset] += batchTotal;
 
         for (uint256 i = 0; i < _recipients.length; i++) {
             if (_amounts[i] > 0) {
@@ -178,12 +258,32 @@ contract NoxRewardPool is AccessControl, ReentrancyGuard, Pausable {
         if (_to == address(0)) revert ZeroAddress();
         if (_amount == 0) revert ZeroAmount();
 
-        uint256 committed = totalCollected[_asset] - totalDistributed[_asset];
+        RewardPoolStorage storage $ = _rewardPool();
+        uint256 committed = $.totalCollected[_asset] -
+            $.totalDistributed[_asset];
         uint256 liveBalance = IERC20(_asset).balanceOf(address(this));
         uint256 free = liveBalance > committed ? liveBalance - committed : 0;
         if (_amount > free) revert ExceedsRescuableBalance();
 
         IERC20(_asset).safeTransfer(_to, _amount);
         emit FundsRescued(_asset, _to, _amount);
+    }
+
+    /// @notice Registry used to confirm reward recipients are network relayers.
+    function noxRegistry() external view returns (INoxRegistry) {
+        return _rewardPool().noxRegistry;
+    }
+
+    /// @notice Assets whitelisted for gas payments, blocking griefing/spam tokens.
+    function isSupportedAsset(address _asset) external view returns (bool) {
+        return _rewardPool().isSupportedAsset[_asset];
+    }
+
+    function totalCollected(address _asset) external view returns (uint256) {
+        return _rewardPool().totalCollected[_asset];
+    }
+
+    function totalDistributed(address _asset) external view returns (uint256) {
+        return _rewardPool().totalDistributed[_asset];
     }
 }

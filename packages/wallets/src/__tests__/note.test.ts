@@ -6,15 +6,15 @@ import {
   leaf,
   packParents,
   unpackParents,
-  type NoteV2,
+  type Note,
   type Parent,
-} from "../note/noteV2.js";
+} from "../note/note.js";
 
 const CEK = new Fr(
   0x1fbbfa289c50b7ded032c85e5faa8b3790afc2fd059fd3d299294ff879a08bdan,
 );
 
-async function fixtureNote(): Promise<NoteV2> {
+async function fixtureNote(): Promise<Note> {
   const psi = await Poseidon.hash([CEK, new Fr(PSI_DOMAIN)]);
   return {
     noteVersion: new Fr(1n),
@@ -30,7 +30,7 @@ async function fixtureNote(): Promise<NoteV2> {
   };
 }
 
-describe("note v2 leaf (plaintext-commit parity)", () => {
+describe("note leaf (plaintext-commit parity)", () => {
   it("KAT: fully-populated note leaf matches the Noir vector", async () => {
     const note = await fixtureNote();
     const value = await leaf(note);
@@ -52,28 +52,19 @@ describe("note v2 leaf (plaintext-commit parity)", () => {
   });
 });
 
-describe("note v2 parents packing (parity + round-trip)", () => {
-  it("KAT: packs [(1,2),(3,4)] to the Noir vector", () => {
-    const pairs: [Parent, Parent] = [
-      { treeNum: 1, leafIndex: 2 },
-      { treeNum: 3, leafIndex: 4 },
-    ];
-    expect(packParents(pairs).toBigInt()).toBe(0x3000000040000000100000002n);
+describe("note parents packing (parity + round-trip)", () => {
+  it("KAT: packs [2,4] to the Noir vector", () => {
+    const pairs: [Parent, Parent] = [{ leafIndex: 2 }, { leafIndex: 4 }];
+    expect(packParents(pairs).toBigInt()).toBe(0x400000002n);
   });
 
-  it("round-trips [(1,2),(3,4)]", () => {
-    const pairs: [Parent, Parent] = [
-      { treeNum: 1, leafIndex: 2 },
-      { treeNum: 3, leafIndex: 4 },
-    ];
+  it("round-trips [2,4]", () => {
+    const pairs: [Parent, Parent] = [{ leafIndex: 2 }, { leafIndex: 4 }];
     expect(unpackParents(packParents(pairs))).toEqual(pairs);
   });
 
   it("deposit (no parents) packs to 0 and round-trips", () => {
-    const deposit: [Parent, Parent] = [
-      { treeNum: 0, leafIndex: 0 },
-      { treeNum: 0, leafIndex: 0 },
-    ];
+    const deposit: [Parent, Parent] = [{ leafIndex: 0 }, { leafIndex: 0 }];
     const packed = packParents(deposit);
     expect(packed.toBigInt()).toBe(0n);
     expect(unpackParents(packed)).toEqual(deposit);
@@ -81,27 +72,16 @@ describe("note v2 parents packing (parity + round-trip)", () => {
 
   it("round-trips the max-u32 boundary", () => {
     const pairs: [Parent, Parent] = [
-      { treeNum: 0xffffffff, leafIndex: 0xffffffff },
-      { treeNum: 0, leafIndex: 0 },
+      { leafIndex: 0xffffffff },
+      { leafIndex: 0xffffffff },
     ];
+    expect(packParents(pairs).toBigInt()).toBe(0xffffffffffffffffn);
     expect(unpackParents(packParents(pairs))).toEqual(pairs);
   });
 
   it("rejects leaf_index >= 2^32 (no silent truncation)", () => {
     expect(() =>
-      packParents([
-        { treeNum: 0, leafIndex: 2 ** 32 },
-        { treeNum: 0, leafIndex: 0 },
-      ]),
-    ).toThrow();
-  });
-
-  it("rejects treeNum >= 2^32", () => {
-    expect(() =>
-      packParents([
-        { treeNum: 2 ** 32, leafIndex: 0 },
-        { treeNum: 0, leafIndex: 0 },
-      ]),
+      packParents([{ leafIndex: 2 ** 32 }, { leafIndex: 0 }]),
     ).toThrow();
   });
 });

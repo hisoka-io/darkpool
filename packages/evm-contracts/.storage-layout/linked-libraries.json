@@ -1,0 +1,5 @@
+{
+  "DarkPool": {
+    "Poseidon2": "contracts/Poseidon/Poseidon2.sol"
+  }
+}

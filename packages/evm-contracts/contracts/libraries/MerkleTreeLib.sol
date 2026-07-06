@@ -15,7 +15,7 @@ library MerkleTreeLib {
 
     error TreeIsFull();
     error InvalidDepth();
-    error InvalidRootHistorySize();
+    error AlreadyInitialized();
     error InvalidLeaf();
     error LevelOutOfBounds();
     error PositionOutOfBounds();
@@ -27,31 +27,23 @@ library MerkleTreeLib {
         bytes32 leaf,
         bytes32 newRoot
     );
-    event RootSaved(uint256 indexed rootIndex, bytes32 root);
+    event RootSaved(bytes32 indexed root);
 
-    /// @dev Root history is a ring buffer; a root evicted after ROOT_HISTORY_SIZE later inserts
-    ///      makes `isKnownRoot` false, so clients must submit proofs before their root goes stale.
+    /// @dev Every inserted root is retained forever (`isKnownRoot` is never cleared); the nullifier set,
+    ///      not root recency, is the double-spend guard, so a proof against any historical root stays valid.
     struct Tree {
         uint256 TREE_DEPTH;
-        uint256 ROOT_HISTORY_SIZE;
         bytes32[][] levels;
-        bytes32[] roots;
-        uint256 currentRootIndex;
         uint256 nextLeafIndex;
+        bytes32 latestRoot;
         mapping(bytes32 => bool) isKnownRoot;
     }
 
-    function init(
-        Tree storage self,
-        uint32 _depth,
-        uint32 _rootHistorySize
-    ) internal {
+    function init(Tree storage self, uint32 _depth) internal {
+        if (self.TREE_DEPTH != 0) revert AlreadyInitialized();
         if (_depth == 0 || _depth > 32) revert InvalidDepth();
-        if (_rootHistorySize == 0) revert InvalidRootHistorySize();
         self.TREE_DEPTH = _depth;
-        self.ROOT_HISTORY_SIZE = _rootHistorySize;
         self.levels = new bytes32[][](_depth);
-        self.roots = new bytes32[](_rootHistorySize);
     }
 
     function insert(
@@ -117,26 +109,13 @@ library MerkleTreeLib {
     }
 
     function _saveRoot(Tree storage self, bytes32 _root) private {
-        if (self.ROOT_HISTORY_SIZE > 0) {
-            bytes32 oldRoot = self.roots[self.currentRootIndex];
-            if (oldRoot != bytes32(0)) {
-                self.isKnownRoot[oldRoot] = false;
-            }
-            self.roots[self.currentRootIndex] = _root;
-            self.isKnownRoot[_root] = true;
-            emit RootSaved(self.currentRootIndex, _root);
-            self.currentRootIndex =
-                (self.currentRootIndex + 1) %
-                self.ROOT_HISTORY_SIZE;
-        }
+        self.isKnownRoot[_root] = true;
+        self.latestRoot = _root;
+        emit RootSaved(_root);
     }
 
     function getCurrentRoot(Tree storage self) internal view returns (bytes32) {
-        if (self.nextLeafIndex == 0) return bytes32(0);
-        uint256 indexToReturn = (self.currentRootIndex == 0)
-            ? self.ROOT_HISTORY_SIZE - 1
-            : self.currentRootIndex - 1;
-        return self.roots[indexToReturn];
+        return self.latestRoot;
     }
 
     /// @notice Sibling path (32 nodes, leaf level up to root) for light clients to build proofs.

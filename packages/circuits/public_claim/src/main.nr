@@ -1,7 +1,7 @@
 use ::ecdh::{bjj::BJJ, ECDHTrait, Point};
 use ::poseidon::poseidon2::Poseidon2;
 use ::shared::{assert_subgroup_scalar, mint};
-use ::shared::note_v2::Note;
+use ::shared::note::Note;
 
 // Claim a public memo into a shielded self note. The claimer proves the memo's owner key and mints note_out
 // to an owner of their choice (inside the encrypted note). The note owner is not a public value, so the
@@ -35,6 +35,7 @@ fn main(
 
     assert(note_out.value as Field == val, "claim value mismatch");
     assert(note_out.asset_id == asset_id, "claim asset mismatch");
+    assert(note_out.parents == 0, "claim output parents must be zero");
 
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
@@ -121,6 +122,28 @@ fn audit_reject_claim_value_inflation() {
         0x004996117eaf098d97b6a42a8ec9c27b5ec30cdca90ffbdb6792eb4733c982d4,
         0x3039,
         inflated,
+        31,
+    );
+}
+
+// A public claim has no consumed shielded parent, so a nonzero output parents is rejected.
+#[test(should_fail_with = "claim output parents must be zero")]
+fn audit_reject_nonzero_parents() {
+    let mut note = note_out();
+    note.parents = 0x1;
+    let _ = main(
+        0x0731300919ae74d1507ab3b22cac576da8c86deb8ddc11f24317b861f17f6f93,
+        CX,
+        CY,
+        0,
+        100,
+        0x1234567890123456789012345678901234567890,
+        0,
+        0x2a39f6a9afe8c569977ec299af985e30142d18ee451008ffd13fc0a2a36cf54e,
+        0x1d5a43dc73fe0493cce521cc92a4d34d4837214ce47871c587c567d2d0c72c8f,
+        0x004996117eaf098d97b6a42a8ec9c27b5ec30cdca90ffbdb6792eb4733c982d4,
+        0x3039,
+        note,
         31,
     );
 }

@@ -1,7 +1,7 @@
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
 
-// Marshaled to the circuit's note_v2::Note struct.
+// Marshaled to the circuit's note::Note struct.
 export interface NoteInput {
   noteVersion: Fr;
   assetId: Fr;

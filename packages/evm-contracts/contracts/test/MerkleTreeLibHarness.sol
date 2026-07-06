@@ -7,8 +7,8 @@ contract MerkleTreeLibHarness {
     using MerkleTreeLib for MerkleTreeLib.Tree;
     MerkleTreeLib.Tree public tree;
 
-    constructor(uint32 depth, uint32 rootHistorySize) {
-        tree.init(depth, rootHistorySize);
+    constructor(uint32 depth) {
+        tree.init(depth);
     }
 
     function insert(bytes32 leaf) public {

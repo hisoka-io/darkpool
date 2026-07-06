@@ -1,4 +1,4 @@
-import { ethers } from "hardhat";
+import { ethers, upgrades } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
 import { toFr, addressToFr, LeanIMT, Fr } from "@hisoka/wallets";
@@ -15,8 +15,7 @@ import {
   IERC20,
   MockERC20,
   UniswapAdaptor__factory,
-  DarkPool__factory,
-  NoxRewardPool__factory,
+  NoxRewardPool,
 } from "../../typechain-types";
 
 export const WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -87,11 +86,21 @@ export const COMPLIANCE_PK: Point<bigint> = mulPointEscalar(
 export async function setupAdaptorNote(
   data: { darkPool: DarkPool; weth: IERC20; alice: { address: string } },
   amountEth: string = "10",
-): Promise<{ built: BuiltNote; tree: LeanIMT; amount: bigint; spendScalar: Fr }> {
+): Promise<{
+  built: BuiltNote;
+  tree: LeanIMT;
+  amount: bigint;
+  spendScalar: Fr;
+}> {
   const amount = ethers.parseEther(amountEth);
   const assetFr = addressToFr(WETH_ADDRESS);
   const spendScalar = await userSpendScalar(data.alice.address);
-  const built = await mintSelfNote(evenYEphemeral(1n), amount, spendScalar, assetFr);
+  const built = await mintSelfNote(
+    evenYEphemeral(1n),
+    amount,
+    spendScalar,
+    assetFr,
+  );
 
   const proof = await proveDeposit({
     compliancePk: HELPER_COMPLIANCE_PK,
@@ -213,35 +222,57 @@ export async function deployUniswapFixture() {
   const MockRegistryFactory =
     await ethers.getContractFactory("MockNoxRegistry");
   const mockNoxRegistry = await MockRegistryFactory.deploy(GAS_OVERRIDES);
-  const RewardPoolFactory = (await ethers.getContractFactory(
-    "NoxRewardPool",
-  )) as unknown as NoxRewardPool__factory;
-  const rewardPool = await RewardPoolFactory.deploy(
-    deployer.address,
-    await mockNoxRegistry.getAddress(),
-    GAS_OVERRIDES,
-  );
+
+  const RewardPoolFactory = await ethers.getContractFactory("NoxRewardPool");
+  const rewardPool = (await upgrades.deployProxy(
+    RewardPoolFactory,
+    [
+      [
+        0,
+        deployer.address,
+        await mockNoxRegistry.getAddress(),
+        deployer.address,
+        deployer.address,
+        deployer.address,
+      ],
+    ],
+    { kind: "uups", txOverrides: GAS_OVERRIDES },
+  )) as unknown as NoxRewardPool;
+  await rewardPool.waitForDeployment();
 
   await rewardPool.setAssetStatus(WETH_ADDRESS, true);
   await rewardPool.setAssetStatus(USDC_ADDRESS, true);
 
-  const DarkPoolFactory = (await ethers.getContractFactory("DarkPool", {
+  const DarkPoolFactory = await ethers.getContractFactory("DarkPool", {
     libraries: { Poseidon2: poseidonAddress },
-  })) as unknown as DarkPool__factory;
+  });
 
-  const darkPool = await DarkPoolFactory.deploy(
-    await DepVerifier.getAddress(),
-    await WdwVerifier.getAddress(),
-    await TrfVerifier.getAddress(),
-    await JoinVerifier.getAddress(),
-    await SplitVerifier.getAddress(),
-    await PublicClaimVerifier.getAddress(),
-    await rewardPool.getAddress(),
-    COMPLIANCE_PK[0],
-    COMPLIANCE_PK[1],
-    deployer.address,
-    GAS_OVERRIDES,
-  );
+  const darkPool = (await upgrades.deployProxy(
+    DarkPoolFactory,
+    [
+      [
+        await DepVerifier.getAddress(),
+        await WdwVerifier.getAddress(),
+        await TrfVerifier.getAddress(),
+        await JoinVerifier.getAddress(),
+        await SplitVerifier.getAddress(),
+        await PublicClaimVerifier.getAddress(),
+        await rewardPool.getAddress(),
+        COMPLIANCE_PK[0],
+        COMPLIANCE_PK[1],
+        0,
+        deployer.address,
+        deployer.address,
+        deployer.address,
+      ],
+    ],
+    {
+      kind: "uups",
+      unsafeAllow: ["external-library-linking"],
+      txOverrides: GAS_OVERRIDES,
+    },
+  )) as unknown as DarkPool;
+  await darkPool.waitForDeployment();
 
   const UniswapAdaptorFactory = (await ethers.getContractFactory(
     "UniswapAdaptor",

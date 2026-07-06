@@ -1,8 +1,8 @@
 import { Fr } from "@aztec/foundation/fields";
-import { NoteV2 } from "../note/noteV2.js";
+import { Note } from "../note/note.js";
 
 export interface WalletNote {
-  note: NoteV2;
+  note: Note;
   commitment: Fr;
   leafIndex: number;
   nullifier: Fr;

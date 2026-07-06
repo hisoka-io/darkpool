@@ -4,7 +4,7 @@
 
 use crate::kem;
 use crate::mint;
-use crate::note_v2::Note;
+use crate::note::Note;
 use crate::TREE_DEPTH;
 use crate::verify_spend;
 use ecdh::Point;

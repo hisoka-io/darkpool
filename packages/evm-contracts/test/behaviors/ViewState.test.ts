@@ -31,7 +31,7 @@ describe("ViewState: getMerklePath Parity", function () {
         },
       },
     )) as unknown as MerkleTreeLibHarness__factory;
-    harness = await HarnessFactory.deploy(TREE_DEPTH, 100);
+    harness = await HarnessFactory.deploy(TREE_DEPTH);
   });
 
   it("should match TypeScript LeanIMT getMerklePath for single leaf", async function () {

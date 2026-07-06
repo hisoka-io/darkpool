@@ -2,7 +2,6 @@ use crate::domains::PSI_DOMAIN;
 use poseidon::poseidon2::Poseidon2;
 
 pub global TWO_POW_32: Field = 4294967296;
-pub global TWO_POW_64: Field = 18446744073709551616;
 
 // The wire-format seam and the only shipped note kind. A spend circuit rejects any other version/type.
 pub global NOTE_VERSION: Field = 1;
@@ -13,9 +12,9 @@ pub fn assert_asset_id(asset_id: Field) {
     let _: [u8; 20] = asset_id.to_be_bytes();
 }
 
-// A consumed input; both fields u32 so a pair packs into 64 bits.
+// A consumed input, located by its leaf index. Single-tree: the index alone identifies a parent; a tree id
+// returns only if a multi-tree layout is ever introduced.
 pub struct Parent {
-    pub tree_num: u32,
     pub leaf_index: u32,
 }
 
@@ -51,24 +50,29 @@ impl Note {
     }
 }
 
-// pair0 in bits 0..63, pair1 in bits 64..127 (each: tree_num << 32 | leaf_index). Deposit = 0.
+// Two consumed leaf indexes little-endian in one Field: index0 in bits 0..31, index1 in bits 32..63.
+// Deposit and public-claim outputs have no consumed parent, so parents = 0.
 pub fn pack_parents(parents: [Parent; 2]) -> Field {
-    pack_pair(parents[0]) + pack_pair(parents[1]) * TWO_POW_64
-}
-
-fn pack_pair(p: Parent) -> Field {
-    (p.tree_num as Field) * TWO_POW_32 + (p.leaf_index as Field)
+    (parents[0].leaf_index as Field) + (parents[1].leaf_index as Field) * TWO_POW_32
 }
 
 pub fn unpack_parents(packed: Field) -> [Parent; 2] {
     let bytes: [u8; 32] = packed.to_le_bytes();
-    for i in 16..32 {
-        assert(bytes[i] == 0, "packed parents exceeds 2^128");
+    for i in 8..32 {
+        assert(bytes[i] == 0, "packed parents exceeds 2^64");
     }
-    [
-        Parent { tree_num: u32_from_le(bytes, 4), leaf_index: u32_from_le(bytes, 0) },
-        Parent { tree_num: u32_from_le(bytes, 12), leaf_index: u32_from_le(bytes, 8) },
-    ]
+    [Parent { leaf_index: u32_from_le(bytes, 0) }, Parent { leaf_index: u32_from_le(bytes, 4) }]
+}
+
+// Bind an output note's lineage to the leaf indexes actually consumed. The index witnesses passed here MUST
+// be the same ones verify_spend feeds to the nullifier and membership proof, so parents cannot be forged
+// independently of the inputs that were really spent.
+pub fn assert_parents_bound(note: Note, indexes: [Field; 2]) {
+    let expected = pack_parents([
+        Parent { leaf_index: indexes[0] as u32 },
+        Parent { leaf_index: indexes[1] as u32 },
+    ]);
+    assert(note.parents == expected, "output parents not bound to consumed inputs");
 }
 
 fn u32_from_le(bytes: [u8; 32], offset: u32) -> u32 {
@@ -97,39 +101,31 @@ fn kat_leaf_fully_populated() {
 
 #[test]
 fn kat_pack_unpack_parents() {
-    let parents = [Parent { tree_num: 1, leaf_index: 2 }, Parent { tree_num: 3, leaf_index: 4 }];
+    let parents = [Parent { leaf_index: 2 }, Parent { leaf_index: 4 }];
     let packed = pack_parents(parents);
-    assert(packed == 0x3000000040000000100000002);
+    assert(packed == 0x400000002);
 
     let unpacked = unpack_parents(packed);
-    assert(unpacked[0].tree_num == 1);
     assert(unpacked[0].leaf_index == 2);
-    assert(unpacked[1].tree_num == 3);
     assert(unpacked[1].leaf_index == 4);
 }
 
 #[test]
 fn kat_deposit_parents_zero() {
-    let parents = [Parent { tree_num: 0, leaf_index: 0 }, Parent { tree_num: 0, leaf_index: 0 }];
+    let parents = [Parent { leaf_index: 0 }, Parent { leaf_index: 0 }];
     assert(pack_parents(parents) == 0);
 
     let unpacked = unpack_parents(0);
-    assert(unpacked[0].tree_num == 0);
     assert(unpacked[0].leaf_index == 0);
-    assert(unpacked[1].tree_num == 0);
     assert(unpacked[1].leaf_index == 0);
 }
 
 #[test]
 fn kat_max_u32_boundary() {
-    let parents = [
-        Parent { tree_num: 0xffffffff, leaf_index: 0xffffffff },
-        Parent { tree_num: 0, leaf_index: 0 },
-    ];
+    let parents = [Parent { leaf_index: 0xffffffff }, Parent { leaf_index: 0xffffffff }];
     let packed = pack_parents(parents);
+    assert(packed == 0xffffffffffffffff);
     let unpacked = unpack_parents(packed);
-    assert(unpacked[0].tree_num == 0xffffffff);
     assert(unpacked[0].leaf_index == 0xffffffff);
-    assert(unpacked[1].tree_num == 0);
-    assert(unpacked[1].leaf_index == 0);
+    assert(unpacked[1].leaf_index == 0xffffffff);
 }

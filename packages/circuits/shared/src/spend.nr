@@ -1,7 +1,7 @@
 use crate::assert_subgroup_scalar;
 use crate::{lean_imt_inclusion_proof, TREE_DEPTH};
+use crate::note::{assert_asset_id, Note, NOTE_TYPE_STANDARD, NOTE_VERSION};
 use crate::note_nullifier;
-use crate::note_v2::{assert_asset_id, Note, NOTE_TYPE_STANDARD, NOTE_VERSION};
 use crate::owner;
 use ecdh::{bjj::BJJ, ECDHTrait};
 

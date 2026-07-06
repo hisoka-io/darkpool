@@ -1,18 +1,16 @@
 mod spend;
-mod spend_binding;
 mod harness;
 mod domains;
 mod kem;
 mod dem;
 mod note_nullifier;
-pub mod note_v2;
+pub mod note;
 mod even_y;
 mod owner;
 pub mod mint;
 pub mod conservation;
 use poseidon::poseidon2::Poseidon2;
 pub use spend::verify_spend;
-pub use spend_binding::verify_spend_binding;
 
 pub global TREE_DEPTH: u32 = 32;
 

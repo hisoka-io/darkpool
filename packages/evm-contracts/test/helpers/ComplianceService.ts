@@ -7,14 +7,14 @@ import {
   computePsi,
   computeNullifier,
   leaf,
-  NoteV2,
+  Note,
 } from "@hisoka/wallets";
 import { Point } from "@zk-kit/baby-jubjub";
 
 interface DecryptedRecord {
   commitment: string;
   nullifier: string;
-  note: NoteV2;
+  note: Note;
   txHash: string;
   blockNumber: number;
   isTransfer: boolean;
@@ -107,7 +107,7 @@ export class ComplianceService {
       const commitment = toFr(event.args.commitment);
       const leafIndex = Number(event.args.leafIndex);
 
-      const note: NoteV2 = {
+      const note: Note = {
         noteVersion: plaintext[0],
         assetId: plaintext[1],
         noteType: plaintext[2],
@@ -130,7 +130,7 @@ export class ComplianceService {
 
   private store(
     event: EventLog,
-    note: NoteV2,
+    note: Note,
     nullifier: Fr,
     isTransfer: boolean,
   ): void {

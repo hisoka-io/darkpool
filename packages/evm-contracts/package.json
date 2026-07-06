@@ -6,10 +6,14 @@
   "license": "Apache-2.0",
   "scripts": {
     "build": "hardhat compile",
+    "lint": "solhint \"contracts/**/*.sol\"",
     "test": "pnpm run test:fast",
     "test:full": "pnpm run test:fast && pnpm run test:fork",
     "test:fast": "./test-parallel.sh",
-    "test:fork": "./test-fork.sh"
+    "test:fork": "./test-fork.sh",
+    "validate:upgrades": "hardhat run scripts/validate-upgrade-safety.ts",
+    "storage:snapshot": "hardhat run scripts/snapshot-storage-layout.ts",
+    "storage:check": "hardhat run scripts/snapshot-storage-layout.ts && git diff --exit-code -- .storage-layout"
   },
   "devDependencies": {
     "@aztec/bb.js": "4.0.0-nightly.20260218",
@@ -25,6 +29,8 @@
     "@nomicfoundation/hardhat-network-helpers": "^1.0.0",
     "@nomicfoundation/hardhat-toolbox": "^6.0.0",
     "@nomicfoundation/hardhat-verify": "^2.0.0",
+    "@openzeppelin/hardhat-upgrades": "3.9.1",
+    "@openzeppelin/upgrades-core": "1.46.0",
     "@typechain/ethers-v6": "^0.5.0",
     "@typechain/hardhat": "^9.0.0",
     "@types/chai": "^4.2.0",
@@ -45,7 +51,8 @@
   },
   "dependencies": {
     "@hisoka/adaptors": "workspace:^",
-    "@openzeppelin/contracts": "^5.4.0",
+    "@openzeppelin/contracts": "^5.6.1",
+    "@openzeppelin/contracts-upgradeable": "5.6.1",
     "@uniswap/v3-core": "^1.0.1",
     "@uniswap/v3-periphery": "^1.4.4"
   }

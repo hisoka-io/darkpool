@@ -37,6 +37,10 @@ REQ_JUST="1.40.0"
 REQ_NODE="18.0.0"
 REQ_BBJS="4.0.0-nightly.20260218"
 REQ_TS="5.9.2"
+REQ_OZ_CONTRACTS="5.6.1"
+REQ_OZ_UPGRADEABLE="5.6.1"
+REQ_HH_UPGRADES="3.9.1"
+REQ_UPGRADES_CORE="1.46.0"
 
 # Extract pinned pnpm version from package.json packageManager field
 REQ_PNPM=$(grep -o '"pnpm@[^"]*"' "$PROJECT_ROOT/package.json" | sed 's/"pnpm@//' | sed 's/"//')
@@ -349,6 +353,30 @@ if [ "$POST_INSTALL" -eq 1 ]; then
         else
             print_row "noir_js" "Not Found" "==$REQ_NARGO" "FAIL"
         fi
+
+        # --- @openzeppelin upgradeability pins (UUPS proxy toolchain) ---
+        # contracts and contracts-upgradeable must be exact and equal: their storage-layout
+        # assumptions (ERC-7201 namespaces) diverge if the two drift apart.
+        check_oz_pin() {
+            local label=$1 rel=$2 want=$3
+            local got
+            got=$(cd "$PROJECT_ROOT" && node -e "
+                try { console.log(JSON.parse(require('fs').readFileSync('$rel','utf8')).version); } catch { console.log(''); }
+            " 2>/dev/null || echo "")
+            if [ "$got" == "$want" ]; then
+                print_row "$label" "$got" "==$want" "OK"
+            elif [ -n "$got" ]; then
+                print_row "$label" "$got" "==$want" "FAIL"
+                print_note "OZ upgradeability pin must be exact ($want)"
+            else
+                print_row "$label" "Not Found" "==$want" "FAIL"
+            fi
+        }
+        OZ_NM="packages/evm-contracts/node_modules/@openzeppelin"
+        check_oz_pin "@oz/contracts" "$OZ_NM/contracts/package.json" "$REQ_OZ_CONTRACTS"
+        check_oz_pin "@oz/upgradeable" "$OZ_NM/contracts-upgradeable/package.json" "$REQ_OZ_UPGRADEABLE"
+        check_oz_pin "hardhat-upgrades" "$OZ_NM/hardhat-upgrades/package.json" "$REQ_HH_UPGRADES"
+        check_oz_pin "upgrades-core" "$OZ_NM/upgrades-core/package.json" "$REQ_UPGRADES_CORE"
     fi
 fi
 

@@ -19,6 +19,7 @@ import {
 } from "@hisoka/adaptors";
 import {
   BundleExecutor__factory,
+  MockERC20,
   MockTarget,
 } from "../../typechain-types";
 
@@ -256,6 +257,66 @@ describe("Integration: BundleExecutor", function () {
     ).to.be.revertedWith("boom");
 
     expect(await darkPool.isNullifierSpent(nullifier)).to.equal(false);
+  });
+
+  it("undeclared bound-call approveToken residual reverts ResidualBalance", async function () {
+    const ctx = await loadFixture(deployExecutorFixture);
+    const { token, executor, rewardPool, mockTarget } = ctx;
+    const tokenAddr = await token.getAddress();
+    const executorAddr = await executor.getAddress();
+
+    const tokenB = (await (
+      await ethers.getContractFactory("MockERC20")
+    ).deploy("Strand", "STR", 18)) as unknown as MockERC20;
+    const tokenBAddr = await tokenB.getAddress();
+
+    const feeAmount = 40n;
+    const strandAmount = 1000n;
+    const deadline = BigInt((await time.latest()) + 3600);
+
+    // tokenB sits in the executor like a swap output, is a bound call's approveToken, yet is neither the
+    // withdrawn asset nor in assetsToClear; only the approve-token union clears this stranded residual.
+    await tokenB.mint(executorAddr, strandAmount);
+
+    const strandCall: BundleCall = {
+      target: await mockTarget.getAddress(),
+      data: mockTarget.interface.encodeFunctionData("successFn", ["noop"]),
+      value: 0n,
+      requireSuccess: false,
+      approveToken: tokenBAddr,
+      approveAmount: strandAmount,
+    };
+    const bundle = buildBundle(
+      [
+        treasuryDepositCall(
+          await rewardPool.getAddress(),
+          tokenAddr,
+          feeAmount,
+        ),
+        strandCall,
+      ],
+      deadline,
+      [],
+    );
+
+    const { proof } = await proveWithdrawToExecutor(
+      ctx,
+      100n,
+      feeAmount,
+      bundle.intentHash,
+    );
+
+    await expect(
+      executor.execute(
+        proof.proof,
+        proof.publicInputs,
+        bundle.boundCalls,
+        bundle.deadline,
+        bundle.assetsToClear,
+      ),
+    )
+      .to.be.revertedWithCustomError(executor, "ResidualBalance")
+      .withArgs(tokenBAddr);
   });
 
   it("expired deadline reverts before any withdraw", async function () {

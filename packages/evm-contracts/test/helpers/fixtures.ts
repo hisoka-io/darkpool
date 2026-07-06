@@ -1,10 +1,10 @@
-import { ethers } from "hardhat";
+import { ethers, upgrades } from "hardhat";
 import { ContractRunner } from "ethers";
 import {
   DarkPool,
-  DarkPool__factory,
   MockERC20,
   MockERC20__factory,
+  NoxRewardPool,
 } from "../../typechain-types";
 import { proveDeposit, NoteInput } from "@hisoka/prover";
 import {
@@ -17,7 +17,7 @@ import {
   wrapCek,
   computePsi,
   leaf,
-  NoteV2,
+  Note,
   pubkeyOwner,
   publicKey,
   isEvenY,
@@ -34,7 +34,7 @@ const NOTE_VERSION = toFr(1n);
 const NOTE_TYPE_STANDARD = toFr(0n);
 const ZERO = toFr(0n);
 
-/** A note-format v2 note plus every field a test needs to submit it and later spend it. */
+/** A note plus every field a test needs to submit it and later spend it. */
 export interface BuiltNote {
   note: NoteInput;
   commitment: Fr;
@@ -71,7 +71,9 @@ export function subgroupScalar(seed: bigint): Fr {
 
 /** Deterministic per-user spend scalar so a test deposit stays spendable: owner == Poseidon2(scalar*Base8). */
 export async function userSpendScalar(address: string): Promise<Fr> {
-  return toBjjScalar(await Kdf.derive("hisoka.test.spend", addressToFr(address)));
+  return toBjjScalar(
+    await Kdf.derive("hisoka.test.spend", addressToFr(address)),
+  );
 }
 
 async function finishNote(
@@ -80,10 +82,11 @@ async function finishNote(
   owner: Fr,
   assetFr: Fr,
   spendScalar: Fr,
+  parents: Fr,
 ): Promise<BuiltNote> {
   const cek = deriveCek(eph, COMPLIANCE_PK);
   const psi = await computePsi(cek);
-  const noteV2: NoteV2 = {
+  const plaintextNote: Note = {
     noteVersion: NOTE_VERSION,
     assetId: assetFr,
     noteType: NOTE_TYPE_STANDARD,
@@ -91,9 +94,9 @@ async function finishNote(
     value,
     owner,
     psi,
-    parents: ZERO,
+    parents,
   };
-  const commitment = await leaf(noteV2);
+  const commitment = await leaf(plaintextNote);
   const ephPub = publicKey(eph);
   const note: NoteInput = {
     noteVersion: NOTE_VERSION,
@@ -103,7 +106,7 @@ async function finishNote(
     value: toFr(value),
     owner,
     psi,
-    parents: ZERO,
+    parents,
   };
   return {
     note,
@@ -124,9 +127,10 @@ export async function mintSelfNote(
   value: bigint,
   spendScalar: Fr,
   assetFr: Fr,
+  parents: Fr = ZERO,
 ): Promise<BuiltNote> {
   const owner = await pubkeyOwner(publicKey(spendScalar));
-  return finishNote(eph, value, owner, assetFr, spendScalar);
+  return finishNote(eph, value, owner, assetFr, spendScalar, parents);
 }
 
 /** Mint an incoming memo note to a recipient: owner binds to in_pub_j, cek_wrap wraps the content key to
@@ -137,17 +141,18 @@ export async function mintIncomingNote(
   inPub: Point<bigint>,
   inKey: Fr,
   assetFr: Fr,
+  parents: Fr = ZERO,
 ): Promise<BuiltNote> {
   const owner = await pubkeyOwner(inPub);
-  const built = await finishNote(eph, value, owner, assetFr, inKey);
+  const built = await finishNote(eph, value, owner, assetFr, inKey, parents);
   built.inPub = inPub;
   built.cekWrap = await wrapCek(built.cek, eph, inPub);
   built.tag = new Fr(inPub[0]);
   return built;
 }
 
-/** Prover NoteInput view of a stored NoteV2 (value bigint -> Fr). */
-export function noteToInput(note: NoteV2): NoteInput {
+/** Prover NoteInput view of a stored Note (value bigint -> Fr). */
+export function noteToInput(note: Note): NoteInput {
   return {
     noteVersion: note.noteVersion,
     assetId: note.assetId,
@@ -196,11 +201,23 @@ export async function deployDarkPoolFixture() {
   const MockRegistryFactory =
     await ethers.getContractFactory("MockNoxRegistry");
   const mockNoxRegistry = await MockRegistryFactory.deploy();
+
   const RewardPoolFactory = await ethers.getContractFactory("NoxRewardPool");
-  const rewardPool = await RewardPoolFactory.deploy(
-    deployer.address,
-    await mockNoxRegistry.getAddress(),
-  );
+  const rewardPool = (await upgrades.deployProxy(
+    RewardPoolFactory,
+    [
+      [
+        0,
+        deployer.address,
+        await mockNoxRegistry.getAddress(),
+        deployer.address,
+        deployer.address,
+        deployer.address,
+      ],
+    ],
+    { kind: "uups" },
+  )) as unknown as NoxRewardPool;
+  await rewardPool.waitForDeployment();
 
   const token = await (
     (await ethers.getContractFactory(
@@ -215,22 +232,32 @@ export async function deployDarkPoolFixture() {
   await token.mint(charlie.address, initialBalance);
   await token.mint(attacker.address, initialBalance);
 
-  const DarkPoolFactory = (await ethers.getContractFactory("DarkPool", {
+  const DarkPoolFactory = await ethers.getContractFactory("DarkPool", {
     libraries: { Poseidon2: await poseidon2Lib.getAddress() },
-  })) as unknown as DarkPool__factory;
+  });
 
-  const darkPool = await DarkPoolFactory.deploy(
-    await DepVerifier.getAddress(),
-    await WdwVerifier.getAddress(),
-    await TrfVerifier.getAddress(),
-    await JoinVerifier.getAddress(),
-    await SplitVerifier.getAddress(),
-    await PublicClaimVerifier.getAddress(),
-    await rewardPool.getAddress(),
-    COMPLIANCE_PK[0],
-    COMPLIANCE_PK[1],
-    deployer.address,
-  );
+  const darkPool = (await upgrades.deployProxy(
+    DarkPoolFactory,
+    [
+      [
+        await DepVerifier.getAddress(),
+        await WdwVerifier.getAddress(),
+        await TrfVerifier.getAddress(),
+        await JoinVerifier.getAddress(),
+        await SplitVerifier.getAddress(),
+        await PublicClaimVerifier.getAddress(),
+        await rewardPool.getAddress(),
+        COMPLIANCE_PK[0],
+        COMPLIANCE_PK[1],
+        0,
+        deployer.address,
+        deployer.address,
+        deployer.address,
+      ],
+    ],
+    { kind: "uups", unsafeAllow: ["external-library-linking"] },
+  )) as unknown as DarkPool;
+  await darkPool.waitForDeployment();
 
   return {
     darkPool,

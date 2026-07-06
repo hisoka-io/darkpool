@@ -1,6 +1,6 @@
 use ::ecdh::Point;
 use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
-use ::shared::note_v2::Note;
+use ::shared::note::{assert_parents_bound, Note};
 
 // Spend two notes (a spend scalar each) into one self note. Both inputs must share a root and yield
 // distinct nullifiers (no self-join). Internal consolidation: no value leaves the pool, no asset output.
@@ -31,6 +31,7 @@ fn main(
     assert(note_a.asset_id == note_b.asset_id, "input asset mismatch");
     assert(note_a.asset_id == note_out.asset_id, "output asset mismatch");
     conservation::assert_conserved([note_a.value, note_b.value], [note_out.value], 0);
+    assert_parents_bound(note_out, [index_a, index_b]);
 
     let out = mint::mint_self_note(note_out, eph_out, compliance_pk);
 
@@ -66,10 +67,11 @@ fn test_join_kat() {
         50,
         0x22c2ddd73188e4c766c528228312ae28595623aba1a5c5341a8f7154943842d3,
     );
-    let note_out = note(
+    let mut note_out = note(
         150,
         0x09fb1bde9d635c97fa5a0884a8a38d961cec75db95e76629aabec8b63baec84a,
     );
+    note_out.parents = 0x100000000;
     let mut path_a = [0; TREE_DEPTH];
     path_a[0] = LEAF_B;
     let mut path_b = [0; TREE_DEPTH];
@@ -93,10 +95,47 @@ fn test_join_kat() {
     assert(nf_a == 0x0d03e7c701405c0572f9c8904d08cadc64679d2fb2c7430cf3b691c2fc0517e0);
     assert(nf_b == 0x0ce50a6b4132e77d1aba13c3d3763957eb373bfe81e4cd1582e1b9ac26f143eb);
     assert(root == 0x23bbb50573c7f196c32e4fd8cd8e1d3fe32285e77deddc2bdcb2728ee512b8bb);
-    assert(leaf == 0x00ddcfa94053482bf67eb744707915ad591bf3bdc2b20bc68260e66110141758);
+    assert(leaf == 0x1b008ec77c6cb53d1f0cafce3e1e993cb1b0b828173ac378e809547f83972038);
     assert(epk_x == 0x239a26d12954771a03d624b21a260f447412b746b66eede628a2f0af3be0a212);
     assert(epk_y == 0x00ba27f648e334fba30865fee39f857d8f64a0417d2b8cd5fc2f238d64cd3d1e);
     assert(ct[0] == 0x059d4801f52074b83e793e4c9461d1686c52340eb324ae906ee4392535da6a57);
+}
+
+// The output binds its parents to the two spent indexes (0 and 1); a forgery that zeroes them to fake a
+// fresh deposit is rejected.
+#[test(should_fail_with = "output parents not bound to consumed inputs")]
+fn audit_reject_forged_output_parents() {
+    let note_a = note(
+        100,
+        0x271c8cc2341079e393fa781a5e7b4664b27b649d4f0277a53110b7937ed9fada,
+    );
+    let note_b = note(
+        50,
+        0x22c2ddd73188e4c766c528228312ae28595623aba1a5c5341a8f7154943842d3,
+    );
+    let note_out = note(
+        150,
+        0x09fb1bde9d635c97fa5a0884a8a38d961cec75db95e76629aabec8b63baec84a,
+    );
+    let mut path_a = [0; TREE_DEPTH];
+    path_a[0] = LEAF_B;
+    let mut path_b = [0; TREE_DEPTH];
+    path_b[0] = LEAF_A;
+    let _ = main(
+        0,
+        CX,
+        CY,
+        note_a,
+        789,
+        0,
+        path_a,
+        note_b,
+        789,
+        1,
+        path_b,
+        note_out,
+        28,
+    );
 }
 
 #[test(should_fail_with = "value not conserved")]

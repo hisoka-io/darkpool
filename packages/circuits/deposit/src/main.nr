@@ -1,6 +1,6 @@
 use ::ecdh::Point;
 use ::shared::mint;
-use ::shared::note_v2::Note;
+use ::shared::note::Note;
 
 // Deposit is a pure self-mint: value and asset are public (the contract moves the ERC20 in the clear), the
 // leaf commits the plaintext note, and eph_pub.x is the self discovery tag.
@@ -12,6 +12,8 @@ fn main(
 ) -> pub (Field, Field, Field, Field, Field, [Field; 7]) {
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
+
+    assert(note.parents == 0, "deposit output parents must be zero");
 
     let minted = mint::mint_self_note(note, eph, compliance_pk);
 
@@ -56,6 +58,18 @@ fn test_deposit_kat() {
 fn audit_reject_zero_owner() {
     let mut note = fixture_note();
     note.owner = 0;
+    let _ = main(
+        0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111,
+        0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8,
+        note,
+        5,
+    );
+}
+
+#[test(should_fail_with = "deposit output parents must be zero")]
+fn audit_reject_nonzero_parents() {
+    let mut note = fixture_note();
+    note.parents = 0x1;
     let _ = main(
         0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111,
         0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8,

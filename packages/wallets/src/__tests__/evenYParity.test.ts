@@ -7,12 +7,7 @@ import { decodeHisokaAddress, encodeHisokaAddress } from "../address";
 // BabyJubJub base field == BN254 scalar field. A point's y is the canonical residue in [0, P).
 const BN254_P =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-
-// Noir even_y.nr reads y.to_le_bytes()[0] & 1; byte 0 is the low byte, so its LSB is y & 1.
-function noirIsEvenY(y: bigint): boolean {
-  const canonical = ((y % BN254_P) + BN254_P) % BN254_P;
-  return (canonical & 0xffn & 1n) === 0n;
-}
+const HALF_P = BN254_P >> 1n;
 
 function be32(num: bigint): Buffer {
   return Buffer.from(num.toString(16).padStart(64, "0"), "hex");
@@ -32,40 +27,39 @@ const NOIR_FIXTURE: Point<bigint> = [
   0x132a0f65758b4775374cfc0a98d7f8a186e1cad626e4e4cd37b73532d7e50101n,
 ];
 
+// Ground-truth verdicts produced by even_y.nr's is_even_y run as a nargo #[test] over each Point{x:0,y};
+// the `even` column is the circuit's actual output, not a TS restatement of its byte-0-LSB rule. A future
+// even_y.nr change that diverges from TS isEvenY makes one of these pairs fail.
+const NOIR_SPREAD: ReadonlyArray<readonly [bigint, boolean]> = [
+  [0n, true],
+  [1n, false],
+  [2n, true],
+  [3n, false],
+  [254n, true],
+  [255n, false],
+  [256n, true],
+  [257n, false],
+  [HALF_P - 1n, false],
+  [HALF_P, true],
+  [HALF_P + 1n, false],
+  [BN254_P - 2n, false],
+  [BN254_P - 1n, true],
+  [NOIR_ODD[1], false],
+  [NOIR_EVEN[1], true],
+  [NOIR_FIXTURE[1], false],
+];
+
 describe("even-y parity KAT (TS isEvenY == Noir even_y.nr)", () => {
   it("agrees with the even_y.nr #[test] verdicts on its exact points", () => {
     expect(isEvenY(NOIR_ODD)).toBe(false);
     expect(isEvenY(NOIR_EVEN)).toBe(true);
     expect(isEvenY(NOIR_FIXTURE)).toBe(false);
-
-    expect(isEvenY(NOIR_ODD)).toBe(noirIsEvenY(NOIR_ODD[1]));
-    expect(isEvenY(NOIR_EVEN)).toBe(noirIsEvenY(NOIR_EVEN[1]));
-    expect(isEvenY(NOIR_FIXTURE)).toBe(noirIsEvenY(NOIR_FIXTURE[1]));
   });
 
-  it("matches the byte-0-LSB canonicalization across a y spread including y near P/2", () => {
-    const half = BN254_P >> 1n;
-    const spread: bigint[] = [
-      0n,
-      1n,
-      2n,
-      3n,
-      254n,
-      255n,
-      256n,
-      257n,
-      half - 1n,
-      half,
-      half + 1n,
-      BN254_P - 2n,
-      BN254_P - 1n,
-      NOIR_ODD[1],
-      NOIR_EVEN[1],
-      NOIR_FIXTURE[1],
-    ];
-    for (const y of spread) {
+  it("matches Noir is_even_y verdicts across a y spread including y near P/2", () => {
+    for (const [y, evenY] of NOIR_SPREAD) {
       const pub: Point<bigint> = [1n, y];
-      expect(isEvenY(pub)).toBe(noirIsEvenY(y));
+      expect(isEvenY(pub)).toBe(evenY);
     }
   });
 });

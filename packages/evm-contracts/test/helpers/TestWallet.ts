@@ -5,6 +5,7 @@ import {
   Fr,
   toFr,
   addressToFr,
+  packParents,
   KeyRepository,
   UtxoRepository,
   ScanEngine,
@@ -58,7 +59,10 @@ export class TestWallet {
   ) {}
 
   static async create(
-    signer: ethers.ContractRunner & { address: string; signMessage: (m: string) => Promise<string> },
+    signer: ethers.ContractRunner & {
+      address: string;
+      signMessage: (m: string) => Promise<string>;
+    },
     darkPool: DarkPool,
     token: MockERC20,
     fromBlock?: number,
@@ -96,9 +100,7 @@ export class TestWallet {
   }
 
   getBalance(asset?: string): bigint {
-    return this.utxoRepo.getBalance(
-      asset ? addressToFr(asset) : undefined,
-    );
+    return this.utxoRepo.getBalance(asset ? addressToFr(asset) : undefined);
   }
 
   private async assetFr(asset?: string): Promise<Fr> {
@@ -108,10 +110,7 @@ export class TestWallet {
   private pickNote(assetFr: Fr, minValue: bigint): WalletNote {
     const note = this.utxoRepo
       .getUnspentNotes()
-      .find(
-        (n) =>
-          n.note.assetId.equals(assetFr) && n.note.value >= minValue,
-      );
+      .find((n) => n.note.assetId.equals(assetFr) && n.note.value >= minValue);
     if (!note) {
       throw new Error(
         `Insufficient funds: need >= ${minValue} of ${assetFr.toString()}`,
@@ -176,6 +175,7 @@ export class TestWallet {
       input.note.value - amount,
       spendScalar,
       assetFr,
+      packParents([{ leafIndex: Number(input.leafIndex) }, { leafIndex: 0 }]),
     );
 
     const inputs: WithdrawInputs = {
@@ -211,6 +211,10 @@ export class TestWallet {
   ) {
     const assetFr = await this.assetFr(asset);
     const input = this.pickNote(assetFr, amount);
+    const parents = packParents([
+      { leafIndex: Number(input.leafIndex) },
+      { leafIndex: 0 },
+    ]);
 
     const memoEph = subgroupScalar(ethers.toBigInt(ethers.randomBytes(16)));
     const memo = await mintIncomingNote(
@@ -219,6 +223,7 @@ export class TestWallet {
       recipientInPub,
       toFr(0n),
       assetFr,
+      parents,
     );
 
     const { eph: changeEph } = await this.keyRepo.nextSelfEphemeral();
@@ -228,6 +233,7 @@ export class TestWallet {
       input.note.value - amount,
       spendScalar,
       assetFr,
+      parents,
     );
 
     const inputs: TransferInputs = {

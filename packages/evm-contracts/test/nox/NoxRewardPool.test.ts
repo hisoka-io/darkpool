@@ -1,5 +1,5 @@
 import { assert, expect } from "chai";
-import { ethers } from "hardhat";
+import { ethers, upgrades } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   NoxRewardPool,
@@ -32,10 +32,21 @@ describe("NoxRewardPool (Treasury)", function () {
     await mockRegistry.setActive(relayer2.address, true);
 
     const PoolFactory = await ethers.getContractFactory("NoxRewardPool");
-    const pool = (await PoolFactory.deploy(
-      admin.address,
-      await mockRegistry.getAddress(),
+    const pool = (await upgrades.deployProxy(
+      PoolFactory,
+      [
+        [
+          0,
+          admin.address,
+          await mockRegistry.getAddress(),
+          admin.address,
+          admin.address,
+          admin.address,
+        ],
+      ],
+      { kind: "uups" },
     )) as unknown as NoxRewardPool;
+    await pool.waitForDeployment();
 
     const DISTRIBUTOR_ROLE = await pool.DISTRIBUTOR_ROLE();
     const ADMIN_ROLE = await pool.ADMIN_ROLE();
@@ -215,13 +226,24 @@ describe("NoxRewardPool (Treasury)", function () {
         18,
       )) as unknown as MockERC20;
       const RegistryFactory = await ethers.getContractFactory("NoxRegistry");
-      const registry = (await RegistryFactory.deploy(
-        admin.address,
-        await token.getAddress(),
-        ethers.parseEther("1"),
-        86400,
-        ethers.parseEther("1"),
+      const registry = (await upgrades.deployProxy(
+        RegistryFactory,
+        [
+          [
+            0,
+            admin.address,
+            await token.getAddress(),
+            ethers.parseEther("1"),
+            86400,
+            ethers.parseEther("1"),
+            admin.address,
+            admin.address,
+            admin.address,
+          ],
+        ],
+        { kind: "uups" },
       )) as unknown as NoxRegistry;
+      await registry.waitForDeployment();
       await registry
         .connect(admin)
         .registerPrivileged(
@@ -234,10 +256,21 @@ describe("NoxRewardPool (Treasury)", function () {
         );
 
       const PoolFactory = await ethers.getContractFactory("NoxRewardPool");
-      const pool = (await PoolFactory.deploy(
-        admin.address,
-        await registry.getAddress(),
+      const pool = (await upgrades.deployProxy(
+        PoolFactory,
+        [
+          [
+            0,
+            admin.address,
+            await registry.getAddress(),
+            admin.address,
+            admin.address,
+            admin.address,
+          ],
+        ],
+        { kind: "uups" },
       )) as unknown as NoxRewardPool;
+      await pool.waitForDeployment();
       const asset = await token.getAddress();
       await pool.connect(admin).setAssetStatus(asset, true);
       await token.mint(user.address, 1000);

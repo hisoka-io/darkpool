@@ -86,5 +86,14 @@ jobs:
         run: pnpm turbo run build
       - name: Run Solidity tests
         run: pnpm --filter evm-contracts run test:fast
+      # Upgrade-safety gate: validates the 3 UUPS impls (storage layout via DarkPoolV1 reference,
+      # library-link pin, banned-flag and annotation scans). Fails the job on any drift.
+      - name: Validate upgrade safety
+        run: pnpm --filter evm-contracts run validate:upgrades
+      # Storage-layout tripwire: regenerates the committed snapshots and diffs them. The
+      # .storage-layout/*.json snapshots and linked-libraries.json MUST be committed for this to
+      # arm (an empty/absent snapshot makes the diff pass vacuously).
+      - name: Check storage-layout snapshots
+        run: pnpm --filter evm-contracts run storage:check
 
   # Rust CI (lint, test, security) runs in hisoka-io/nox repo

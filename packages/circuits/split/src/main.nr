@@ -1,6 +1,6 @@
 use ::ecdh::Point;
 use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
-use ::shared::note_v2::Note;
+use ::shared::note::{assert_parents_bound, Note};
 
 // Spend one note into two self notes. Internal consolidation: no value leaves the pool, no asset output.
 fn main(
@@ -26,6 +26,8 @@ fn main(
     assert(note_in.asset_id == note_out_2.asset_id, "out2 asset mismatch");
     assert(eph_1 != eph_2, "ephemerals must be distinct");
     conservation::assert_conserved([note_in.value], [note_out_1.value, note_out_2.value], 0);
+    assert_parents_bound(note_out_1, [index_in, 0]);
+    assert_parents_bound(note_out_2, [index_in, 0]);
 
     let out1 = mint::mint_self_note(note_out_1, eph_1, compliance_pk);
     let out2 = mint::mint_self_note(note_out_2, eph_2, compliance_pk);
@@ -138,6 +140,26 @@ fn out2_valid() -> Note {
         60,
         0x1fc1420fa8dd294ee9feaa5067000d40945bdc796e47ce5dfbfa4cbb4210ef8d,
     )
+}
+
+// Each output note binds its parents to the spent index (0 here); a forged nonzero parent is rejected.
+#[test(should_fail_with = "output parents not bound to consumed inputs")]
+fn audit_reject_forged_out_parents() {
+    let mut out1 = out1_valid();
+    out1.parents = 0x100000000;
+    let _ = main(
+        0,
+        CX,
+        CY,
+        note_in(),
+        789,
+        0,
+        [0; TREE_DEPTH],
+        out1,
+        15,
+        out2_valid(),
+        20,
+    );
 }
 
 #[test(should_fail_with = "out1 asset mismatch")]

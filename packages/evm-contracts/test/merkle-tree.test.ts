@@ -27,7 +27,7 @@ describe("MerkleTreeLib", function () {
         },
       },
     )) as unknown as MerkleTreeLibHarness__factory;
-    harness = await HarnessFactory.deploy(TREE_DEPTH, 10);
+    harness = await HarnessFactory.deploy(TREE_DEPTH);
   });
 
   it("should have a zero root initially", async function () {
@@ -224,7 +224,7 @@ describe("MerkleTreeLib", function () {
           },
         },
       )) as unknown as MerkleTreeLibHarness__factory;
-      const deep = await HarnessFactory.deploy(DEEP_DEPTH, 10);
+      const deep = await HarnessFactory.deploy(DEEP_DEPTH);
 
       await deep.insert(ethers.zeroPadValue("0x01", 32));
       await deep.insert(ethers.zeroPadValue("0x02", 32));

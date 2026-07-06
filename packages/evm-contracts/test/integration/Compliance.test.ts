@@ -19,7 +19,7 @@ import {
   demDecrypt,
   computePsi,
   computeNullifier,
-  NoteV2,
+  Note,
 } from "@hisoka/wallets";
 import { proveTransfer, TransferInputs } from "@hisoka/prover";
 import { Point } from "@zk-kit/baby-jubjub";
@@ -29,7 +29,7 @@ import { DarkPool } from "../../typechain-types";
 class ComplianceTool {
   public observedNotes: Map<
     string,
-    { note: NoteV2; type: "NOTE" | "MEMO" }
+    { note: Note; type: "NOTE" | "MEMO" }
   > = new Map();
   public spentNullifiers: Set<string> = new Set();
 
@@ -70,7 +70,7 @@ class ComplianceTool {
       const plaintext = await demDecrypt(cek, ciphertext);
       const psi = await computePsi(cek);
       const leafIndex = Number(event.args.leafIndex);
-      const note: NoteV2 = {
+      const note: Note = {
         noteVersion: plaintext[0],
         assetId: plaintext[1],
         noteType: plaintext[2],

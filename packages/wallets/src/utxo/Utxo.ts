@@ -1,15 +1,15 @@
 import { Fr } from "@aztec/foundation/fields";
 import { getAddress } from "ethers";
 import { IUTXO } from "../interfaces.js";
-import { NoteV2 } from "../note/noteV2.js";
+import { Note } from "../note/note.js";
 import { computeNullifier } from "../note/nullifier.js";
 
 const TWO_POW_128 = 1n << 128n;
 // 32-byte Fr minus 20-byte EVM address leaves 12 leading zero bytes.
 const FR_TO_ADDRESS_OFFSET = 12;
 
-export class Note implements IUTXO {
-  constructor(public readonly note: NoteV2) {
+export class Utxo implements IUTXO {
+  constructor(public readonly note: Note) {
     if (note.value < 0n || note.value >= TWO_POW_128) {
       throw new Error("Note value out of u128 range.");
     }

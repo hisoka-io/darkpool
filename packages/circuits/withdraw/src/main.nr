@@ -1,6 +1,6 @@
 use ::ecdh::Point;
 use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
-use ::shared::note_v2::Note;
+use ::shared::note::{assert_parents_bound, Note};
 
 // Spend one note, pay `withdraw_value` to a public recipient, mint the self change note. The membership
 // root is a public OUTPUT the contract range-checks against its known roots; recipient / intent_hash are
@@ -28,6 +28,7 @@ fn main(
 
     assert(old_note.asset_id == change_note.asset_id, "asset mismatch");
     conservation::assert_conserved([old_note.value], [change_note.value], withdraw_value);
+    assert_parents_bound(change_note, [old_note_index, 0]);
 
     let change = mint::mint_self_note(change_note, change_eph, compliance_pk);
 
@@ -133,6 +134,29 @@ fn audit_reject_value_inflation() {
         0,
         [0; TREE_DEPTH],
         inflated,
+        8,
+    );
+}
+
+// The change note's parents MUST equal the spent index; here index 0 binds to 0, so a nonzero forgery that
+// claims a parent that was never consumed is rejected.
+#[test(should_fail_with = "output parents not bound to consumed inputs")]
+fn audit_reject_forged_change_parents() {
+    let (cx, cy) = compliance();
+    let mut change = change_note();
+    change.parents = 0x100000000;
+    let _ = main(
+        40,
+        0,
+        0,
+        0,
+        cx,
+        cy,
+        spent_note(),
+        789,
+        0,
+        [0; TREE_DEPTH],
+        change,
         8,
     );
 }

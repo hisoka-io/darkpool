@@ -16,6 +16,7 @@ import {
   computePsi,
   pubkeyOwner,
   publicKey,
+  packParents,
   LeanIMT,
 } from "@hisoka/wallets";
 import { proveDeposit, proveWithdraw, NoteInput } from "@hisoka/prover";
@@ -130,6 +131,7 @@ describe("Integration: Note-type invariants (STANDARD notes)", function () {
       0n,
       dep.spendScalar,
       assetFr,
+      packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
     );
     const spendProof = await proveWithdraw({
       withdrawValue: toFr(100n),

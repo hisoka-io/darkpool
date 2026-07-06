@@ -1,6 +1,6 @@
 use ::ecdh::Point;
 use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
-use ::shared::note_v2::Note;
+use ::shared::note::{assert_parents_bound, Note};
 
 // Spend one note, mint the incoming memo note to the recipient (owner bound to in_pub_j, CEK wrapped to
 // the recipient) plus the self change note. recipient_in_pub is PRIVATE; only its x (the discovery tag) is
@@ -30,6 +30,8 @@ fn main(
     assert(old_note.asset_id == change_note.asset_id, "change asset mismatch");
     assert(memo_eph != change_eph, "ephemerals must be distinct");
     conservation::assert_conserved([old_note.value], [memo_note.value, change_note.value], 0);
+    assert_parents_bound(memo_note, [old_note_index, 0]);
+    assert_parents_bound(change_note, [old_note_index, 0]);
 
     let memo = mint::mint_incoming_note(memo_note, memo_eph, compliance_pk, recipient_in_pub);
     let change = mint::mint_self_note(change_note, change_eph, compliance_pk);
@@ -155,6 +157,28 @@ fn audit_reject_reused_ephemeral() {
         [0; TREE_DEPTH],
         memo_note(),
         9,
+        change_note(),
+        9,
+    );
+}
+
+// Both output notes bind their parents to the spent index (0 here); a memo that forges a nonzero parent it
+// never consumed is rejected.
+#[test(should_fail_with = "output parents not bound to consumed inputs")]
+fn audit_reject_forged_memo_parents() {
+    let mut memo = memo_note();
+    memo.parents = 0x100000000;
+    let _ = main(
+        0,
+        CX,
+        CY,
+        recipient_in_pub(),
+        spent_note(),
+        789,
+        0,
+        [0; TREE_DEPTH],
+        memo,
+        0x378,
         change_note(),
         9,
     );

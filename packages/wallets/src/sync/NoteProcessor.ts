@@ -6,7 +6,7 @@ import { toFr } from "../crypto/fields.js";
 import { demDecrypt } from "../crypto/dem.js";
 import { deriveCek, unwrapCek } from "../crypto/kem.js";
 import { computeNullifier, computePsi } from "../note/nullifier.js";
-import { leaf as computeLeaf, NoteV2 } from "../note/noteV2.js";
+import { leaf as computeLeaf, Note } from "../note/note.js";
 import { publicKey, pubkeyOwner } from "../note/keys.js";
 import { UnprocessedEvent } from "./types.js";
 
@@ -99,7 +99,7 @@ export class NoteProcessor {
     const plaintext = await demDecrypt(cek, ciphertext);
     const psi = await computePsi(cek);
 
-    const note: NoteV2 = {
+    const note: Note = {
       noteVersion: plaintext[0],
       assetId: plaintext[1],
       noteType: plaintext[2],

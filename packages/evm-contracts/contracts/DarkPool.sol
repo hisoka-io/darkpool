@@ -5,20 +5,19 @@ import {Poseidon2} from "./Poseidon/Poseidon2.sol";
 import {Field} from "./Poseidon/Field.sol";
 import {MerkleTreeLib} from "./libraries/MerkleTreeLib.sol";
 
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {AccessControlDefaultAdminRulesUpgradeable} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {HonkVerifier as DepositVerifier} from "./verifiers/DepositVerifier.sol";
-import {HonkVerifier as WithdrawVerifier} from "./verifiers/WithdrawVerifier.sol";
-import {HonkVerifier as TransferVerifier} from "./verifiers/TransferVerifier.sol";
-import {HonkVerifier as JoinVerifier} from "./verifiers/JoinVerifier.sol";
-import {HonkVerifier as SplitVerifier} from "./verifiers/SplitVerifier.sol";
-import {HonkVerifier as PublicClaimVerifier} from "./verifiers/PublicClaimVerifier.sol";
-
-import {NoxRewardPool} from "./nox/NoxRewardPool.sol";
+interface IHonkVerifier {
+    function verify(
+        bytes calldata proof,
+        bytes32[] calldata publicInputs
+    ) external view returns (bool);
+}
 
 /**
  * @title Hisoka DarkPool
@@ -26,18 +25,46 @@ import {NoxRewardPool} from "./nox/NoxRewardPool.sol";
  * @dev Leaf = Poseidon2 over secret note fields, so the contract cannot recompute it: every minting
  *      circuit emits the leaf and membership root as public outputs; the contract inserts the leaf and
  *      validates the root against isKnownRoot. Ciphertext integrity is the circuit's psi binding.
+ *      UUPS proxy: all mutable state lives in ERC-7201 namespaces so appending a config field can never
+ *      shift the anonymity-set slots (tree/nullifiers/memos). Upgrades gated by UPGRADER_ROLE.
  */
-contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
+contract DarkPool is
+    Initializable,
+    UUPSUpgradeable,
+    AccessControlDefaultAdminRulesUpgradeable,
+    PausableUpgradeable
+{
     using SafeERC20 for IERC20;
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
     uint256 private constant PROOF_TIMESTAMP_TOLERANCE = 5 minutes;
 
+    uint256 private constant CIRCUIT_DEPOSIT = 0;
+    uint256 private constant CIRCUIT_WITHDRAW = 1;
+    uint256 private constant CIRCUIT_TRANSFER = 2;
+    uint256 private constant CIRCUIT_JOIN = 3;
+    uint256 private constant CIRCUIT_SPLIT = 4;
+    uint256 private constant CIRCUIT_PUBLIC_CLAIM = 5;
+    uint256 private constant CIRCUIT_COUNT = 6;
+
+    uint32 private constant MERKLE_TREE_DEPTH = 32;
+
+    uint256 private constant NOT_ENTERED = 1;
+    uint256 private constant ENTERED = 2;
+
+    /// @dev BabyJubJub twisted Edwards params: a*x^2 + y^2 == 1 + d*x^2*y^2 over BN254 Fr.
+    /// noir-edwards v0.2.5 src/bjj.nr:6-10 (a=168700, d=168696).
+    uint256 private constant BJJ_A = 168700;
+    uint256 private constant BJJ_D = 168696;
+    /// @dev BN254 scalar field order; matches Poseidon/Field.sol PRIME and verifiers/*.sol MODULUS.
+    uint256 private constant BN254_FR =
+        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+
     error ZeroAddress();
     error InvalidInputsLength();
-    error InvalidComplianceKey();
     error InvalidProof();
     error InvalidRoot();
     error TimestampInvalid();
@@ -49,6 +76,14 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     error MemoInvalid();
     error FeeOnTransferUnsupported();
     error OnlyRecipientMayPull();
+    error UnknownCircuitId();
+    error InvalidComplianceKeyPoint();
+    error ReentrancyGuardReentrantCall();
+    error ComplianceKeyStale(
+        uint256 currentVersion,
+        uint256 currentX,
+        uint256 currentY
+    );
 
     event NewNote(
         uint256 indexed leafIndex,
@@ -91,62 +126,204 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     );
     event NullifierSpent(bytes32 indexed nullifierHash);
     event PublicMemoSpent(bytes32 indexed memoId);
+    event VerifierUpdated(uint256 indexed circuitId, address verifier);
+    event ComplianceKeyRotated(
+        uint256 oldVersion,
+        uint256 newVersion,
+        uint256 newX,
+        uint256 newY
+    );
 
-    NoxRewardPool public immutable rewardPool;
-
-    MerkleTreeLib.Tree internal merkleTree;
-
-    DepositVerifier public immutable depositVerifier;
-    WithdrawVerifier public immutable withdrawVerifier;
-    TransferVerifier public immutable transferVerifier;
-    JoinVerifier public immutable joinVerifier;
-    SplitVerifier public immutable splitVerifier;
-    PublicClaimVerifier public immutable publicClaimVerifier;
-
-    mapping(bytes32 => bool) public isNullifierSpent;
-    mapping(bytes32 => bool) public isValidPublicMemo;
-    mapping(bytes32 => bool) public isPublicMemoSpent;
-
-    uint256 public immutable COMPLIANCE_PK_X;
-    uint256 public immutable COMPLIANCE_PK_Y;
-
-    constructor(
-        address _depositVerifier,
-        address _withdrawVerifier,
-        address _transferVerifier,
-        address _joinVerifier,
-        address _splitVerifier,
-        address _publicClaimVerifier,
-        address _rewardPool,
-        uint256 _compliancePkX,
-        uint256 _compliancePkY,
-        address _admin
-    ) {
-        if (_depositVerifier == address(0)) revert ZeroAddress();
-        if (_withdrawVerifier == address(0)) revert ZeroAddress();
-        if (_transferVerifier == address(0)) revert ZeroAddress();
-        if (_joinVerifier == address(0)) revert ZeroAddress();
-        if (_splitVerifier == address(0)) revert ZeroAddress();
-        if (_publicClaimVerifier == address(0)) revert ZeroAddress();
-        if (_rewardPool == address(0)) revert ZeroAddress();
-        if (_admin == address(0)) revert ZeroAddress();
-
-        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
-        _grantRole(PAUSER_ROLE, _admin);
-
-        depositVerifier = DepositVerifier(_depositVerifier);
-        withdrawVerifier = WithdrawVerifier(_withdrawVerifier);
-        transferVerifier = TransferVerifier(_transferVerifier);
-        joinVerifier = JoinVerifier(_joinVerifier);
-        splitVerifier = SplitVerifier(_splitVerifier);
-        publicClaimVerifier = PublicClaimVerifier(_publicClaimVerifier);
-
-        rewardPool = NoxRewardPool(_rewardPool);
-
-        COMPLIANCE_PK_X = _compliancePkX;
-        COMPLIANCE_PK_Y = _compliancePkY;
-        merkleTree.init(32, 100);
+    /// @custom:storage-location erc7201:hisoka.darkpool.tree
+    struct TreeStorage {
+        MerkleTreeLib.Tree tree;
     }
+
+    /// @custom:storage-location erc7201:hisoka.darkpool.nullifiers
+    struct NullifierStorage {
+        mapping(bytes32 => bool) isNullifierSpent;
+    }
+
+    /// @custom:storage-location erc7201:hisoka.darkpool.memos
+    struct MemoStorage {
+        mapping(bytes32 => bool) isValidPublicMemo;
+        mapping(bytes32 => bool) isPublicMemoSpent;
+    }
+
+    /// @custom:storage-location erc7201:hisoka.darkpool.verifiers
+    struct VerifierStorage {
+        mapping(uint256 => address) verifiers;
+    }
+
+    /// @custom:storage-location erc7201:hisoka.darkpool.compliance
+    struct ComplianceStorage {
+        uint256 pkX;
+        uint256 pkY;
+        uint256 version;
+    }
+
+    /// @custom:storage-location erc7201:hisoka.darkpool.config
+    struct ConfigStorage {
+        address rewardPool;
+    }
+
+    /// @dev Ported from OZ ReentrancyGuardUpgradeable: contracts-upgradeable 5.6.1 dropped that base once the
+    /// non-upgradeable ReentrancyGuard became stateless, but upgrades-core still rejects its constructor, so
+    /// the guard is inlined here against OZ's canonical namespace to stay storage-compatible if it returns.
+    /// @custom:storage-location erc7201:openzeppelin.storage.ReentrancyGuard
+    struct ReentrancyStorage {
+        uint256 status;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.tree")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant TREE_LOCATION =
+        0xbdd00c81e71bd165e3ff2099ca204334ffd58a8d7225a33b4761542b7a86e200;
+    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.nullifiers")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant NULLIFIERS_LOCATION =
+        0xcb1d3464d85c75a880c4f95a3cfd4a5cd80b39c53862d4987d9ec14bb8af6700;
+    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.memos")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant MEMOS_LOCATION =
+        0x79ab9646d487c514cf680928de0290895c9ad6720afd1f87136f293781b7ea00;
+    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.verifiers")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant VERIFIERS_LOCATION =
+        0x204927e2223572a19571462c2dfb374afbbdb39e695632d6477721409dfb0b00;
+    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.compliance")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant COMPLIANCE_LOCATION =
+        0x4c6336ddd730b3b6886dcf6c397e5676dac845842540c4592f4e52cea8e9ae00;
+    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.config")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant CONFIG_LOCATION =
+        0x16730e3a2a45d0ba613b00104b5efdd24c73b2ac170740fe805c71a02b3bf500;
+    // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ReentrancyGuard")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant REENTRANCY_LOCATION =
+        0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
+
+    function _treeStorage() private pure returns (TreeStorage storage $) {
+        assembly {
+            $.slot := TREE_LOCATION
+        }
+    }
+
+    function _nullifierStorage()
+        private
+        pure
+        returns (NullifierStorage storage $)
+    {
+        assembly {
+            $.slot := NULLIFIERS_LOCATION
+        }
+    }
+
+    function _memoStorage() private pure returns (MemoStorage storage $) {
+        assembly {
+            $.slot := MEMOS_LOCATION
+        }
+    }
+
+    function _verifierStorage()
+        private
+        pure
+        returns (VerifierStorage storage $)
+    {
+        assembly {
+            $.slot := VERIFIERS_LOCATION
+        }
+    }
+
+    function _complianceStorage()
+        private
+        pure
+        returns (ComplianceStorage storage $)
+    {
+        assembly {
+            $.slot := COMPLIANCE_LOCATION
+        }
+    }
+
+    function _configStorage() private pure returns (ConfigStorage storage $) {
+        assembly {
+            $.slot := CONFIG_LOCATION
+        }
+    }
+
+    function _reentrancyStorage()
+        private
+        pure
+        returns (ReentrancyStorage storage $)
+    {
+        assembly {
+            $.slot := REENTRANCY_LOCATION
+        }
+    }
+
+    modifier nonReentrant() {
+        ReentrancyStorage storage $ = _reentrancyStorage();
+        if ($.status == ENTERED) revert ReentrancyGuardReentrantCall();
+        $.status = ENTERED;
+        _;
+        $.status = NOT_ENTERED;
+    }
+
+    struct InitParams {
+        address depositVerifier;
+        address withdrawVerifier;
+        address transferVerifier;
+        address joinVerifier;
+        address splitVerifier;
+        address publicClaimVerifier;
+        address rewardPool;
+        uint256 compliancePkX;
+        uint256 compliancePkY;
+        uint48 initialAdminDelay;
+        address initialAdmin;
+        address pauser;
+        address upgrader;
+    }
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * @notice One-time proxy initialization. Grants roles to the passed-in governance addresses
+     *         (never msg.sender), registers the 6 verifiers, sets the compliance key at version 1,
+     *         and builds the merkle tree. Callable exactly once (initializer).
+     */
+    function initialize(InitParams calldata p) external initializer {
+        if (p.rewardPool == address(0)) revert ZeroAddress();
+        if (p.pauser == address(0)) revert ZeroAddress();
+        if (p.upgrader == address(0)) revert ZeroAddress();
+
+        __AccessControlDefaultAdminRules_init(
+            p.initialAdminDelay,
+            p.initialAdmin
+        );
+        __Pausable_init();
+        _reentrancyStorage().status = NOT_ENTERED;
+        _grantRole(PAUSER_ROLE, p.pauser);
+        _grantRole(UPGRADER_ROLE, p.upgrader);
+
+        _setVerifier(CIRCUIT_DEPOSIT, p.depositVerifier);
+        _setVerifier(CIRCUIT_WITHDRAW, p.withdrawVerifier);
+        _setVerifier(CIRCUIT_TRANSFER, p.transferVerifier);
+        _setVerifier(CIRCUIT_JOIN, p.joinVerifier);
+        _setVerifier(CIRCUIT_SPLIT, p.splitVerifier);
+        _setVerifier(CIRCUIT_PUBLIC_CLAIM, p.publicClaimVerifier);
+
+        _requireValidComplianceKey(p.compliancePkX, p.compliancePkY);
+        ComplianceStorage storage c = _complianceStorage();
+        c.pkX = p.compliancePkX;
+        c.pkY = p.compliancePkY;
+        c.version = 1;
+
+        _configStorage().rewardPool = p.rewardPool;
+
+        _treeStorage().tree.init(MERKLE_TREE_DEPTH);
+    }
+
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyRole(UPGRADER_ROLE) {}
 
     function pause() external onlyRole(PAUSER_ROLE) {
         _pause();
@@ -154,6 +331,50 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
 
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
+    }
+
+    /**
+     * @notice Point a circuit's verifier at a new address (timelock-gated via UPGRADER_ROLE).
+     * @dev The spend-side public-input layout and nullifier derivation are frozen invariants; a
+     *      replacement verifier MUST accept all pre-existing notes (backward-compat is enforced off-chain).
+     */
+    function setVerifier(
+        uint256 circuitId,
+        address newVerifier
+    ) external onlyRole(UPGRADER_ROLE) {
+        _setVerifier(circuitId, newVerifier);
+    }
+
+    /**
+     * @notice Rotate the compliance public key to a new BabyJubJub subgroup point.
+     * @dev Additive/versioned: old notes stay spendable and old outputs stay decryptable off-chain against
+     *      the prior key version. On-chain validation covers the curve equation, non-identity, and coord
+     *      range. Prime-order-SUBGROUP membership is NOT checked here (needs a BJJ scalar-mul Solidity lib
+     *      absent from this repo); the backstop is the circuit assert_valid_compliance_pk, which runs
+     *      check_subgroup on every mint (packages/circuits/shared/src/mint.nr:17-21), so a non-subgroup key
+     *      cannot receive notes.
+     */
+    function rotateComplianceKey(
+        uint256 newX,
+        uint256 newY
+    ) external onlyRole(UPGRADER_ROLE) whenNotPaused {
+        _requireValidComplianceKey(newX, newY);
+        ComplianceStorage storage c = _complianceStorage();
+        uint256 oldVersion = c.version;
+        uint256 newVersion = oldVersion + 1;
+        c.pkX = newX;
+        c.pkY = newY;
+        c.version = newVersion;
+        emit ComplianceKeyRotated(oldVersion, newVersion, newX, newY);
+    }
+
+    function complianceKey()
+        external
+        view
+        returns (uint256 x, uint256 y, uint256 version)
+    {
+        ComplianceStorage storage c = _complianceStorage();
+        return (c.pkX, c.pkY, c.version);
     }
 
     /**
@@ -167,7 +388,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         if (_publicInputs.length != 14) revert InvalidInputsLength();
         _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
 
-        if (!depositVerifier.verify(_proof, _publicInputs))
+        if (!_verifier(CIRCUIT_DEPOSIT).verify(_proof, _publicInputs))
             revert InvalidProof();
 
         uint256 value = uint256(_publicInputs[5]);
@@ -187,6 +408,8 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
      * @notice Withdraw private assets to a public address.
      * @dev Layout: [0] value; [1] recipient; [2] ts; [3] intent; [4,5] compliance; [6] nullifier;
      *      [7] root; [8] asset; [9] change leaf; [10,11] change eph_pub; [12..18] change ciphertext.
+     *      Code-gate: a recipient with code must self-submit. An EIP-7702-delegated EOA reads as code
+     *      (code.length>0), so it too is self-submit-only; over-restrictive in the safe direction (no loss).
      */
     function withdraw(
         bytes calldata _proof,
@@ -198,12 +421,13 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         if (recipient.code.length > 0 && msg.sender != recipient)
             revert OnlyRecipientMayPull();
 
-        if (!merkleTree.isKnownRoot[_publicInputs[7]]) revert InvalidRoot();
+        if (!_treeStorage().tree.isKnownRoot[_publicInputs[7]])
+            revert InvalidRoot();
 
         _verifyProofTimestamp(uint256(_publicInputs[2]));
         _verifyComplianceKey(_publicInputs[4], _publicInputs[5]);
 
-        if (!withdrawVerifier.verify(_proof, _publicInputs))
+        if (!_verifier(CIRCUIT_WITHDRAW).verify(_proof, _publicInputs))
             revert InvalidProof();
 
         bytes32 nullifierHash = _publicInputs[6];
@@ -232,11 +456,12 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
         if (_publicInputs.length != 27) revert InvalidInputsLength();
-        if (!merkleTree.isKnownRoot[_publicInputs[4]]) revert InvalidRoot();
+        if (!_treeStorage().tree.isKnownRoot[_publicInputs[4]])
+            revert InvalidRoot();
         _verifyProofTimestamp(uint256(_publicInputs[0]));
         _verifyComplianceKey(_publicInputs[1], _publicInputs[2]);
 
-        if (!transferVerifier.verify(_proof, _publicInputs))
+        if (!_verifier(CIRCUIT_TRANSFER).verify(_proof, _publicInputs))
             revert InvalidProof();
 
         _spendNullifier(_publicInputs[3]);
@@ -254,11 +479,13 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
         if (_publicInputs.length != 16) revert InvalidInputsLength();
-        if (!merkleTree.isKnownRoot[_publicInputs[5]]) revert InvalidRoot();
+        if (!_treeStorage().tree.isKnownRoot[_publicInputs[5]])
+            revert InvalidRoot();
         _verifyProofTimestamp(uint256(_publicInputs[0]));
         _verifyComplianceKey(_publicInputs[1], _publicInputs[2]);
 
-        if (!joinVerifier.verify(_proof, _publicInputs)) revert InvalidProof();
+        if (!_verifier(CIRCUIT_JOIN).verify(_proof, _publicInputs))
+            revert InvalidProof();
 
         _spendNullifier(_publicInputs[3]);
         _spendNullifier(_publicInputs[4]);
@@ -275,11 +502,13 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
         if (_publicInputs.length != 25) revert InvalidInputsLength();
-        if (!merkleTree.isKnownRoot[_publicInputs[4]]) revert InvalidRoot();
+        if (!_treeStorage().tree.isKnownRoot[_publicInputs[4]])
+            revert InvalidRoot();
         _verifyProofTimestamp(uint256(_publicInputs[0]));
         _verifyComplianceKey(_publicInputs[1], _publicInputs[2]);
 
-        if (!splitVerifier.verify(_proof, _publicInputs)) revert InvalidProof();
+        if (!_verifier(CIRCUIT_SPLIT).verify(_proof, _publicInputs))
+            revert InvalidProof();
 
         _spendNullifier(_publicInputs[3]);
         _insertNote(_publicInputs, 5, 6, 7, 8);
@@ -311,13 +540,14 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
 
         bytes32 memoId = Field.toBytes32(Poseidon2.hash(inputs));
 
-        if (isValidPublicMemo[memoId]) revert MemoCollision();
+        MemoStorage storage m = _memoStorage();
+        if (m.isValidPublicMemo[memoId]) revert MemoCollision();
 
         uint256 bal0 = IERC20(_asset).balanceOf(address(this));
         IERC20(_asset).safeTransferFrom(msg.sender, address(this), _value);
         if (IERC20(_asset).balanceOf(address(this)) - bal0 != _value)
             revert FeeOnTransferUnsupported();
-        isValidPublicMemo[memoId] = true;
+        m.isValidPublicMemo[memoId] = true;
 
         emit NewPublicMemo(memoId, _asset, _value, _timelock, _salt);
     }
@@ -333,19 +563,33 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         if (_publicInputs.length != 14) revert InvalidInputsLength();
 
         bytes32 memoId = _publicInputs[0];
-        if (!isValidPublicMemo[memoId]) revert MemoInvalid();
-        if (isPublicMemoSpent[memoId]) revert MemoSpent();
+        MemoStorage storage m = _memoStorage();
+        if (!m.isValidPublicMemo[memoId]) revert MemoInvalid();
+        if (m.isPublicMemoSpent[memoId]) revert MemoSpent();
 
         _verifyComplianceKey(_publicInputs[1], _publicInputs[2]);
         _verifyProofTimestamp(uint256(_publicInputs[3]));
 
-        if (!publicClaimVerifier.verify(_proof, _publicInputs))
+        if (!_verifier(CIRCUIT_PUBLIC_CLAIM).verify(_proof, _publicInputs))
             revert InvalidProof();
 
-        isPublicMemoSpent[memoId] = true;
+        m.isPublicMemoSpent[memoId] = true;
         emit PublicMemoSpent(memoId);
 
         _insertNote(_publicInputs, 4, 5, 6, 7);
+    }
+
+    function _setVerifier(uint256 circuitId, address newVerifier) internal {
+        if (circuitId >= CIRCUIT_COUNT) revert UnknownCircuitId();
+        if (newVerifier == address(0)) revert ZeroAddress();
+        _verifierStorage().verifiers[circuitId] = newVerifier;
+        emit VerifierUpdated(circuitId, newVerifier);
+    }
+
+    function _verifier(
+        uint256 circuitId
+    ) internal view returns (IHonkVerifier) {
+        return IHonkVerifier(_verifierStorage().verifiers[circuitId]);
     }
 
     function _insertNote(
@@ -356,7 +600,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
         uint256 ctStartIndex
     ) internal {
         bytes32 commitment = _publicInputs[leafIndex];
-        uint256 insertedAt = merkleTree.insert(commitment);
+        uint256 insertedAt = _treeStorage().tree.insert(commitment);
 
         bytes32[7] memory ct;
         for (uint256 i = 0; i < 7; i++) {
@@ -374,7 +618,7 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
 
     function _insertMemo(bytes32[] calldata _publicInputs) internal {
         bytes32 commitment = _publicInputs[5];
-        uint256 insertedAt = merkleTree.insert(commitment);
+        uint256 insertedAt = _treeStorage().tree.insert(commitment);
 
         bytes32[7] memory ct;
         for (uint256 i = 0; i < 7; i++) {
@@ -393,9 +637,26 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     }
 
     function _verifyComplianceKey(bytes32 px, bytes32 py) internal view {
-        if (uint256(px) != COMPLIANCE_PK_X || uint256(py) != COMPLIANCE_PK_Y) {
-            revert InvalidComplianceKey();
+        ComplianceStorage storage c = _complianceStorage();
+        if (uint256(px) != c.pkX || uint256(py) != c.pkY) {
+            revert ComplianceKeyStale(c.version, c.pkX, c.pkY);
         }
+    }
+
+    /// @dev On-curve (twisted Edwards) + non-identity + coord-range check. Not a subgroup check; see
+    /// rotateComplianceKey for the circuit-side backstop.
+    function _requireValidComplianceKey(uint256 x, uint256 y) private pure {
+        if (x >= BN254_FR || y >= BN254_FR) revert InvalidComplianceKeyPoint();
+        if (x == 0 && y == 1) revert InvalidComplianceKeyPoint();
+        uint256 x2 = mulmod(x, x, BN254_FR);
+        uint256 y2 = mulmod(y, y, BN254_FR);
+        uint256 lhs = addmod(mulmod(BJJ_A, x2, BN254_FR), y2, BN254_FR);
+        uint256 rhs = addmod(
+            1,
+            mulmod(mulmod(BJJ_D, x2, BN254_FR), y2, BN254_FR),
+            BN254_FR
+        );
+        if (lhs != rhs) revert InvalidComplianceKeyPoint();
     }
 
     /// @dev 5-minute tolerance for ZK proof timestamp freshness (network latency, block variance).
@@ -405,32 +666,57 @@ contract DarkPool is AccessControl, Pausable, ReentrancyGuard {
     }
 
     function _spendNullifier(bytes32 _nullifierHash) internal {
-        if (isNullifierSpent[_nullifierHash]) revert NullifierAlreadySpent();
-        isNullifierSpent[_nullifierHash] = true;
+        NullifierStorage storage n = _nullifierStorage();
+        if (n.isNullifierSpent[_nullifierHash]) revert NullifierAlreadySpent();
+        n.isNullifierSpent[_nullifierHash] = true;
         emit NullifierSpent(_nullifierHash);
     }
 
-    function isKnownRoot(bytes32 _root) external view returns (bool) {
-        return merkleTree.isKnownRoot[_root];
+    function verifier(uint256 circuitId) external view returns (address) {
+        return _verifierStorage().verifiers[circuitId];
     }
+
+    function rewardPool() external view returns (address) {
+        return _configStorage().rewardPool;
+    }
+
+    function isNullifierSpent(
+        bytes32 nullifierHash
+    ) external view returns (bool) {
+        return _nullifierStorage().isNullifierSpent[nullifierHash];
+    }
+
+    function isValidPublicMemo(bytes32 memoId) external view returns (bool) {
+        return _memoStorage().isValidPublicMemo[memoId];
+    }
+
+    function isPublicMemoSpent(bytes32 memoId) external view returns (bool) {
+        return _memoStorage().isPublicMemoSpent[memoId];
+    }
+
+    function isKnownRoot(bytes32 _root) external view returns (bool) {
+        return _treeStorage().tree.isKnownRoot[_root];
+    }
+
     function getCurrentRoot() external view returns (bytes32) {
-        return merkleTree.getCurrentRoot();
+        return _treeStorage().tree.getCurrentRoot();
     }
 
     function getMerklePath(
         uint256 _leafIndex
     ) external view returns (bytes32[32] memory) {
-        return merkleTree.getMerklePath(_leafIndex);
+        return _treeStorage().tree.getMerklePath(_leafIndex);
     }
 
     function getNextLeafIndex() external view returns (uint256) {
-        return merkleTree.nextLeafIndex;
+        return _treeStorage().tree.nextLeafIndex;
     }
 
     function getSubtreeWithProof(
         uint256 treeLevel,
         uint256 positionAtLevel
     ) external view returns (bytes32[] memory proof, bytes32[] memory leafs) {
-        return merkleTree.getSubtreeWithProof(treeLevel, positionAtLevel);
+        return
+            _treeStorage().tree.getSubtreeWithProof(treeLevel, positionAtLevel);
     }
 }
