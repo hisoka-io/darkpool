@@ -121,7 +121,10 @@ export class DarkAccount implements IDarkAccount {
     const seedHex = Array.from(seedBytes)
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
-    const skRoot = await Kdf.derive(MNEMONIC_LABEL, toReducedFr("0x" + seedHex));
+    const skRoot = await Kdf.derive(
+      MNEMONIC_LABEL,
+      toReducedFr("0x" + seedHex),
+    );
     return new DarkAccount(skRoot);
   }
 

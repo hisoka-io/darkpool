@@ -160,9 +160,7 @@ describe("Verifier backward-compat + compliance rotation (VR-2, ZK-5)", function
         note: staleNote.note,
         eph: staleEph,
       });
-      await expect(
-        darkPool.deposit(staleProof.proof, staleProof.publicInputs),
-      )
+      await expect(darkPool.deposit(staleProof.proof, staleProof.publicInputs))
         .to.be.revertedWithCustomError(darkPool, "ComplianceKeyStale")
         .withArgs(2n, NEW_PK[0], NEW_PK[1]);
 
@@ -212,9 +210,7 @@ describe("Verifier backward-compat + compliance rotation (VR-2, ZK-5)", function
         note: newNote.note,
         eph: newEph,
       });
-      await token
-        .connect(alice)
-        .approve(await darkPool.getAddress(), 30n);
+      await token.connect(alice).approve(await darkPool.getAddress(), 30n);
       const indexBefore = await darkPool.getNextLeafIndex();
       await darkPool
         .connect(alice)

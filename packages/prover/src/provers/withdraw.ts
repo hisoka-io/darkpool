@@ -3,7 +3,9 @@ import { circuit } from "../generated/withdraw_circuit.js";
 import { WithdrawInputs, ProofData } from "../types.js";
 import { marshalNote, pointHex } from "../marshal.js";
 
-export async function proveWithdraw(inputs: WithdrawInputs): Promise<ProofData> {
+export async function proveWithdraw(
+  inputs: WithdrawInputs,
+): Promise<ProofData> {
   const c = pointHex(inputs.compliancePk);
   return generateProof("withdraw", circuit, {
     withdraw_value: inputs.withdrawValue.toString(),

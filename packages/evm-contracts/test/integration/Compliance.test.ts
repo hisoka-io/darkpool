@@ -27,10 +27,8 @@ import { DarkPool } from "../../typechain-types";
 
 // Compliance reads every note structurally: CEK = (complianceSk * eph_pub).x, psi -> nullifier follows.
 class ComplianceTool {
-  public observedNotes: Map<
-    string,
-    { note: Note; type: "NOTE" | "MEMO" }
-  > = new Map();
+  public observedNotes: Map<string, { note: Note; type: "NOTE" | "MEMO" }> =
+    new Map();
   public spentNullifiers: Set<string> = new Set();
 
   constructor(

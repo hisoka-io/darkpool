@@ -199,9 +199,7 @@ export class ScanEngine {
         ephemeralY: BigInt(eventLog.args["ephemeralPK_y"]),
         packedCiphertext: eventLog.args["packedCiphertext"] as string[],
         tag:
-          eventType === "NEW_MEMO"
-            ? BigInt(eventLog.args["tag"])
-            : undefined,
+          eventType === "NEW_MEMO" ? BigInt(eventLog.args["tag"]) : undefined,
         cekWrap:
           eventType === "NEW_MEMO"
             ? BigInt(eventLog.args["cekWrap"])
