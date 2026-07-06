@@ -9,6 +9,11 @@
  *   - The deploying EOA renounces all power before the script exits; a final assertion reverts if any
  *     privileged role is still held by an EOA.
  *
+ * Upgrade runbook: before any on-chain upgrade, run `validateUpgrade` against the DEPLOYED
+ *   .openzeppelin/<network>.json manifest on the fork job. The in-repo DarkPoolV1 baseline anchors the
+ *   CI gate but cannot see a MerkleTreeLib.Tree reshape (shared library); the deployed manifest anchors
+ *   to real proxy storage and is the authoritative pre-upgrade storage-compat check.
+ *
  * Required env:
  *   GOV_SAFE       governance multisig (3-of-5), proposer + executor
  *   GUARDIAN_SAFE  guardian multisig (2-of-3), pauser + canceller

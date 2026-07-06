@@ -37,7 +37,7 @@ fi
 
 # 2. Copy circuit artifacts
 echo "[2/6] Copying circuit artifacts..."
-for circuit in deposit withdraw transfer join split public_claim gas_payment; do
+for circuit in deposit withdraw transfer join split public_claim; do
   src="${CIRCUITS_DIR}/target/${circuit}.json"
   if [ -f "$src" ]; then
     cp "$src" "${ARCHIVE_DIR}/circuits/${circuit}.json"
@@ -49,7 +49,7 @@ done
 
 # 3. Copy verifier Solidity sources
 echo "[3/6] Copying verifier sources..."
-for verifier in DepositVerifier WithdrawVerifier TransferVerifier JoinVerifier SplitVerifier PublicClaimVerifier GasPaymentVerifier; do
+for verifier in DepositVerifier WithdrawVerifier TransferVerifier JoinVerifier SplitVerifier PublicClaimVerifier; do
   src="${CONTRACTS_DIR}/contracts/verifiers/${verifier}.sol"
   if [ -f "$src" ]; then
     cp "$src" "${ARCHIVE_DIR}/verifiers/${verifier}.sol"

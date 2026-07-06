@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers, upgrades } from "hardhat";
-import { ZeroHash } from "ethers";
+import { toBeHex, ZeroHash } from "ethers";
 import {
   deployDarkPoolFixture,
   makeDeposit,
@@ -9,11 +9,7 @@ import {
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
 import { Fr, toFr, addressToFr, packParents, LeanIMT } from "@hisoka/wallets";
-import {
-  proveWithdraw,
-  WithdrawInputs,
-  NoteInput,
-} from "@hisoka/prover";
+import { proveWithdraw, WithdrawInputs, NoteInput } from "@hisoka/prover";
 import type { DarkPool, DarkPoolV2Mock__factory } from "../../typechain-types";
 
 const UUPS_OPTS = {
@@ -87,7 +83,9 @@ describe("Anonymity-set continuity across upgrade (CI-6, anti-Nomad)", function 
       recipient: alice.address,
       assetFr,
     });
-    await darkPool.connect(alice).withdraw(wA.proof.proof, wA.proof.publicInputs);
+    await darkPool
+      .connect(alice)
+      .withdraw(wA.proof.proof, wA.proof.publicInputs);
     await tree.insert(wA.changeCommitment); // leaf 2 (change of the withdraw)
 
     const realNullifier = wA.proof.publicInputs[6];
@@ -102,6 +100,23 @@ describe("Anonymity-set continuity across upgrade (CI-6, anti-Nomad)", function 
 
     // Upgrade to a storage-preserving V2 via the UPGRADER path (deployer holds UPGRADER_ROLE).
     const proxyAddr = await darkPool.getAddress();
+
+    // Tree-namespace raw-slot guard: validateUpgrade(DarkPoolV1 -> DarkPool) cannot see a
+    // MerkleTreeLib.Tree reshape (both import the same library and move in lockstep), so assert the live
+    // Tree members land at their expected sub-slots off TREE_LOCATION with the populated non-zero values.
+    const TREE_LOCATION =
+      "0xbdd00c81e71bd165e3ff2099ca204334ffd58a8d7225a33b4761542b7a86e200";
+    const treeSlot = async (offset: bigint): Promise<bigint> =>
+      BigInt(
+        await ethers.provider.getStorage(
+          proxyAddr,
+          toBeHex(BigInt(TREE_LOCATION) + offset, 32),
+        ),
+      );
+    expect(await treeSlot(0n)).to.equal(32n); // TREE_DEPTH
+    expect(await treeSlot(2n)).to.equal(nextIndexBefore); // nextLeafIndex
+    expect(await treeSlot(3n)).to.equal(BigInt(rootBefore)); // latestRoot
+
     const pos = await (await ethers.getContractFactory("Poseidon2")).deploy();
     await pos.waitForDeployment();
     const V2Factory = (await ethers.getContractFactory("DarkPoolV2Mock", {

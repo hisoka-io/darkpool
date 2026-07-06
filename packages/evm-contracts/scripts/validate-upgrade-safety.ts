@@ -215,8 +215,14 @@ async function main(): Promise<void> {
   ];
 
   // Storage-compat gate: assertStorageUpgradeSafe(DarkPoolV1 -> DarkPool). With V1 == current this
-  // passes; it exists to catch a FUTURE storage-incompatible DarkPool change (namespace-internal
-  // reorder/retype the bare-sequential snapshot cannot see).
+  // passes; it exists to catch a FUTURE storage-incompatible DarkPool change (a namespace-internal
+  // reorder/retype the bare-sequential snapshot cannot see). Two blind spots by construction:
+  //   1. A MerkleTreeLib.Tree struct reshape is invisible here: DarkPoolV1 and DarkPool import the
+  //      SAME library, so both TreeStorage structs move in lockstep and the diff cancels. Guard it
+  //      with the raw-slot test on the live Tree members (test/upgrade/Continuity.test.ts), not this pair.
+  //   2. This checks the in-repo V1 baseline, not real proxy storage. Before any on-chain upgrade,
+  //      re-run validateUpgrade against the DEPLOYED .openzeppelin/<network>.json manifest on the fork
+  //      job -- that anchors to the live layout and is the authoritative pre-upgrade check.
   console.log(
     "Step 4: validateUpgrade (DarkPoolV1 -> DarkPool storage compat)...",
   );
