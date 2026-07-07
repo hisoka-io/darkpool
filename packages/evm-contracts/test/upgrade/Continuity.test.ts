@@ -6,9 +6,10 @@ import {
   makeDeposit,
   mintSelfNote,
   evenYEphemeral,
+  newSeededTree,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import { Fr, toFr, addressToFr, packParents, LeanIMT } from "@hisoka/wallets";
+import { Fr, toFr, addressToFr, packParents } from "@hisoka/wallets";
 import { proveWithdraw, WithdrawInputs, NoteInput } from "@hisoka/prover";
 import type { DarkPool, DarkPoolV2Mock__factory } from "../../typechain-types";
 
@@ -41,7 +42,6 @@ async function buildWithdraw(args: SpendArgs) {
   const inputs: WithdrawInputs = {
     withdrawValue: toFr(args.amount),
     recipient: addressToFr(args.recipient),
-    currentTimestamp: Math.floor(Date.now() / 1000),
     intentHash: toFr(0n),
     compliancePk: COMPLIANCE_PK,
     oldNote: args.oldNote,
@@ -65,18 +65,15 @@ describe("Anonymity-set continuity across upgrade (CI-6, anti-Nomad)", function 
     const depA = await makeDeposit(darkPool, token, alice, 100n);
     const depB = await makeDeposit(darkPool, token, alice, 50n);
 
-    const tree = new LeanIMT(32);
-    await tree.insert(depA.commitment); // leaf 0
-    await tree.insert(depB.commitment); // leaf 1
-
-    const pathA = Array(32).fill(toFr(0n)) as Fr[];
-    pathA[0] = depB.commitment;
+    const tree = await newSeededTree();
+    await tree.insert(depA.commitment); // leaf 1
+    await tree.insert(depB.commitment); // leaf 2
 
     const wA = await buildWithdraw({
       oldNote: depA.built.note,
       spendScalar: depA.spendScalar,
-      index: 0,
-      path: pathA,
+      index: 1,
+      path: tree.getMerklePath(1),
       amount: 40n,
       changeValue: 60n,
       changeEphSeed: 4242n,
@@ -86,9 +83,9 @@ describe("Anonymity-set continuity across upgrade (CI-6, anti-Nomad)", function 
     await darkPool
       .connect(alice)
       .withdraw(wA.proof.proof, wA.proof.publicInputs);
-    await tree.insert(wA.changeCommitment); // leaf 2 (change of the withdraw)
+    await tree.insert(wA.changeCommitment); // leaf 3 (change of the withdraw)
 
-    const realNullifier = wA.proof.publicInputs[6];
+    const realNullifier = wA.proof.publicInputs[5];
 
     // Pre-upgrade snapshot of the anonymity-set observables.
     const rootBefore = await darkPool.getCurrentRoot();
@@ -96,7 +93,8 @@ describe("Anonymity-set continuity across upgrade (CI-6, anti-Nomad)", function 
     const pathBefore = await darkPool.getMerklePath(0);
     expect(await darkPool.isNullifierSpent(realNullifier)).to.equal(true);
     expect(await darkPool.isKnownRoot(rootBefore)).to.equal(true);
-    expect(nextIndexBefore).to.equal(3n);
+    // genesis + depA + depB + wA change = 4.
+    expect(nextIndexBefore).to.equal(4n);
 
     // Upgrade to a storage-preserving V2 via the UPGRADER path (deployer holds UPGRADER_ROLE).
     const proxyAddr = await darkPool.getAddress();
@@ -148,8 +146,8 @@ describe("Anonymity-set continuity across upgrade (CI-6, anti-Nomad)", function 
     const wB = await buildWithdraw({
       oldNote: depB.built.note,
       spendScalar: depB.spendScalar,
-      index: 1,
-      path: tree.getMerklePath(1),
+      index: 2,
+      path: tree.getMerklePath(2),
       amount: 50n,
       changeValue: 0n,
       changeEphSeed: 7777n,
@@ -159,9 +157,9 @@ describe("Anonymity-set continuity across upgrade (CI-6, anti-Nomad)", function 
     await upgraded
       .connect(alice)
       .withdraw(wB.proof.proof, wB.proof.publicInputs);
-    expect(await upgraded.isNullifierSpent(wB.proof.publicInputs[6])).to.equal(
+    expect(await upgraded.isNullifierSpent(wB.proof.publicInputs[5])).to.equal(
       true,
     );
-    expect(await upgraded.getNextLeafIndex()).to.equal(4n);
+    expect(await upgraded.getNextLeafIndex()).to.equal(5n);
   });
 });

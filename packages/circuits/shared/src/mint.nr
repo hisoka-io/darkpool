@@ -1,26 +1,31 @@
-//! Minting: bind one note plaintext to its ciphertext, leaf, and psi under a single in-circuit CEK =
-//! (eph*C).x. The leaf commits the PLAINTEXT, so psi == Poseidon2(CEK, PSI_DOMAIN) is asserted against the
-//! committed field: a mis-derived psi both locks the note (readers re-derive psi from CEK) and breaks
-//! compliance tracing.
+//! psi == Poseidon2(CEK, PSI_DOMAIN) asserted against the committed leaf field, so a mis-derived psi locks
+//! the note and breaks compliance tracing.
 
 use crate::assert_subgroup_scalar;
 use crate::dem;
 use crate::even_y;
 use crate::kem;
-use crate::note::{assert_asset_id, Note, NOTE_TYPE_STANDARD, NOTE_VERSION};
+use crate::note::{
+    assert_asset_id, assert_valid_note_type, Note, NOTE_TYPE_MULTISIG, NOTE_TYPE_STANDARD,
+    NOTE_VERSION,
+};
 use crate::note_nullifier;
 use crate::owner;
 use ecdh::{bjj::{BJJ, check_subgroup}, ECDHTrait, Point};
 use edwards::{bjj::BabyJubJub, CurveTrait};
 
-// Subgroup + non-identity check on C so a low-order key cannot leak a compliance share via the cofactor.
 pub fn assert_valid_compliance_pk(c: Point) {
     let c_ed = BabyJubJub::new(c.x, c.y);
     assert(check_subgroup(c_ed), "compliance key not in prime-order subgroup");
     assert(!c_ed.is_zero(), "compliance key must not be the identity");
 }
 
-// The 7 transmitted DEM fields, fixed order k=0..6 (leaf's stable-first order minus the never-sent psi).
+fn assert_valid_recipient_key(p: Point) {
+    let ed = BabyJubJub::new(p.x, p.y);
+    assert(check_subgroup(ed), "recipient key not in prime-order subgroup");
+    assert(!ed.is_zero(), "recipient key must not be the identity");
+}
+
 fn transmitted_fields(note: Note) -> [Field; dem::DEM_FIELDS] {
     [
         note.note_version,
@@ -41,8 +46,8 @@ fn mint_common(
     assert_subgroup_scalar(eph);
     assert(note.owner != 0, "note owner must be non-zero");
     assert(note.note_version == NOTE_VERSION, "unexpected note version");
-    assert(note.note_type == NOTE_TYPE_STANDARD, "unexpected note type");
-    assert(note.conditions_hash == 0, "standard note conditions_hash must be zero");
+    assert_valid_note_type(note.note_type);
+    assert(note.conditions_hash == 0, "note conditions_hash must be zero");
     assert_asset_id(note.asset_id);
 
     let cek = kem::derive_cek(eph, compliance_pk);
@@ -56,42 +61,63 @@ fn mint_common(
 
 pub struct SelfMint {
     pub leaf: Field,
-    // eph_pub.x IS the self discovery tag (fresh per note, even-y for an injective Raven key).
     pub eph_pub: Point,
     pub ciphertext: [Field; dem::DEM_FIELDS],
 }
 
-// Self / change / deposit output: the creator controls eph, so there is no wrap; the tag is eph_pub.x.
 pub fn mint_self_note(note: Note, eph: Field, compliance_pk: Point) -> SelfMint {
+    assert(note.note_type == NOTE_TYPE_STANDARD, "self note must be STANDARD");
     let (leaf, eph_pub, _cek, ciphertext) = mint_common(note, eph, compliance_pk);
     assert(even_y::is_even_y(eph_pub), "self discovery tag must be even-y");
+    SelfMint { leaf, eph_pub, ciphertext }
+}
+
+// owner == Poseidon2(gpk) pins the change to the spending account: without it a coordinator could redirect
+// change to a solo key and drain the group's residual past the quorum (theft-from-group). The FROST message
+// binds only the output leaf, so this in-circuit owner pin is the only thing that stops the redirect.
+pub fn mint_self_note_multisig(
+    note: Note,
+    eph: Field,
+    compliance_pk: Point,
+    gpk: Point,
+) -> SelfMint {
+    assert(note.note_type == NOTE_TYPE_MULTISIG, "multisig self note must be MULTISIG");
+    assert(
+        note.owner == owner::pubkey_owner(gpk),
+        "multisig change/self must be owned by the account gpk",
+    );
+    let (leaf, eph_pub, _cek, ciphertext) = mint_common(note, eph, compliance_pk);
+    assert(even_y::is_even_y(eph_pub), "self discovery tag must be even-y");
+    SelfMint { leaf, eph_pub, ciphertext }
+}
+
+pub fn mint_deposit(note: Note, eph: Field, compliance_pk: Point) -> SelfMint {
+    let (leaf, eph_pub, _cek, ciphertext) = mint_common(note, eph, compliance_pk);
+    assert(even_y::is_even_y(eph_pub), "deposit discovery tag must be even-y");
     SelfMint { leaf, eph_pub, ciphertext }
 }
 
 pub struct IncomingMint {
     pub leaf: Field,
     pub eph_pub: Point,
-    // in_pub_j.x: the incoming discovery tag (static per recipient address, even-y).
     pub tag: Field,
     pub cek_wrap: Field,
     pub ciphertext: [Field; dem::DEM_FIELDS],
 }
 
-// Incoming memo: owner bound to owner == Poseidon2(in_pub_j) so a sender cannot mint to an unspendable
-// owner, and CEK is wrapped to the recipient who unwraps from in_key_j + eph_pub.
+// owner/wrap/tag all bind in_pub_j, so no owned-but-undiscoverable memo (griefing lock). Pinned STANDARD:
+// a MULTISIG memo needs owner/view decoupled (deferred feature).
 pub fn mint_incoming_note(
     note: Note,
     eph: Field,
     compliance_pk: Point,
-    in_pub_j: Point,
+    in_pub: Point,
 ) -> IncomingMint {
-    // Recipient address is attacker-supplied; validate like C so no low-order/off-curve point slips in.
-    let in_ed = BabyJubJub::new(in_pub_j.x, in_pub_j.y);
-    assert(check_subgroup(in_ed), "recipient address not in prime-order subgroup");
-    assert(!in_ed.is_zero(), "recipient address must not be the identity");
-    assert(note.owner == owner::pubkey_owner(in_pub_j), "memo owner must be the recipient owner");
+    assert(note.note_type == NOTE_TYPE_STANDARD, "incoming memo must be STANDARD");
+    assert_valid_recipient_key(in_pub);
+    assert(note.owner == owner::pubkey_owner(in_pub), "memo owner must be the recipient owner");
     let (leaf, eph_pub, cek, ciphertext) = mint_common(note, eph, compliance_pk);
-    assert(even_y::is_even_y(in_pub_j), "incoming discovery tag must be even-y");
-    let cek_wrap = kem::wrap_cek(cek, eph, in_pub_j);
-    IncomingMint { leaf, eph_pub, tag: in_pub_j.x, cek_wrap, ciphertext }
+    assert(even_y::is_even_y(in_pub), "incoming discovery tag must be even-y");
+    let cek_wrap = kem::wrap_cek(cek, eph, in_pub);
+    IncomingMint { leaf, eph_pub, tag: in_pub.x, cek_wrap, ciphertext }
 }

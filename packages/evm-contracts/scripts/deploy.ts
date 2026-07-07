@@ -171,6 +171,8 @@ async function main() {
   console.log();
 
   console.log("Step 2: Circuit verifiers...");
+  // Order MUST match the circuit-id constants in DarkPool.sol (deposit=0 .. join_multisig=9). There is
+  // no deposit_multisig verifier: deposit is unified and mints a MULTISIG note from a private witness.
   const verifierPaths = [
     "contracts/verifiers/DepositVerifier.sol",
     "contracts/verifiers/WithdrawVerifier.sol",
@@ -178,6 +180,10 @@ async function main() {
     "contracts/verifiers/JoinVerifier.sol",
     "contracts/verifiers/SplitVerifier.sol",
     "contracts/verifiers/PublicClaimVerifier.sol",
+    "contracts/verifiers/WithdrawMultisigVerifier.sol",
+    "contracts/verifiers/TransferMultisigVerifier.sol",
+    "contracts/verifiers/SplitMultisigVerifier.sol",
+    "contracts/verifiers/JoinMultisigVerifier.sol",
   ];
   const verifiers: { verifier: string; name: string }[] = [];
   for (const p of verifierPaths) verifiers.push(await deployVerifier(p));
@@ -267,7 +273,10 @@ async function main() {
         verifiers[3].verifier,
         verifiers[4].verifier,
         verifiers[5].verifier,
-        rewardPoolAddr,
+        verifiers[6].verifier,
+        verifiers[7].verifier,
+        verifiers[8].verifier,
+        verifiers[9].verifier,
         compliance.pk[0],
         compliance.pk[1],
         ADMIN_TRANSFER_DELAY,
@@ -281,6 +290,19 @@ async function main() {
   await darkPool.waitForDeployment();
   const darkPoolAddr = await darkPool.getAddress();
   console.log(`  DarkPool: ${darkPoolAddr}`);
+  console.log();
+
+  console.log("Step 7b: ComplianceRegistry (social audit log)...");
+  const committeeThreshold = BigInt(process.env.COMPLIANCE_THRESHOLD ?? "3");
+  const committeeSize = BigInt(process.env.COMPLIANCE_COMMITTEE_SIZE ?? "5");
+  const complianceRegistry = await (
+    await ethers.getContractFactory("ComplianceRegistry")
+  ).deploy(timelockAddr, committeeThreshold, committeeSize);
+  await complianceRegistry.waitForDeployment();
+  const complianceRegistryAddr = await complianceRegistry.getAddress();
+  console.log(
+    `  ComplianceRegistry: ${complianceRegistryAddr} (t=${committeeThreshold}, n=${committeeSize}, admin=${timelockAddr})`,
+  );
   console.log();
 
   console.log("Step 8: Governance wiring...");
@@ -500,6 +522,11 @@ async function main() {
       joinVerifier: verifiers[3].verifier,
       splitVerifier: verifiers[4].verifier,
       publicClaimVerifier: verifiers[5].verifier,
+      withdrawMultisigVerifier: verifiers[6].verifier,
+      transferMultisigVerifier: verifiers[7].verifier,
+      splitMultisigVerifier: verifiers[8].verifier,
+      joinMultisigVerifier: verifiers[9].verifier,
+      complianceRegistry: complianceRegistryAddr,
       noxRegistry: noxRegistryAddr,
       noxRewardPool: rewardPoolAddr,
       darkPool: darkPoolAddr,
@@ -523,6 +550,16 @@ async function main() {
       join: sha256File(path.join(circuitsDir, "join.json")),
       split: sha256File(path.join(circuitsDir, "split.json")),
       public_claim: sha256File(path.join(circuitsDir, "public_claim.json")),
+      withdraw_multisig: sha256File(
+        path.join(circuitsDir, "withdraw_multisig.json"),
+      ),
+      transfer_multisig: sha256File(
+        path.join(circuitsDir, "transfer_multisig.json"),
+      ),
+      split_multisig: sha256File(
+        path.join(circuitsDir, "split_multisig.json"),
+      ),
+      join_multisig: sha256File(path.join(circuitsDir, "join_multisig.json")),
     },
   };
 

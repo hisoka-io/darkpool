@@ -1,0 +1,45 @@
+compliance_pubkey_x = ""
+compliance_pubkey_y = ""
+eph_1 = ""
+eph_2 = ""
+frost_z = ""
+index_in = ""
+path_in = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+
+[frost_r]
+x = ""
+y = ""
+
+[gpk]
+x = ""
+y = ""
+
+[note_in]
+asset_id = ""
+conditions_hash = ""
+note_type = ""
+note_version = ""
+owner = ""
+parents = ""
+psi = ""
+value = ""
+
+[note_out_1]
+asset_id = ""
+conditions_hash = ""
+note_type = ""
+note_version = ""
+owner = ""
+parents = ""
+psi = ""
+value = ""
+
+[note_out_2]
+asset_id = ""
+conditions_hash = ""
+note_type = ""
+note_version = ""
+owner = ""
+parents = ""
+psi = ""
+value = ""

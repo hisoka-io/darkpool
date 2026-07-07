@@ -1,0 +1,13 @@
+compliance_pubkey_x = ""
+compliance_pubkey_y = ""
+eph = ""
+
+[note]
+asset_id = ""
+conditions_hash = ""
+note_type = ""
+note_version = ""
+owner = ""
+parents = ""
+psi = ""
+value = ""

@@ -12,8 +12,8 @@ import {IDarkPool} from "../interfaces/IDarkPool.sol";
  *         bundle (treasury fee, swap, distribution), and asserts it holds zero residual over the union of the
  *         withdrawn asset, every bound call's approve token, and the declared assetsToClear when it returns.
  *         Holds funds only within `execute`; grants no standing allowances.
- * @dev The bundle is bound to the proof through the withdraw layout's free public input [3] (intent hash):
- *      `execute` recomputes the hash from the exact `boundCalls/deadline/assetsToClear` and overwrites [3],
+ * @dev The bundle is bound to the proof through the withdraw layout's free public input [2] (intent hash):
+ *      `execute` recomputes the hash from the exact `boundCalls/deadline/assetsToClear` and overwrites [2],
  *      so a relayer that alters any call makes the proof fail verification. A raw withdraw to this contract
  *      from outside `execute` reverts via the DarkPool code gate (msg.sender != recipient).
  */
@@ -24,12 +24,12 @@ contract BundleExecutor is ReentrancyGuard {
     uint256 internal constant BN254_P =
         21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
-    /// @dev Withdraw public-input layout: [0] value, [1] recipient, [3] intent hash, [8] asset. See DarkPool.
-    uint256 internal constant WITHDRAW_INPUTS = 19;
+    /// @dev Withdraw public-input layout: [0] value, [1] recipient, [2] intent hash, [7] asset. See DarkPool.
+    uint256 internal constant WITHDRAW_INPUTS = 18;
     uint256 internal constant RECIPIENT_IDX = 1;
-    uint256 internal constant INTENT_IDX = 3;
-    uint256 internal constant NULLIFIER_IDX = 6;
-    uint256 internal constant ASSET_IDX = 8;
+    uint256 internal constant INTENT_IDX = 2;
+    uint256 internal constant NULLIFIER_IDX = 5;
+    uint256 internal constant ASSET_IDX = 7;
 
     struct BundleCall {
         address target;

@@ -1,36 +1,21 @@
-//! Differential-soundness harness: each case takes a valid witness, mutates ONE load-bearing input, and
-//! asserts the constraint system rejects it. Covers the shared spend + mint + KEM layer; the mains carry
-//! value-conservation and per-operation negatives.
-
 use crate::kem;
 use crate::mint;
 use crate::note::Note;
+use crate::test_fixtures::{fixture_compliance_pk, fixture_note};
 use crate::TREE_DEPTH;
 use crate::verify_spend;
 use ecdh::Point;
-
-global C_X: Field = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-global C_Y: Field = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
 
 global VALID_SCALAR: Field = 789;
 global EXPECTED_ROOT: Field = 0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551;
 global EXPECTED_NF: Field = 0x2761654f0b4e9f47ac9bafe900c723ead042a888da718a34b6ecc8036850755e;
 
 fn compliance() -> Point {
-    Point { x: C_X, y: C_Y }
+    fixture_compliance_pk()
 }
 
 fn valid_note() -> Note {
-    Note {
-        note_version: 1,
-        asset_id: 0x1234567890123456789012345678901234567890,
-        note_type: 0,
-        conditions_hash: 0,
-        value: 100,
-        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
-        psi: 0x0981a88f9e119b057498a4ab99ed5379a1ea91c642454fc0c07aacc1f5cd5731,
-        parents: 0,
-    }
+    fixture_note()
 }
 
 fn spend_at_zero(note: Note, scalar: Field, index: Field) -> (Field, Field) {
@@ -56,7 +41,6 @@ fn audit_mutated_owner_rejected() {
     let _ = spend_at_zero(note, VALID_SCALAR, 0);
 }
 
-// psi is committed in the leaf, so mutating it changes the membership root.
 #[test(should_fail)]
 fn audit_mutated_psi_breaks_membership() {
     let mut note = valid_note();
@@ -79,7 +63,6 @@ fn audit_wrong_note_type_rejected() {
     let _ = spend_at_zero(note, VALID_SCALAR, 0);
 }
 
-// The nullifier keys off this same index, so index malleability would mean two nullifiers per note.
 #[test(should_fail_with = "non-canonical leaf index")]
 fn audit_noncanonical_index_rejected() {
     let _ = spend_at_zero(valid_note(), VALID_SCALAR, 7);
@@ -92,7 +75,7 @@ fn audit_mint_wrong_version() {
     let _ = mint::mint_self_note(note, 5, compliance());
 }
 
-#[test(should_fail_with = "unexpected note type")]
+#[test(should_fail_with = "self note must be STANDARD")]
 fn audit_mint_wrong_type() {
     let mut note = valid_note();
     note.note_type = 1;
@@ -113,14 +96,13 @@ fn audit_mint_zero_owner_rejected() {
     let _ = mint::mint_self_note(note, 5, compliance());
 }
 
-#[test(should_fail_with = "standard note conditions_hash must be zero")]
+#[test(should_fail_with = "note conditions_hash must be zero")]
 fn audit_mint_nonzero_conditions_hash_rejected() {
     let mut note = valid_note();
     note.conditions_hash = 1;
     let _ = mint::mint_self_note(note, 5, compliance());
 }
 
-// eph=456 is odd-y and its CEK yields psi 0x0441d9b1..., so mint_common passes and even-y is what fires.
 #[test(should_fail_with = "self discovery tag must be even-y")]
 fn audit_mint_odd_y_tag_rejected() {
     let mut note = valid_note();

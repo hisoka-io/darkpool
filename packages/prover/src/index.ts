@@ -7,3 +7,7 @@ export * from "./provers/transfer.js";
 export * from "./provers/join.js";
 export * from "./provers/split.js";
 export * from "./provers/public_claim.js";
+export * from "./provers/withdrawMultisig.js";
+export * from "./provers/transferMultisig.js";
+export * from "./provers/splitMultisig.js";
+export * from "./provers/joinMultisig.js";

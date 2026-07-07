@@ -5,9 +5,10 @@ import {
   makeDeposit,
   mintSelfNote,
   evenYEphemeral,
+  newSeededTree,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import { toFr, addressToFr, packParents, LeanIMT } from "@hisoka/wallets";
+import { addressToFr, packParents } from "@hisoka/wallets";
 import { proveJoin, JoinInputs, proveSplit, SplitInputs } from "@hisoka/prover";
 
 describe("DarkPool Behavior: Split & Join", function () {
@@ -21,34 +22,28 @@ describe("DarkPool Behavior: Split & Join", function () {
       const depA = await makeDeposit(darkPool, token, alice, 100n);
       const depB = await makeDeposit(darkPool, token, alice, 50n);
 
-      const tree = new LeanIMT(32);
-      await tree.insert(depA.commitment); // index 0
-      await tree.insert(depB.commitment); // index 1
-
-      const pathA = Array(32).fill(toFr(0n));
-      pathA[0] = depB.commitment;
-      const pathB = Array(32).fill(toFr(0n));
-      pathB[0] = depA.commitment;
+      const tree = await newSeededTree();
+      await tree.insert(depA.commitment); // index 1
+      await tree.insert(depB.commitment); // index 2
 
       const out = await mintSelfNote(
         evenYEphemeral(8888n),
         150n,
         depA.spendScalar,
         assetFr,
-        packParents([{ leafIndex: 0 }, { leafIndex: 1 }]),
+        packParents([{ leafIndex: 1 }, { leafIndex: 2 }]),
       );
 
       const inputs: JoinInputs = {
-        currentTimestamp: Math.floor(Date.now() / 1000),
         compliancePk: COMPLIANCE_PK,
         noteA: depA.built.note,
         spendScalarA: depA.spendScalar,
-        indexA: 0,
-        pathA,
+        indexA: 1,
+        pathA: tree.getMerklePath(1),
         noteB: depB.built.note,
         spendScalarB: depB.spendScalar,
-        indexB: 1,
-        pathB,
+        indexB: 2,
+        pathB: tree.getMerklePath(2),
         noteOut: out.note,
         ephOut: out.eph,
       };
@@ -61,8 +56,8 @@ describe("DarkPool Behavior: Split & Join", function () {
         .to.emit(darkPool, "NewNote")
         .and.to.emit(darkPool, "NullifierSpent");
 
-      const nullA = proof.publicInputs[3];
-      const nullB = proof.publicInputs[4];
+      const nullA = proof.publicInputs[2];
+      const nullB = proof.publicInputs[3];
       expect(await darkPool.isNullifierSpent(nullA)).to.equal(true);
       expect(await darkPool.isNullifierSpent(nullB)).to.equal(true);
     });
@@ -77,26 +72,31 @@ describe("DarkPool Behavior: Split & Join", function () {
 
       const dep = await makeDeposit(darkPool, token, alice, 100n);
 
+      const tree = await newSeededTree();
+      await tree.insert(dep.commitment); // index 1
+
+      const outParents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
       const out1 = await mintSelfNote(
         evenYEphemeral(101n),
         40n,
         dep.spendScalar,
         assetFr,
+        outParents,
       );
       const out2 = await mintSelfNote(
         evenYEphemeral(202n),
         60n,
         dep.spendScalar,
         assetFr,
+        outParents,
       );
 
       const inputs: SplitInputs = {
-        currentTimestamp: Math.floor(Date.now() / 1000),
         compliancePk: COMPLIANCE_PK,
         noteIn: dep.built.note,
         spendScalar: dep.spendScalar,
-        indexIn: 0,
-        pathIn: Array(32).fill(toFr(0n)),
+        indexIn: 1,
+        pathIn: tree.getMerklePath(1),
         noteOut1: out1.note,
         eph1: out1.eph,
         noteOut2: out2.note,
@@ -111,7 +111,7 @@ describe("DarkPool Behavior: Split & Join", function () {
         .to.emit(darkPool, "NewNote")
         .and.to.emit(darkPool, "NewNote");
 
-      const nullIn = proof.publicInputs[3];
+      const nullIn = proof.publicInputs[2];
       expect(await darkPool.isNullifierSpent(nullIn)).to.equal(true);
     });
   });

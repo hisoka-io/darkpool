@@ -1,0 +1,41 @@
+change_eph = ""
+compliance_pubkey_x = ""
+compliance_pubkey_y = ""
+memo_eph = ""
+old_note_index = ""
+old_note_path = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+spend_scalar = ""
+
+[change_note]
+asset_id = ""
+conditions_hash = ""
+note_type = ""
+note_version = ""
+owner = ""
+parents = ""
+psi = ""
+value = ""
+
+[memo_note]
+asset_id = ""
+conditions_hash = ""
+note_type = ""
+note_version = ""
+owner = ""
+parents = ""
+psi = ""
+value = ""
+
+[old_note]
+asset_id = ""
+conditions_hash = ""
+note_type = ""
+note_version = ""
+owner = ""
+parents = ""
+psi = ""
+value = ""
+
+[recipient_in_pub]
+x = ""
+y = ""

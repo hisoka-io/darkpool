@@ -22,7 +22,6 @@ export interface DepositInputs {
 export interface WithdrawInputs {
   withdrawValue: Fr;
   recipient: Fr;
-  currentTimestamp: number;
   intentHash: Fr;
   compliancePk: Point<bigint>;
 
@@ -36,8 +35,9 @@ export interface WithdrawInputs {
 }
 
 export interface TransferInputs {
-  currentTimestamp: number;
   compliancePk: Point<bigint>;
+  // recipientInPub is the single owner+view+discovery key; paying a MULTISIG account (owner != view) is
+  // deferred, so one key binds all three.
   recipientInPub: Point<bigint>;
 
   oldNote: NoteInput;
@@ -53,7 +53,6 @@ export interface TransferInputs {
 }
 
 export interface SplitInputs {
-  currentTimestamp: number;
   compliancePk: Point<bigint>;
 
   noteIn: NoteInput;
@@ -69,7 +68,6 @@ export interface SplitInputs {
 }
 
 export interface JoinInputs {
-  currentTimestamp: number;
   compliancePk: Point<bigint>;
 
   noteA: NoteInput;

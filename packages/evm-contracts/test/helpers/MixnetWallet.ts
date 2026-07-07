@@ -135,7 +135,6 @@ export class MixnetWallet {
     );
 
     const proof = await proveSplit({
-      currentTimestamp: Math.floor(Date.now() / 1000),
       compliancePk: COMPLIANCE_PK,
       noteIn: noteToInput(input.note),
       spendScalar: input.spendScalar,
@@ -179,7 +178,6 @@ export class MixnetWallet {
     );
 
     const proof = await proveJoin({
-      currentTimestamp: Math.floor(Date.now() / 1000),
       compliancePk: COMPLIANCE_PK,
       noteA: noteToInput(noteA.note),
       spendScalarA: noteA.spendScalar,
@@ -225,7 +223,6 @@ export class MixnetWallet {
     const proof = await proveWithdraw({
       withdrawValue: toFr(amount),
       recipient: addressToFr(target),
-      currentTimestamp: Math.floor(Date.now() / 1000),
       intentHash: toFr(0n),
       compliancePk: COMPLIANCE_PK,
       oldNote: noteToInput(input.note),
@@ -286,7 +283,6 @@ export class MixnetWallet {
     );
 
     const proof = await proveTransfer({
-      currentTimestamp: Math.floor(Date.now() / 1000),
       compliancePk: COMPLIANCE_PK,
       recipientInPub,
       oldNote: noteToInput(input.note),

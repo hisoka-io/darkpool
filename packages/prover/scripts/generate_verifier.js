@@ -2,18 +2,12 @@ import { UltraHonkBackend, Barretenberg } from "@aztec/bb.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { CIRCUITS } from "./circuits.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const circuitPackagesNames = [
-  "deposit",
-  "withdraw",
-  "transfer",
-  "join",
-  "split",
-  "public_claim",
-];
+const circuitPackagesNames = CIRCUITS.map((c) => c.name);
 const circuitsDir = resolve(__dirname, "../../circuits");
 const artifactsPath = circuitPackagesNames.map((circuitPackageName) =>
   resolve(circuitsDir, "target", `${circuitPackageName}.json`),
@@ -21,14 +15,7 @@ const artifactsPath = circuitPackagesNames.map((circuitPackageName) =>
 
 const contractsDir = resolve(__dirname, "../../evm-contracts/contracts");
 const verifiersDir = resolve(contractsDir, "verifiers");
-const outputPath = [
-  resolve(verifiersDir, "DepositVerifier.sol"),
-  resolve(verifiersDir, "WithdrawVerifier.sol"),
-  resolve(verifiersDir, "TransferVerifier.sol"),
-  resolve(verifiersDir, "JoinVerifier.sol"),
-  resolve(verifiersDir, "SplitVerifier.sol"),
-  resolve(verifiersDir, "PublicClaimVerifier.sol"),
-];
+const outputPath = CIRCUITS.map((c) => resolve(verifiersDir, c.verifier));
 
 async function main() {
   console.log("--- Generating Solidity Verifiers ---");

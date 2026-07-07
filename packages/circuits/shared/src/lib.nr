@@ -1,16 +1,15 @@
+mod common;
+mod multisig;
 mod spend;
 mod harness;
-mod domains;
-mod kem;
-mod dem;
-mod note_nullifier;
-pub mod note;
-mod even_y;
-mod owner;
 pub mod mint;
-pub mod conservation;
+
+pub use common::{conservation, note, test_fixtures};
+use common::{dem, domains, even_y, kem, note_nullifier, owner};
+pub use multisig::frost;
+pub use spend::{open_multisig_note, verify_spend};
+
 use poseidon::poseidon2::Poseidon2;
-pub use spend::verify_spend;
 
 pub global TREE_DEPTH: u32 = 32;
 
@@ -19,9 +18,7 @@ pub global TREE_DEPTH: u32 = 32;
 pub global SUBORDER: Field =
     2736030358979909402780800718157159386076813972158567259200215660948447373041;
 
-// Canonical subgroup scalar (non-zero, < SUBORDER): guarantees the scalar defines a well-defined curve
-// point and ECDH pad. Double-spend is bound by the canonical leaf_index and the membership-bound psi
-// nullifier elsewhere, not by this range check.
+// Double-spend is bound by leaf_index + the psi nullifier elsewhere, not by this range check.
 pub fn assert_subgroup_scalar(x: Field) {
     assert(x != 0, "scalar must be non-zero");
     assert(x.lt(SUBORDER), "scalar not in BabyJubJub prime-order subgroup");
@@ -43,7 +40,6 @@ pub fn lean_imt_inclusion_proof<let MAX_DEPTH: u32>(
             let right = sibling + path_bit * (current - sibling);
             current = Poseidon2::hash([left, right], 2);
         } else {
-            // Canonical index: the bit at every empty level must be 0, else one leaf has many valid indices.
             assert(path_bits[i] == 0, "non-canonical leaf index: right child at empty level");
         }
     }

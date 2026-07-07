@@ -6,12 +6,11 @@ import {
   makeDeposit,
   mintSelfNote,
   evenYEphemeral,
+  newSeededTree,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import { toFr, addressToFr, LeanIMT } from "@hisoka/wallets";
+import { toFr, addressToFr, packParents } from "@hisoka/wallets";
 import { proveWithdraw, WithdrawInputs } from "@hisoka/prover";
-
-const toBytes32 = (val: bigint) => ethers.zeroPadValue(ethers.toBeHex(val), 32);
 
 describe("DarkPool Behavior: Withdraw", function () {
   async function prepareWithdraw(
@@ -22,7 +21,7 @@ describe("DarkPool Behavior: Withdraw", function () {
     const { darkPool, alice, token } = ctx;
     const dep = await makeDeposit(darkPool, token, alice, 100n);
 
-    const tree = new LeanIMT(32);
+    const tree = await newSeededTree();
     await tree.insert(dep.commitment);
 
     const assetFr = addressToFr(await token.getAddress());
@@ -32,18 +31,18 @@ describe("DarkPool Behavior: Withdraw", function () {
       100n - amount,
       dep.spendScalar,
       assetFr,
+      packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
     );
 
     const wdwInputs: WithdrawInputs = {
       withdrawValue: toFr(amount),
       recipient: addressToFr(recipient),
-      currentTimestamp: Math.floor(Date.now() / 1000),
       intentHash: toFr(0n),
       compliancePk: COMPLIANCE_PK,
       oldNote: dep.built.note,
       spendScalar: dep.spendScalar,
-      oldNoteIndex: 0,
-      oldNotePath: Array(32).fill(toFr(0n)),
+      oldNoteIndex: 1,
+      oldNotePath: tree.getMerklePath(1),
       changeNote: change.note,
       changeEph,
     };
@@ -88,20 +87,5 @@ describe("DarkPool Behavior: Withdraw", function () {
     await expect(
       darkPool.connect(attacker).withdraw(proof.proof, tamperedInputs),
     ).to.be.reverted;
-  });
-
-  it("Should enforce Timestamp Validity", async function () {
-    const ctx = await loadFixture(deployDarkPoolFixture);
-    const { darkPool, alice } = ctx;
-    const { proof } = await prepareWithdraw(ctx, 100n, alice.address);
-
-    // Timestamp is public input [2]; push it ~2h ahead (allowed window is +1h).
-    const tamperedInputs = [...proof.publicInputs];
-    const futureTime = BigInt(Math.floor(Date.now() / 1000) + 7200);
-    tamperedInputs[2] = toBytes32(futureTime);
-
-    await expect(
-      darkPool.connect(alice).withdraw(proof.proof, tamperedInputs),
-    ).to.be.revertedWithCustomError(darkPool, "TimestampInvalid");
   });
 });

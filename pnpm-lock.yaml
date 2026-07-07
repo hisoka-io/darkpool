@@ -230,6 +230,9 @@ importers:
         specifier: ^6.15.0
         version: 6.16.0
     devDependencies:
+      '@noble/curves':
+        specifier: 1.9.1
+        version: 1.9.1
       '@types/node':
         specifier: ^24.10.0
         version: 24.12.2

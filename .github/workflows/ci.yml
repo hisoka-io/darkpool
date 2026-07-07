@@ -92,7 +92,10 @@ jobs:
         run: pnpm --filter evm-contracts run validate:upgrades
       # Storage-layout tripwire: regenerates the committed snapshots and diffs them. The
       # .storage-layout/*.json snapshots and linked-libraries.json MUST be committed for this to
-      # arm (an empty/absent snapshot makes the diff pass vacuously).
+      # arm (an empty/absent snapshot makes the diff pass vacuously). Those snapshots are
+      # empty-by-design (all state is in ERC-7201 namespaces); they only catch a NEW bare
+      # sequential slot. The load-bearing upgrade gate is validate:upgrades above (validateUpgrade
+      # against DarkPoolV1), backed by the DarkPoolV1 storage-surface guard (scripts/regen-darkpoolv1.ts).
       - name: Check storage-layout snapshots
         run: pnpm --filter evm-contracts run storage:check
 

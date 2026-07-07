@@ -8,7 +8,6 @@ export async function proveTransfer(
 ): Promise<ProofData> {
   const c = pointHex(inputs.compliancePk);
   return generateProof("transfer", circuit, {
-    current_timestamp: inputs.currentTimestamp.toString(),
     compliance_pubkey_x: c.x,
     compliance_pubkey_y: c.y,
     recipient_in_pub: pointHex(inputs.recipientInPub),

@@ -5,9 +5,10 @@ import {
   makeDeposit,
   mintSelfNote,
   evenYEphemeral,
+  newSeededTree,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import { toFr, addressToFr, LeanIMT } from "@hisoka/wallets";
+import { toFr, addressToFr, packParents } from "@hisoka/wallets";
 import { proveWithdraw, WithdrawInputs } from "@hisoka/prover";
 
 describe("Adversarial: Concurrent Operations", function () {
@@ -24,9 +25,10 @@ describe("Adversarial: Concurrent Operations", function () {
     ]);
 
     const nextIdx = await darkPool.getNextLeafIndex();
-    expect(nextIdx).to.equal(3n);
+    // genesis leaf at index 0 + three deposits.
+    expect(nextIdx).to.equal(4n);
 
-    const tree = new LeanIMT(32);
+    const tree = await newSeededTree();
     await tree.insert(depA.commitment);
     await tree.insert(depB.commitment);
     await tree.insert(depC.commitment);
@@ -40,7 +42,7 @@ describe("Adversarial: Concurrent Operations", function () {
     const { darkPool, token, alice, bob } = ctx;
 
     const dep = await makeDeposit(darkPool, token, alice, 100n);
-    const tree = new LeanIMT(32);
+    const tree = await newSeededTree();
     await tree.insert(dep.commitment);
 
     const assetFr = addressToFr(await token.getAddress());
@@ -49,18 +51,18 @@ describe("Adversarial: Concurrent Operations", function () {
       50n,
       dep.spendScalar,
       assetFr,
+      packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
     );
 
     const wdw: WithdrawInputs = {
       withdrawValue: toFr(50n),
       recipient: addressToFr(bob.address),
-      currentTimestamp: Math.floor(Date.now() / 1000),
       intentHash: toFr(0n),
       compliancePk: COMPLIANCE_PK,
       oldNote: dep.built.note,
       spendScalar: dep.spendScalar,
-      oldNoteIndex: 0,
-      oldNotePath: Array(32).fill(toFr(0n)),
+      oldNoteIndex: 1,
+      oldNotePath: tree.getMerklePath(1),
       changeNote: change.note,
       changeEph: change.eph,
     };
@@ -69,8 +71,8 @@ describe("Adversarial: Concurrent Operations", function () {
 
     await makeDeposit(darkPool, token, bob, 200n);
     const nextIdx = await darkPool.getNextLeafIndex();
-    // 1 original + 1 change note + 1 Bob deposit = 3
-    expect(nextIdx).to.equal(3n);
+    // genesis + 1 original + 1 change note + 1 Bob deposit = 4
+    expect(nextIdx).to.equal(4n);
 
     await expect(
       darkPool.withdraw(proof.proof, proof.publicInputs),
@@ -86,6 +88,7 @@ describe("Adversarial: Concurrent Operations", function () {
     }
 
     const nextIdx = await darkPool.getNextLeafIndex();
-    expect(nextIdx).to.equal(10n);
+    // genesis leaf at index 0 + ten deposits.
+    expect(nextIdx).to.equal(11n);
   });
 });

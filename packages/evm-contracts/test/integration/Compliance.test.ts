@@ -7,6 +7,7 @@ import {
   mintIncomingNote,
   evenYEphemeral,
   subgroupScalar,
+  newSeededTree,
   COMPLIANCE_SK,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
@@ -14,6 +15,7 @@ import {
   Fr,
   toFr,
   addressToFr,
+  packParents,
   publicKey,
   deriveCek,
   demDecrypt,
@@ -100,32 +102,36 @@ describe("Integration: Compliance God View", function () {
     const assetFr = addressToFr(await token.getAddress());
 
     const dep = await makeDeposit(darkPool, token, alice, 100n);
+    const tree = await newSeededTree();
+    await tree.insert(dep.commitment); // index 1
 
     const bobInKey = evenYEphemeral(555n);
     const bobInPub = publicKey(bobInKey);
 
+    const parents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
     const memo = await mintIncomingNote(
       subgroupScalar(12n),
       40n,
       bobInPub,
       bobInKey,
       assetFr,
+      parents,
     );
     const change = await mintSelfNote(
       evenYEphemeral(34n),
       60n,
       dep.spendScalar,
       assetFr,
+      parents,
     );
 
     const transferInputs: TransferInputs = {
-      currentTimestamp: Math.floor(Date.now() / 1000),
       compliancePk: COMPLIANCE_PK,
       recipientInPub: bobInPub,
       oldNote: dep.built.note,
       spendScalar: dep.spendScalar,
-      oldNoteIndex: 0,
-      oldNotePath: Array(32).fill(toFr(0n)),
+      oldNoteIndex: 1,
+      oldNotePath: tree.getMerklePath(1),
       memoNote: memo.note,
       memoEph: memo.eph,
       changeNote: change.note,

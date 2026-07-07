@@ -7,6 +7,9 @@
  * state sits in ERC-7201 namespaces, so namespace-INTERNAL layout compatibility is enforced by
  * `validate:upgrades` (validateUpgrade -> assertStorageUpgradeSafe against DarkPoolV1), not here.
  *
+ * The DarkPool/NoxRegistry/NoxRewardPool snapshots are EMPTY-BY-DESIGN (all state is namespaced); the empty
+ * file is a tripwire against adding a bare sequential variable, not proof no storage was checked.
+ *
  * To update the snapshot INTENTIONALLY (after an approved append-only layout change):
  *   pnpm storage:snapshot   # regenerate, then commit the .storage-layout/ diff
  *

@@ -16,6 +16,7 @@
     "clean": "rm -rf dist src/generated *.tsbuildinfo",
     "build": "node ./scripts/compile_circuit.js && node ./scripts/generate_verifier.js && tsup",
     "test": "vitest run",
+    "benchmark": "node ./scripts/benchmark.mjs",
     "lint": "eslint 'src/**/*.ts'",
     "gen-verifier": "node ./scripts/generate_verifier.js",
     "lint:fix": "eslint 'src/**/*.ts' --fix"

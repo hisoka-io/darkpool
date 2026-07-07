@@ -6,6 +6,7 @@ import {
   makeDeposit,
   mintSelfNote,
   evenYEphemeral,
+  newSeededTree,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
 import {
@@ -17,7 +18,6 @@ import {
   pubkeyOwner,
   publicKey,
   packParents,
-  LeanIMT,
 } from "@hisoka/wallets";
 import { proveDeposit, proveWithdraw, NoteInput } from "@hisoka/prover";
 
@@ -95,54 +95,51 @@ describe("Integration: Note-type invariants (STANDARD notes)", function () {
     const assetFr = addressToFr(await token.getAddress());
 
     const dep = await makeDeposit(darkPool, token, alice, 100n);
-    const tree = new LeanIMT(32);
-    await tree.insert(dep.commitment);
+    const tree = await newSeededTree();
+    await tree.insert(dep.commitment); // index 1
 
-    // Withdraw 0: spend the deposit into a fresh self change note (index 1).
+    // Withdraw 0: spend the deposit into a fresh self change note (lands at index 2).
     const reNote = await mintSelfNote(
       evenYEphemeral(999n),
       100n,
       dep.spendScalar,
       assetFr,
+      packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
     );
     const lockProof = await proveWithdraw({
       withdrawValue: toFr(0n),
       recipient: addressToFr(alice.address),
-      currentTimestamp: Math.floor(Date.now() / 1000),
       intentHash: toFr(0n),
       compliancePk: COMPLIANCE_PK,
       oldNote: dep.built.note,
       spendScalar: dep.spendScalar,
-      oldNoteIndex: 0,
-      oldNotePath: Array(32).fill(toFr(0n)),
+      oldNoteIndex: 1,
+      oldNotePath: tree.getMerklePath(1),
       changeNote: reNote.note,
       changeEph: reNote.eph,
     });
     await darkPool
       .connect(alice)
       .withdraw(lockProof.proof, lockProof.publicInputs);
-    await tree.insert(reNote.commitment);
+    await tree.insert(reNote.commitment); // index 2
 
-    // Spend the re-noted note (index 1) fully to Alice.
-    const spendPath = Array(32).fill(toFr(0n));
-    spendPath[0] = dep.commitment;
+    // Spend the re-noted note (index 2) fully to Alice.
     const change = await mintSelfNote(
       evenYEphemeral(1234n),
       0n,
       dep.spendScalar,
       assetFr,
-      packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
+      packParents([{ leafIndex: 2 }, { leafIndex: 0 }]),
     );
     const spendProof = await proveWithdraw({
       withdrawValue: toFr(100n),
       recipient: addressToFr(alice.address),
-      currentTimestamp: Math.floor(Date.now() / 1000),
       intentHash: toFr(0n),
       compliancePk: COMPLIANCE_PK,
       oldNote: reNote.note,
       spendScalar: dep.spendScalar,
-      oldNoteIndex: 1,
-      oldNotePath: spendPath,
+      oldNoteIndex: 2,
+      oldNotePath: tree.getMerklePath(2),
       changeNote: change.note,
       changeEph: change.eph,
     });
