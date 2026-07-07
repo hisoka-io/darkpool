@@ -6,9 +6,10 @@ import {
   makeDeposit,
   mintSelfNote,
   evenYEphemeral,
+  newSeededTree,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import { toFr, addressToFr, Fr } from "@hisoka/wallets";
+import { toFr, addressToFr, packParents, Fr } from "@hisoka/wallets";
 import { proveWithdraw, WithdrawInputs } from "@hisoka/prover";
 import {
   buildBundle,
@@ -38,8 +39,9 @@ async function deployExecutorFixture() {
   return { ...base, executor, mockTarget };
 }
 
-/** Deposit `depositAmount` for alice (single-leaf tree at index 0) and prove a withdraw of `withdrawAmount`
- * to the executor, bound to `intentHash`. The change (`depositAmount - withdrawAmount`) re-shields to alice. */
+/** Deposit `depositAmount` for alice (genesis-seeded tree, note at index 1) and prove a withdraw of
+ * `withdrawAmount` to the executor, bound to `intentHash`. The change (`depositAmount - withdrawAmount`)
+ * re-shields to alice. */
 async function proveWithdrawToExecutor(
   ctx: Awaited<ReturnType<typeof deployExecutorFixture>>,
   depositAmount: bigint,
@@ -48,6 +50,8 @@ async function proveWithdrawToExecutor(
 ) {
   const { darkPool, alice, token, executor } = ctx;
   const dep = await makeDeposit(darkPool, token, alice, depositAmount);
+  const tree = await newSeededTree();
+  await tree.insert(dep.commitment);
   const assetFr = addressToFr(await token.getAddress());
   const changeEph = evenYEphemeral(4242n);
   const change = await mintSelfNote(
@@ -55,22 +59,22 @@ async function proveWithdrawToExecutor(
     depositAmount - withdrawAmount,
     dep.spendScalar,
     assetFr,
+    packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
   );
   const inputs: WithdrawInputs = {
     withdrawValue: toFr(withdrawAmount),
     recipient: addressToFr(await executor.getAddress()),
-    currentTimestamp: await time.latest(),
     intentHash,
     compliancePk: COMPLIANCE_PK,
     oldNote: dep.built.note,
     spendScalar: dep.spendScalar,
-    oldNoteIndex: 0,
-    oldNotePath: Array(32).fill(toFr(0n)),
+    oldNoteIndex: 1,
+    oldNotePath: tree.getMerklePath(1),
     changeNote: change.note,
     changeEph,
   };
   const proof = await proveWithdraw(inputs);
-  return { proof, nullifier: proof.publicInputs[6] };
+  return { proof, nullifier: proof.publicInputs[5] };
 }
 
 describe("Integration: BundleExecutor", function () {
@@ -322,7 +326,7 @@ describe("Integration: BundleExecutor", function () {
   it("expired deadline reverts before any withdraw", async function () {
     const { executor } = await loadFixture(deployExecutorFixture);
     const deadline = BigInt((await time.latest()) - 3600);
-    const dummyInputs = Array(19).fill(ethers.ZeroHash);
+    const dummyInputs = Array(18).fill(ethers.ZeroHash);
 
     await expect(
       executor.execute("0x", dummyInputs, [], deadline, []),

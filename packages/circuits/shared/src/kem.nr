@@ -16,6 +16,7 @@ pub fn wrap_cek(cek: Field, eph: Field, in_pub: Point) -> Field {
     cek + Poseidon2::hash([pad], 1)
 }
 
+// KAT-only inverse; no in-circuit caller (circuits only wrap_cek).
 // ECDH symmetry: (in_key*eph_pub).x == (eph*in_pub).x, so the recipient recovers wrap_cek's pad from
 // in_key + on-chain eph_pub without eph.
 pub fn unwrap_cek(cek_wrap: Field, in_key: Field, eph_pub: Point) -> Field {

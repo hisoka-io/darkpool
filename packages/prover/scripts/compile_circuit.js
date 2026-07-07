@@ -8,19 +8,13 @@ import {
 } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { CIRCUITS } from "./circuits.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const NARGO_PATH = execSync("which nargo", { encoding: "utf8" }).trim();
 
-const circuits = [
-  "deposit",
-  "withdraw",
-  "transfer",
-  "join",
-  "split",
-  "public_claim",
-];
+const circuits = CIRCUITS.map((c) => c.name);
 const circuitsDir = resolve(__dirname, "../../circuits");
 const proverDir = resolve(__dirname, "..");
 const generatedDir = resolve(proverDir, "src/generated");

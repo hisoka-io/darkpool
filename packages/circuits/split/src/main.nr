@@ -1,10 +1,10 @@
 use ::ecdh::Point;
 use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
 use ::shared::note::{assert_parents_bound, Note};
+use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, fixture_note};
 
 // Spend one note into two self notes. Internal consolidation: no value leaves the pool, no asset output.
 fn main(
-    current_timestamp: pub Field,
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
     note_in: Note,
@@ -16,7 +16,6 @@ fn main(
     note_out_2: Note,
     eph_2: Field,
 ) -> pub (Field, Field, Field, Field, Field, [Field; 7], Field, Field, Field, [Field; 7]) {
-    let _ = current_timestamp;
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
 
@@ -39,16 +38,7 @@ fn main(
 }
 
 fn note_in() -> Note {
-    Note {
-        note_version: 1,
-        asset_id: 0x1234567890123456789012345678901234567890,
-        note_type: 0,
-        conditions_hash: 0,
-        value: 100,
-        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
-        psi: 0x0981a88f9e119b057498a4ab99ed5379a1ea91c642454fc0c07aacc1f5cd5731,
-        parents: 0,
-    }
+    fixture_note()
 }
 
 fn out_note(value: u128, psi: Field) -> Note {
@@ -64,8 +54,8 @@ fn out_note(value: u128, psi: Field) -> Note {
     }
 }
 
-global CX: Field = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-global CY: Field = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+global CX: Field = FIXTURE_COMPLIANCE_X;
+global CY: Field = FIXTURE_COMPLIANCE_Y;
 
 // KAT: byte-identical to the TS/Solidity golden vector (eph 15, 20).
 #[test]
@@ -79,7 +69,6 @@ fn test_split_kat() {
         0x1fc1420fa8dd294ee9feaa5067000d40945bdc796e47ce5dfbfa4cbb4210ef8d,
     );
     let (nf, root, l1, x1, y1, ct1, l2, x2, y2, ct2) = main(
-        0,
         CX,
         CY,
         note_in(),
@@ -114,7 +103,6 @@ fn audit_reject_value_inflation() {
         0x1fc1420fa8dd294ee9feaa5067000d40945bdc796e47ce5dfbfa4cbb4210ef8d,
     );
     let _ = main(
-        0,
         CX,
         CY,
         note_in(),
@@ -148,7 +136,6 @@ fn audit_reject_forged_out_parents() {
     let mut out1 = out1_valid();
     out1.parents = 0x100000000;
     let _ = main(
-        0,
         CX,
         CY,
         note_in(),
@@ -167,7 +154,6 @@ fn audit_reject_out_asset_mismatch() {
     let mut out1 = out1_valid();
     out1.asset_id = 0x00000000000000000000000000000000000000ff;
     let _ = main(
-        0,
         CX,
         CY,
         note_in(),
@@ -185,7 +171,6 @@ fn audit_reject_out_asset_mismatch() {
 #[test(should_fail_with = "ephemerals must be distinct")]
 fn audit_reject_reused_ephemeral() {
     let _ = main(
-        0,
         CX,
         CY,
         note_in(),
@@ -206,7 +191,6 @@ fn audit_reject_non_membership() {
     let mut path = [0; TREE_DEPTH];
     path[0] = 0x0abc;
     let (_, root, _, _, _, _, _, _, _, _) = main(
-        0,
         CX,
         CY,
         note_in(),

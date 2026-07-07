@@ -1,9 +1,12 @@
 use ::ecdh::Point;
 use ::shared::mint;
 use ::shared::note::Note;
+use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, fixture_note};
 
-// Deposit is a pure self-mint: value and asset are public (the contract moves the ERC20 in the clear), the
-// leaf commits the plaintext note, and eph_pub.x is the self discovery tag.
+// Deposit is a pure self-mint funding either a STANDARD or a MULTISIG account (note_type is a witness in the
+// note, validated to the enabled set at mint). Value and asset are public (the contract moves the ERC20 in
+// the clear), the leaf commits the plaintext note, and eph_pub.x is the self discovery tag. Anyone may fund
+// any account; a malformed owner only self-harms the depositor.
 fn main(
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
@@ -15,7 +18,7 @@ fn main(
 
     assert(note.parents == 0, "deposit output parents must be zero");
 
-    let minted = mint::mint_self_note(note, eph, compliance_pk);
+    let minted = mint::mint_deposit(note, eph, compliance_pk);
 
     (
         minted.leaf, minted.eph_pub.x, minted.eph_pub.y, note.value as Field, note.asset_id,
@@ -23,25 +26,12 @@ fn main(
     )
 }
 
-fn fixture_note() -> Note {
-    Note {
-        note_version: 1,
-        asset_id: 0x1234567890123456789012345678901234567890,
-        note_type: 0,
-        conditions_hash: 0,
-        value: 100,
-        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
-        psi: 0x0981a88f9e119b057498a4ab99ed5379a1ea91c642454fc0c07aacc1f5cd5731,
-        parents: 0,
-    }
-}
-
 // KAT: byte-identical to the TS/Solidity golden vector (sandbox gen_v2_fixtures, eph=5).
 #[test]
 fn test_deposit_kat() {
     let (leaf, epk_x, epk_y, value, asset, ct) = main(
-        0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111,
-        0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8,
+        FIXTURE_COMPLIANCE_X,
+        FIXTURE_COMPLIANCE_Y,
         fixture_note(),
         5,
     );
@@ -58,34 +48,19 @@ fn test_deposit_kat() {
 fn audit_reject_zero_owner() {
     let mut note = fixture_note();
     note.owner = 0;
-    let _ = main(
-        0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111,
-        0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8,
-        note,
-        5,
-    );
+    let _ = main(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note, 5);
 }
 
 #[test(should_fail_with = "deposit output parents must be zero")]
 fn audit_reject_nonzero_parents() {
     let mut note = fixture_note();
     note.parents = 0x1;
-    let _ = main(
-        0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111,
-        0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8,
-        note,
-        5,
-    );
+    let _ = main(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note, 5);
 }
 
 #[test(should_fail_with = "psi not bound to CEK")]
 fn audit_reject_unbound_psi() {
     let mut note = fixture_note();
     note.psi = note.psi + 1;
-    let _ = main(
-        0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111,
-        0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8,
-        note,
-        5,
-    );
+    let _ = main(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note, 5);
 }

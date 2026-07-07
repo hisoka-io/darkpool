@@ -6,6 +6,7 @@ import {
   mintSelfNote,
   evenYEphemeral,
   userSpendScalar,
+  newSeededTree,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
 import {
@@ -19,7 +20,6 @@ import {
   publicKey,
   pubkeyOwner,
   Note,
-  LeanIMT,
 } from "@hisoka/wallets";
 import {
   proveDeposit,
@@ -30,7 +30,6 @@ import {
 import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
 
 const CIRCUIT_WITHDRAW = 1;
-const ROOT_INDEX_ZERO_PATH = () => Array(32).fill(toFr(0n)) as Fr[];
 
 /** Build a self note whose psi wraps to an ARBITRARY compliance key (the fixtures helper hardcodes the
  * deployment key; rotation tests need notes under a rotated key). Mirrors fixtures.finishNote. */
@@ -77,6 +76,8 @@ describe("Verifier backward-compat + compliance rotation (VR-2, ZK-5)", function
       const assetFr = addressToFr(await token.getAddress());
 
       const dep = await makeDeposit(darkPool, token, alice, 100n);
+      const tree = await newSeededTree();
+      await tree.insert(dep.commitment); // index 1
 
       const oldVerifier = await darkPool.verifier(CIRCUIT_WITHDRAW);
       const fresh = await (
@@ -97,18 +98,17 @@ describe("Verifier backward-compat + compliance rotation (VR-2, ZK-5)", function
         60n,
         dep.spendScalar,
         assetFr,
-        packParents([{ leafIndex: 0 }, { leafIndex: 0 }]),
+        packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
       );
       const inputs: WithdrawInputs = {
         withdrawValue: toFr(40n),
         recipient: addressToFr(alice.address),
-        currentTimestamp: Math.floor(Date.now() / 1000),
         intentHash: toFr(0n),
         compliancePk: COMPLIANCE_PK,
         oldNote: dep.built.note,
         spendScalar: dep.spendScalar,
-        oldNoteIndex: 0,
-        oldNotePath: ROOT_INDEX_ZERO_PATH(),
+        oldNoteIndex: 1,
+        oldNotePath: tree.getMerklePath(1),
         changeNote: change.note,
         changeEph,
       };
@@ -116,7 +116,7 @@ describe("Verifier backward-compat + compliance rotation (VR-2, ZK-5)", function
 
       // The redeployed verifier (identical VK) accepts the pre-existing note: it spends.
       await darkPool.connect(alice).withdraw(proof.proof, proof.publicInputs);
-      expect(await darkPool.isNullifierSpent(proof.publicInputs[6])).to.equal(
+      expect(await darkPool.isNullifierSpent(proof.publicInputs[5])).to.equal(
         true,
       );
     });
@@ -134,8 +134,8 @@ describe("Verifier backward-compat + compliance rotation (VR-2, ZK-5)", function
 
       // Note minted under the OLD key, before rotation.
       const depOld = await makeDeposit(darkPool, token, alice, 100n);
-      const tree = new LeanIMT(32);
-      await tree.insert(depOld.commitment); // leaf 0
+      const tree = await newSeededTree();
+      await tree.insert(depOld.commitment); // leaf 1
 
       await darkPool.rotateComplianceKey(NEW_PK[0], NEW_PK[1]);
 
@@ -173,27 +173,26 @@ describe("Verifier backward-compat + compliance rotation (VR-2, ZK-5)", function
         depOld.spendScalar,
         assetFr,
         NEW_PK,
-        packParents([{ leafIndex: 0 }, { leafIndex: 0 }]),
+        packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
       );
       const wInputs: WithdrawInputs = {
         withdrawValue: toFr(40n),
         recipient: addressToFr(alice.address),
-        currentTimestamp: Math.floor(Date.now() / 1000),
         intentHash: toFr(0n),
         compliancePk: NEW_PK,
         oldNote: depOld.built.note,
         spendScalar: depOld.spendScalar,
-        oldNoteIndex: 0,
-        oldNotePath: ROOT_INDEX_ZERO_PATH(),
+        oldNoteIndex: 1,
+        oldNotePath: tree.getMerklePath(1),
         changeNote: change.note,
         changeEph,
       };
       const wProof = await proveWithdraw(wInputs);
       await darkPool.connect(alice).withdraw(wProof.proof, wProof.publicInputs);
-      expect(await darkPool.isNullifierSpent(wProof.publicInputs[6])).to.equal(
+      expect(await darkPool.isNullifierSpent(wProof.publicInputs[5])).to.equal(
         true,
       );
-      await tree.insert(change.commitment); // leaf 1
+      await tree.insert(change.commitment); // leaf 2
 
       // (b) a fresh proof pinning the NEW key is accepted.
       const newEph = evenYEphemeral(4004n);

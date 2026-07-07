@@ -2,6 +2,7 @@ use ::ecdh::{bjj::BJJ, ECDHTrait, Point};
 use ::poseidon::poseidon2::Poseidon2;
 use ::shared::{assert_subgroup_scalar, mint};
 use ::shared::note::Note;
+use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y};
 
 // Claim a public memo into a shielded self note. The claimer proves the memo's owner key and mints note_out
 // to an owner of their choice (inside the encrypted note). The note owner is not a public value, so the
@@ -57,8 +58,8 @@ fn note_out() -> Note {
     }
 }
 
-global CX: Field = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-global CY: Field = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+global CX: Field = FIXTURE_COMPLIANCE_X;
+global CY: Field = FIXTURE_COMPLIANCE_Y;
 
 // KAT: byte-identical to the TS/Solidity golden vector (recipient_sk 0x3039, memo of 6 fields, eph 31).
 #[test]

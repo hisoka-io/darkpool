@@ -86,13 +86,13 @@ contract UniswapAdaptor is ReentrancyGuard {
         address proofRecipient = address(uint160(uint256(publicInputs[1])));
         if (proofRecipient != address(this)) revert InvalidProofRecipient();
 
-        // Bind swap to proof: overwrite withdraw intent_hash (index 3); a tampered swap fails verification.
-        publicInputs[3] = intentHash;
+        // Bind swap to proof: overwrite withdraw intent_hash (index 2); a tampered swap fails verification.
+        publicInputs[2] = intentHash;
 
         IDarkPool(DARK_POOL).withdraw(proof, publicInputs);
 
         uint256 withdrawnAmount = uint256(publicInputs[0]);
-        address withdrawnAsset = address(uint160(uint256(publicInputs[8])));
+        address withdrawnAsset = address(uint160(uint256(publicInputs[7])));
         uint256 balPreSwap = IERC20(withdrawnAsset).balanceOf(address(this));
 
         address outAsset;

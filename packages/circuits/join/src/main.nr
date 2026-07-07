@@ -1,11 +1,11 @@
 use ::ecdh::Point;
 use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
 use ::shared::note::{assert_parents_bound, Note};
+use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y};
 
 // Spend two notes (a spend scalar each) into one self note. Both inputs must share a root and yield
 // distinct nullifiers (no self-join). Internal consolidation: no value leaves the pool, no asset output.
 fn main(
-    current_timestamp: pub Field,
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
     note_a: Note,
@@ -19,7 +19,6 @@ fn main(
     note_out: Note,
     eph_out: Field,
 ) -> pub (Field, Field, Field, Field, Field, Field, [Field; 7]) {
-    let _ = current_timestamp;
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
 
@@ -54,8 +53,8 @@ fn note(value: u128, psi: Field) -> Note {
     }
 }
 
-global CX: Field = 0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
-global CY: Field = 0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8;
+global CX: Field = FIXTURE_COMPLIANCE_X;
+global CY: Field = FIXTURE_COMPLIANCE_Y;
 global LEAF_A: Field = 0x1a6b6e47769e1f5de94e5ce9f3094b49cc9967d5ba3ef90df6af6598ca26d41b;
 global LEAF_B: Field = 0x2065744fd5ee65c5747ac8277513f27eadda10f02f9b5bb58d28131ec808b102;
 
@@ -81,7 +80,6 @@ fn test_join_kat() {
     path_b[0] = LEAF_A;
 
     let (nf_a, nf_b, root, leaf, epk_x, epk_y, ct) = main(
-        0,
         CX,
         CY,
         note_a,
@@ -125,7 +123,6 @@ fn audit_reject_forged_output_parents() {
     let mut path_b = [0; TREE_DEPTH];
     path_b[0] = LEAF_A;
     let _ = main(
-        0,
         CX,
         CY,
         note_a,
@@ -160,7 +157,6 @@ fn audit_reject_value_inflation() {
     let mut path_b = [0; TREE_DEPTH];
     path_b[0] = LEAF_A;
     let _ = main(
-        0,
         CX,
         CY,
         note_a,
@@ -190,7 +186,6 @@ fn audit_reject_self_join() {
     let mut path_a = [0; TREE_DEPTH];
     path_a[0] = LEAF_B;
     let _ = main(
-        0,
         CX,
         CY,
         note_a,
@@ -229,7 +224,6 @@ fn audit_reject_unordered_inputs() {
     let mut path_a_at_0 = [0; TREE_DEPTH];
     path_a_at_0[0] = LEAF_B;
     let _ = main(
-        0,
         CX,
         CY,
         note_b,
@@ -266,7 +260,6 @@ fn audit_reject_root_mismatch() {
     let mut path_b = [0; TREE_DEPTH];
     path_b[0] = 0x0abc;
     let _ = main(
-        0,
         CX,
         CY,
         note_a,

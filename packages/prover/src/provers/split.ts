@@ -6,7 +6,6 @@ import { marshalNote, pointHex } from "../marshal.js";
 export async function proveSplit(inputs: SplitInputs): Promise<ProofData> {
   const c = pointHex(inputs.compliancePk);
   return generateProof("split", circuit, {
-    current_timestamp: inputs.currentTimestamp.toString(),
     compliance_pubkey_x: c.x,
     compliance_pubkey_y: c.y,
     note_in: marshalNote("split", inputs.noteIn),

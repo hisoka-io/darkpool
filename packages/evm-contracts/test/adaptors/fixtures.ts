@@ -1,12 +1,13 @@
 import { ethers, upgrades } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
-import { toFr, addressToFr, LeanIMT, Fr } from "@hisoka/wallets";
+import { toFr, addressToFr, packParents, LeanIMT, Fr } from "@hisoka/wallets";
 import { proveDeposit, proveWithdraw, WithdrawInputs } from "@hisoka/prover";
 import {
   mintSelfNote,
   evenYEphemeral,
   userSpendScalar,
+  newSeededTree,
   BuiltNote,
   COMPLIANCE_PK as HELPER_COMPLIANCE_PK,
 } from "../helpers/fixtures";
@@ -82,7 +83,8 @@ export const COMPLIANCE_PK: Point<bigint> = mulPointEscalar(
   COMPLIANCE_SK,
 );
 
-/** Deposit a spendable WETH self note for `alice` and return it plus a single-leaf tree at index 0. */
+/** Deposit a spendable WETH self note for `alice` and return it plus a genesis-seeded tree with the note at
+ * index 1 (mirroring the contract's reserved index-0 genesis leaf). */
 export async function setupAdaptorNote(
   data: { darkPool: DarkPool; weth: IERC20; alice: { address: string } },
   amountEth: string = "10",
@@ -117,14 +119,15 @@ export async function setupAdaptorNote(
     .connect(data.alice as never)
     .deposit(proof.proof, proof.publicInputs);
 
-  const tree = new LeanIMT(32);
-  await tree.insert(built.commitment);
+  const { chainId } = await ethers.provider.getNetwork();
+  const tree = await newSeededTree(chainId);
+  await tree.insert(built.commitment); // index 1
 
   return { built, tree, amount, spendScalar };
 }
 
-/** Build a v2 withdraw proof that spends `built` (index 0, single-leaf tree) fully to `recipient`, bound to
- * `intentHash`. Returns the raw proof plus the hex-encoded forms the adaptor entrypoint expects. */
+/** Build a withdraw proof that spends `built` (index 1 in the genesis-seeded tree) fully to `recipient`,
+ * bound to `intentHash`. Returns the raw proof plus the hex-encoded forms the adaptor entrypoint expects. */
 export async function buildAdaptorWithdraw(args: {
   built: BuiltNote;
   spendScalar: Fr;
@@ -138,17 +141,17 @@ export async function buildAdaptorWithdraw(args: {
     0n,
     args.spendScalar,
     addressToFr(WETH_ADDRESS),
+    packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
   );
   const inputs: WithdrawInputs = {
     withdrawValue: toFr(args.amount),
     recipient: addressToFr(args.recipient),
-    currentTimestamp: Math.floor(Date.now() / 1000),
     intentHash: args.intentHash,
     compliancePk: HELPER_COMPLIANCE_PK,
     oldNote: args.built.note,
     spendScalar: args.spendScalar,
-    oldNoteIndex: 0,
-    oldNotePath: Array(32).fill(toFr(0n)),
+    oldNoteIndex: 1,
+    oldNotePath: args.tree.getMerklePath(1),
     changeNote: change.note,
     changeEph: change.eph,
   };
@@ -218,6 +221,18 @@ export async function deployUniswapFixture() {
   const PublicClaimVerifier = await (
     await getVerifierFactory("contracts/verifiers/PublicClaimVerifier.sol")
   ).deploy(GAS_OVERRIDES);
+  const WdwMultisigVerifier = await (
+    await getVerifierFactory("contracts/verifiers/WithdrawMultisigVerifier.sol")
+  ).deploy(GAS_OVERRIDES);
+  const TrfMultisigVerifier = await (
+    await getVerifierFactory("contracts/verifiers/TransferMultisigVerifier.sol")
+  ).deploy(GAS_OVERRIDES);
+  const SplitMultisigVerifier = await (
+    await getVerifierFactory("contracts/verifiers/SplitMultisigVerifier.sol")
+  ).deploy(GAS_OVERRIDES);
+  const JoinMultisigVerifier = await (
+    await getVerifierFactory("contracts/verifiers/JoinMultisigVerifier.sol")
+  ).deploy(GAS_OVERRIDES);
 
   const MockRegistryFactory =
     await ethers.getContractFactory("MockNoxRegistry");
@@ -257,7 +272,10 @@ export async function deployUniswapFixture() {
         await JoinVerifier.getAddress(),
         await SplitVerifier.getAddress(),
         await PublicClaimVerifier.getAddress(),
-        await rewardPool.getAddress(),
+        await WdwMultisigVerifier.getAddress(),
+        await TrfMultisigVerifier.getAddress(),
+        await SplitMultisigVerifier.getAddress(),
+        await JoinMultisigVerifier.getAddress(),
         COMPLIANCE_PK[0],
         COMPLIANCE_PK[1],
         0,

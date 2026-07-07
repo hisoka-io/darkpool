@@ -6,7 +6,6 @@ import { marshalNote, pointHex } from "../marshal.js";
 export async function proveJoin(inputs: JoinInputs): Promise<ProofData> {
   const c = pointHex(inputs.compliancePk);
   return generateProof("join", circuit, {
-    current_timestamp: inputs.currentTimestamp.toString(),
     compliance_pubkey_x: c.x,
     compliance_pubkey_y: c.y,
     note_a: marshalNote("join", inputs.noteA),

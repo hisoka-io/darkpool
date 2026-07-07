@@ -9,8 +9,10 @@ mod even_y;
 mod owner;
 pub mod mint;
 pub mod conservation;
+pub mod frost;
+pub mod test_fixtures;
 use poseidon::poseidon2::Poseidon2;
-pub use spend::verify_spend;
+pub use spend::{open_multisig_note, verify_spend};
 
 pub global TREE_DEPTH: u32 = 32;
 

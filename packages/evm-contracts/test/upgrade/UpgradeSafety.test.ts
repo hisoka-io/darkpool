@@ -41,10 +41,9 @@ async function deployDistinctRoles() {
   })) as unknown as DarkPool__factory;
 
   const verifierAddrs = Array.from(
-    { length: 6 },
+    { length: 10 },
     () => ethers.Wallet.createRandom().address,
   );
-  const rewardPoolAddr = ethers.Wallet.createRandom().address;
   const params: DarkPool.InitParamsStruct = {
     depositVerifier: verifierAddrs[0],
     withdrawVerifier: verifierAddrs[1],
@@ -52,7 +51,10 @@ async function deployDistinctRoles() {
     joinVerifier: verifierAddrs[3],
     splitVerifier: verifierAddrs[4],
     publicClaimVerifier: verifierAddrs[5],
-    rewardPool: rewardPoolAddr,
+    withdrawMultisigVerifier: verifierAddrs[6],
+    transferMultisigVerifier: verifierAddrs[7],
+    splitMultisigVerifier: verifierAddrs[8],
+    joinMultisigVerifier: verifierAddrs[9],
     compliancePkX: BASE8_X,
     compliancePkY: BASE8_Y,
     initialAdminDelay: 0, // admin holds DEFAULT_ADMIN immediately

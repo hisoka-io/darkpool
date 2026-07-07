@@ -1,0 +1,39 @@
+chain_id = ""
+change_eph = ""
+compliance_pubkey_x = ""
+compliance_pubkey_y = ""
+current_timestamp = ""
+frost_z = ""
+intent_hash = ""
+old_note_index = ""
+old_note_path = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+recipient = ""
+withdraw_value = ""
+
+[change_note]
+asset_id = ""
+conditions_hash = ""
+note_type = ""
+note_version = ""
+owner = ""
+parents = ""
+psi = ""
+value = ""
+
+[frost_r]
+x = ""
+y = ""
+
+[gpk]
+x = ""
+y = ""
+
+[old_note]
+asset_id = ""
+conditions_hash = ""
+note_type = ""
+note_version = ""
+owner = ""
+parents = ""
+psi = ""
+value = ""

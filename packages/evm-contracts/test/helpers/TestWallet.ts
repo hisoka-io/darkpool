@@ -24,6 +24,8 @@ import {
 import { Point } from "@zk-kit/baby-jubjub";
 import {
   COMPLIANCE_PK,
+  HARDHAT_CHAIN_ID,
+  newSeededTree,
   mintSelfNote,
   mintIncomingNote,
   noteToInput,
@@ -71,7 +73,11 @@ export class TestWallet {
     const signature = await signer.signMessage("Hisoka Test Login");
     wallet.account = await DarkAccount.fromSignature(signature);
 
-    wallet.tree = new LeanIMT(32);
+    const provider = signer.provider;
+    const chainId = provider
+      ? (await provider.getNetwork()).chainId
+      : HARDHAT_CHAIN_ID;
+    wallet.tree = await newSeededTree(chainId);
     wallet.keyRepo = new KeyRepository(wallet.account);
     wallet.utxoRepo = new UtxoRepository();
     wallet.fromBlock = fromBlock ?? 0;
@@ -181,7 +187,6 @@ export class TestWallet {
     const inputs: WithdrawInputs = {
       withdrawValue: toFr(amount),
       recipient: addressToFr(recipient),
-      currentTimestamp: Math.floor(Date.now() / 1000),
       intentHash,
       compliancePk: COMPLIANCE_PK,
       oldNote: noteToInput(input.note),
@@ -237,7 +242,6 @@ export class TestWallet {
     );
 
     const inputs: TransferInputs = {
-      currentTimestamp: Math.floor(Date.now() / 1000),
       compliancePk: COMPLIANCE_PK,
       recipientInPub,
       oldNote: noteToInput(input.note),

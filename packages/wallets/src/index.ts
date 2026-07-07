@@ -17,3 +17,7 @@ export * from "./note/keys.js";
 export * from "./sync/types.js";
 export * from "./sync/ScanEngine.js";
 export * from "./sync/NoteProcessor.js";
+
+// The FROST-multisig signer + threshold-compliance/committee tooling ship as SEPARATE entry points
+// (`@hisoka/wallets/frost`, `@hisoka/wallets/threshold`) so a base UTXO-wallet consumer never downloads the
+// ~1.4k LOC of BN254/FROST/committee-deanonymization surface. They are intentionally NOT re-exported here.

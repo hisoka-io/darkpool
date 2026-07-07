@@ -1,5 +1,5 @@
 import { ethers, upgrades } from "hardhat";
-import { ContractRunner } from "ethers";
+import { ContractRunner, keccak256, toUtf8Bytes } from "ethers";
 import {
   DarkPool,
   MockERC20,
@@ -10,6 +10,7 @@ import { proveDeposit, NoteInput } from "@hisoka/prover";
 import {
   Fr,
   toFr,
+  toReducedFr,
   addressToFr,
   Kdf,
   toBjjScalar,
@@ -21,6 +22,8 @@ import {
   pubkeyOwner,
   publicKey,
   isEvenY,
+  LeanIMT,
+  Poseidon,
 } from "@hisoka/wallets";
 import { Base8, mulPointEscalar, Point, subOrder } from "@zk-kit/baby-jubjub";
 
@@ -29,6 +32,28 @@ export const COMPLIANCE_PK: Point<bigint> = mulPointEscalar(
   Base8,
   COMPLIANCE_SK,
 );
+
+// Hardhat's in-process network chain id; the DarkPool binds its tree genesis leaf to block.chainid.
+export const HARDHAT_CHAIN_ID = 31337n;
+
+/** Byte-identical to DarkPool._genesisLeaf(): Poseidon2(keccak256("hisoka.darkpool.genesis") reduced mod the
+ *  BN254 scalar field, chainId). Seeds a test tree's reserved index-0 sentinel so its roots match the pool. */
+export async function genesisLeaf(
+  chainId: bigint = HARDHAT_CHAIN_ID,
+): Promise<Fr> {
+  const domainTag = BigInt(keccak256(toUtf8Bytes("hisoka.darkpool.genesis")));
+  return Poseidon.hash([toReducedFr(domainTag), toFr(chainId)]);
+}
+
+/** A LeanIMT seeded with the chain-specific genesis leaf at index 0, mirroring the contract. Real notes begin
+ *  at index 1, so a deposit's on-chain leaf index equals its index in this tree. */
+export async function newSeededTree(
+  chainId: bigint = HARDHAT_CHAIN_ID,
+): Promise<LeanIMT> {
+  const tree = new LeanIMT(32);
+  await tree.insert(await genesisLeaf(chainId));
+  return tree;
+}
 
 const NOTE_VERSION = toFr(1n);
 const NOTE_TYPE_STANDARD = toFr(0n);
@@ -197,6 +222,18 @@ export async function deployDarkPoolFixture() {
   const PublicClaimVerifier = await deployVerifier(
     "contracts/verifiers/PublicClaimVerifier.sol",
   );
+  const WdwMultisigVerifier = await deployVerifier(
+    "contracts/verifiers/WithdrawMultisigVerifier.sol",
+  );
+  const TrfMultisigVerifier = await deployVerifier(
+    "contracts/verifiers/TransferMultisigVerifier.sol",
+  );
+  const SplitMultisigVerifier = await deployVerifier(
+    "contracts/verifiers/SplitMultisigVerifier.sol",
+  );
+  const JoinMultisigVerifier = await deployVerifier(
+    "contracts/verifiers/JoinMultisigVerifier.sol",
+  );
 
   const MockRegistryFactory =
     await ethers.getContractFactory("MockNoxRegistry");
@@ -246,7 +283,10 @@ export async function deployDarkPoolFixture() {
         await JoinVerifier.getAddress(),
         await SplitVerifier.getAddress(),
         await PublicClaimVerifier.getAddress(),
-        await rewardPool.getAddress(),
+        await WdwMultisigVerifier.getAddress(),
+        await TrfMultisigVerifier.getAddress(),
+        await SplitMultisigVerifier.getAddress(),
+        await JoinMultisigVerifier.getAddress(),
         COMPLIANCE_PK[0],
         COMPLIANCE_PK[1],
         0,

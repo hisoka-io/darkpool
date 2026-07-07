@@ -9,9 +9,10 @@ import {
   subgroupScalar,
   noteToInput,
   userSpendScalar,
+  newSeededTree,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import { toFr, addressToFr, packParents, LeanIMT, Fr } from "@hisoka/wallets";
+import { toFr, addressToFr, packParents, Fr } from "@hisoka/wallets";
 import {
   proveWithdraw,
   proveTransfer,
@@ -32,10 +33,10 @@ import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
 const PAIRING_POINTS_SIZE = 8;
 const VERIFIER_NUM_PUBLIC_INPUTS: Record<string, number> = {
   deposit: 22,
-  withdraw: 27,
-  transfer: 35,
-  join: 24,
-  split: 33,
+  withdraw: 26,
+  transfer: 34,
+  join: 23,
+  split: 32,
   publicClaim: 22,
 };
 
@@ -70,14 +71,14 @@ describe("Semantic public-input index trace", function () {
     assertField(pi, 6, asset.toBigInt(), "asset");
   });
 
-  it("withdraw: [0] value, [1] recipient, [6] nullifier, [7] root, [8] asset, [9] change leaf, [10] tag", async function () {
+  it("withdraw: [0] value, [1] recipient, [5] nullifier, [6] root, [7] asset, [8] change leaf, [9] tag", async function () {
     const { darkPool, token, alice, bob } = await loadFixture(
       deployDarkPoolFixture,
     );
     const asset = addressToFr(await token.getAddress());
 
     const dep = await makeDeposit(darkPool, token, alice, 100n);
-    const tree = new LeanIMT(32);
+    const tree = await newSeededTree();
     await tree.insert(dep.commitment);
     const root = tree.getRoot();
 
@@ -87,18 +88,18 @@ describe("Semantic public-input index trace", function () {
       60n,
       spendScalar,
       asset,
+      packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
     );
 
     const inputs: WithdrawInputs = {
       withdrawValue: toFr(40n),
       recipient: addressToFr(bob.address),
-      currentTimestamp: Math.floor(Date.now() / 1000),
       intentHash: toFr(0n),
       compliancePk: COMPLIANCE_PK,
       oldNote: noteToInput(dep.built.note),
       spendScalar: dep.spendScalar,
-      oldNoteIndex: 0,
-      oldNotePath: tree.getMerklePath(0),
+      oldNoteIndex: 1,
+      oldNotePath: tree.getMerklePath(1),
       changeNote: change.note,
       changeEph: change.eph,
     };
@@ -110,23 +111,23 @@ describe("Semantic public-input index trace", function () {
     );
     assertField(pi, 0, 40n, "value");
     assertField(pi, 1, addressToFr(bob.address).toBigInt(), "recipient");
-    assertField(pi, 7, root.toBigInt(), "root");
-    assertField(pi, 8, asset.toBigInt(), "asset");
-    assertField(pi, 9, change.commitment.toBigInt(), "change leaf");
-    assertField(pi, 10, change.tag.toBigInt(), "tag");
-    // Nullifier is circuit-derived; prove [6] is the nullifier by spending and reading it back at [6].
-    expect(bi(pi[6]!)).to.not.equal(root.toBigInt());
-    expect(bi(pi[6]!)).to.not.equal(change.commitment.toBigInt());
+    assertField(pi, 6, root.toBigInt(), "root");
+    assertField(pi, 7, asset.toBigInt(), "asset");
+    assertField(pi, 8, change.commitment.toBigInt(), "change leaf");
+    assertField(pi, 9, change.tag.toBigInt(), "tag");
+    // Nullifier is circuit-derived; prove [5] is the nullifier by spending and reading it back at [5].
+    expect(bi(pi[5]!)).to.not.equal(root.toBigInt());
+    expect(bi(pi[5]!)).to.not.equal(change.commitment.toBigInt());
     await darkPool.connect(bob).withdraw(proof.proof, proof.publicInputs);
-    expect(await darkPool.isNullifierSpent(pi[6]!)).to.equal(true);
+    expect(await darkPool.isNullifierSpent(pi[5]!)).to.equal(true);
   });
 
-  it("privateTransfer: [3] nullifier, [4] root, [5] memo leaf, [8] tag, [17] change leaf", async function () {
+  it("privateTransfer: [2] nullifier, [3] root, [4] memo leaf, [7] tag, [16] change leaf", async function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
     const asset = addressToFr(await token.getAddress());
 
     const dep = await makeDeposit(darkPool, token, alice, 100n);
-    const tree = new LeanIMT(32);
+    const tree = await newSeededTree();
     await tree.insert(dep.commitment);
     const root = tree.getRoot();
 
@@ -139,6 +140,7 @@ describe("Semantic public-input index trace", function () {
       recipientInPub,
       toFr(0n),
       asset,
+      packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
     );
 
     const spendScalar = await userSpendScalar(alice.address);
@@ -147,16 +149,16 @@ describe("Semantic public-input index trace", function () {
       70n,
       spendScalar,
       asset,
+      packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
     );
 
     const inputs: TransferInputs = {
-      currentTimestamp: Math.floor(Date.now() / 1000),
       compliancePk: COMPLIANCE_PK,
       recipientInPub,
       oldNote: noteToInput(dep.built.note),
       spendScalar: dep.spendScalar,
-      oldNoteIndex: 0,
-      oldNotePath: tree.getMerklePath(0),
+      oldNoteIndex: 1,
+      oldNotePath: tree.getMerklePath(1),
       memoNote: memo.note,
       memoEph,
       changeNote: change.note,
@@ -168,25 +170,25 @@ describe("Semantic public-input index trace", function () {
     expect(pi.length).to.equal(
       VERIFIER_NUM_PUBLIC_INPUTS.transfer - PAIRING_POINTS_SIZE,
     );
-    assertField(pi, 4, root.toBigInt(), "root");
-    assertField(pi, 5, memo.commitment.toBigInt(), "memo leaf");
-    assertField(pi, 8, new Fr(recipientInPub[0]).toBigInt(), "tag");
-    assertField(pi, 17, change.commitment.toBigInt(), "change leaf");
-    expect(bi(pi[3]!)).to.not.equal(root.toBigInt());
-    expect(bi(pi[3]!)).to.not.equal(memo.commitment.toBigInt());
+    assertField(pi, 3, root.toBigInt(), "root");
+    assertField(pi, 4, memo.commitment.toBigInt(), "memo leaf");
+    assertField(pi, 7, new Fr(recipientInPub[0]).toBigInt(), "tag");
+    assertField(pi, 16, change.commitment.toBigInt(), "change leaf");
+    expect(bi(pi[2]!)).to.not.equal(root.toBigInt());
+    expect(bi(pi[2]!)).to.not.equal(memo.commitment.toBigInt());
     await darkPool
       .connect(alice)
       .privateTransfer(proof.proof, proof.publicInputs);
-    expect(await darkPool.isNullifierSpent(pi[3]!)).to.equal(true);
+    expect(await darkPool.isNullifierSpent(pi[2]!)).to.equal(true);
   });
 
-  it("join: [3] nullifier_a, [4] nullifier_b, [5] root, [6] out leaf, [7] tag", async function () {
+  it("join: [2] nullifier_a, [3] nullifier_b, [4] root, [5] out leaf, [6] tag", async function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
     const asset = addressToFr(await token.getAddress());
 
     const depA = await makeDeposit(darkPool, token, alice, 100n);
     const depB = await makeDeposit(darkPool, token, alice, 50n);
-    const tree = new LeanIMT(32);
+    const tree = await newSeededTree();
     await tree.insert(depA.commitment);
     await tree.insert(depB.commitment);
     const root = tree.getRoot();
@@ -196,19 +198,18 @@ describe("Semantic public-input index trace", function () {
       150n,
       depA.spendScalar,
       asset,
-      packParents([{ leafIndex: 0 }, { leafIndex: 1 }]),
+      packParents([{ leafIndex: 1 }, { leafIndex: 2 }]),
     );
     const inputs: JoinInputs = {
-      currentTimestamp: Math.floor(Date.now() / 1000),
       compliancePk: COMPLIANCE_PK,
       noteA: depA.built.note,
       spendScalarA: depA.spendScalar,
-      indexA: 0,
-      pathA: tree.getMerklePath(0),
+      indexA: 1,
+      pathA: tree.getMerklePath(1),
       noteB: depB.built.note,
       spendScalarB: depB.spendScalar,
-      indexB: 1,
-      pathB: tree.getMerklePath(1),
+      indexB: 2,
+      pathB: tree.getMerklePath(2),
       noteOut: out.note,
       ephOut: out.eph,
     };
@@ -218,44 +219,46 @@ describe("Semantic public-input index trace", function () {
     expect(pi.length).to.equal(
       VERIFIER_NUM_PUBLIC_INPUTS.join - PAIRING_POINTS_SIZE,
     );
-    assertField(pi, 5, root.toBigInt(), "root");
-    assertField(pi, 6, out.commitment.toBigInt(), "out leaf");
-    assertField(pi, 7, out.tag.toBigInt(), "tag");
-    expect(bi(pi[3]!)).to.not.equal(bi(pi[4]!));
-    expect(bi(pi[3]!)).to.not.equal(root.toBigInt());
+    assertField(pi, 4, root.toBigInt(), "root");
+    assertField(pi, 5, out.commitment.toBigInt(), "out leaf");
+    assertField(pi, 6, out.tag.toBigInt(), "tag");
+    expect(bi(pi[2]!)).to.not.equal(bi(pi[3]!));
+    expect(bi(pi[2]!)).to.not.equal(root.toBigInt());
     await darkPool.connect(alice).join(proof.proof, proof.publicInputs);
+    expect(await darkPool.isNullifierSpent(pi[2]!)).to.equal(true);
     expect(await darkPool.isNullifierSpent(pi[3]!)).to.equal(true);
-    expect(await darkPool.isNullifierSpent(pi[4]!)).to.equal(true);
   });
 
-  it("split: [3] nullifier, [4] root, [5] out1 leaf, [6] out1 tag, [15] out2 leaf, [16] out2 tag", async function () {
+  it("split: [2] nullifier, [3] root, [4] out1 leaf, [5] out1 tag, [14] out2 leaf, [15] out2 tag", async function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
     const asset = addressToFr(await token.getAddress());
 
     const dep = await makeDeposit(darkPool, token, alice, 100n);
-    const tree = new LeanIMT(32);
+    const tree = await newSeededTree();
     await tree.insert(dep.commitment);
     const root = tree.getRoot();
 
+    const outParents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
     const out1 = await mintSelfNote(
       evenYEphemeral(111n),
       40n,
       dep.spendScalar,
       asset,
+      outParents,
     );
     const out2 = await mintSelfNote(
       evenYEphemeral(222n),
       60n,
       dep.spendScalar,
       asset,
+      outParents,
     );
     const inputs: SplitInputs = {
-      currentTimestamp: Math.floor(Date.now() / 1000),
       compliancePk: COMPLIANCE_PK,
       noteIn: dep.built.note,
       spendScalar: dep.spendScalar,
-      indexIn: 0,
-      pathIn: tree.getMerklePath(0),
+      indexIn: 1,
+      pathIn: tree.getMerklePath(1),
       noteOut1: out1.note,
       eph1: out1.eph,
       noteOut2: out2.note,
@@ -267,14 +270,14 @@ describe("Semantic public-input index trace", function () {
     expect(pi.length).to.equal(
       VERIFIER_NUM_PUBLIC_INPUTS.split - PAIRING_POINTS_SIZE,
     );
-    assertField(pi, 4, root.toBigInt(), "root");
-    assertField(pi, 5, out1.commitment.toBigInt(), "out1 leaf");
-    assertField(pi, 6, out1.tag.toBigInt(), "out1 tag");
-    assertField(pi, 15, out2.commitment.toBigInt(), "out2 leaf");
-    assertField(pi, 16, out2.tag.toBigInt(), "out2 tag");
-    expect(bi(pi[3]!)).to.not.equal(root.toBigInt());
+    assertField(pi, 3, root.toBigInt(), "root");
+    assertField(pi, 4, out1.commitment.toBigInt(), "out1 leaf");
+    assertField(pi, 5, out1.tag.toBigInt(), "out1 tag");
+    assertField(pi, 14, out2.commitment.toBigInt(), "out2 leaf");
+    assertField(pi, 15, out2.tag.toBigInt(), "out2 tag");
+    expect(bi(pi[2]!)).to.not.equal(root.toBigInt());
     await darkPool.connect(alice).split(proof.proof, proof.publicInputs);
-    expect(await darkPool.isNullifierSpent(pi[3]!)).to.equal(true);
+    expect(await darkPool.isNullifierSpent(pi[2]!)).to.equal(true);
   });
 
   it("publicClaim: [0] memoId, [4] out leaf, [5] tag", async function () {

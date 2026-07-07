@@ -24,7 +24,6 @@ const NS = {
   memos: "hisoka.darkpool.memos",
   verifiers: "hisoka.darkpool.verifiers",
   compliance: "hisoka.darkpool.compliance",
-  config: "hisoka.darkpool.config",
 } as const;
 
 // Values hardcoded as the *_LOCATION constants in DarkPool.sol; the JS formula must reproduce them.
@@ -37,8 +36,9 @@ const EXPECTED: Record<keyof typeof NS, string> = {
     "0x204927e2223572a19571462c2dfb374afbbdb39e695632d6477721409dfb0b00",
   compliance:
     "0x4c6336ddd730b3b6886dcf6c397e5676dac845842540c4592f4e52cea8e9ae00",
-  config: "0x16730e3a2a45d0ba613b00104b5efdd24c73b2ac170740fe805c71a02b3bf500",
 };
+
+const VERIFIER_COUNT = 10;
 
 const REENTRANCY_LOCATION =
   "0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00";
@@ -60,7 +60,6 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
   let implAddr: string;
   let darkpool: DarkPool;
   let verifiers: string[];
-  let rewardPool: string;
   let admin: string;
   let pauser: string;
   let upgrader: string;
@@ -81,18 +80,11 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
     })) as unknown as DarkPool__factory;
 
     const verifierAddrs = Array.from(
-      { length: 6 },
+      { length: VERIFIER_COUNT },
       () => ethers.Wallet.createRandom().address,
     );
-    const rewardPoolAddr = ethers.Wallet.createRandom().address;
     const params = [
-      verifierAddrs[0],
-      verifierAddrs[1],
-      verifierAddrs[2],
-      verifierAddrs[3],
-      verifierAddrs[4],
-      verifierAddrs[5],
-      rewardPoolAddr,
+      ...verifierAddrs,
       BASE8_X,
       BASE8_Y,
       172800, // initialAdminDelay (48h)
@@ -117,7 +109,6 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
       factory: DarkPool,
       addr,
       verifierAddrs,
-      rewardPoolAddr,
       admin: adminS.address,
       pauser: pauserS.address,
       upgrader: upgraderS.address,
@@ -132,7 +123,6 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
     proxyAddr = d.addr;
     implAddr = await upgrades.erc1967.getImplementationAddress(proxyAddr);
     verifiers = d.verifierAddrs;
-    rewardPool = d.rewardPoolAddr;
     admin = d.admin;
     pauser = d.pauser;
     upgrader = d.upgrader;
@@ -140,7 +130,7 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
     initParams = d.params;
   });
 
-  it("computes the 6 namespace slot constants from the ERC-7201 formula", function () {
+  it("computes the 5 namespace slot constants from the ERC-7201 formula", function () {
     for (const key of Object.keys(NS) as (keyof typeof NS)[]) {
       expect(erc7201(NS[key]), `${NS[key]} slot`).to.equal(EXPECTED[key]);
     }
@@ -159,11 +149,6 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
       await slotValue(proxyAddr, addSlot(EXPECTED.compliance, 2n)),
     ).to.equal(1n);
 
-    // config.rewardPool at config base slot
-    expect(await slotValue(proxyAddr, EXPECTED.config)).to.equal(
-      BigInt(rewardPool),
-    );
-
     // verifiers[DEPOSIT=0] in the verifiers mapping
     const depositSlot = mappingSlot("uint256", 0, EXPECTED.verifiers);
     expect(await slotValue(proxyAddr, depositSlot)).to.equal(
@@ -174,17 +159,21 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
     expect(await slotValue(proxyAddr, REENTRANCY_LOCATION)).to.equal(1n);
   });
 
-  it("initialize set compliance key at version 1 and the full verifier registry", async function () {
+  it("initialize set compliance key at version 1 and all 10 verifiers (init-path)", async function () {
     const [x, y, version] = await darkpool.complianceKey();
     expect(x).to.equal(BASE8_X);
     expect(y).to.equal(BASE8_Y);
     expect(version).to.equal(1n);
 
-    for (let i = 0; i < 6; i++) {
-      expect(await darkpool.verifier(i)).to.equal(verifiers[i]);
+    for (let i = 0; i < VERIFIER_COUNT; i++) {
+      expect(await darkpool.verifier(i), `verifier(${i})`).to.equal(
+        verifiers[i],
+      );
+      expect(await darkpool.verifier(i)).to.not.equal(ZeroHash);
     }
-    expect(await darkpool.rewardPool()).to.equal(rewardPool);
-    expect(await darkpool.getCurrentRoot()).to.equal(ZeroHash);
+    // slot0 genesis seeded: real notes start at index 1 and the root is chain-specific (non-zero).
+    expect(await darkpool.getNextLeafIndex()).to.equal(1n);
+    expect(await darkpool.getCurrentRoot()).to.not.equal(ZeroHash);
   });
 
   it("granted governance roles to the passed-in addresses, not the deployer", async function () {

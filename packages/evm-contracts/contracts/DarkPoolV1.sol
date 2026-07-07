@@ -7,6 +7,8 @@ import {MerkleTreeLib} from "./libraries/MerkleTreeLib.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+// OZ namespaced import path exceeds 120 chars and has no shorter alias.
+// solhint-disable-next-line max-line-length
 import {AccessControlDefaultAdminRulesUpgradeable} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -24,9 +26,13 @@ interface IHonkVerifierV1 {
  * @notice Pinned reference layout for the upgrade-safety gate. `validateUpgrade(DarkPoolV1, DarkPool)`
  *         runs assertStorageUpgradeSafe against this copy, so any storage-incompatible change to the live
  *         DarkPool (including a namespace-internal field reorder/retype) fails the gate.
- * @dev This is a byte-for-byte storage copy of the shipped DarkPool: same ERC-7201 namespaces, same
- *      struct members in the same order, same InitParams. Update it deliberately ONLY when a real
- *      storage-compatible upgrade ships and becomes the new baseline. It is not deployed in production.
+ * @dev Frozen PRE-GENESIS storage baseline: the namespaced layout as of the initial deployment, which every
+ *      future on-chain DarkPool upgrade must stay storage-compatible with. Storage copy of the shipped
+ *      DarkPool: same ERC-7201 namespaces, same struct members in the same order. Only STORAGE is load-bearing
+ *      here (validateUpgrade compares the namespaced layout, not logic), so the entrypoints/constants below
+ *      need not track DarkPool's routing. Never hand-tune: the storage surface is verified against DarkPool by
+ *      `scripts/regen-darkpoolv1.ts` (run in the upgrade-safety gate), which fails on any drift. Advance the
+ *      baseline only when a real storage-compatible upgrade ships and becomes the new reference; not deployed.
  */
 contract DarkPoolV1 is
     Initializable,
@@ -157,11 +163,6 @@ contract DarkPoolV1 is
         uint256 version;
     }
 
-    /// @custom:storage-location erc7201:hisoka.darkpool.config
-    struct ConfigStorage {
-        address rewardPool;
-    }
-
     /// @custom:storage-location erc7201:openzeppelin.storage.ReentrancyGuard
     struct ReentrancyStorage {
         uint256 status;
@@ -177,8 +178,6 @@ contract DarkPoolV1 is
         0x204927e2223572a19571462c2dfb374afbbdb39e695632d6477721409dfb0b00;
     bytes32 private constant COMPLIANCE_LOCATION =
         0x4c6336ddd730b3b6886dcf6c397e5676dac845842540c4592f4e52cea8e9ae00;
-    bytes32 private constant CONFIG_LOCATION =
-        0x16730e3a2a45d0ba613b00104b5efdd24c73b2ac170740fe805c71a02b3bf500;
     bytes32 private constant REENTRANCY_LOCATION =
         0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
 
@@ -224,12 +223,6 @@ contract DarkPoolV1 is
         }
     }
 
-    function _configStorage() private pure returns (ConfigStorage storage $) {
-        assembly {
-            $.slot := CONFIG_LOCATION
-        }
-    }
-
     function _reentrancyStorage()
         private
         pure
@@ -255,7 +248,6 @@ contract DarkPoolV1 is
         address joinVerifier;
         address splitVerifier;
         address publicClaimVerifier;
-        address rewardPool;
         uint256 compliancePkX;
         uint256 compliancePkY;
         uint48 initialAdminDelay;
@@ -270,7 +262,6 @@ contract DarkPoolV1 is
     }
 
     function initialize(InitParams calldata p) external initializer {
-        if (p.rewardPool == address(0)) revert ZeroAddress();
         if (p.pauser == address(0)) revert ZeroAddress();
         if (p.upgrader == address(0)) revert ZeroAddress();
 
@@ -296,14 +287,15 @@ contract DarkPoolV1 is
         c.pkY = p.compliancePkY;
         c.version = 1;
 
-        _configStorage().rewardPool = p.rewardPool;
-
         _treeStorage().tree.init(MERKLE_TREE_DEPTH);
     }
 
+    // Body intentionally empty: the onlyRole(UPGRADER_ROLE) gate IS the upgrade authorization.
+    // solhint-disable no-empty-blocks
     function _authorizeUpgrade(
         address newImplementation
     ) internal override onlyRole(UPGRADER_ROLE) {}
+    // solhint-enable no-empty-blocks
 
     function pause() external onlyRole(PAUSER_ROLE) {
         _pause();
@@ -602,10 +594,6 @@ contract DarkPoolV1 is
 
     function verifier(uint256 circuitId) external view returns (address) {
         return _verifierStorage().verifiers[circuitId];
-    }
-
-    function rewardPool() external view returns (address) {
-        return _configStorage().rewardPool;
     }
 
     function isNullifierSpent(

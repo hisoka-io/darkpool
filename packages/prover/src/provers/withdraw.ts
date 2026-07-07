@@ -10,7 +10,6 @@ export async function proveWithdraw(
   return generateProof("withdraw", circuit, {
     withdraw_value: inputs.withdrawValue.toString(),
     _recipient: inputs.recipient.toString(),
-    current_timestamp: inputs.currentTimestamp.toString(),
     _intent_hash: inputs.intentHash.toString(),
     compliance_pubkey_x: c.x,
     compliance_pubkey_y: c.y,

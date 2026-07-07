@@ -1,7 +1,3 @@
-//! Value conservation, called by every consuming op. Values are u128 so bounded-arity sums stay << p and
-//! cannot wrap the field; u128 add is overflow-checked so an output set wrapping past 2^128 is rejected.
-//! `public_out` is cleartext value leaving the pool (withdraw/gas amount), 0 when all value stays in notes.
-
 pub fn assert_conserved<let NIN: u32, let NOUT: u32>(
     inputs: [u128; NIN],
     outputs: [u128; NOUT],

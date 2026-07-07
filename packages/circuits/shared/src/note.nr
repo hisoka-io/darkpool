@@ -3,9 +3,24 @@ use poseidon::poseidon2::Poseidon2;
 
 pub global TWO_POW_32: Field = 4294967296;
 
-// The wire-format seam and the only shipped note kind. A spend circuit rejects any other version/type.
+// The wire-format seam and the note kinds. A spend circuit rejects any unexpected version, and each spend
+// path hard-asserts its own note_type so a MULTISIG note can never be spent by a STANDARD verifier or vice
+// versa (the on-chain router binds note_type -> verifier; note_type stays in the leaf as the last defense).
 pub global NOTE_VERSION: Field = 1;
 pub global NOTE_TYPE_STANDARD: Field = 0;
+pub global NOTE_TYPE_MULTISIG: Field = 1;
+// Reserved for a later break (single-owner predicate notes); NOT an accepted mint output yet.
+pub global NOTE_TYPE_CONDITIONAL: Field = 2;
+
+// A minted output's note_type is a sender-chosen witness, so it MUST be in the enabled set. A witnessed
+// note_type outside it (e.g. the reserved CONDITIONAL) commits to a leaf no circuit consumes = a silent
+// burn; and a future third verifier could retroactively spend it.
+pub fn assert_valid_note_type(note_type: Field) {
+    assert(
+        (note_type == NOTE_TYPE_STANDARD) | (note_type == NOTE_TYPE_MULTISIG),
+        "note_type not in {STANDARD, MULTISIG}",
+    );
+}
 
 // asset_id is a 20-byte ERC20 address; a wider value is rejected so notes stay fungible with clean tokens.
 pub fn assert_asset_id(asset_id: Field) {
@@ -56,6 +71,7 @@ pub fn pack_parents(parents: [Parent; 2]) -> Field {
     (parents[0].leaf_index as Field) + (parents[1].leaf_index as Field) * TWO_POW_32
 }
 
+// KAT-only inverse; no in-circuit caller (circuits only pack_parents).
 pub fn unpack_parents(packed: Field) -> [Parent; 2] {
     let bytes: [u8; 32] = packed.to_le_bytes();
     for i in 8..32 {

@@ -1,7 +1,6 @@
-//! Poseidon2 stream DEM keyed by CEK (Poseidon2 eprint 2023/323). Order/sign MUST match TS
-//! wallets/src/crypto/dem.ts. Operates on the 7 transmitted note fields, fixed order k=0..6:
-//! [note_version, asset_id, note_type, conditions_hash, value, owner, parents]; psi is never transmitted.
-
+// Poseidon2 field-wise stream cipher: keystream_k = Poseidon2(cek, ENC_DOMAIN, k) for a fixed order
+// k = 0..6, encrypt = pt + keystream, decrypt = ct - keystream, all mod p. The field order and the
+// add/subtract sign MUST match the TS mirror packages/wallets/src/crypto/dem.ts or notes are undecryptable.
 use crate::domains::ENC_DOMAIN;
 use poseidon::poseidon2::Poseidon2;
 
@@ -20,6 +19,7 @@ pub fn dem_encrypt(cek: Field, plaintext: [Field; DEM_FIELDS]) -> [Field; DEM_FI
     ciphertext
 }
 
+// KAT-only inverse; no in-circuit caller (circuits only dem_encrypt).
 pub fn dem_decrypt(cek: Field, ciphertext: [Field; DEM_FIELDS]) -> [Field; DEM_FIELDS] {
     let mut plaintext: [Field; DEM_FIELDS] = [0; DEM_FIELDS];
     for k in 0..DEM_FIELDS {

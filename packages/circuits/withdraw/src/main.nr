@@ -1,14 +1,15 @@
 use ::ecdh::Point;
 use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
 use ::shared::note::{assert_parents_bound, Note};
+use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, fixture_note};
 
-// Spend one note, pay `withdraw_value` to a public recipient, mint the self change note. The membership
-// root is a public OUTPUT the contract range-checks against its known roots; recipient / intent_hash are
-// public for the contract + adaptor to bind but are not circuit-constrained.
+// Spend one note, pay `withdraw_value` to a public recipient, mint the self change note. The membership root
+// is a public OUTPUT the contract range-checks against its known roots; a spend binds a recent root, and the
+// tree's chain-specific genesis makes that binding the cross-chain-replay defense. recipient / intent_hash
+// are public for the contract + adaptor to bind but are not circuit-constrained.
 fn main(
     withdraw_value: pub u128,
     _recipient: pub Field,
-    current_timestamp: pub Field,
     _intent_hash: pub Field,
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
@@ -19,7 +20,6 @@ fn main(
     change_note: Note,
     change_eph: Field,
 ) -> pub (Field, Field, Field, Field, Field, Field, [Field; 7]) {
-    let _ = current_timestamp;
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
 
@@ -39,16 +39,7 @@ fn main(
 }
 
 fn spent_note() -> Note {
-    Note {
-        note_version: 1,
-        asset_id: 0x1234567890123456789012345678901234567890,
-        note_type: 0,
-        conditions_hash: 0,
-        value: 100,
-        owner: 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785,
-        psi: 0x0981a88f9e119b057498a4ab99ed5379a1ea91c642454fc0c07aacc1f5cd5731,
-        parents: 0,
-    }
+    fixture_note()
 }
 
 fn change_note() -> Note {
@@ -65,10 +56,7 @@ fn change_note() -> Note {
 }
 
 fn compliance() -> (Field, Field) {
-    (
-        0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111,
-        0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8,
-    )
+    (FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y)
 }
 
 // KAT: byte-identical to the TS/Solidity golden vector (spend scalar 789 owns the index-0 note; change eph 8).
@@ -78,7 +66,6 @@ fn test_withdraw_kat() {
     let (nf, root, asset, change_leaf, epk_x, epk_y, ct) = main(
         40,
         0x1234567890123456789012345678901234567890,
-        0,
         0,
         cx,
         cy,
@@ -105,7 +92,6 @@ fn audit_reject_wrong_spender() {
         40,
         0,
         0,
-        0,
         cx,
         cy,
         spent_note(),
@@ -124,7 +110,6 @@ fn audit_reject_value_inflation() {
     inflated.value = 100;
     let _ = main(
         40,
-        0,
         0,
         0,
         cx,
@@ -149,7 +134,6 @@ fn audit_reject_forged_change_parents() {
         40,
         0,
         0,
-        0,
         cx,
         cy,
         spent_note(),
@@ -168,7 +152,6 @@ fn audit_reject_change_asset_mismatch() {
     change.asset_id = 0x00000000000000000000000000000000000000ff;
     let _ = main(
         40,
-        0,
         0,
         0,
         cx,
@@ -191,7 +174,6 @@ fn audit_reject_non_membership() {
     path[0] = 0x0abc;
     let (_, root, _, _, _, _, _) = main(
         40,
-        0,
         0,
         0,
         cx,
