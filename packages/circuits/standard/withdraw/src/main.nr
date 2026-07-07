@@ -3,10 +3,6 @@ use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
 use ::shared::note::{assert_parents_bound, Note};
 use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, fixture_note};
 
-// Spend one note, pay `withdraw_value` to a public recipient, mint the self change note. The membership root
-// is a public OUTPUT the contract range-checks against its known roots; a spend binds a recent root, and the
-// tree's chain-specific genesis makes that binding the cross-chain-replay defense. recipient / intent_hash
-// are public for the contract + adaptor to bind but are not circuit-constrained.
 fn main(
     withdraw_value: pub u128,
     _recipient: pub Field,
@@ -123,8 +119,6 @@ fn audit_reject_value_inflation() {
     );
 }
 
-// The change note's parents MUST equal the spent index; here index 0 binds to 0, so a nonzero forgery that
-// claims a parent that was never consumed is rejected.
 #[test(should_fail_with = "output parents not bound to consumed inputs")]
 fn audit_reject_forged_change_parents() {
     let (cx, cy) = compliance();
@@ -165,8 +159,6 @@ fn audit_reject_change_asset_mismatch() {
     );
 }
 
-// A membership path that does not open to a real leaf yields a root the contract will not accept: the
-// emitted root must diverge from the single-leaf KAT root.
 #[test(should_fail)]
 fn audit_reject_non_membership() {
     let (cx, cy) = compliance();

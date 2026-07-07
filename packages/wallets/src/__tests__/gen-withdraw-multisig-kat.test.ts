@@ -22,18 +22,14 @@ import { isEvenY } from "../note/keys.js";
 import { deriveCek } from "../crypto/kem.js";
 import type { Point } from "../tss/index.js";
 
-// Emits a DETERMINISTIC coherent withdraw_multisig witness + a REAL 3-of-5 FROST (R,z) over the in-circuit
-// spend message m for the Noir main-level KAT (withdraw_multisig/src/main.nr). The quorum signs m computed
-// from the ORIGINAL public IO; the circuit accepting it and rejecting a mutated signed axis (recipient)
-// proves verify_frost_spend -- not a pre-FROST guard -- rejects a tampered spend. A drift in the TS leaf /
-// nullifier / message / FROST hashing breaks both this parity lock and the hard-coded Noir witness.
+// Emits a deterministic withdraw_multisig witness + real 3-of-5 FROST (R,z) for the Noir main-level KAT
+// (withdraw_multisig/src/main.nr).
 const ASSET_ID = 0x1234567890123456789012345678901234567890n;
-// FIXTURE_COMPLIANCE (shared/src/test_fixtures.nr): subgroup-valid, non-identity.
+// FIXTURE_COMPLIANCE (shared/src/test_fixtures.nr).
 const COMPLIANCE_PK: Point = [
   0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111n,
   0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8n,
 ];
-// Any committed field; the spend path binds old psi only into the nullifier, never re-deriving it.
 const OLD_PSI =
   0x0981a88f9e119b057498a4ab99ed5379a1ea91c642454fc0c07aacc1f5cd5731n;
 const OLD_VALUE = 1000n;
@@ -42,7 +38,6 @@ const CHANGE_VALUE = OLD_VALUE - WITHDRAW_VALUE;
 const RECIPIENT = 0x00c0ffee00c0ffee00c0ffee00c0ffee00c0ffeen;
 const INTENT_HASH = 0n;
 
-/** First non-zero subgroup scalar whose public point is even-y (a self/change discovery tag must be even-y). */
 function firstEvenYEph(): bigint {
   for (let s = 1n; s < 1000n; s++) {
     if (isEvenY(mulPointEscalar(Base8, s))) return s;
@@ -54,7 +49,7 @@ const hex = (x: bigint) => "0x" + x.toString(16).padStart(64, "0");
 
 describe("gen withdraw_multisig KAT", () => {
   it("emits a coherent witness + real 3-of-5 FROST (R,z) over the withdraw message", async () => {
-    // Deterministic 3-of-5 sharing (same secret polynomial as gen-frost-kat -> gpk == the frost.nr KAT gpk).
+    // Same secret polynomial as gen-frost-kat -> gpk == the frost.nr KAT gpk.
     const c = 12345678901234567890123456789012345678901234567890n % SUBORDER;
     const coeffs = [
       c,
@@ -76,7 +71,7 @@ describe("gen withdraw_multisig KAT", () => {
       psi: new Fr(OLD_PSI),
       parents: new Fr(0n),
     };
-    // Single-leaf tree at index 0: every sibling is zero, so the root is the leaf itself.
+    // Single-leaf tree at index 0: root is the leaf itself.
     const root = await leaf(oldNote);
     const nullifier = await computeNullifier(new Fr(OLD_PSI), new Fr(0n));
 
@@ -106,7 +101,6 @@ describe("gen withdraw_multisig KAT", () => {
       intentHash: INTENT_HASH,
     });
 
-    // Real 2-round 3-of-5 FROST over m (fixed hedge/binding randomness -> reproducible signature).
     const msg = encodeMessage(m);
     const rounds = new Map<
       bigint,
@@ -139,8 +133,7 @@ describe("gen withdraw_multisig KAT", () => {
     const sig = aggregate(cs, R, zs);
     expect(await verify(cs, gpk, msg, sig)).toBe(true);
 
-    // Parity lock: these MUST equal the values hard-coded in the withdraw_multisig/src/main.nr KAT. Any TS
-    // drift here (or in the leaf / nullifier / FROST hashing) diverges from the Noir witness and fails here.
+    // Parity lock: MUST equal the withdraw_multisig/src/main.nr KAT.
     expect(hex(gpk[0])).toBe(
       "0x2546ab52faee9ab8ead1ad868567473b9757c6456c137274b12a5c51330d764d",
     );

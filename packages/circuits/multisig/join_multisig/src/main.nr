@@ -4,10 +4,6 @@ use ::shared::frost::{msg_join, verify_frost_spend};
 use ::shared::note::{assert_parents_bound, Note};
 use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y};
 
-// Multisig join: spend two MULTISIG notes (possibly two different accounts) into one MULTISIG self note. Each
-// input's FROST quorum authorizes the join by signing the SAME message m, so join runs two verifies -- one
-// per gpk. Inputs must share a root, yield distinct nullifiers, and be strictly index-ordered so note_out's
-// parents pack canonically.
 fn main(
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
@@ -35,9 +31,8 @@ fn main(
     assert(nullifier_a != nullifier_b, "cannot join a note with itself");
     assert(index_a.lt(index_b), "join inputs must be strictly index-ordered");
 
-    // Same-account join only: both inputs and the output belong to ONE account. A cross-account join to a
-    // mutually-agreed owner is a deliberate later feature -- do not enable it implicitly (an unbound output
-    // owner would let either signer redirect the merged value out of the other's reach).
+    // Same-account only: a cross-account join with an unbound output owner would let either signer redirect
+    // the merged value out of the other's reach (deferred feature).
     assert((gpk_a.x == gpk_b.x) & (gpk_a.y == gpk_b.y), "join inputs must share one account gpk");
 
     assert(note_a.asset_id == note_b.asset_id, "input asset mismatch");
@@ -54,11 +49,7 @@ fn main(
     (nullifier_a, nullifier_b, root_a, out.leaf, out.eph_pub.x, out.eph_pub.y, out.ciphertext)
 }
 
-// Differential negatives for the join guards. The output-owner pin, the note_type asserts, and the
-// same-account gpk-equality assert all precede verify_frost_spend, so dummy (frost_r, frost_z) never reached
-// suffice. Two inputs sit in a two-leaf synthetic tree (indexes 0 and 1, cross sibling paths => shared root);
-// each input's owner is Poseidon2(gpk.x, gpk.y) for its gpk. gpk / a second subgroup point come from
-// shared/src/frost.nr. note_out.parents packs the consumed indexes [0, 1] = 0x100000000.
+// Output guards run before verify_frost_spend, so never-reached dummy (frost_r, frost_z) suffice.
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 global ASSET_ID: Field = 0x1234567890123456789012345678901234567890;
@@ -75,7 +66,6 @@ fn gpk_owner() -> Field {
     poseidon::poseidon2::Poseidon2::hash([g.x, g.y], 2)
 }
 
-// A second, distinct prime-order subgroup point (a real FROST R). Doubles as a never-reached dummy frost_r.
 fn gpk_b() -> Point {
     Point {
         x: 0x262d28e21d283e57d8add3efde5b0ef36d18af221efa12d686b50fdae23c0b53,
@@ -96,8 +86,6 @@ fn join_input(value: u128, owner: Field, psi: Field) -> Note {
     }
 }
 
-// The joined output; parents pack the consumed indexes [0, 1]. psi is unused (all negatives fail before the
-// change psi binding).
 fn out_note(note_type: Field, owner: Field) -> Note {
     Note {
         note_version: 1,
@@ -111,8 +99,6 @@ fn out_note(note_type: Field, owner: Field) -> Note {
     }
 }
 
-// THE P1 theft guard: two valid SAME-account inputs, but the single output owner is set off the account gpk.
-// The output owner pin rejects before any FROST check, so neither signer can redirect the merged value.
 #[test(should_fail_with = "multisig change/self must be owned by the account gpk")]
 fn audit_reject_off_gpk_change_owner() {
     let note_a = join_input(100, gpk_owner(), 0x01);
@@ -141,7 +127,6 @@ fn audit_reject_off_gpk_change_owner() {
     );
 }
 
-// Reserved note_type 2 on the joined output: the MULTISIG pin precedes assert_valid_note_type.
 #[test(should_fail_with = "multisig self note must be MULTISIG")]
 fn audit_reject_out_note_type_2() {
     let note_a = join_input(100, gpk_owner(), 0x01);
@@ -170,7 +155,6 @@ fn audit_reject_out_note_type_2() {
     );
 }
 
-// A STANDARD joined output: the note_type pin rejects it.
 #[test(should_fail_with = "multisig self note must be MULTISIG")]
 fn audit_reject_out_note_type_standard() {
     let note_a = join_input(100, gpk_owner(), 0x01);
@@ -199,8 +183,6 @@ fn audit_reject_out_note_type_standard() {
     );
 }
 
-// Cross-account join: the two inputs belong to distinct account gpks. The same-account equality assert
-// rejects it before the change is minted, so neither signer can redirect the merged value out of reach.
 #[test(should_fail_with = "join inputs must share one account gpk")]
 fn audit_reject_cross_account_gpk() {
     let b = gpk_b();

@@ -1,6 +1,5 @@
-//! Discovery-tag canonicalization: a tag is a point's .x, which aliases (x, +/-y), so an injective Raven
-//! key REQUIRES even y (the wallet rolls until even). even == LE byte-0 LSB == 0. Ref: intmax2
-//! utils/key.rs even-y address canonicalization.
+//! Discovery-tag = point.x, which aliases (x, +/-y), so an injective tag REQUIRES even y (the wallet rolls
+//! until even). even == LE byte-0 LSB == 0. Ref: intmax2 utils/key.rs even-y address canonicalization.
 
 use ecdh::Point;
 

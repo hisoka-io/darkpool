@@ -1,9 +1,5 @@
-// Shared no-trusted-dealer DKG over BabyJubJub: each participant deals a Feldman-committed random polynomial,
-// proves knowledge of its constant term (Schnorr PoP -- the rogue-key defense), and everyone verifies every
-// received share against the public commitments. A dealer whose share fails Feldman or whose PoP is invalid
-// is DISQUALIFIED; the group key and per-member shares are summed over the QUAL set only. `c` (= sum of the
-// dealers' secrets) is never assembled by any party. Ported from threshold_compliance_poc.py (dkg), plus the
-// PoP + complaint/QUAL round the PoC omits. Compliance (Part B) and FROST (Part C) both build on this.
+// No-trusted-dealer Feldman DKG over BabyJubJub with a Schnorr PoP (rogue-key defense). c (= sum of the
+// dealers' secrets) is never assembled by any party. Ported from threshold_compliance_poc.py (dkg).
 
 import {
   Point,
@@ -20,15 +16,12 @@ import { feldmanCommit, feldmanVerifyShare } from "./vss.js";
 import { hashToScalar } from "./hashToScalar.js";
 import { FROST_POP_DOMAIN } from "./domains.js";
 
-/** Schnorr proof of knowledge of the discrete log of a commitment, bound to the prover identifier + a
- *  context field so a rogue dealer cannot replay another party's PoP. */
+/** Bound to the prover id + a context field so a rogue dealer cannot replay another party's PoP. */
 export interface SchnorrPoP {
   R: Point;
   z: bigint;
 }
 
-/** A dealer's round-1 output: public Feldman commitments + PoP (broadcast), and the private per-recipient
- *  shares (in a real deployment each is sent over an authenticated channel to that recipient only). */
 export interface DealerContribution {
   id: bigint;
   commitments: Point[];
@@ -52,7 +45,6 @@ async function popChallenge(
   ]);
 }
 
-/** Prove knowledge of `secret` where commitment = secret*Base8. */
 export async function provePoP(
   id: bigint,
   context: bigint,
@@ -66,7 +58,6 @@ export async function provePoP(
   return { R, z };
 }
 
-/** Verify a PoP against the dealer's constant-term commitment (commitments[0]). */
 export async function verifyPoP(
   id: bigint,
   context: bigint,
@@ -80,8 +71,6 @@ export async function verifyPoP(
   return pointEq(lhs, rhs);
 }
 
-/** A dealer computes its contribution: a random degree t-1 polynomial (constant term = its secret share of
- *  the group key), Feldman commitments, a PoP, and the dealt shares for every participant. */
 export async function dealerContribute(
   id: bigint,
   participants: bigint[],
@@ -97,8 +86,6 @@ export async function dealerContribute(
   return { contribution: { id, commitments, pop, shares }, secret: coeffs[0] };
 }
 
-/** A recipient verifies a dealer's contribution: its own dealt share against the Feldman commitments AND the
- *  dealer's PoP. Returns false (a complaint) if either fails. */
 export async function verifyContribution(
   recipientId: bigint,
   contribution: DealerContribution,
@@ -118,17 +105,13 @@ export async function verifyContribution(
 }
 
 export interface DkgResult {
-  /** The group public key C = sum over QUAL of the dealers' constant-term commitments. */
   C: Point;
-  /** Per-member aggregate share c_i (= sum over QUAL of f_m(i)). NEVER logged. */
+  /** Per-member aggregate share c_i; NEVER logged. */
   shares: Map<bigint, bigint>;
-  /** Public verification keys V_i = c_i*Base8. */
   V: Map<bigint, Point>;
-  /** The qualified dealer identifiers. */
   qual: bigint[];
 }
 
-/** Aggregate the QUAL dealers' contributions into the group key + per-member shares/verification keys. */
 export function aggregate(
   participants: bigint[],
   qualContributions: DealerContribution[],

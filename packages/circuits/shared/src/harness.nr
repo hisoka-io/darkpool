@@ -41,7 +41,6 @@ fn audit_mutated_owner_rejected() {
     let _ = spend_at_zero(note, VALID_SCALAR, 0);
 }
 
-// psi is committed in the leaf, so mutating it changes the membership root.
 #[test(should_fail)]
 fn audit_mutated_psi_breaks_membership() {
     let mut note = valid_note();
@@ -64,7 +63,6 @@ fn audit_wrong_note_type_rejected() {
     let _ = spend_at_zero(note, VALID_SCALAR, 0);
 }
 
-// The nullifier keys off this same index, so index malleability would mean two nullifiers per note.
 #[test(should_fail_with = "non-canonical leaf index")]
 fn audit_noncanonical_index_rejected() {
     let _ = spend_at_zero(valid_note(), VALID_SCALAR, 7);
@@ -105,7 +103,6 @@ fn audit_mint_nonzero_conditions_hash_rejected() {
     let _ = mint::mint_self_note(note, 5, compliance());
 }
 
-// eph=456 is odd-y and its CEK yields psi 0x0441d9b1..., so mint_common passes and even-y is what fires.
 #[test(should_fail_with = "self discovery tag must be even-y")]
 fn audit_mint_odd_y_tag_rejected() {
     let mut note = valid_note();

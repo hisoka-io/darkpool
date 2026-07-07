@@ -175,10 +175,8 @@ describe("proveWithdrawMultisig (FROST sign -> witness -> proof -> verify)", () 
       intentHash: intentHash.toBigInt(),
     });
 
-    // (d) FROST-sign m with the 3-of-5 quorum.
     const { R, z } = await frostSign(gpk, account.shares, quorum, m);
 
-    // (e) Prove and self-verify the full multisig withdraw.
     const { verified, publicInputs } = await proveWithdrawMultisig({
       withdrawValue: new Fr(withdrawValue),
       recipient,

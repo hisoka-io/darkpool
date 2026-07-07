@@ -130,11 +130,11 @@ async function frostSign(
   return { R: sig.R, z: sig.z };
 }
 
-// Each op proves a REAL circuit, registers the ACTUAL generated verifier (deployed in the fixture), submits
-// on-chain, and asserts the real effects. The output-leaf ordering is cross-checked by rebuilding the LeanIMT
-// (genesis at index 0, real notes from index 1) and asserting its root equals the contract's -- a drain-
-// critical check that the contract inserts each leaf at the public-input index the layout table pins. One
-// negative per op mutates a single public input and asserts the deployed verifier rejects it.
+// Each op proves a REAL circuit, registers the actual generated verifier (deployed in the fixture), submits
+// on-chain, and asserts the effects. Output-leaf ordering is cross-checked by rebuilding the LeanIMT (genesis
+// at index 0, real notes from index 1) and asserting its root equals the contract's -- a drain-critical check
+// that each leaf lands at the public-input index the layout pins. One negative per op mutates a single input
+// and asserts the deployed verifier rejects it.
 describe("D1 real-proof e2e (STANDARD)", function () {
   this.timeout(600_000);
 
@@ -514,9 +514,8 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
         .connect(alice)
         .withdrawMultisig(proof.proof, mutate(proof.publicInputs, 6)),
     ).to.be.revertedWithCustomError(darkPool, "InvalidRoot");
-    // Recipient [1] is bound only by the proof. The deployed Honk verifier reverts INTERNALLY on a bad public
-    // input (it does not return false), so the contract's InvalidProof wrapper is never reached -- assert a
-    // generic revert (funds cannot be redirected).
+    // Recipient [1] is bound only by the proof; the Honk verifier reverts INTERNALLY (not `return false`) on
+    // a bad input, so InvalidProof is never reached -- assert a generic revert (funds cannot be redirected).
     await expect(
       darkPool
         .connect(alice)

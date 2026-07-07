@@ -6,10 +6,6 @@ use crate::owner;
 use ecdh::{bjj::{BJJ, check_subgroup}, ECDHTrait, Point};
 use edwards::{bjj::BabyJubJub, CurveTrait};
 
-// Shared spend core called by BOTH the standard and multisig paths: version + asset checks, membership
-// folded in (so a spend cannot omit it), and the canonical index feeding the nullifier (one spendable index
-// per note). computed_root is returned as a public output the contract range-checks against its known roots.
-// Extracting it keeps the conserve/asset/membership/nullifier tail from being hand-copied per path.
 fn spend_membership_nullifier(
     note: Note,
     leaf_index: Field,
@@ -23,9 +19,6 @@ fn spend_membership_nullifier(
     (nf, computed_root)
 }
 
-// Consume a STANDARD note: the spender proves the scalar whose pubkey commits owner, then the shared core
-// folds membership + nullifier. The note_type pin plus its commitment in the leaf stop a MULTISIG note being
-// routed through a standard verifier or vice versa.
 pub fn verify_spend(
     note: Note,
     spend_scalar: Field,
@@ -39,13 +32,8 @@ pub fn verify_spend(
     spend_membership_nullifier(note, leaf_index, path)
 }
 
-// OPEN a MULTISIG note for spending: validate the account key gpk (subgroup + non-identity), bind the note
-// owner to it, pin note_type, and fold membership + the canonical nullifier. This gadget does NOT AUTHORIZE
-// the spend -- owner == Poseidon2(gpk) is public-computable, so it only proves "a well-formed MULTISIG note
-// owned by the gpk supplied." The CALLER MUST verify a FROST quorum signature over the op message m (which
-// binds this nullifier + root) via frost::verify_frost_spend; the message depends on this gadget's outputs
-// (and join binds two nullifiers under one message), so the FROST check cannot be folded in here. Named
-// `open_*` not `verify_*` precisely so no caller mistakes membership-opening for authorization.
+// Does NOT authorize the spend: owner == Poseidon2(gpk) is public-computable, so the caller MUST verify a
+// FROST quorum over m via frost::verify_frost_spend (named open_ not verify_ to signal this).
 pub fn open_multisig_note(
     note: Note,
     gpk: Point,

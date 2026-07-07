@@ -12,8 +12,7 @@ export interface TransferMultisigInputs {
   frostR: Point<bigint>;
   frostZ: Fr;
 
-  // The recipient address in_pub_j is the single owner + view + discovery key. Paying a MULTISIG recipient is
-  // a deferred feature.
+  // recipientInPub is the single owner+view+discovery key; paying a MULTISIG recipient is deferred.
   recipientInPub: Point<bigint>;
 
   oldNote: NoteInput;

@@ -1,7 +1,6 @@
-// Single source of truth for the circuit roster: crate name -> generated Solidity verifier file. Consumed by
-// compile_circuit.js and generate_verifier.js so a circuit can never be compiled without its verifier
-// generated (or vice versa) via drifting hand-maintained lists. Keep in step with the circuits/Nargo.toml
-// workspace members and the contract's circuit-id constants (CIRCUIT_* in DarkPool.sol).
+// Single source of truth for the circuit roster (crate name -> generated verifier), consumed by
+// compile_circuit.js and generate_verifier.js so the two lists cannot drift. Keep in step with
+// circuits/Nargo.toml workspace members and the CIRCUIT_* ids in DarkPool.sol.
 export const CIRCUITS = [
   { name: "deposit", verifier: "DepositVerifier.sol" },
   { name: "withdraw", verifier: "WithdrawVerifier.sol" },

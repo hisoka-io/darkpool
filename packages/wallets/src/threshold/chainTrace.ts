@@ -1,16 +1,6 @@
-// Off-chain chain-tracing overlay for threshold compliance. Once the committee can threshold-decrypt any
-// note's CEK (see thresholdCek), the full spend graph is recoverable in BOTH directions with ZERO circuit or
-// contract change: the trace reads only public per-leaf data (eph_pub, ciphertext) through a caller-supplied
-// ChainState, plus a decrypt hook that is opaque to the trace -- so the same code runs for a single-key holder
-// and a (t,n) committee.
-//
-//   forward:  decrypt -> cek -> psi = Poseidon2([cek, PSI_DOMAIN]) -> nullifier = Poseidon2([psi, leaf_index])
-//             -> if spent, expand into the leaves that spend created (childrenOfSpend).
-//   backward: decrypt -> read the plaintext parents pointer -> unpack the consumed leaf indexes -> expand into
-//             each parent until parents == 0 (a deposit / public-claim root).
-//
-// Derivations mirror shared/src/note_nullifier.nr and note.nr EXACTLY (parity is load-bearing); reuse the
-// wallet mirrors so a formula change in one place is a compile break here.
+// Off-chain spend-graph tracer over threshold-decryptable notes; reads only public per-leaf data via a
+// caller-supplied ChainState + opaque decrypt hook. Derivations reuse the wallet nullifier/note mirrors, which
+// track shared/src/note_nullifier.nr and note.nr.
 
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "../tss/bjj.js";
@@ -18,19 +8,16 @@ import { computePsi, computeNullifier } from "../note/nullifier.js";
 import { unpackParents } from "../note/note.js";
 import { DEM_FIELDS } from "../crypto/dem.js";
 
-// parents is the last of the 7 transmitted DEM fields, order [note_version, asset_id, note_type,
-// conditions_hash, value, owner, parents]; psi is re-derived from CEK, never transmitted.
+// parents is the last DEM field; psi is re-derived from CEK, never transmitted.
 const PARENTS_FIELD_INDEX = DEM_FIELDS - 1;
 
-/** Public per-leaf data an indexer exposes; the trace never needs a private witness. */
 export interface LeafData {
   ephPub: Point;
   ciphertext: Fr[];
   leaf: Fr;
 }
 
-/** Read-only chain view the caller provides, keeping the trace off any live node. `childrenOfSpend` returns
- *  the leaf indexes created by the transaction that spent `nf` (its output notes). */
+/** `childrenOfSpend` returns the leaf indexes created by the tx that spent `nf`. */
 export interface ChainState {
   getLeaf(index: number): LeafData | undefined;
   nextLeafIndex(): number;
@@ -38,21 +25,17 @@ export interface ChainState {
   childrenOfSpend(nf: Fr): number[];
 }
 
-/** Decrypt hook: single-key or threshold, opaque to the trace. Returns the DEM plaintext fields (canonical
- *  7-field order) plus the recovered CEK. */
 export type DecryptNote = (
   ephPub: Point,
   ciphertext: Fr[],
 ) => Promise<{ fields: Fr[]; cek: Fr }>;
 
-/** Directed spend graph. An edge [p, c] means leaf p was consumed to create leaf c (value flows p -> c);
- *  both traces use this orientation, so a forward and a backward result compose directly. */
+/** Edge [p, c] means leaf p was consumed to create leaf c. */
 export interface SpendGraph {
   nodes: number[];
   edges: [number, number][];
 }
 
-// One reachable leaf plus the edges it contributes; `neighbor` is the leaf to expand into next.
 interface Expansion {
   neighbor: number;
   edge: [number, number];
@@ -91,9 +74,7 @@ function assertInRange(index: number, chain: ChainState): void {
   }
 }
 
-// Iterative worklist keyed by a visited-set: guarantees termination even if an indexer reports a cyclic
-// spend graph, and avoids deep-recursion stack overflow on long chains. Every edge is recorded before the
-// visited check, so an edge into an already-seen leaf is still captured exactly once (GraphBuilder dedupes).
+// Visited-set worklist: terminates even on a cyclic spend graph.
 async function traverse(
   start: number,
   chain: ChainState,
@@ -117,19 +98,14 @@ async function traverse(
   return graph.build();
 }
 
-// Split a packed parents pointer into the leaf indexes actually consumed. slot1 (high 32 bits) == 0 marks a
-// single-input spend (transfer/split/withdraw pad the high slot with 0), so only slot0 is real; a join always
-// carries slot1 = index_b >= 1 (canonical index_a < index_b), so a nonzero slot1 means both slots are real.
-// The caller handles packed == 0 (a deposit) before reaching here, so slot0 is guaranteed nonzero when
-// slot1 == 0.
+// slot1 (high 32 bits) == 0 marks a single-input spend (only slot0 real); nonzero slot1 means both are real
+// (a join, canonical index_a < index_b). The caller handles packed == 0 (a deposit) first.
 function consumedLeaves(packed: Fr): number[] {
   const [p0, p1] = unpackParents(packed);
   if (p1.leafIndex === 0) return [p0.leafIndex];
   return [p0.leafIndex, p1.leafIndex];
 }
 
-/** Forward trace: from `startLeafIndex`, follow each note's nullifier to the leaves its spend created and
- *  recurse, yielding the descendant spend graph. Unknown or unspent leaves are graph frontiers. */
 export async function forwardTrace(
   startLeafIndex: number,
   chain: ChainState,
@@ -152,9 +128,6 @@ export async function forwardTrace(
   return traverse(startLeafIndex, chain, step);
 }
 
-/** Backward trace: from `startLeafIndex`, read the note's plaintext parents pointer, unpack the consumed
- *  leaf indexes, and recurse until a note with parents == 0 (a deposit / public-claim root), yielding the
- *  ancestor lineage graph. */
 export async function backwardTrace(
   startLeafIndex: number,
   chain: ChainState,

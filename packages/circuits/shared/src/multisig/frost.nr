@@ -13,15 +13,11 @@ pub fn verify_frost_spend(gpk: Point, r: Point, z: Field, m: Field) {
     r_ed.assert_is_on_curve();
     assert(!r_ed.is_zero(), "R must not be the identity");
 
-    assert_subgroup_scalar(z); // z != 0 and z < SUBORDER
+    assert_subgroup_scalar(z);
 
-    // Challenge, truncated to 248 bits. CRITICAL: ScalarField::from's N==64 path (noir-edwards v0.2.5
-    // scalar_field.nr) does NOT constrain the wnaf slices to the input -- only the N<64 path asserts
-    // acc - skew == x. Feeding a full-width challenge via ScalarField<64> would leave e_scalar a FREE
-    // witness (a prover picks any z, e_scalar', R = z*Base8 - e_scalar'*gpk and forges the spend). Taking
-    // the low 248 bits yields a canonical subgroup scalar (< SUBORDER) that ScalarField<63>::from binds
-    // soundly; gpk being prime-order makes e*gpk == (e mod SUBORDER)*gpk, and 248 bits is ample EUF-CMA
-    // entropy. The off-chain signer truncates identically.
+    // FOOTGUN: challenge truncated to low 248 bits. noir-edwards v0.2.5 ScalarField::from's N==64 path leaves
+    // the wnaf slices UNCONSTRAINED (only N<64 asserts acc - skew == x), so full-width ScalarField<64> makes
+    // e_scalar a free witness (prover forges R = z*Base8 - e'*gpk); ScalarField<63> over 248 bits binds.
     let e_full = Poseidon2::hash([SCHNORR_DOMAIN, r.x, r.y, gpk.x, gpk.y, m], 6);
     let e_bytes: [u8; 32] = e_full.to_le_bytes();
     let mut e: Field = 0;
@@ -32,22 +28,17 @@ pub fn verify_frost_spend(gpk: Point, r: Point, z: Field, m: Field) {
     }
     let e_scalar: ScalarField<63> = ScalarField::from(e);
 
-    let z_base = BJJ::new(z).derive_public_key(); // z*Base8
+    let z_base = BJJ::new(z).derive_public_key();
     let z_base_ed = BabyJubJub::new(z_base.x, z_base.y);
 
-    let rhs = r_ed + gpk_ed.mul(e_scalar); // R + e*gpk
-    let diff = z_base_ed - rhs; // z*Base8 - (R + e*gpk)
-    let cofactored = diff.dbl().dbl().dbl(); // 8 * diff
+    let rhs = r_ed + gpk_ed.mul(e_scalar);
+    let diff = z_base_ed - rhs;
+    let cofactored = diff.dbl().dbl().dbl(); // x8: clear the cofactor before the subgroup identity check
     assert(cofactored.is_zero(), "FROST signature invalid");
 }
 
-// The per-operation FROST spend message m, recomputed IN-CIRCUIT from the constrained public IO and signed
-// OFF-CHAIN by the quorum. A distinct ACTION tag per op stops cross-op replay; each op binds exactly the
-// public values defining its spend that are not already committed inside an output leaf. The membership root
-// is chain-specific (the tree's genesis slot0 seeds block.chainid), so binding root makes a signature
-// non-replayable cross-chain with no explicit chain_id field. WITHDRAW folds public_out + recipient +
-// intent_hash (paid in the clear, not in any note); transfer/split/join bind their output leaf(s), which
-// commit the recipient/values and (via psi) the ephemeral. Mirrored byte-for-byte by the TS FROST signer.
+// Distinct ACTION tag per op stops cross-op replay; binding root (chain-specific via genesis slot0 seeding
+// block.chainid) makes m non-replayable cross-chain. Mirrored byte-for-byte by the TS FROST signer.
 
 pub fn msg_withdraw(
     root: Field,
@@ -103,10 +94,7 @@ pub fn msg_join(
     )
 }
 
-// (R,z)-verify parity KAT: a REAL 3-of-5 FROST signature produced by the TS signer (gen-frost-kat) over
-// BabyJubJub+Poseidon2. The circuit accepting it and rejecting every one-field mutation proves the off-chain
-// signer and this verifier agree byte-for-byte on the challenge encoding, scalar widths, and the cofactored
-// equation. If the TS FROST hashing drifts, kat_frost_verify_accepts breaks.
+// Real 3-of-5 FROST signature from the TS signer (gen-frost-kat); byte-for-byte verify parity.
 fn kat_gpk() -> Point {
     Point {
         x: 0x2546ab52faee9ab8ead1ad868567473b9757c6456c137274b12a5c51330d764d,
@@ -137,7 +125,6 @@ fn audit_frost_reject_mutated_message() {
     verify_frost_spend(kat_gpk(), kat_r(), KAT_Z, KAT_M + 1);
 }
 
-// A different (but valid subgroup) key: the challenge binds gpk, so the verify equation no longer holds.
 #[test(should_fail_with = "FROST signature invalid")]
 fn audit_frost_reject_substituted_gpk() {
     verify_frost_spend(kat_r(), kat_r(), KAT_Z, KAT_M);
@@ -148,8 +135,7 @@ fn audit_frost_reject_zero_z() {
     verify_frost_spend(kat_gpk(), kat_r(), 0, KAT_M);
 }
 
-// TS<->Noir parity lock on the per-op FROST message layout (values from the wallets gen-m-kat generator over
-// the same fixed inputs). A field-order or arity drift between message.ts and these helpers breaks it.
+// TS<->Noir parity lock on the FROST message layout (wallets gen-m-kat).
 #[test]
 fn kat_msg_parity() {
     assert(

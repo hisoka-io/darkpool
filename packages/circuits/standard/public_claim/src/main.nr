@@ -4,9 +4,7 @@ use ::shared::{assert_subgroup_scalar, mint};
 use ::shared::note::Note;
 use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y};
 
-// Claim a public memo into a shielded self note. The claimer proves the memo's owner key and mints note_out
-// to an owner of their choice (inside the encrypted note). The note owner is not a public value, so the
-// claim does not leak the destination.
+// note_out.owner is a private witness, so the claim does not leak its destination.
 fn main(
     memo_id: pub Field,
     compliance_pubkey_x: pub Field,
@@ -105,7 +103,6 @@ fn audit_reject_wrong_recipient_key() {
     );
 }
 
-// The minted note must carry exactly the public memo value: an inflated note_out is rejected.
 #[test(should_fail_with = "claim value mismatch")]
 fn audit_reject_claim_value_inflation() {
     let mut inflated = note_out();
@@ -127,7 +124,6 @@ fn audit_reject_claim_value_inflation() {
     );
 }
 
-// A public claim has no consumed shielded parent, so a nonzero output parents is rejected.
 #[test(should_fail_with = "claim output parents must be zero")]
 fn audit_reject_nonzero_parents() {
     let mut note = note_out();
@@ -149,7 +145,6 @@ fn audit_reject_nonzero_parents() {
     );
 }
 
-// A memo_id that does not open to the claimed (value, asset, owner, salt) tuple is rejected.
 #[test(should_fail_with = "memo id mismatch")]
 fn audit_reject_memo_id_mismatch() {
     let _ = main(

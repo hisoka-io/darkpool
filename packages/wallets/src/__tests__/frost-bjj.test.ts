@@ -53,7 +53,6 @@ async function frostSign(
       msg,
       commitments,
     );
-    // Coordinator verifies each partial (identifiable abort).
     const ok = await verifySignatureShare(
       cs,
       id,
@@ -78,8 +77,7 @@ describe("FROST over BabyJubJub+Poseidon2: 2-round sign", () => {
     const sig = await frostSign([1n, 2n, 3n], shares, gpk, m);
     expect(await verify(cs, gpk, encodeMessage(m), sig)).toBe(true);
 
-    // The sig's challenge is exactly what the circuit recomputes: Poseidon2 over the x,y coords, truncated
-    // to the low 248 bits (the load-bearing soundness truncation, matching verify_frost_spend).
+    // The sig's challenge is what the circuit recomputes: low 248 bits of Poseidon2, matching verify_frost_spend.
     const eCircuit =
       (await challengeScalar([
         SCHNORR_DOMAIN,
@@ -114,7 +112,6 @@ describe("FROST over BabyJubJub+Poseidon2: 2-round sign", () => {
   it("a sub-threshold (t-1) quorum cannot produce a verifying signature", async () => {
     const { C: gpk, shares } = await runDkg(5, 3, CONTEXT);
     const m = 999n;
-    // Only 2 of the required 3: the Lagrange set is wrong, so the aggregate does not open R + c*gpk.
     const sig = await frostSign([1n, 2n], shares, gpk, m);
     expect(await verify(cs, gpk, encodeMessage(m), sig)).toBe(false);
   });
@@ -131,7 +128,6 @@ describe("FROST over BabyJubJub+Poseidon2: 2-round sign", () => {
       rounds.set(id, await commit(cs, id, shares.get(id)!, rand32(), rand32()));
     const commitments = quorum.map((id) => rounds.get(id)!.commitment);
 
-    // Honest partials: each z_i is bound to the real group commitment via its rho_i.
     const zShares: bigint[] = [];
     for (const id of quorum)
       zShares.push(
@@ -151,7 +147,6 @@ describe("FROST over BabyJubJub+Poseidon2: 2-round sign", () => {
       groupCommitment(cs, commitments, rhos),
       zShares,
     );
-    // Baseline: with the correctly-bound R, the aggregate verifies.
     expect(
       await verify(cs, gpk, msg, {
         R: groupCommitment(cs, commitments, rhos),
@@ -159,9 +154,8 @@ describe("FROST over BabyJubJub+Poseidon2: 2-round sign", () => {
       }),
     ).toBe(true);
 
-    // Drop the defense: reassemble R with rho_i = 1 (no per-participant binding). R' = sum_i (D_i + E_i) no
-    // longer matches the honestly-bound partials, so verify rejects. The per-participant binding factor (RFC
-    // 9591 section 4.4) is exactly what blocks ROS/Wagner parallel-session (drive-by) forgery of the aggregate.
+    // Reassemble R with rho_i = 1 (no per-participant binding): the honestly-bound partials no longer match,
+    // so verify rejects. The rho_i binding (RFC 9591 4.4) is what blocks ROS/Wagner parallel-session forgery.
     const unitRhos = new Map<bigint, bigint>(quorum.map((id) => [id, 1n]));
     const unboundR = groupCommitment(cs, commitments, unitRhos);
     expect(await verify(cs, gpk, msg, { R: unboundR, z })).toBe(false);
@@ -180,9 +174,7 @@ describe("FROST over BabyJubJub+Poseidon2: 2-round sign", () => {
     const commitments = quorum.map((id) => rounds.get(id)!.commitment);
 
     const handle = rounds.get(1n)!.nonces;
-    // First sign consumes the handle.
     await signShare(cs, 1n, handle, shares.get(1n)!, gpk, msg, commitments);
-    // A replay (crash-recover / double-submit) with the SAME handle must throw before leaking sk*lambda.
     await expect(
       signShare(cs, 1n, handle, shares.get(1n)!, gpk, msg, commitments),
     ).rejects.toThrow(/consumed|reuse/i);
@@ -200,8 +192,6 @@ describe("FROST over BabyJubJub+Poseidon2: 2-round sign", () => {
       rounds.set(id, await commit(cs, id, shares.get(id)!, rand32(), rand32()));
     const commitments = quorum.map((id) => rounds.get(id)!.commitment);
 
-    // The bare {d,e} path (fixed-randomness KAT) is not consume-tracked: two calls with the SAME nonces
-    // return the same z and never throw. Production takes the handle path (asserted consume-once above).
     const bare = { d: rounds.get(1n)!.nonces.d, e: rounds.get(1n)!.nonces.e };
     const z1 = await signShareUnchecked(
       cs,

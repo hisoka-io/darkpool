@@ -1,9 +1,5 @@
-// Focused note_type=MULTISIG reader. Given an account VIEW ({ v, gpk, C, member ids }) it precomputes the
-// discovery tags -- the STATIC incoming V.x plus each member's partitioned self/change eph_pub.x window -- and
-// turns a NewNote/NewPrivateMemo event into a MultisigNoteView (decrypt, rebuild the leaf, verify, derive the
-// nullifier). This is the multisig analog of NoteProcessor.recover; it is deliberately SELF-CONTAINED because
-// a MULTISIG note has no single spend scalar (spend is a FROST quorum), so it does not fit the WalletNote
-// record. Integrating it into the shared ScanEngine/KeyRepository is a follow-up (see the module doc below).
+// note_type=MULTISIG note reader. Self-contained: a MULTISIG note has no single spend scalar (spend is a
+// FROST quorum), so it does not fit the WalletNote record.
 
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "../tss/bjj.js";
@@ -22,17 +18,13 @@ import {
   multisigAddress,
 } from "./multisigNote.js";
 
-// asset ids are ERC20 addresses; anything at or above 2^160 cannot be a real asset (mirrors NoteProcessor).
+// asset ids are ERC20 addresses; >= 2^160 cannot be a real asset (mirrors NoteProcessor).
 const ASSET_MODULUS = 1n << 160n;
 
-// Per-member even-y self-tag lookahead. Bounds the precompute at n*window tags (single-shot Raven).
 const DEFAULT_SELF_WINDOW = 100;
 
-// Guards the even-y roll from spinning unboundedly while collecting the window.
 const MAX_SELF_ROLL = 1_000;
 
-/** A recovered MULTISIG note. It carries the coordinating member for a self/change output (internal
- *  accountability); an incoming note has none. Spending needs the t-of-n FROST quorum, not a scalar. */
 export interface MultisigNoteView {
   note: Note;
   commitment: Fr;
@@ -46,13 +38,9 @@ export interface MultisigNoteView {
 export interface MultisigScanConfig {
   /** Shared viewing scalar (secret; never log). */
   v: Fr;
-  /** Group spend key (public). */
   gpk: Point;
-  /** Compliance point C (public). */
   compliancePk: Point;
-  /** The account member identifiers, for the partitioned self-tag precompute. */
   memberIds: bigint[];
-  /** Per-member even-y self-tag lookahead (default 100). */
   selfWindow?: number;
 }
 
@@ -62,7 +50,7 @@ interface SelfSource {
   eph: Fr;
 }
 
-/** Reader for one multisig account's notes. Build via `create` (the tag precompute is async). */
+/** Build via `create` (the tag precompute is async). */
 export class MultisigScanner {
   readonly #v: Fr;
   readonly #compliancePk: Point;
@@ -106,10 +94,7 @@ export class MultisigScanner {
     );
   }
 
-  /** Decrypt + verify one event into a MULTISIG note, or null if it is not this account's. A malformed event
-   *  (attacker-crafted eph_pub / ciphertext) is SKIPPED (returns null) rather than throwing, so one poisoned
-   *  on-chain event cannot halt a whole scan -- mirrors the base ScanEngine/NoteProcessor per-event isolation.
-   *  Only a trace id (block + leaf index) is logged on a skip; never a key, cek, or plaintext. */
+  /** A malformed event is SKIPPED (null), not thrown; a skip logs only a trace id, never a key/cek/plaintext. */
   async readNote(event: UnprocessedEvent): Promise<MultisigNoteView | null> {
     try {
       if (event.type === "NEW_MEMO") return await this.#readIncoming(event);
@@ -171,8 +156,6 @@ export class MultisigScanner {
     const rebuilt = await computeLeaf(note);
     if (!rebuilt.equals(commitment)) return null;
 
-    // A MULTISIG note owned by THIS account: type pinned to MULTISIG and owner pinned to Poseidon2(gpk), so a
-    // tag collision or a foreign note never enters the account's set.
     if (note.noteType.toBigInt() !== NOTE_TYPE_MULTISIG) return null;
     if (!note.owner.equals(this.#expectedOwner)) return null;
     if (note.assetId.toBigInt() >= ASSET_MODULUS) return null;
@@ -191,8 +174,6 @@ export class MultisigScanner {
   }
 }
 
-/** Sender-side event payloads a caller emits on-chain, so a test (or an integration) can round-trip a built
- *  note through `readNote` without a live contract. */
 export function selfNoteEvent(args: {
   leafIndex: bigint;
   note: Note;

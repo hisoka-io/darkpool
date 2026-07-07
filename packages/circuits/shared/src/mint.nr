@@ -1,9 +1,5 @@
-//! Minting: bind one note plaintext to its ciphertext, leaf, and psi under a single in-circuit CEK =
-//! (eph*C).x. The leaf commits the PLAINTEXT, so psi == Poseidon2(CEK, PSI_DOMAIN) is asserted against the
-//! committed field: a mis-derived psi both locks the note (readers re-derive psi from CEK) and breaks
-//! compliance tracing. note_type + owner are sender-chosen witnesses (a STANDARD or a MULTISIG output); the
-//! per-output helpers pin type where authority demands it (self/change to the spender, memo to the sender's
-//! chosen recipient key).
+//! psi == Poseidon2(CEK, PSI_DOMAIN) asserted against the committed leaf field, so a mis-derived psi locks
+//! the note and breaks compliance tracing.
 
 use crate::assert_subgroup_scalar;
 use crate::dem;
@@ -18,22 +14,18 @@ use crate::owner;
 use ecdh::{bjj::{BJJ, check_subgroup}, ECDHTrait, Point};
 use edwards::{bjj::BabyJubJub, CurveTrait};
 
-// Subgroup + non-identity check on C so a low-order key cannot leak a compliance share via the cofactor.
 pub fn assert_valid_compliance_pk(c: Point) {
     let c_ed = BabyJubJub::new(c.x, c.y);
     assert(check_subgroup(c_ed), "compliance key not in prime-order subgroup");
     assert(!c_ed.is_zero(), "compliance key must not be the identity");
 }
 
-// An attacker-supplied recipient point (owner key / viewing key): reject off-curve, identity, and low-order
-// so no ECDH scalar leaks via the cofactor and no owner commits to an unspendable point.
 fn assert_valid_recipient_key(p: Point) {
     let ed = BabyJubJub::new(p.x, p.y);
     assert(check_subgroup(ed), "recipient key not in prime-order subgroup");
     assert(!ed.is_zero(), "recipient key must not be the identity");
 }
 
-// The 7 transmitted DEM fields, fixed order k=0..6 (leaf's stable-first order minus the never-sent psi).
 fn transmitted_fields(note: Note) -> [Field; dem::DEM_FIELDS] {
     [
         note.note_version,
@@ -46,8 +38,6 @@ fn transmitted_fields(note: Note) -> [Field; dem::DEM_FIELDS] {
     ]
 }
 
-// Common mint core: note_type is a witness constrained to the enabled set (never pinned here), owner is
-// non-zero, psi is bound to the in-circuit CEK, and the plaintext is committed to the leaf and encrypted.
 fn mint_common(
     note: Note,
     eph: Field,
@@ -71,13 +61,10 @@ fn mint_common(
 
 pub struct SelfMint {
     pub leaf: Field,
-    // eph_pub.x IS the self discovery tag (fresh per note, even-y for an injective Raven key).
     pub eph_pub: Point,
     pub ciphertext: [Field; dem::DEM_FIELDS],
 }
 
-// Self / change output owned by a STANDARD spender: type pinned to the spender's own so a spend cannot mint
-// its change to a different authority class. The creator controls eph, so there is no wrap; tag = eph_pub.x.
 pub fn mint_self_note(note: Note, eph: Field, compliance_pk: Point) -> SelfMint {
     assert(note.note_type == NOTE_TYPE_STANDARD, "self note must be STANDARD");
     let (leaf, eph_pub, _cek, ciphertext) = mint_common(note, eph, compliance_pk);
@@ -85,14 +72,9 @@ pub fn mint_self_note(note: Note, eph: Field, compliance_pk: Point) -> SelfMint 
     SelfMint { leaf, eph_pub, ciphertext }
 }
 
-// Self / change output owned by a FROST account. BOTH note_type == MULTISIG AND owner == Poseidon2(gpk) are
-// pinned to the SPENDING account (the same gpk open_multisig_note bound the consumed input to), so a malicious
-// coordinator cannot redirect the change to a solo key it could later spend alone via a 1-of-1 Schnorr,
-// draining the group's residual past the t-of-n quorum (theft-from-group). The FROST message binds only the
-// output LEAF, not the owner separately, so this in-circuit owner pin is what actually stops the redirect --
-// members do not have to inspect the leaf preimage before signing. Identical KEM/DEM/discovery to a standard
-// self note; the coordinator derives eph from the shared viewing key v (member-partitioned) so every member
-// re-derives CEK = (eph*C).x and reads it.
+// owner == Poseidon2(gpk) pins the change to the spending account: without it a coordinator could redirect
+// change to a solo key and drain the group's residual past the quorum (theft-from-group). The FROST message
+// binds only the output leaf, so this in-circuit owner pin is the only thing that stops the redirect.
 pub fn mint_self_note_multisig(
     note: Note,
     eph: Field,
@@ -109,9 +91,6 @@ pub fn mint_self_note_multisig(
     SelfMint { leaf, eph_pub, ciphertext }
 }
 
-// Deposit output: a pure self-mint funding either a STANDARD or a MULTISIG account. note_type + owner are
-// witnesses (validated in mint_common); no owner well-formedness beyond owner != 0, matching the permissive
-// standard deposit (a malformed owner only self-harms the depositor). Anyone may fund any account.
 pub fn mint_deposit(note: Note, eph: Field, compliance_pk: Point) -> SelfMint {
     let (leaf, eph_pub, _cek, ciphertext) = mint_common(note, eph, compliance_pk);
     assert(even_y::is_even_y(eph_pub), "deposit discovery tag must be even-y");
@@ -121,19 +100,13 @@ pub fn mint_deposit(note: Note, eph: Field, compliance_pk: Point) -> SelfMint {
 pub struct IncomingMint {
     pub leaf: Field,
     pub eph_pub: Point,
-    // in_pub.x: the incoming discovery tag (static per recipient address, even-y).
     pub tag: Field,
     pub cek_wrap: Field,
     pub ciphertext: [Field; dem::DEM_FIELDS],
 }
 
-// Incoming memo to a recipient address in_pub_j. Under Option A the address IS the spend + view + discovery
-// key (one key), so owner, the cek_wrap target, and the tag ALL bind to in_pub_j. Binding the owner therefore
-// also binds the discovery/wrap key -- a minter cannot produce an owned-but-undiscoverable memo (griefing
-// lock). The memo is PINNED to STANDARD: sending to a MULTISIG account (owner = Poseidon2(gpk) != the viewing
-// key V) needs owner/view decoupled and carries the same unproven-V gap as group public-claim, so it is a
-// DEFERRED feature -- the note_type pin makes a degenerate MULTISIG memo (owner==view==tag==gpk, unspendable)
-// unmintable here rather than merely undiscoverable.
+// owner/wrap/tag all bind in_pub_j, so no owned-but-undiscoverable memo (griefing lock). Pinned STANDARD:
+// a MULTISIG memo needs owner/view decoupled (deferred feature).
 pub fn mint_incoming_note(
     note: Note,
     eph: Field,

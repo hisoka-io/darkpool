@@ -3,8 +3,7 @@ import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { deployDarkPoolFixture } from "../helpers/fixtures";
 
-// Multisig circuit ids after the deposit-unification + chain_id->slot0 rebuild. There is no
-// deposit_multisig id (deposit is unified); multisig spends occupy 6-9.
+// No deposit_multisig id (deposit is unified); multisig spends occupy ids 6-9.
 const CIRCUIT_WITHDRAW_MULTISIG = 6;
 const CIRCUIT_TRANSFER_MULTISIG = 7;
 const CIRCUIT_SPLIT_MULTISIG = 8;
@@ -37,8 +36,7 @@ describe("DarkPool Behavior: Multisig Routing", function () {
     ).to.be.revertedWithCustomError(darkPool, "UnknownCircuitId");
   });
 
-  // The multisig entrypoints share their decode with the standard twins; only the length gate and the
-  // verifier id differ. A wrong length reverts before the verifier is reached.
+  // Multisig entrypoints share the standard twins' decode; a wrong length reverts before the verifier.
   describe("InvalidInputsLength (multisig lengths match their standard twins)", function () {
     it("withdrawMultisig requires 18 inputs", async function () {
       const { darkPool } = await loadFixture(deployDarkPoolFixture);

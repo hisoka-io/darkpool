@@ -104,7 +104,6 @@ describe("Behavior: MockMultisigAdaptor (FROST withdraw -> public-transfer)", fu
       .pullAndForward(proof.proof, proof.publicInputs, ownerX, ownerY, salt);
     const receipt = await tx.wait();
 
-    // Adaptor emitted its forward, DarkPool posted the repay memo, the spend nullifier is burned.
     await expect(tx)
       .to.emit(adaptor, "MultisigWithdrawForwarded")
       .withArgs(tokenAddr, withdrawValue, ownerX, ownerY, salt);
@@ -115,7 +114,6 @@ describe("Behavior: MockMultisigAdaptor (FROST withdraw -> public-transfer)", fu
       true,
     );
 
-    // The adaptor received exactly `withdrawValue` and forwarded all of it: zero residual, memo registered.
     const memoId = pluckMemoId(darkPool.interface, receipt!.logs);
     expect(await darkPool.isValidPublicMemo(memoId)).to.equal(true);
     expect(await token.balanceOf(adaptorAddr)).to.equal(0n);

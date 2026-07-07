@@ -3,10 +3,6 @@ use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
 use ::shared::note::{assert_parents_bound, Note};
 use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, fixture_note};
 
-// Spend one note, mint the incoming memo note to the recipient (owner + wrap + discovery tag all bind to the
-// recipient address in_pub_j, so the memo cannot be minted owned-but-undiscoverable) plus the self change
-// note. recipient_in_pub is PRIVATE; only its x (the discovery tag) is published. Root is a public output;
-// its chain-specific genesis is the cross-chain-replay defense.
 fn main(
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
@@ -83,8 +79,7 @@ fn recipient_in_pub() -> Point {
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 
-// KAT: byte-identical to the TS/Solidity golden vector (memo eph 0x378 to in_key_j=4, change eph 9). A
-// STANDARD recipient passes owner == view == in_pub_j.
+// KAT: byte-identical to the TS/Solidity golden vector (memo eph 0x378 to in_key_j=4, change eph 9).
 #[test]
 fn test_transfer_kat() {
     let (nf, root, memo_leaf, memo_x, memo_y, tag, cek_wrap, memo_ct, ch_leaf, ch_x, ch_y, ch_ct) = main(
@@ -133,8 +128,6 @@ fn audit_reject_memo_owner_mismatch() {
     );
 }
 
-// The incoming memo is pinned to STANDARD (send-to-multisig is deferred); a MULTISIG-typed memo is rejected
-// so a transfer cannot mint a degenerate unspendable MULTISIG memo.
 #[test(should_fail_with = "incoming memo must be STANDARD")]
 fn audit_reject_multisig_memo() {
     let mut memo = memo_note();
@@ -154,7 +147,7 @@ fn audit_reject_multisig_memo() {
     );
 }
 
-// Distinct ephemerals per output: reusing one eph across memo and change reuses CEK (two-time pad).
+// Reusing one eph across outputs reuses the CEK (two-time pad).
 #[test(should_fail_with = "ephemerals must be distinct")]
 fn audit_reject_reused_ephemeral() {
     let _ = main(
@@ -172,8 +165,6 @@ fn audit_reject_reused_ephemeral() {
     );
 }
 
-// Both output notes bind their parents to the spent index (0 here); a memo that forges a nonzero parent it
-// never consumed is rejected.
 #[test(should_fail_with = "output parents not bound to consumed inputs")]
 fn audit_reject_forged_memo_parents() {
     let mut memo = memo_note();
@@ -231,8 +222,6 @@ fn audit_reject_change_asset_mismatch() {
     );
 }
 
-// A spend whose membership path does not open to a real leaf emits a root the contract will not accept:
-// the emitted root must diverge from the single-leaf KAT root.
 #[test(should_fail)]
 fn audit_reject_non_membership() {
     let mut path = [0; TREE_DEPTH];

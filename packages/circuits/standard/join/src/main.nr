@@ -3,8 +3,6 @@ use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
 use ::shared::note::{assert_parents_bound, Note};
 use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y};
 
-// Spend two notes (a spend scalar each) into one self note. Both inputs must share a root and yield
-// distinct nullifiers (no self-join). Internal consolidation: no value leaves the pool, no asset output.
 fn main(
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
@@ -26,8 +24,7 @@ fn main(
     let (nullifier_b, root_b) = verify_spend(note_b, spend_scalar_b, index_b, path_b);
     assert(root_a == root_b, "inputs must share a root");
     assert(nullifier_a != nullifier_b, "cannot join a note with itself");
-    // Canonical input order: pack_parents is positional, so index_a < index_b pins one note_out.parents
-    // commitment per consumed set and defeats a prover reordering the two inputs.
+    // pack_parents is positional, so index_a < index_b pins one canonical packing per consumed set.
     assert(index_a.lt(index_b), "join inputs must be strictly index-ordered");
 
     assert(note_a.asset_id == note_b.asset_id, "input asset mismatch");
@@ -102,8 +99,6 @@ fn test_join_kat() {
     assert(ct[0] == 0x059d4801f52074b83e793e4c9461d1686c52340eb324ae906ee4392535da6a57);
 }
 
-// The output binds its parents to the two spent indexes (0 and 1); a forgery that zeroes them to fake a
-// fresh deposit is rejected.
 #[test(should_fail_with = "output parents not bound to consumed inputs")]
 fn audit_reject_forged_output_parents() {
     let note_a = note(
@@ -172,7 +167,6 @@ fn audit_reject_value_inflation() {
     );
 }
 
-// Spending one leaf as both inputs yields equal nullifiers: the no-self-join guard must reject it.
 #[test(should_fail_with = "cannot join a note with itself")]
 fn audit_reject_self_join() {
     let note_a = note(
@@ -201,8 +195,6 @@ fn audit_reject_self_join() {
     );
 }
 
-// Swapping the two inputs (a at index 1, b at index 0) consumes the SAME set in reversed order; the
-// strict-order guard rejects it so note_out.parents has one canonical form per consumed set.
 #[test(should_fail_with = "join inputs must be strictly index-ordered")]
 fn audit_reject_unordered_inputs() {
     let note_a = note(
@@ -218,7 +210,6 @@ fn audit_reject_unordered_inputs() {
         0x09fb1bde9d635c97fa5a0884a8a38d961cec75db95e76629aabec8b63baec84a,
     );
     note_out.parents = 0x100000000;
-    // note_b lives at index 1, note_a at index 0; passing b first drives index_a = 1 > index_b = 0.
     let mut path_b_at_1 = [0; TREE_DEPTH];
     path_b_at_1[0] = LEAF_A;
     let mut path_a_at_0 = [0; TREE_DEPTH];
@@ -239,8 +230,6 @@ fn audit_reject_unordered_inputs() {
     );
 }
 
-// A non-membership witness: note_b opened against a bogus sibling roots to a different subtree, so the
-// two inputs no longer share a root.
 #[test(should_fail_with = "inputs must share a root")]
 fn audit_reject_root_mismatch() {
     let note_a = note(

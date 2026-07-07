@@ -1,8 +1,5 @@
-// TS mirror of the per-operation FROST spend message m (shared/src/multisig/frost.nr msg_* helpers) and the multisig
-// owner commitment. These preimages are recomputed IN-CIRCUIT from the constrained public IO, so a byte drift
-// here makes a multisig proof unverifiable. Each op binds exactly the public values defining its spend that
-// are not already committed inside an output leaf. The membership root is chain-specific (genesis slot0 seeds
-// the chain id), so binding root is the cross-chain-replay defense -- there is no explicit chain_id field.
+// TS mirror of the FROST spend message m; MUST match Noir shared/src/multisig/frost.nr msg_* byte-for-byte.
+// Binding the (chain-specific) root is the cross-chain-replay defense; there is no chain_id field.
 
 import { Fr } from "@aztec/foundation/fields";
 import { Poseidon } from "../crypto/Poseidon.js";
@@ -18,7 +15,7 @@ async function poseidonFields(fields: bigint[]): Promise<bigint> {
   return (await Poseidon.hash(fields.map((x) => new Fr(x)))).toBigInt();
 }
 
-/** owner = Poseidon2(gpk.x, gpk.y). Matches Noir owner::pubkey_owner(gpk). */
+/** Matches Noir owner::pubkey_owner(gpk). */
 export async function multisigOwner(gpk: Point): Promise<bigint> {
   return poseidonFields([gpk[0], gpk[1]]);
 }

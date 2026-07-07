@@ -1,6 +1,5 @@
-// Poseidon2 field-wise stream cipher: keystream_k = Poseidon2(cek, ENC_DOMAIN, k) for a fixed order
-// k = 0..6, encrypt = pt + keystream, decrypt = ct - keystream, all mod p. The field order and the
-// add/subtract sign MUST match the TS mirror packages/wallets/src/crypto/dem.ts or notes are undecryptable.
+// Poseidon2 field-wise stream cipher. Field order k=0..6 and the encrypt-adds / decrypt-subtracts sign
+// MUST match the TS mirror packages/wallets/src/crypto/dem.ts or notes are undecryptable.
 use crate::domains::ENC_DOMAIN;
 use poseidon::poseidon2::Poseidon2;
 
@@ -10,7 +9,6 @@ pub fn dem_keystream(cek: Field, k: u32) -> Field {
     Poseidon2::hash([cek, ENC_DOMAIN, k as Field], 3)
 }
 
-// Sign LOCKED: encrypt adds the keystream (mod p), decrypt subtracts.
 pub fn dem_encrypt(cek: Field, plaintext: [Field; DEM_FIELDS]) -> [Field; DEM_FIELDS] {
     let mut ciphertext: [Field; DEM_FIELDS] = [0; DEM_FIELDS];
     for k in 0..DEM_FIELDS {
@@ -19,7 +17,6 @@ pub fn dem_encrypt(cek: Field, plaintext: [Field; DEM_FIELDS]) -> [Field; DEM_FI
     ciphertext
 }
 
-// KAT-only inverse; no in-circuit caller (circuits only dem_encrypt).
 pub fn dem_decrypt(cek: Field, ciphertext: [Field; DEM_FIELDS]) -> [Field; DEM_FIELDS] {
     let mut plaintext: [Field; DEM_FIELDS] = [0; DEM_FIELDS];
     for k in 0..DEM_FIELDS {

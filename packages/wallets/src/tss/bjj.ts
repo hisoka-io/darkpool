@@ -1,11 +1,8 @@
-// BabyJubJub point + scalar helpers for the (t,n) primitives. Points are prime-order-subgroup elements over
-// the BN254 base field; scalars live mod SUBORDER (the prime subgroup order), NEVER mod BN254 Fr -- mixing
-// the two moduli silently corrupts every Shamir/Lagrange result. Point ops delegate to the audited
-// @zk-kit/baby-jubjub; the subgroup guard mirrors the in-circuit `mint::assert_valid_compliance_pk`.
-//
-// NOTE: bigint arithmetic is not constant-time and cannot be zeroized. These primitives target off-chain
-// committee/coordinator tooling; secrets (shares, nonces, c_i, v) MUST never be logged and rely on process
-// isolation. The in-circuit and on-chain sides carry the timing-sensitive guarantees.
+// BabyJubJub point + scalar helpers for the (t,n) primitives. Scalars live mod SUBORDER (the prime subgroup
+// order), NEVER mod BN254 Fr -- mixing the moduli silently corrupts every Shamir/Lagrange result. Point ops
+// delegate to @zk-kit/baby-jubjub; the subgroup guard mirrors in-circuit mint::assert_valid_compliance_pk.
+// bigint arithmetic is not constant-time and cannot be zeroized: this is off-chain tooling, secrets (shares,
+// nonces, c_i, v) rely on process isolation and MUST never be logged.
 
 import {
   Base8,
@@ -17,16 +14,12 @@ import {
 
 export type Point = [bigint, bigint];
 
-/** Prime order of the Base8 subgroup; the modulus for every scalar/exponent. */
 export const SUBORDER: bigint = subOrder;
 
-/** Canonical prime-order generator (8*G). */
 export const BASE8: Point = [Base8[0], Base8[1]];
 
-/** Twisted-Edwards neutral element. */
 export const IDENTITY: Point = [0n, 1n];
 
-/** Reduce a scalar into [0, SUBORDER). Accepts negatives. */
 export function modSub(x: bigint): bigint {
   return ((x % SUBORDER) + SUBORDER) % SUBORDER;
 }
@@ -43,36 +36,31 @@ function powSub(base: bigint, exp: bigint): bigint {
   return result;
 }
 
-/** Multiplicative inverse mod SUBORDER (Fermat; SUBORDER is prime). Throws on 0. */
 export function invSub(x: bigint): bigint {
   const r = modSub(x);
   if (r === 0n) throw new Error("tss: inverse of zero mod SUBORDER");
   return powSub(r, SUBORDER - 2n);
 }
 
-/** Scalar multiplication k*P with k reduced mod SUBORDER. */
 export function scalarMul(k: bigint, p: Point): Point {
   const out = mulPointEscalar(p, modSub(k));
   return [out[0], out[1]];
 }
 
-/** k*Base8. */
 export function scalarBaseMul(k: bigint): Point {
   return scalarMul(k, BASE8);
 }
 
-/** Complete twisted-Edwards addition. */
 export function pointAdd(a: Point, b: Point): Point {
   const out = addPoint(a, b);
   return [out[0], out[1]];
 }
 
-/** Point negation: -(x,y) = (-x, y) on a twisted-Edwards curve. */
 export function pointNeg(p: Point): Point {
   return [modP(-p[0]), p[1]];
 }
 
-// BN254 base field modulus (BabyJubJub coordinate field).
+// BN254 base field modulus (BabyJubJub coordinate field; distinct from the scalar field SUBORDER).
 const BN254_P =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 function modP(x: bigint): bigint {
@@ -87,15 +75,13 @@ export function isIdentity(p: Point): boolean {
   return p[0] === 0n && p[1] === 1n;
 }
 
-/** on_curve AND SUBORDER*P == identity: P sits in the prime-order subgroup (may be the identity). */
 export function inSubgroup(p: Point): boolean {
   if (!inCurve(p)) return false;
   const o = mulPointEscalar(p, SUBORDER);
   return o[0] === 0n && o[1] === 1n;
 }
 
-/** Prime-order AND non-identity: the guard required before any ECDH/scalar-mul on an untrusted point, or a
- *  cofactor-8 small-order point leaks a scalar. Mirrors the in-circuit check on C/gpk/epk. */
+/** Guard before ECDH/scalar-mul on an untrusted point, or a small-order point leaks a scalar. */
 export function inSubgroupNonId(p: Point): boolean {
   return inSubgroup(p) && !isIdentity(p);
 }
@@ -108,8 +94,7 @@ export function assertInSubgroup(p: Point, label: string): void {
     throw new Error(`tss: ${label} is not in the prime-order subgroup`);
 }
 
-/** A cryptographically-random non-zero scalar in [1, SUBORDER). Wide sampling (384 bits) keeps the modular
- *  bias below 2^-128. Uses Web Crypto CSPRNG. */
+/** Random non-zero scalar in [1, SUBORDER). Wide 384-bit sampling keeps the modular bias below 2^-128. */
 export function randScalar(): bigint {
   const bytes = new Uint8Array(48);
   globalThis.crypto.getRandomValues(bytes);

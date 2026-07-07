@@ -3,18 +3,12 @@ use poseidon::poseidon2::Poseidon2;
 
 pub global TWO_POW_32: Field = 4294967296;
 
-// The wire-format seam and the note kinds. A spend circuit rejects any unexpected version, and each spend
-// path hard-asserts its own note_type so a MULTISIG note can never be spent by a STANDARD verifier or vice
-// versa (the on-chain router binds note_type -> verifier; note_type stays in the leaf as the last defense).
 pub global NOTE_VERSION: Field = 1;
 pub global NOTE_TYPE_STANDARD: Field = 0;
 pub global NOTE_TYPE_MULTISIG: Field = 1;
-// Reserved for a later break (single-owner predicate notes); NOT an accepted mint output yet.
 pub global NOTE_TYPE_CONDITIONAL: Field = 2;
 
-// A minted output's note_type is a sender-chosen witness, so it MUST be in the enabled set. A witnessed
-// note_type outside it (e.g. the reserved CONDITIONAL) commits to a leaf no circuit consumes = a silent
-// burn; and a future third verifier could retroactively spend it.
+// A note_type outside the enabled set commits to a leaf no circuit consumes (silent burn).
 pub fn assert_valid_note_type(note_type: Field) {
     assert(
         (note_type == NOTE_TYPE_STANDARD) | (note_type == NOTE_TYPE_MULTISIG),
@@ -22,19 +16,15 @@ pub fn assert_valid_note_type(note_type: Field) {
     );
 }
 
-// asset_id is a 20-byte ERC20 address; a wider value is rejected so notes stay fungible with clean tokens.
 pub fn assert_asset_id(asset_id: Field) {
     let _: [u8; 20] = asset_id.to_be_bytes();
 }
 
-// A consumed input, located by its leaf index. Single-tree: the index alone identifies a parent; a tree id
-// returns only if a multi-tree layout is ever introduced.
 pub struct Parent {
     pub leaf_index: u32,
 }
 
-// Committed note plaintext, ordered STABLE-FIRST: version/asset/type/conditions stay equal between a
-// consumed and a created note, so a spend hashing both leaves reuses the shared 4-field sponge prefix.
+// Ordered stable-first so a spend hashing both consumed and created leaves shares the sponge prefix.
 pub struct Note {
     pub note_version: Field,
     pub asset_id: Field,
@@ -47,7 +37,7 @@ pub struct Note {
 }
 
 impl Note {
-    // PLAINTEXT-commit leaf over all 8 fields (psi is one of them). Byte-identical to the TS `leaf`.
+    // Plaintext-commit leaf over all 8 fields; byte-identical to the TS `leaf`.
     pub fn leaf(self) -> Field {
         Poseidon2::hash(
             [
@@ -65,13 +55,10 @@ impl Note {
     }
 }
 
-// Two consumed leaf indexes little-endian in one Field: index0 in bits 0..31, index1 in bits 32..63.
-// Deposit and public-claim outputs have no consumed parent, so parents = 0.
 pub fn pack_parents(parents: [Parent; 2]) -> Field {
     (parents[0].leaf_index as Field) + (parents[1].leaf_index as Field) * TWO_POW_32
 }
 
-// KAT-only inverse; no in-circuit caller (circuits only pack_parents).
 pub fn unpack_parents(packed: Field) -> [Parent; 2] {
     let bytes: [u8; 32] = packed.to_le_bytes();
     for i in 8..32 {
@@ -80,9 +67,7 @@ pub fn unpack_parents(packed: Field) -> [Parent; 2] {
     [Parent { leaf_index: u32_from_le(bytes, 0) }, Parent { leaf_index: u32_from_le(bytes, 4) }]
 }
 
-// Bind an output note's lineage to the leaf indexes actually consumed. The index witnesses passed here MUST
-// be the same ones verify_spend feeds to the nullifier and membership proof, so parents cannot be forged
-// independently of the inputs that were really spent.
+// indexes MUST be the same witnesses verify_spend feeds the nullifier/membership proof, else parents forge.
 pub fn assert_parents_bound(note: Note, indexes: [Field; 2]) {
     let expected = pack_parents([
         Parent { leaf_index: indexes[0] as u32 },

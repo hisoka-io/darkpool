@@ -1,10 +1,7 @@
 use crate::note::Note;
 use ecdh::Point;
 
-// Golden KAT inputs shared by the per-circuit tests. These EXACT values reproduce the TS/Solidity golden
-// vectors; changing any one re-hashes every leaf and nullifier and breaks cross-language parity. Test-only
-// fixtures with no in-circuit caller.
-
+// byte-identical to the TS/Solidity golden vectors; changing any breaks cross-language parity
 pub global FIXTURE_COMPLIANCE_X: Field =
     0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111;
 pub global FIXTURE_COMPLIANCE_Y: Field =
@@ -14,8 +11,6 @@ pub fn fixture_compliance_pk() -> Point {
     Point { x: FIXTURE_COMPLIANCE_X, y: FIXTURE_COMPLIANCE_Y }
 }
 
-// The canonical single-input note the per-circuit spend KATs consume: owner is the self spend key of scalar
-// 789, value 100, asset 0x1234..7890.
 pub fn fixture_note() -> Note {
     Note {
         note_version: 1,

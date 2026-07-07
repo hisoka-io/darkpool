@@ -36,8 +36,8 @@ export interface WithdrawInputs {
 
 export interface TransferInputs {
   compliancePk: Point<bigint>;
-  // The recipient address in_pub_j is the single owner + view + discovery key (Option A). Paying a MULTISIG
-  // account (owner=gpk != view=V) is a deferred feature, so a single key binds all three.
+  // recipientInPub is the single owner+view+discovery key; paying a MULTISIG account (owner != view) is
+  // deferred, so one key binds all three.
   recipientInPub: Point<bigint>;
 
   oldNote: NoteInput;

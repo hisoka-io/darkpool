@@ -1,13 +1,12 @@
 use crate::domains::PSI_DOMAIN;
 use poseidon::poseidon2::Poseidon2;
 
-// psi = Poseidon2(CEK, PSI_DOMAIN): leaf blinder + nullifier key, re-derived from CEK, never transmitted.
+// Leaf blinder + nullifier key, re-derived from CEK, never transmitted.
 pub fn psi(cek: Field) -> Field {
     Poseidon2::hash([cek, PSI_DOMAIN], 2)
 }
 
-// nullifier = Poseidon2(psi, leaf_index). 2-input arity; the DEM keystream is 3-input Poseidon2 -> the two
-// preimages cannot alias.
+// 2-input arity vs the DEM keystream's 3-input Poseidon2, so the two preimages cannot alias.
 pub fn nullifier(note_psi: Field, leaf_index: Field) -> Field {
     Poseidon2::hash([note_psi, leaf_index], 2)
 }

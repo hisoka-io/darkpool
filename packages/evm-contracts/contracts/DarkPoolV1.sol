@@ -23,16 +23,9 @@ interface IHonkVerifierV1 {
 
 /**
  * @title DarkPoolV1 (frozen storage baseline)
- * @notice Pinned reference layout for the upgrade-safety gate. `validateUpgrade(DarkPoolV1, DarkPool)`
- *         runs assertStorageUpgradeSafe against this copy, so any storage-incompatible change to the live
- *         DarkPool (including a namespace-internal field reorder/retype) fails the gate.
- * @dev Frozen PRE-GENESIS storage baseline: the namespaced layout as of the initial deployment, which every
- *      future on-chain DarkPool upgrade must stay storage-compatible with. Storage copy of the shipped
- *      DarkPool: same ERC-7201 namespaces, same struct members in the same order. Only STORAGE is load-bearing
- *      here (validateUpgrade compares the namespaced layout, not logic), so the entrypoints/constants below
- *      need not track DarkPool's routing. Never hand-tune: the storage surface is verified against DarkPool by
- *      `scripts/regen-darkpoolv1.ts` (run in the upgrade-safety gate), which fails on any drift. Advance the
- *      baseline only when a real storage-compatible upgrade ships and becomes the new reference; not deployed.
+ * @notice Pinned storage reference for the upgrade-safety gate: validateUpgrade(DarkPoolV1, DarkPool) fails on
+ *         any storage-incompatible change to the live DarkPool. Only STORAGE is load-bearing (same ERC-7201
+ *         namespaces + ordered members); entrypoints need not track DarkPool. Verified by regen-darkpoolv1.ts.
  */
 contract DarkPoolV1 is
     Initializable,
@@ -168,16 +161,23 @@ contract DarkPoolV1 is
         uint256 status;
     }
 
+    // ERC-7201: keccak256(abi.encode(uint256(keccak256(id)) - 1)) & ~bytes32(uint256(0xff)); MUST match DarkPool.
+    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.tree")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant TREE_LOCATION =
         0xbdd00c81e71bd165e3ff2099ca204334ffd58a8d7225a33b4761542b7a86e200;
+    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.nullifiers")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant NULLIFIERS_LOCATION =
         0xcb1d3464d85c75a880c4f95a3cfd4a5cd80b39c53862d4987d9ec14bb8af6700;
+    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.memos")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant MEMOS_LOCATION =
         0x79ab9646d487c514cf680928de0290895c9ad6720afd1f87136f293781b7ea00;
+    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.verifiers")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant VERIFIERS_LOCATION =
         0x204927e2223572a19571462c2dfb374afbbdb39e695632d6477721409dfb0b00;
+    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.compliance")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant COMPLIANCE_LOCATION =
         0x4c6336ddd730b3b6886dcf6c397e5676dac845842540c4592f4e52cea8e9ae00;
+    // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ReentrancyGuard")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant REENTRANCY_LOCATION =
         0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
 
@@ -290,7 +290,6 @@ contract DarkPoolV1 is
         _treeStorage().tree.init(MERKLE_TREE_DEPTH);
     }
 
-    // Body intentionally empty: the onlyRole(UPGRADER_ROLE) gate IS the upgrade authorization.
     // solhint-disable no-empty-blocks
     function _authorizeUpgrade(
         address newImplementation

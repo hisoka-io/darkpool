@@ -1,10 +1,8 @@
 #!/usr/bin/env node
-// Manual prove-time profiler: for each entrypoint it times witness generation (noir.execute) and UltraHonk
-// proving (backend.generateProof) over a few iterations and reports the medians as a markdown table. Standard
-// ops reuse the circuit KAT fixtures (known-valid); multisig ops build a real FROST-signed witness (single-leaf
-// tree; join uses a two-leaf tree). NOT wired into CI. Run via `pnpm --filter @hisoka/prover benchmark`; the
-// table prints to stdout, or pass a file path (arg 1, or BENCH_OUT) to append/replace a "Per-op prove time"
-// section there. Env: BB_THREADS (default 16), BENCH_ITERS (default 3).
+// Manual prove-time profiler: times witness generation (noir.execute) and UltraHonk proving over a few
+// iterations per entrypoint and prints medians as a markdown table. Standard ops reuse the circuit KAT
+// fixtures; multisig ops build a real FROST-signed witness. Not wired into CI.
+// Run: `pnpm --filter @hisoka/prover benchmark` (optional out-file arg or BENCH_OUT). Env: BB_THREADS, BENCH_ITERS.
 
 import { UltraHonkBackend, Barretenberg } from "@aztec/bb.js";
 import { Noir } from "@noir-lang/noir_js";
@@ -138,7 +136,7 @@ async function selfPsi(v, member, startJ) {
   return { eph: tag.eph, j: tag.j, psi };
 }
 
-// --- standard-op inputs (byte-identical to the circuit KAT fixtures) ---
+// Standard-op inputs, byte-identical to the circuit KAT fixtures.
 
 const stdInputs = {
   deposit: () => ({
@@ -349,7 +347,7 @@ const stdInputs = {
   }),
 };
 
-// --- multisig-op inputs (real FROST-signed witnesses) ---
+// Multisig-op inputs: real FROST-signed witnesses.
 
 async function withdrawMultisigInputs() {
   const acct = await frostAccountDkg(5, 3, ACCOUNT_CTX);

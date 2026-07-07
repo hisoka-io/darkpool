@@ -1,8 +1,6 @@
-// Certifies the generic FROST protocol (frost.ts) against the official RFC 9591 known-answer vectors, via the
-// FROST(ristretto255, SHA-512) ciphersuite (RFC 9591 Section 6.2). If every stage matches the recorded KAT,
-// the protocol LOGIC that production runs over BabyJubJub+Poseidon2 is correct. The single official vector is
-// VENDORED as a tracked fixture (provenance: RFC 9591 Section 6.2) and read relative to this file, so the
-// certification runs in CI / a clean clone, not just on one dev's machine.
+// Certifies the generic FROST protocol (frost.ts) against the official RFC 9591 KAT via the FROST(ristretto255,
+// SHA-512) ciphersuite (Section 6.2). The single official vector is VENDORED under vectors/ (provenance: RFC
+// 9591 Section 6.2) and read relative to this file, so certification runs in a clean clone.
 
 import { describe, it, expect, beforeAll } from "vitest";
 import { readFileSync } from "node:fs";
@@ -123,7 +121,6 @@ beforeAll(async () => {
   const signers: SignerState[] = [];
   for (const round1 of kat.round_one_outputs.outputs) {
     const secret = secretOf(round1.identifier);
-    // Reconstruct the one-time nonces from the KAT-recorded randomness (production draws fresh CSPRNG bytes).
     const d = await cs.nonceScalar(
       hexToBytes(round1.hiding_nonce_randomness),
       secret,

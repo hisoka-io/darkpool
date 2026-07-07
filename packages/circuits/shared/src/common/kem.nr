@@ -3,30 +3,24 @@ use ecdh::{bjj::BJJ, ECDHTrait, Point};
 use edwards::CurveTrait;
 use poseidon::poseidon2::Poseidon2;
 
-// CEK = (eph * C).x, the compliance-shared content-encryption key.
 pub fn derive_cek(eph: Field, compliance_pk: Point) -> Field {
     assert_subgroup_scalar(eph);
     BJJ::new(eph).derive_shared_key(compliance_pk)
 }
 
-// Incoming memo wrap: cek_wrap = cek + Poseidon2((eph*in_pub).x), mod p; unwrap subtracts the same pad.
 pub fn wrap_cek(cek: Field, eph: Field, in_pub: Point) -> Field {
     assert_subgroup_scalar(eph);
     let pad = BJJ::new(eph).derive_shared_key(in_pub);
     cek + Poseidon2::hash([pad], 1)
 }
 
-// KAT-only inverse; no in-circuit caller (circuits only wrap_cek).
-// ECDH symmetry: (in_key*eph_pub).x == (eph*in_pub).x, so the recipient recovers wrap_cek's pad from
-// in_key + on-chain eph_pub without eph.
 pub fn unwrap_cek(cek_wrap: Field, in_key: Field, eph_pub: Point) -> Field {
     assert_subgroup_scalar(in_key);
     let pad = BJJ::new(in_key).derive_shared_key(eph_pub);
     cek_wrap - Poseidon2::hash([pad], 1)
 }
 
-// KAT: byte-identical to the TS mirror (packages/wallets/src/crypto/kem.ts) over the shared fixture
-// (eph=456, in_key=789, compliance C). A drift here breaks note decryption across languages.
+// Byte-identical to TS packages/wallets/src/crypto/kem.ts; drift breaks cross-language note decryption.
 #[test]
 fn kat_kem_roundtrip() {
     let compliance_pk = Point::new(

@@ -1,14 +1,11 @@
 use ecdh::Point;
 use poseidon::poseidon2::Poseidon2;
 
-// owner = Poseidon2(pubkey.x, pubkey.y). Incoming note: in_pub_j; self note: self_spend_pub. The spend
-// circuit re-derives this and proves knowledge of the pubkey's scalar.
 pub fn pubkey_owner(pk: Point) -> Field {
     Poseidon2::hash([pk.x, pk.y], 2)
 }
 
-// KAT: owner of the fixture in_pub_j (789*Base8), byte-identical to TS pubkeyOwner (note/keys.ts) and to
-// the owner field used by the DEM KAT. A drift makes a note unspendable.
+// byte-identical to TS pubkeyOwner (note/keys.ts)
 #[test]
 fn kat_pubkey_owner() {
     let in_pub = Point {

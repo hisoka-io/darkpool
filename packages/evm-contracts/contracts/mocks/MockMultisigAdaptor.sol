@@ -5,8 +5,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-/// @dev The DarkPool surface a multisig adaptor pulls through: a FROST-multisig withdraw that pays this
-///      contract, plus the public-memo repay leg. Declared here so the shipped IDarkPool stays untouched.
 interface IMultisigDarkPool {
     function withdrawMultisig(
         bytes calldata proof,
@@ -25,12 +23,8 @@ interface IMultisigDarkPool {
 
 /**
  * @title MockMultisigAdaptor
- * @notice Exercises the FROST-multisig withdraw path through an adaptor. It self-submits a `withdrawMultisig`
- *         naming itself as recipient (the DarkPool code-gate forces a contract recipient to pull its own
- *         withdraw), receives the exact public funds, then re-shields them via a `publicTransfer` memo.
- *         Mirrors the standard adaptor pull->repay shape; the multisig withdraw layout is byte-identical to
- *         the single-signer withdraw. Real swap wiring is deferred, so the repay leg is a public memo rather
- *         than a Uniswap trade.
+ * @notice Test adaptor: self-submits a `withdrawMultisig` naming itself as recipient (the DarkPool code-gate
+ *         forces a contract recipient to pull its own withdraw), then re-shields via a `publicTransfer` memo.
  */
 contract MockMultisigAdaptor is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -60,14 +54,7 @@ contract MockMultisigAdaptor is ReentrancyGuard {
         DARK_POOL = _darkPool;
     }
 
-    /**
-     * @notice Pull a FROST-multisig withdraw to this contract, then re-shield the funds to `owner` as a memo.
-     * @param proof The withdraw_multisig proof.
-     * @param publicInputs Withdraw public inputs; [1] recipient must be this contract, [0] value, [7] asset.
-     * @param ownerX Recipient owner point x for the repay memo.
-     * @param ownerY Recipient owner point y for the repay memo.
-     * @param salt Memo salt.
-     */
+    /// @notice Pull a FROST-multisig withdraw to this contract, then re-shield the funds as a memo.
     function pullAndForward(
         bytes calldata proof,
         bytes32[] calldata publicInputs,

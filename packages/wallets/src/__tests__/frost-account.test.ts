@@ -29,24 +29,20 @@ describe("FROST account: DKG establishes gpk + shared viewing key + owner", () =
   it("produces a spendable account whose gpk signs and whose owner = Poseidon2(gpk)", async () => {
     const acct = await frostAccountDkg(5, 3, SCHNORR_DOMAIN);
 
-    // owner commitment matches Poseidon2(gpk.x, gpk.y).
     const expectedOwner = await Poseidon.hash([
       new Fr(acct.gpk[0]),
       new Fr(acct.gpk[1]),
     ]);
     expect(acct.owner.toBigInt()).toBe(expectedOwner.toBigInt());
 
-    // The shared viewing key is consistent: V = v*Base8, every member holds the same v.
     expect(pointEq(acct.viewPub, scalarBaseMul(acct.viewKey))).toBe(true);
 
-    // The ceremony MUST yield an even-y V (the static Raven tag is V.x); the DKG output composes with the
-    // note-view layer without throwing. This guards the odd-y regression (a fixed sum cannot be rolled later).
+    // Even-y V regression: a fixed commit-reveal sum cannot be rolled to even-y after the fact.
     expect(isEvenY(acct.viewPub)).toBe(true);
     const address = await multisigAddress(acct.gpk, new Fr(acct.viewKey));
     expect(address.ownerCommitment.toBigInt()).toBe(acct.owner.toBigInt());
     expect(pointEq(address.viewPub, acct.viewPub)).toBe(true);
 
-    // The account key actually signs: a 3-of-5 quorum yields a valid FROST signature under gpk.
     const m = 0xabcabcn;
     const msg = encodeMessage(m);
     const quorum = [1n, 2n, 3n];

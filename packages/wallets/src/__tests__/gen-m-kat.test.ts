@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { msgWithdraw, msgTransfer, msgSplit, msgJoin } from "../frost/index.js";
 
-// Parity lock: the SAME fixed inputs must produce these exact m values in TS AND in Noir
-// (shared/src/multisig/frost.nr kat_msg_parity). A field-order/arity drift breaks both.
+// Parity lock: these m values MUST match Noir shared/src/multisig/frost.nr kat_msg_parity.
 describe("m-preimage TS<->Noir parity", () => {
   it("msg_* match the Noir KAT for fixed inputs", async () => {
     const hex = (x: bigint) => "0x" + x.toString(16).padStart(64, "0");

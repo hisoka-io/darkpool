@@ -1,7 +1,5 @@
-// Chaum-Pedersen DLEQ proof that a partial D = secret*epk was formed with the SAME secret whose public key
-// is V = secret*Base8, i.e. log_Base8(V) == log_epk(D). A committee member proves this over its share so a
-// combiner can reject a random/forged partial. Ported from threshold_compliance_poc.py (cp_prove/cp_verify),
-// with the Fiat-Shamir hash swapped from the PoC's SHA-256 stand-in to the real Poseidon2 (CP_DOMAIN).
+// Chaum-Pedersen DLEQ (log_Base8(V) == log_epk(D)). Ported from threshold_compliance_poc.py; secret shares
+// are never logged.
 
 import {
   Point,
@@ -46,7 +44,6 @@ function transcript(
   ];
 }
 
-/** Prove D = secret*epk with V = secret*Base8. `secret` is a share; never log it. */
 export async function cpProve(secret: bigint, epk: Point): Promise<DleqProof> {
   const V = scalarMul(secret, BASE8);
   const D = scalarMul(secret, epk);
@@ -58,8 +55,6 @@ export async function cpProve(secret: bigint, epk: Point): Promise<DleqProof> {
   return { D, A, B, z };
 }
 
-/** Verify a DLEQ proof against the member's registered V. Subgroup-checks D before trusting it, so a
- *  small-order partial cannot slip a cofactor leak past the combiner. */
 export async function cpVerify(
   V: Point,
   epk: Point,

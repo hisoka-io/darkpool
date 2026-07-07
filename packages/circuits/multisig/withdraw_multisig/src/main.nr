@@ -4,11 +4,6 @@ use ::shared::frost::{msg_withdraw, verify_frost_spend};
 use ::shared::note::{assert_parents_bound, Note};
 use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y};
 
-// Multisig withdraw: a FROST quorum authorizes spending one MULTISIG note, paying withdraw_value to a public
-// recipient in the clear and minting the MULTISIG change note back to the account. gpk, R, z are PRIVATE
-// witnesses (spends leak nothing on-chain). The quorum signs m OFF-CHAIN; the circuit recomputes m from the
-// constrained public IO and verifies (R, z), and the message binds the chain-specific root, so an untrusted
-// prover cannot alter the spend and a signature cannot be replayed on another chain.
 fn main(
     withdraw_value: pub u128,
     recipient: pub Field,
@@ -53,11 +48,7 @@ fn main(
     )
 }
 
-// Differential negatives for the multisig OUTPUT guards. The output-owner pin and the note_type asserts fire
-// inside mint_self_note_multisig, which runs BEFORE verify_frost_spend, so a dummy (frost_r, frost_z) that is
-// never reached suffices -- no valid FROST signature is needed. The consumed input is a well-formed MULTISIG
-// note owned by the account gpk over a single-leaf synthetic tree (index 0, zero path => root == leaf). The
-// gpk is the known prime-order subgroup point from shared/src/frost.nr; its owner is Poseidon2(gpk.x, gpk.y).
+// Output guards run before verify_frost_spend, so a never-reached dummy (frost_r, frost_z) suffices.
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 global ASSET_ID: Field = 0x1234567890123456789012345678901234567890;
@@ -74,7 +65,6 @@ fn gpk_owner() -> Field {
     poseidon::poseidon2::Poseidon2::hash([g.x, g.y], 2)
 }
 
-// Any on-curve point; never reached because an output guard fails first.
 fn dummy_r() -> Point {
     Point {
         x: 0x262d28e21d283e57d8add3efde5b0ef36d18af221efa12d686b50fdae23c0b53,
@@ -108,8 +98,6 @@ fn out_note(value: u128, note_type: Field, owner: Field, psi: Field) -> Note {
     }
 }
 
-// THE P1 theft guard: a valid gpk-owned input, but the change owner is set off the account gpk. The output
-// owner pin rejects it before any FROST check (owner is checked before psi binding, so change psi is unused).
 #[test(should_fail_with = "multisig change/self must be owned by the account gpk")]
 fn audit_reject_off_gpk_change_owner() {
     let _ = main(
@@ -129,8 +117,6 @@ fn audit_reject_off_gpk_change_owner() {
     );
 }
 
-// Reserved note_type 2 on the change output: the MULTISIG pin precedes assert_valid_note_type for a
-// self-mint, so a reserved type is caught by the pin.
 #[test(should_fail_with = "multisig self note must be MULTISIG")]
 fn audit_reject_out_note_type_2() {
     let _ = main(
@@ -150,7 +136,6 @@ fn audit_reject_out_note_type_2() {
     );
 }
 
-// A STANDARD change on a multisig self-mint: the note_type pin rejects it.
 #[test(should_fail_with = "multisig self note must be MULTISIG")]
 fn audit_reject_out_note_type_standard() {
     let _ = main(
@@ -170,11 +155,7 @@ fn audit_reject_out_note_type_standard() {
     );
 }
 
-// A coherent multisig-withdraw witness carrying a REAL 3-of-5 FROST (R,z) over the in-circuit spend message m,
-// generated deterministically by the TS signer (packages/wallets gen-withdraw-multisig-kat). The quorum spends
-// a 1000-unit MULTISIG note at index 0 of a single-leaf tree (root == leaf), pays 300 to `recipient` in the
-// clear, and mints a 700 MULTISIG change (eph == 4 => even-y tag) back to the same account gpk. The signed m
-// binds root/nullifier/change.leaf/withdraw_value/asset/recipient/intent_hash.
+// Real 3-of-5 FROST witness from the TS signer (gen-withdraw-multisig-kat); accept parity.
 global KAT_OLD_VALUE: u128 = 1000;
 global KAT_WITHDRAW_VALUE: u128 = 300;
 global KAT_CHANGE_VALUE: u128 = 700;
@@ -191,7 +172,6 @@ fn kat_frost_r() -> Point {
     }
 }
 
-// The coherent witness is accepted: verify_frost_spend certifies the real quorum signature over m.
 #[test]
 fn kat_multisig_withdraw_accepts() {
     let _ = main(
@@ -211,9 +191,7 @@ fn kat_multisig_withdraw_accepts() {
     );
 }
 
-// Mutating a FROST-signed axis: `recipient` is bound into m but tripped by no earlier guard, so the circuit
-// recomputes m' != m and verify_frost_spend itself -- not a pre-FROST output guard -- rejects the tampered
-// spend. This is the main-level counterpart to shared/src/frost.nr's gadget-level mutation negatives.
+// `recipient` is bound into m but tripped by no earlier guard, so verify_frost_spend itself rejects.
 #[test(should_fail_with = "FROST signature invalid")]
 fn audit_reject_mutated_signed_recipient() {
     let _ = main(

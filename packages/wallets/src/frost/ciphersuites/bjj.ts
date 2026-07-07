@@ -1,8 +1,4 @@
-// The production FROST ciphersuite: BabyJubJub + Poseidon2. The SAME generic protocol (frost.ts) certified
-// against the RFC 9591 KAT via ristretto255 runs here, instantiated over the shared tss primitives. The
-// challenge is a SINGLE Poseidon2 output over the (x,y) point coordinates, byte-identical to the in-circuit
-// e = Poseidon2([SCHNORR_DOMAIN, R.x, R.y, gpk.x, gpk.y, m]) so an off-chain (R,z) verifies in the circuit.
-// rho_i and the hedged nonce are off-chain-only, so they use the uniform wide-reduction hash-to-scalar.
+// Production FROST ciphersuite: BabyJubJub + Poseidon2. The challenge is byte-identical to the in-circuit e.
 
 import { Ciphersuite, Commitment } from "../ciphersuite.js";
 import {
@@ -31,7 +27,6 @@ import {
 const BN254_P =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
-/** Encode a FROST message field element m as 32 big-endian bytes for the generic protocol layer. */
 export function encodeMessage(m: bigint): Uint8Array {
   const out = new Uint8Array(32);
   let v = m;
@@ -54,12 +49,10 @@ function bytesToField(bytes: Uint8Array): bigint {
   return v % BN254_P;
 }
 
-/** H4: pre-hash the message field to one field element. */
 async function hashMessage(msg: Uint8Array): Promise<bigint> {
   return poseidon2([FROST_MSG_DOMAIN, decodeMessage(msg)]);
 }
 
-/** H5: pre-hash the sorted commitment list to one field element. */
 async function hashCommitmentList(
   commitments: Commitment<Point>[],
 ): Promise<bigint> {
@@ -99,9 +92,7 @@ export const bjjCiphersuite: Ciphersuite<Point> = {
   },
 
   async challenge(R: Point, gpk: Point, msg: Uint8Array): Promise<bigint> {
-    // Poseidon2 over the (x,y) coords, truncated to the low 248 bits -- byte-identical to the in-circuit
-    // challenge. The truncation is load-bearing for circuit soundness: the in-circuit ScalarField<63> path
-    // only constrains scalars < ~SUBORDER, so the challenge must be a canonical subgroup scalar.
+    // Low 248 bits, applied identically in-circuit (verify_frost_spend); a full-width challenge is unsound.
     const full = await challengeScalar([
       SCHNORR_DOMAIN,
       R[0],

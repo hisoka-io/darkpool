@@ -3,10 +3,6 @@ use ::shared::mint;
 use ::shared::note::Note;
 use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, fixture_note};
 
-// Deposit is a pure self-mint funding either a STANDARD or a MULTISIG account (note_type is a witness in the
-// note, validated to the enabled set at mint). Value and asset are public (the contract moves the ERC20 in
-// the clear), the leaf commits the plaintext note, and eph_pub.x is the self discovery tag. Anyone may fund
-// any account; a malformed owner only self-harms the depositor.
 fn main(
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
@@ -65,9 +61,6 @@ fn audit_reject_unbound_psi() {
     let _ = main(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note, 5);
 }
 
-// A witnessed reserved note_type (2) is rejected by the set-membership burn guard, so an unspendable note
-// (no circuit consumes type 2) cannot be minted. This is the generic-mint guard reached where note_type is a
-// free witness (deposit); the spend outputs pin their type, so they never reach it.
 #[test(should_fail_with = "note_type not in {STANDARD, MULTISIG}")]
 fn audit_reject_note_type_2() {
     let mut note = fixture_note();

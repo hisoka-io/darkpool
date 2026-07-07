@@ -18,7 +18,7 @@ import {
   Partial,
 } from "../threshold/index.js";
 
-const CONTEXT = SCHNORR_DOMAIN; // any fixed context field binds the DKG PoPs
+const CONTEXT = SCHNORR_DOMAIN;
 
 async function partialsFor(
   quorum: bigint[],
@@ -34,11 +34,10 @@ describe("threshold-compliance: DKG + threshold decrypt == single-key", () => {
   it("recovers CEK = (c*eph).x uniformly across quorums, matching the single-key holder", async () => {
     const { C, shares, V } = await runDkg(5, 3, CONTEXT);
 
-    // TEST-ONLY reconstruction of c to establish the single-key baseline.
+    // TEST-ONLY reconstruction for the single-key baseline.
     const c = interpolateAtZero(shares, [1n, 2n, 3n]);
     expect(pointEq(scalarBaseMul(c), C)).toBe(true);
 
-    // A note's ephemeral: eph_pub = e*Base8; the encryptor's CEK for a self note is (e*C).x.
     const e = randScalar();
     const ephPub = scalarMul(e, BASE8);
     const encryptorCek = scalarMul(e, C)[0];
@@ -54,7 +53,6 @@ describe("threshold-compliance: DKG + threshold decrypt == single-key", () => {
         V,
         3,
       );
-      // Threshold S == single-key c*eph == e*C, so the same CEK for both note types.
       expect(pointEq(S, scalarMul(c, ephPub))).toBe(true);
       expect(S[0]).toBe(encryptorCek);
       const cek = await thresholdCek(
@@ -73,7 +71,7 @@ describe("threshold-compliance: DKG + threshold decrypt == single-key", () => {
     const ephPub = scalarMul(e, BASE8);
 
     const all = await partialsFor([1n, 2n, 3n, 4n, 5n], shares, ephPub);
-    // Member 3 is malicious: substitute a random point for D_3.
+    // Member 3 malicious: random point for D_3.
     all[2] = {
       id: 3n,
       proof: { ...all[2].proof, D: scalarMul(randScalar(), ephPub) },
@@ -82,7 +80,6 @@ describe("threshold-compliance: DKG + threshold decrypt == single-key", () => {
     const { cek, used, excluded } = await thresholdCekRobust(ephPub, all, V, 3);
     expect(excluded).toContain(3n);
     expect(used).not.toContain(3n);
-    // The recovered CEK equals the single-key value (reconstruct c off the full sharing for the baseline).
     const c = interpolateAtZero(shares, [1n, 2n, 4n]);
     expect(cek.toBigInt()).toBe(scalarMul(c, ephPub)[0]);
   });
@@ -118,7 +115,6 @@ describe("threshold-compliance: DKG + threshold decrypt == single-key", () => {
     const ephPub = scalarMul(e, BASE8);
     const p1 = await partialDecrypt(1n, shares.get(1n)!, ephPub);
 
-    // Same id thrice -> one distinct partial < threshold 3, so both paths must throw, not silently interpolate.
     await expect(combine(ephPub, [p1, p1, p1], V, 3)).rejects.toThrow(
       /valid partials/i,
     );

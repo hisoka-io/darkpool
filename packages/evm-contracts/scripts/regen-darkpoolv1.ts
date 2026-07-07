@@ -1,20 +1,9 @@
 /**
- * DarkPoolV1 storage-surface parity guard.
+ * DarkPoolV1 storage-surface parity guard: fails (exit 1) if DarkPoolV1's ERC-7201 storage surface
+ * (inheritance, ordered struct members, slot constants) diverges from DarkPool. Source-only.
+ *   npx tsx scripts/regen-darkpoolv1.ts
  *
- *   npx tsx scripts/regen-darkpoolv1.ts        # verify (exit 1 on drift)
- *
- * DarkPoolV1.sol is the FROZEN pre-genesis upgrade baseline: the ERC-7201 namespaced storage layout as of
- * the initial deployment, which every future on-chain DarkPool upgrade must stay storage-compatible with
- * (validateUpgrade(DarkPoolV1 -> DarkPool) is the authoritative gate, run by validate-upgrade-safety.ts).
- *
- * Its only load-bearing surface is STORAGE: the inheritance list, the ERC-7201 structs (namespace + ordered
- * members), and the namespace slot constants -- these MUST match the shipped DarkPool. This guard extracts
- * that surface from BOTH contracts and fails on any divergence, so DarkPoolV1 can never be silently
- * hand-synced out of step with DarkPool. It is source-only (no compile / no artifacts), so it runs anywhere.
- *
- * Regeneration is deliberately a human edit gated by this check, not an automated rewrite: auto-mutating a
- * frozen money-contract baseline is riskier than a reviewed copy. To advance the baseline after a real
- * storage-compatible upgrade ships: copy DarkPool's storage surface into DarkPoolV1, then re-run this to zero.
+ * The baseline is advanced by a reviewed human edit, not an automated rewrite.
  */
 
 import * as fs from "fs";

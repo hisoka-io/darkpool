@@ -273,8 +273,8 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     await tree.insert(await noteLeaf(genesisNote));
     expect(tree.nextLeafIndex).toBe(1);
 
-    // --- deposit (MULTISIG): the account M is funded by a public self-deposit of 1000. A private transfer
-    //     to a multisig account is a deferred feature, so the account receives value via deposit. ---
+    // deposit (MULTISIG): account M is funded by a public self-deposit of 1000. A private transfer to a
+    // multisig account is deferred, so the account receives value via deposit.
     const dmTag = await frost.canonicalMultisigSelfTag(vScalar, selfMember, 0n);
     const dmNote = mkNote(
       NOTE_TYPE_MULTISIG,
@@ -295,9 +295,9 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     const dm = await land(depOut, 2, 3, 7);
     expect(dm.index).toBe(1);
 
-    // --- transfer_multisig (MULTISIG -> STANDARD conversion): the account spends its deposit into a STANDARD
-    //     memo MB to Bob (400) plus a MULTISIG change TM (600) back to the account. Paying a standard
-    //     recipient binds owner == view == tag to the single address in_pub_j. ---
+    // transfer_multisig (MULTISIG -> STANDARD conversion): the account spends its deposit into a STANDARD
+    // memo MB to Bob (400) plus a MULTISIG change TM (600) back to the account. Paying a standard recipient
+    // binds owner == view == tag to the single address in_pub_j.
     const oldPath1 = tree.getMerklePath(dm.index);
     const root1 = tree.getRoot();
     const mbEph = new Fr(randSubgroupScalar());
@@ -360,8 +360,8 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     const tm = await land(tmvOut, 16, 17, 19);
     markSpent(new Fr(tmvOut[2]), [mb.index, tm.index]);
 
-    // --- transfer (standard): Bob spends the converted note MB into a STANDARD memo to Alice (150) plus a
-    //     STANDARD change back to Bob (250). The standard lineage descends from the conversion. ---
+    // transfer (standard): Bob spends the converted note MB into a STANDARD memo to Alice (150) plus a
+    // STANDARD change back to Bob (250). The standard lineage descends from the conversion.
     const oldPath2 = tree.getMerklePath(mb.index);
     const maEph = new Fr(randSubgroupScalar());
     const chBobEph = await evenYEph();
@@ -404,8 +404,8 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     const chBob = await land(tsOut, 16, 17, 19);
     markSpent(new Fr(tsOut[2]), [ma.index, chBob.index]);
 
-    // --- withdraw_multisig: the account spends TM, pays 100 to a public recipient, mints MULTISIG change
-    //     Ch_M (500) back to the account (member-partitioned even-y self ephemeral). ---
+    // withdraw_multisig: the account spends TM, pays 100 to a public recipient, mints MULTISIG change
+    // Ch_M (500) back to the account (member-partitioned even-y self ephemeral).
     const oldPath3 = tree.getMerklePath(tm.index);
     const root3 = tree.getRoot();
     const chMTag = await frost.canonicalMultisigSelfTag(
@@ -489,7 +489,7 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     expect(chMFields[4].toBigInt()).toBe(chMView!.note.value);
     expect(chMFields[5].equals(chMView!.note.owner)).toBe(true);
 
-    // --- split_multisig: the account spends Ch_M into two MULTISIG self notes S1 (300) + S2 (200). ---
+    // split_multisig: the account spends Ch_M into two MULTISIG self notes S1 (300) + S2 (200).
     const oldPath4 = tree.getMerklePath(chM.index);
     const root4 = tree.getRoot();
     const s1Tag = await frost.canonicalMultisigSelfTag(
@@ -553,8 +553,8 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     const s2 = await land(spOut, 14, 15, 17);
     markSpent(new Fr(spOut[2]), [s1.index, s2.index]);
 
-    // --- join_multisig: the account joins S1 + S2 into one MULTISIG self note J (500). Each input's quorum
-    //     signs the same message under gpk (two independent FROST sessions). ---
+    // join_multisig: the account joins S1 + S2 into one MULTISIG self note J (500). Each input's quorum
+    // signs the same message under gpk (two independent FROST sessions).
     const pathA = tree.getMerklePath(s1.index);
     const pathB = tree.getMerklePath(s2.index);
     const rootJ = tree.getRoot();

@@ -1,6 +1,4 @@
-// Shared (t,n)-over-BabyJubJub primitive library. Both the threshold-compliance toolkit and the FROST
-// signing toolkit build on this: Shamir/Lagrange mod SUBORDER, Feldman VSS, Chaum-Pedersen DLEQ, Poseidon2
-// hash-to-scalar, and subgroup-validated BabyJubJub point ops.
+// Shared (t,n)-over-BabyJubJub primitives.
 
 export * from "./bjj.js";
 export * from "./domains.js";

@@ -14,8 +14,7 @@ import {
 } from "../frost/index.js";
 import type { Point } from "../tss/index.js";
 
-// Emits a DETERMINISTIC 3-of-5 FROST (R,z) over BabyJubJub for the Noir verify_frost_spend KAT: fixed Shamir
-// sharing + fixed nonce randomness -> reproducible signature. Run: npx vitest run gen-frost-kat.test.ts
+// Emits a deterministic 3-of-5 FROST (R,z) for the Noir verify_frost_spend KAT.
 describe("gen frost KAT", () => {
   it("emits a deterministic FROST (R,z)", async () => {
     const c = 12345678901234567890123456789012345678901234567890n % SUBORDER;
@@ -62,8 +61,7 @@ describe("gen frost KAT", () => {
     const sig = aggregate(cs, R, zs);
     expect(await verify(cs, gpk, msg, sig)).toBe(true);
 
-    // Parity lock: the TS signer must regenerate the exact values hard-coded in the Noir verify_frost_spend
-    // KAT (shared/src/multisig/frost.nr). A drift in the TS FROST hashing breaks BOTH this assertion and the Noir KAT.
+    // Parity lock: MUST equal the Noir verify_frost_spend KAT (shared/src/multisig/frost.nr).
     const hex = (x: bigint) => "0x" + x.toString(16).padStart(64, "0");
     expect(hex(gpk[0])).toBe(
       "0x2546ab52faee9ab8ead1ad868567473b9757c6456c137274b12a5c51330d764d",

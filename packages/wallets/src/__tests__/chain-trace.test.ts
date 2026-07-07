@@ -14,9 +14,7 @@ import { toFr } from "../crypto/fields.js";
 import { leaf, packParents } from "../note/note.js";
 import { computePsi, computeNullifier } from "../note/nullifier.js";
 
-// Fixed compliance secret c and pubkey C = c*Base8. The trace is agnostic to how CEK is recovered; here a
-// single-key holder plays the committee's role: decrypt reconstructs cek = (c*eph_pub).x, byte-identical to
-// the encryptor's (eph*C).x. Deterministic scalars keep the test reproducible.
+// A single-key holder stands in for the committee: cek = (c*eph_pub).x == the encryptor's (eph*C).x.
 const COMPLIANCE_SECRET =
   0x2a3bce9f10475d8c17e4f0a2b6d5931e77c0aa4415e9b2d63f81047c9d2e5abfn;
 const COMPLIANCE_PK: Point = scalarMul(COMPLIANCE_SECRET, BASE8);
@@ -26,8 +24,6 @@ const OWNER = toFr(
   "0x0bb44e077410f254c45a30b25976ce465e83511d7fda88f26e1296c6978eaf27",
 );
 
-// A self-consistent mock chain: every leaf carries a real eph_pub / DEM ciphertext and its nullifier is the
-// real Poseidon2 chain from CEK, so the overlay re-derives exactly what the mock registered.
 class MockChain {
   private readonly leaves = new Map<number, LeafData>();
   private readonly spent = new Map<string, number[]>();
@@ -97,27 +93,25 @@ function joined(indexA: number, indexB: number): Fr {
   return packParents([{ leafIndex: indexA }, { leafIndex: indexB }]);
 }
 
-// deposit(1) -> transfer -> transfer -> withdraw(change) -> split -> join.
-// Leaf 0 is reserved (a lone leaf-0 single-input spend packs to 0 and would alias a deposit), so the deposit
-// sits at leaf 1. Change notes (leaves 3, 5) stay unspent, i.e. forward frontiers off the main line.
+// Leaf 0 is reserved: a lone leaf-0 single-input spend packs to 0 and would alias a deposit.
 async function buildLifecycleChain(): Promise<MockChain> {
   const chain = new MockChain();
 
-  const nfDeposit = await chain.addNote(1, 2n, 100n, toFr(0)); // deposit note D
-  const nfMemo1 = await chain.addNote(2, 3n, 60n, single(1)); // transfer 1 -> recipient memo M1
-  await chain.addNote(3, 4n, 40n, single(1)); // transfer 1 -> self change C1 (unspent)
-  const nfMemo2 = await chain.addNote(4, 5n, 35n, single(2)); // transfer 2 -> recipient memo M2
-  await chain.addNote(5, 6n, 25n, single(2)); // transfer 2 -> self change C2 (unspent)
-  const nfChange3 = await chain.addNote(6, 7n, 30n, single(4)); // withdraw change C3
-  const nfSplit1 = await chain.addNote(7, 8n, 18n, single(6)); // split out S1
-  const nfSplit2 = await chain.addNote(8, 9n, 12n, single(6)); // split out S2
-  await chain.addNote(9, 10n, 30n, joined(7, 8)); // join out J (unspent)
+  const nfDeposit = await chain.addNote(1, 2n, 100n, toFr(0));
+  const nfMemo1 = await chain.addNote(2, 3n, 60n, single(1));
+  await chain.addNote(3, 4n, 40n, single(1));
+  const nfMemo2 = await chain.addNote(4, 5n, 35n, single(2));
+  await chain.addNote(5, 6n, 25n, single(2));
+  const nfChange3 = await chain.addNote(6, 7n, 30n, single(4));
+  const nfSplit1 = await chain.addNote(7, 8n, 18n, single(6));
+  const nfSplit2 = await chain.addNote(8, 9n, 12n, single(6));
+  await chain.addNote(9, 10n, 30n, joined(7, 8));
 
   chain.markSpent(nfDeposit, [2, 3]);
   chain.markSpent(nfMemo1, [4, 5]);
-  chain.markSpent(nfMemo2, [6]); // withdraw burns value off-chain, only the change note lands
+  chain.markSpent(nfMemo2, [6]);
   chain.markSpent(nfChange3, [7, 8]);
-  chain.markSpent(nfSplit1, [9]); // join consumed both S1 and S2, both created leaf 9
+  chain.markSpent(nfSplit1, [9]);
   chain.markSpent(nfSplit2, [9]);
 
   return chain;
@@ -151,7 +145,6 @@ describe("chainTrace: spend-graph reconstruction over threshold-decryptable note
   it("backwardTrace from the join output reconstructs the ancestor lineage back to the deposit", async () => {
     const chain = await buildLifecycleChain();
     const graph = await backwardTrace(9, chain.state(), chain.decryptHook());
-    // Lineage excludes the off-line change notes (leaves 3, 5): they are siblings, not ancestors, of leaf 9.
     expectGraph(graph, {
       nodes: [1, 2, 4, 6, 7, 8, 9],
       edges: [

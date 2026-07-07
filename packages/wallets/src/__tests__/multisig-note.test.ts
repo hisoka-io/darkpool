@@ -22,7 +22,6 @@ import { demEncrypt } from "../crypto/dem.js";
 import { leaf as computeLeaf, Note } from "../note/note.js";
 import { computePsi, computeNullifier } from "../note/nullifier.js";
 
-// V = v*Base8 must be even-y (V.x is the static incoming Raven tag); the account ceremony rolls v until it is.
 function evenYViewKey(): Fr {
   for (let i = 0; i < 256; i++) {
     const v = new Fr(randScalar());
@@ -86,7 +85,6 @@ describe("multisig note VIEW layer (FROST accounts, decoupled owner/view, member
       viewPub,
     );
 
-    // owner commits to gpk (spend authority), NOT to the view key.
     expect(built.owner.toBigInt()).toBe(ownerCommitment.toBigInt());
     expect(built.tag.equals(new Fr(viewPub[0]))).toBe(true);
 
@@ -107,15 +105,14 @@ describe("multisig note VIEW layer (FROST accounts, decoupled owner/view, member
 
   it("member partitioning: disjoint sub-sequences (member_id or j change -> distinct eph)", async () => {
     const a = await deriveSelfEph(v, 1n, 0n);
-    const b = await deriveSelfEph(v, 2n, 0n); // different member, SAME counter -> must differ
-    const c = await deriveSelfEph(v, 1n, 1n); // same member, next counter -> must differ
+    const b = await deriveSelfEph(v, 2n, 0n);
+    const c = await deriveSelfEph(v, 1n, 1n);
     expect(a.ephPub[0]).not.toBe(b.ephPub[0]);
     expect(a.ephPub[0]).not.toBe(c.ephPub[0]);
   });
 
   it("two spends never collide even if two members reuse the same counter index", async () => {
-    // A caller "colliding" indices across members (both pick j=0) still yields distinct eph -- the fix for the
-    // shared-v two-time-pad. Each member owns a disjoint sub-sequence.
+    // Two members colliding on j=0 still yield distinct eph (the shared-v two-time-pad fix).
     const m1 = await deriveSelfEph(v, 1n, 0n);
     const m3 = await deriveSelfEph(v, 3n, 0n);
     expect(m1.eph.equals(m3.eph)).toBe(false);
@@ -126,7 +123,6 @@ describe("multisig note VIEW layer (FROST accounts, decoupled owner/view, member
     const tag = await canonicalMultisigSelfTag(v, 4n, 0n);
     expect(isEvenY(tag.ephPub)).toBe(true);
     expect(tag.tag.equals(new Fr(tag.ephPub[0]))).toBe(true);
-    // The returned j re-derives the same eph.
     const again = await deriveSelfEph(v, 4n, tag.j);
     expect(again.eph.equals(tag.eph)).toBe(true);
   });
@@ -142,7 +138,6 @@ describe("multisig note VIEW layer (FROST accounts, decoupled owner/view, member
   it("KAT: member-partitioned eph_pub.x is deterministic for fixed (v, member_id, j)", async () => {
     const vFixed = new Fr(1234567890123456789012345678901234567890n);
     const { eph, ephPub } = await deriveSelfEph(vFixed, 2n, 0n);
-    // Determinism: a re-derivation reproduces it exactly.
     const again = await deriveSelfEph(vFixed, 2n, 0n);
     expect(again.eph.equals(eph)).toBe(true);
     const hex = "0x" + ephPub[0].toString(16).padStart(64, "0");
@@ -168,7 +163,6 @@ describe("multisig scan: read a MULTISIG note end to end (incoming + self)", () 
     });
     const { viewPub, ownerCommitment } = await multisigAddress(gpk, v);
 
-    // Incoming: external sender funds the account.
     const eph = new Fr(randScalar());
     const inc = await buildIncomingMultisigNote(
       eph,
@@ -199,7 +193,6 @@ describe("multisig scan: read a MULTISIG note end to end (incoming + self)", () 
       ),
     ).toBe(true);
 
-    // Self/change: member 2 coordinates a change output owned by gpk.
     const selfTag = await canonicalMultisigSelfTag(v, 2n, 0n);
     const self = buildSelfNote(selfTag.eph, compliancePk);
     const selfEnc = await encryptNote(self.cek, ownerCommitment, 50n, asset);
@@ -230,7 +223,6 @@ describe("multisig scan: read a MULTISIG note end to end (incoming + self)", () 
       memberIds: [1n, 2n, 3n],
       selfWindow: 4,
     });
-    // A self note under a DIFFERENT account's v: its eph tag is not in this scanner's precompute.
     const otherV = evenYViewKey();
     const otherTag = await canonicalMultisigSelfTag(otherV, 1n, 0n);
     const otherSelf = buildSelfNote(otherTag.eph, compliancePk);
@@ -294,8 +286,7 @@ describe("multisig scan: read a MULTISIG note end to end (incoming + self)", () 
       packedCiphertext: selfEnc.ciphertext,
     });
 
-    // This account's incoming tag with a valid eph/cekWrap, but one ciphertext word is not a field element:
-    // the decode throws deep in readNote. Isolation MUST turn that into a skip, not a scan-halting throw.
+    // One ciphertext word is not a field element: the decode throws, and isolation MUST turn it into a skip.
     const poisoned = incomingNoteEvent({
       leafIndex: 2n,
       commitment: incEnc.commitment,
@@ -317,11 +308,10 @@ describe("multisig scan: read a MULTISIG note end to end (incoming + self)", () 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const views: MultisigNoteView[] = [];
     for (const ev of [goodIncoming, poisoned, goodSelf]) {
-      const view = await scanner.readNote(ev); // must never throw on the poison
+      const view = await scanner.readNote(ev);
       if (view) views.push(view);
     }
 
-    // Exactly one skip, logged as a trace id (leaf index) with no secret material.
     expect(warnSpy).toHaveBeenCalledTimes(1);
     const logged = String(warnSpy.mock.calls[0][0]);
     expect(logged).toContain("leaf=2");

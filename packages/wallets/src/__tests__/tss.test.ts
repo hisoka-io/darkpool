@@ -47,33 +47,27 @@ describe("tss: Shamir + Lagrange mod SUBORDER", () => {
   it("reconstructs the secret from any t shares, and NOT from t-1", () => {
     const n = 5;
     const secret = randScalar();
-    const coeffs = [secret, randScalar(), randScalar()]; // degree t-1 (t=3)
+    const coeffs = [secret, randScalar(), randScalar()];
     const shares = new Map<bigint, bigint>();
     for (let i = 1; i <= n; i++)
       shares.set(BigInt(i), polyEval(coeffs, BigInt(i)));
 
     expect(interpolateAtZero(shares, [1n, 2n, 3n])).toBe(secret);
     expect(interpolateAtZero(shares, [2n, 4n, 5n])).toBe(secret);
-    // t-1 shares interpolate to a different value (secret not recovered).
     expect(interpolateAtZero(shares, [1n, 2n])).not.toBe(secret);
   });
 
   it("a mod-BN254 Lagrange variant would break reconstruction (guards T7)", () => {
-    // Full-width coefficients so the shares WRAP mod SUBORDER; interpolating those reduced shares under the
-    // WRONG modulus (BN254 Fr) then diverges from the secret -- the silent-catastrophic T7 error.
+    // Full-width coeffs so the shares wrap mod SUBORDER; interpolating them under BN254 Fr diverges (T7).
     const BN254 =
       21888242871839275222246405745257275088548364400416034343698204186575808495617n;
     const secret = randScalar();
     const coeffs = [secret, randScalar(), randScalar()];
-    // Quorum {2,4,5} has NON-integer Lagrange coefficients, so the modular inverse genuinely differs between
-    // SUBORDER and BN254 -- the wrong modulus then reliably diverges (quorum {1,2,3} has integer coeffs 3/-3/1
-    // and can coincide).
+    // Quorum {2,4,5} has non-integer Lagrange coeffs, so the modular inverse differs between SUBORDER and BN254.
     const quorum = [2n, 4n, 5n];
     const shares = quorum.map((i) => ({ i, y: polyEval(coeffs, i) }));
     const m = new Map(shares.map((s) => [s.i, s.y]));
-    // Correct (mod SUBORDER) recovers the secret.
     expect(interpolateAtZero(m, quorum)).toBe(secret);
-    // Wrong-modulus interpolation of the SUBORDER-reduced shares.
     let accWrong = 0n;
     for (const { i, y } of shares) {
       let num = 1n;
@@ -119,14 +113,11 @@ describe("tss: Chaum-Pedersen DLEQ", () => {
 
     const honest = await cpProve(secret, epk);
     expect(await cpVerify(V, epk, honest)).toBe(true);
-    // The recovered partial D really equals secret*epk.
     expect(pointEq(honest.D, scalarMul(secret, epk))).toBe(true);
 
-    // Forged: a random point substituted for D.
     const forged = { ...honest, D: scalarMul(randScalar(), epk) };
     expect(await cpVerify(V, epk, forged)).toBe(false);
 
-    // A partial from a DIFFERENT share than the registered V is rejected.
     const wrong = await cpProve(modSub(secret + 1n), epk);
     expect(await cpVerify(V, epk, wrong)).toBe(false);
   });
@@ -140,7 +131,6 @@ describe("tss: hash-to-scalar", () => {
     const s = await hashToScalar(CP_DOMAIN, [1n, 2n, 3n]);
     expect(s).toBeGreaterThanOrEqual(0n);
     expect(s).toBeLessThan(SUBORDER);
-    // Domain separation: a different domain yields a different scalar for the same input.
     const s2 = await hashToScalar(CP_DOMAIN + 1n, [1n, 2n, 3n]);
     expect(s2).not.toBe(s);
   });

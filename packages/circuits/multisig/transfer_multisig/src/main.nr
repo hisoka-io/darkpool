@@ -4,10 +4,6 @@ use ::shared::frost::{msg_transfer, verify_frost_spend};
 use ::shared::note::{assert_parents_bound, Note};
 use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y};
 
-// Multisig transfer: a FROST quorum authorizes spending one MULTISIG note into a memo note for a STANDARD
-// recipient (owner + wrap + tag all bind to in_pub_j) plus a MULTISIG change note back to the account. The
-// recipient is bound via memo.leaf, so m need not carry it separately. Paying a MULTISIG recipient (owner=gpk
-// != view=V) is a deferred feature (same unproven-V gap as group public-claim).
 fn main(
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
@@ -55,11 +51,7 @@ fn main(
     )
 }
 
-// Differential negatives for the multisig OUTPUT guards. The memo (STANDARD recipient) mints first, then the
-// MULTISIG change; both guard asserts precede verify_frost_spend, so a dummy (frost_r, frost_z) never reached
-// suffices. The consumed input is a well-formed MULTISIG note owned by the account gpk over a single-leaf
-// synthetic tree; the memo fixtures (recipient key + owner + psi) are the transfer golden vector, so the memo
-// mint fully succeeds and control reaches the change guards. gpk is the shared/src/frost.nr subgroup point.
+// Output guards run before verify_frost_spend, so a never-reached dummy (frost_r, frost_z) suffices.
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 global ASSET_ID: Field = 0x1234567890123456789012345678901234567890;
@@ -76,7 +68,6 @@ fn gpk_owner() -> Field {
     poseidon::poseidon2::Poseidon2::hash([g.x, g.y], 2)
 }
 
-// Any on-curve point; never reached because an output guard fails first.
 fn dummy_r() -> Point {
     Point {
         x: 0x262d28e21d283e57d8add3efde5b0ef36d18af221efa12d686b50fdae23c0b53,
@@ -104,7 +95,6 @@ fn recipient_in_pub() -> Point {
     }
 }
 
-// A STANDARD memo to recipient_in_pub with the transfer golden owner/psi (valid for memo_eph 0x378).
 fn memo_note(note_type: Field) -> Note {
     Note {
         note_version: 1,
@@ -118,7 +108,6 @@ fn memo_note(note_type: Field) -> Note {
     }
 }
 
-// A MULTISIG change with the golden psi (valid for change_eph 9).
 fn change_note(note_type: Field, owner: Field) -> Note {
     Note {
         note_version: 1,
@@ -132,8 +121,6 @@ fn change_note(note_type: Field, owner: Field) -> Note {
     }
 }
 
-// THE P1 theft guard: a fully valid memo, but the MULTISIG change owner is set off the account gpk. The
-// change owner pin rejects it before any FROST check.
 #[test(should_fail_with = "multisig change/self must be owned by the account gpk")]
 fn audit_reject_off_gpk_change_owner() {
     let _ = main(
@@ -153,8 +140,6 @@ fn audit_reject_off_gpk_change_owner() {
     );
 }
 
-// A non-STANDARD memo: the memo is pinned to STANDARD (send-to-multisig deferred), so the memo pin rejects it
-// before the change is minted. (The set-membership burn guard for note_type=2 is covered by the deposit main.)
 #[test(should_fail_with = "incoming memo must be STANDARD")]
 fn audit_reject_out_note_type_2() {
     let _ = main(
@@ -174,7 +159,6 @@ fn audit_reject_out_note_type_2() {
     );
 }
 
-// A STANDARD change on the multisig self-mint: the note_type pin rejects it (the memo mints first and fully).
 #[test(should_fail_with = "multisig self note must be MULTISIG")]
 fn audit_reject_out_note_type_standard() {
     let _ = main(

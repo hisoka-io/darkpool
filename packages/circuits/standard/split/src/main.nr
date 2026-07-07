@@ -3,7 +3,6 @@ use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
 use ::shared::note::{assert_parents_bound, Note};
 use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, fixture_note};
 
-// Spend one note into two self notes. Internal consolidation: no value leaves the pool, no asset output.
 fn main(
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
@@ -130,7 +129,6 @@ fn out2_valid() -> Note {
     )
 }
 
-// Each output note binds its parents to the spent index (0 here); a forged nonzero parent is rejected.
 #[test(should_fail_with = "output parents not bound to consumed inputs")]
 fn audit_reject_forged_out_parents() {
     let mut out1 = out1_valid();
@@ -167,7 +165,7 @@ fn audit_reject_out_asset_mismatch() {
     );
 }
 
-// Reusing one ephemeral across both outputs reuses the CEK (two-time pad): the distinctness guard rejects.
+// Reusing one eph across outputs reuses the CEK (two-time pad).
 #[test(should_fail_with = "ephemerals must be distinct")]
 fn audit_reject_reused_ephemeral() {
     let _ = main(
@@ -184,8 +182,6 @@ fn audit_reject_reused_ephemeral() {
     );
 }
 
-// A membership path that does not open to a real leaf emits a root the contract will not accept: the
-// emitted root must diverge from the single-leaf KAT root.
 #[test(should_fail)]
 fn audit_reject_non_membership() {
     let mut path = [0; TREE_DEPTH];

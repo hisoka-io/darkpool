@@ -1,9 +1,4 @@
-// SIMULATED single-process DKG driver. Every dealer's share is built in ONE machine's RAM, so this driver
-// holds all n secrets at once -- it is a TEST/DEV reference ONLY and MUST NOT ship. A production account or
-// committee ceremony runs the tss/dkg primitives (dealerContribute / verifyContribution / aggregate) over an
-// authenticated echo-broadcast round (one shared commitment view = anti-equivocation) + a complaint round +
-// GJKR reconstruct-not-drop for post-QUAL equivocation, with the PoP binding the peer commitment set. That
-// networked ceremony is a required pre-mainnet gate, unbuilt here. Kept out of every shipped barrel.
+// SIMULATED single-process DKG driver: holds all n secrets in one process. TEST/DEV ONLY, MUST NOT ship.
 
 import { modSub } from "../tss/bjj.js";
 import {
@@ -14,10 +9,6 @@ import {
   aggregate,
 } from "../tss/dkg.js";
 
-/** Drive a full DKG among `n` participants with threshold `t`. Faults let a test inject a bad dealer (whose
- *  contribution fails verification and is disqualified from QUAL). Returns the aggregated group key over the
- *  honest QUAL set. Simulated single-loop: a real deployment replaces the loop with the authenticated
- *  echo-broadcast ceremony above. */
 export async function runDkg(
   n: number,
   t: number,
@@ -37,7 +28,6 @@ export async function runDkg(
     );
     let c = contribution;
     if (faults?.badShareDealers?.has(id)) {
-      // Corrupt one dealt share so its Feldman check fails at that recipient.
       const bad = new Map(c.shares);
       const victim = participants.find((p) => p !== id) ?? id;
       bad.set(victim, modSub((bad.get(victim) ?? 0n) + 1n));
@@ -49,7 +39,6 @@ export async function runDkg(
     contributions.push(c);
   }
 
-  // Every participant verifies every dealer; a dealer any honest participant complains about is disqualified.
   const qual: DealerContribution[] = [];
   for (const c of contributions) {
     let ok = true;

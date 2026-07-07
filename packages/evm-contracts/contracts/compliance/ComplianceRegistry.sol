@@ -5,21 +5,15 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /**
  * @title ComplianceRegistry
- * @notice Social (event-log) audit trail for the threshold-compliance committee. A registered committee
- *         member BROADCASTS the compliance action it took (requested / evaluated / signed / decrypted)
- *         against a target as an on-chain event. There is deliberately NO on-chain proof and NO signature
- *         verification: the committee key is a known registered set held off-chain, so the auditability
- *         layer is an attestation log, not a cryptographic gate (a threshold-Schnorr or per-member EIP-712
- *         verify can be added later if attribution ever needs to be trust-minimized).
- * @dev The committee `(t, n)` shape is recorded for auditors; the actual threshold decryption happens
- *      off-chain. Only a member (MEMBER_ROLE) may record an action; membership is managed by an admin.
+ * @notice Event-log audit trail for the threshold-compliance committee: a registered member broadcasts each
+ *         action (requested / evaluated / signed / decrypted) as an event. No on-chain proof or signature
+ *         check -- this is an attestation log, not a cryptographic gate; the committee key lives off-chain.
  */
 contract ComplianceRegistry is AccessControl {
     bytes32 public constant COMMITTEE_ADMIN_ROLE =
         keccak256("COMMITTEE_ADMIN_ROLE");
     bytes32 public constant MEMBER_ROLE = keccak256("MEMBER_ROLE");
 
-    /// @dev The compliance action a member attests to; mirrors the off-chain committee workflow stages.
     enum Action {
         Requested,
         Evaluated,
@@ -30,7 +24,6 @@ contract ComplianceRegistry is AccessControl {
     uint256 public immutable threshold;
     uint256 public immutable committeeSize;
 
-    /// @dev metadata is free-form (jurisdictions / threshold targets); empty string = not registered.
     mapping(address => string) public memberMetadata;
     mapping(address => bool) public isMember;
 
@@ -53,11 +46,6 @@ contract ComplianceRegistry is AccessControl {
         string status
     );
 
-    /**
-     * @param admin The committee administrator (grants/revokes membership). Must be non-zero.
-     * @param t The decryption threshold `t`. Must be non-zero and at most `n`.
-     * @param n The committee size `n`. Must be non-zero.
-     */
     constructor(address admin, uint256 t, uint256 n) {
         if (admin == address(0)) revert ZeroAdmin();
         if (t == 0) revert ThresholdZero();
@@ -69,7 +57,6 @@ contract ComplianceRegistry is AccessControl {
         _grantRole(COMMITTEE_ADMIN_ROLE, admin);
     }
 
-    /// @notice Register a committee member so it can record compliance actions.
     function registerMember(
         address member,
         string calldata metadata
@@ -82,7 +69,6 @@ contract ComplianceRegistry is AccessControl {
         emit MemberRegistered(member, metadata);
     }
 
-    /// @notice Remove a committee member.
     function deregisterMember(
         address member
     ) external onlyRole(COMMITTEE_ADMIN_ROLE) {
@@ -93,12 +79,7 @@ contract ComplianceRegistry is AccessControl {
         emit MemberDeregistered(member);
     }
 
-    /**
-     * @notice Record a compliance action against a target. Emits an attestation only; no verification.
-     * @param action The workflow stage (requested / evaluated / signed / decrypted).
-     * @param targetTag An opaque tag identifying what was acted on (e.g. a note discovery tag or memo id).
-     * @param status Free-form human-readable status/notes.
-     */
+    /// @notice Record a compliance action against `targetTag`. Emits an attestation only; no verification.
     function recordAction(
         Action action,
         bytes32 targetTag,

@@ -1,21 +1,13 @@
-// Generic FROST 2-round threshold Schnorr signing (RFC 9591), parameterized over a Ciphersuite. This is the
-// protocol LOGIC certified by the RFC 9591 KAT (via the ristretto255 ciphersuite) and run in production over
-// BabyJubJub+Poseidon2. Sections cited are RFC 9591.
+// Generic FROST 2-round threshold Schnorr signing, ciphersuite-parameterized. Section refs are RFC 9591.
 
 import { Ciphersuite, Commitment } from "./ciphersuite.js";
 
-/** Round-1 secret nonces (hiding d_i, binding e_i). ONE-TIME use: a reuse lets an observer solve
- *  sk*lambda = (z1 - z2)/(c1 - c2). Never log. The KAT feeds a plain object (fixed recorded randomness, one
- *  shot by construction); production draws via `commit`, which returns a consume-once `NonceHandle`. */
+/** Round-1 secret nonces (hiding d_i, binding e_i). ONE-TIME: reuse solves sk*lambda = (z1-z2)/(c1-c2). Never log. */
 export interface Nonces {
   d: bigint;
   e: bigint;
 }
 
-/** Consume-once wrapper `commit` returns: the FIRST `signShare` marks it used and a SECOND `signShare` with
- *  the same handle THROWS, so a crash-replay / double-submit can never reuse (d,e) (nonce reuse extracts the
- *  secret share). A plain `Nonces` object is NOT tracked -- that path exists only for the fixed-randomness KAT
- *  where reuse is deliberate and safe. Never log d/e. */
 export class NonceHandle implements Nonces {
   readonly d: bigint;
   readonly e: bigint;
@@ -43,7 +35,6 @@ function mod(x: bigint, m: bigint): bigint {
 }
 
 function modInverse(x: bigint, m: bigint): bigint {
-  // Extended Euclid; m is prime here but this is general.
   let [old_r, r] = [mod(x, m), m];
   let [old_s, s] = [1n, 0n];
   while (r !== 0n) {
@@ -61,10 +52,8 @@ function sortById<G>(commitments: Commitment<G>[]): Commitment<G>[] {
   );
 }
 
-/** Round 1: generate a hedged one-time nonce pair and its public commitment for signer `id` (RFC 5.1).
- *  `secret` is the signer's secret share; `hidingRandom` and `bindingRandom` MUST each be 32 fresh CSPRNG
- *  bytes per invocation (hedged, non-deterministic -- a deterministic nonce is a multiparty key-recovery
- *  vector). Production draws two fresh values; the RFC KAT feeds its recorded randomness. */
+/** Round 1: hedged one-time nonce pair + public commitment for signer `id` (RFC 5.1). `hidingRandom`/
+ *  `bindingRandom` MUST each be 32 fresh CSPRNG bytes per call -- a deterministic nonce is a key-recovery vector. */
 export async function commit<G>(
   cs: Ciphersuite<G>,
   id: bigint,
@@ -79,7 +68,6 @@ export async function commit<G>(
   return { nonces: new NonceHandle(d, e), commitment: { id, D, E } };
 }
 
-/** Per-participant binding factors rho_i over the (sorted) commitment list (RFC 4.4). */
 export async function bindingFactors<G>(
   cs: Ciphersuite<G>,
   gpk: G,
@@ -94,7 +82,6 @@ export async function bindingFactors<G>(
   return out;
 }
 
-/** Group commitment R = sum_i (D_i + rho_i*E_i) (RFC 4.5). */
 export function groupCommitment<G>(
   cs: Ciphersuite<G>,
   commitments: Commitment<G>[],
@@ -110,7 +97,6 @@ export function groupCommitment<G>(
   return R;
 }
 
-/** Lagrange coefficient lambda_i(0) over the ACTUAL signer identifier set (RFC 4.2), mod the group order. */
 export function lagrangeCoefficient<G>(
   cs: Ciphersuite<G>,
   id: bigint,
@@ -127,10 +113,7 @@ export function lagrangeCoefficient<G>(
   return mod(num * modInverse(den, m), m);
 }
 
-/** Round 2 core: the partial-signature math z_i = d_i + e_i*rho_i + lambda_i*sk_i*c (RFC 5.2) with NO
- *  one-time-nonce enforcement. This is the KAT / low-level path (the RFC vector deliberately reuses its
- *  recorded nonces across re-derivations); it parallels `aggregate` (pure). Production MUST call `signShare`,
- *  which only accepts a consume-once `NonceHandle` and burns it before delegating here. */
+/** NO nonce-reuse guard (KAT/low-level path). Production MUST call `signShare`. */
 export async function signShareUnchecked<G>(
   cs: Ciphersuite<G>,
   id: bigint,
@@ -157,9 +140,6 @@ export async function signShareUnchecked<G>(
   );
 }
 
-/** Round 2 (production): a signer's partial signature (RFC 5.2). Accepts ONLY a consume-once `NonceHandle`
- *  (a bare {d,e} that would bypass single-use is not assignable), and burns it FIRST so a crash-replay /
- *  double-submit with the same handle throws before any share math -- nonce reuse extracts the secret share. */
 export async function signShare<G>(
   cs: Ciphersuite<G>,
   id: bigint,
@@ -173,9 +153,6 @@ export async function signShare<G>(
   return signShareUnchecked(cs, id, nonces, secretShare, gpk, msg, commitments);
 }
 
-/** Coordinator check that a partial is well-formed (RFC 5.3): z_i*G == D_i + rho_i*E_i + (c*lambda_i)*PK_i.
- *  A failure identifies a misbehaving signer (identifiable abort), so equivocation degrades to DoS, never
- *  forgery. `publicShare` = PK_i = the signer's verification share. */
 export async function verifySignatureShare<G>(
   cs: Ciphersuite<G>,
   id: bigint,
@@ -200,8 +177,7 @@ export async function verifySignatureShare<G>(
   return cs.eq(lhs, rhs);
 }
 
-/** Aggregate partials into the final signature (R, z), z = sum z_i (RFC 5.3). PURE: no per-share verify (the
- *  KAT feeds already-checked shares). A production coordinator MUST use `coordinatorAggregate` instead. */
+/** PURE: no per-share verify -- a production coordinator MUST use `coordinatorAggregate`. */
 export function aggregate<G>(
   cs: Ciphersuite<G>,
   R: G,
@@ -213,13 +189,6 @@ export function aggregate<G>(
   return { R, z };
 }
 
-/** The coordinator aggregation path: reject duplicate/sub-threshold shares, then verify EVERY partial
- *  (RFC 5.3 identifiable abort) before summing, so a malicious or replayed z_i is attributed and rejected
- *  rather than silently corrupting the aggregate (wasted-gas DoS). The dedup + `threshold` gate is
- *  defense-in-depth over the final Schnorr check: a resubmitted share cannot be counted twice and a
- *  sub-quorum set cannot open a signature. This is the mandatory gate for the production signing coordinator
- *  (the networked collect/verify/aggregate round is a pre-mainnet gate); `aggregate` stays unguarded for the
- *  KAT/low-level path. */
 export async function coordinatorAggregate<G>(
   cs: Ciphersuite<G>,
   R: G,
@@ -264,8 +233,6 @@ export async function coordinatorAggregate<G>(
   );
 }
 
-/** Verify a FROST/Schnorr signature: z*G == R + c*gpk (RFC 3.1). The threshold signature is identical to a
- *  single-key Schnorr signature under gpk. */
 export async function verify<G>(
   cs: Ciphersuite<G>,
   gpk: G,

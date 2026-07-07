@@ -4,8 +4,6 @@ use ::shared::frost::{msg_split, verify_frost_spend};
 use ::shared::note::{assert_parents_bound, Note};
 use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y};
 
-// Multisig split: a FROST quorum authorizes spending one MULTISIG note into two MULTISIG self notes back to
-// the account. Internal consolidation: no value leaves the pool, no asset output.
 fn main(
     compliance_pubkey_x: pub Field,
     compliance_pubkey_y: pub Field,
@@ -50,11 +48,8 @@ fn main(
     )
 }
 
-// Differential negatives for the multisig OUTPUT guards on BOTH split outputs. Each output-owner pin and
-// note_type assert precedes verify_frost_spend, so a dummy (frost_r, frost_z) never reached suffices. The
-// consumed input is a well-formed MULTISIG note owned by the account gpk over a single-leaf synthetic tree
-// (index 0, zero path => root == leaf). To reach the SECOND output's guard, out1 must mint fully, so it uses
-// the golden self psi valid for eph_1 = 15. gpk is the shared/src/frost.nr prime-order subgroup point.
+// Output guards run before verify_frost_spend, so a never-reached dummy (frost_r, frost_z) suffices; out1
+// uses the golden self psi (eph 15) so it mints fully and control reaches out2's guard.
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 global ASSET_ID: Field = 0x1234567890123456789012345678901234567890;
@@ -72,7 +67,6 @@ fn gpk_owner() -> Field {
     poseidon::poseidon2::Poseidon2::hash([g.x, g.y], 2)
 }
 
-// Any on-curve point; never reached because an output guard fails first.
 fn dummy_r() -> Point {
     Point {
         x: 0x262d28e21d283e57d8add3efde5b0ef36d18af221efa12d686b50fdae23c0b53,
@@ -106,8 +100,6 @@ fn out_note(value: u128, note_type: Field, owner: Field, psi: Field) -> Note {
     }
 }
 
-// THE P1 theft guard on out1: a valid gpk-owned input, but out1's owner is set off the account gpk. out1
-// mints first, so its owner pin rejects before any FROST check (owner precedes psi binding).
 #[test(should_fail_with = "multisig change/self must be owned by the account gpk")]
 fn audit_reject_off_gpk_change_owner_out1() {
     let _ = main(
@@ -126,7 +118,6 @@ fn audit_reject_off_gpk_change_owner_out1() {
     );
 }
 
-// THE P1 theft guard on out2: out1 mints fully (golden self psi for eph 15), then out2's owner is off the gpk.
 #[test(should_fail_with = "multisig change/self must be owned by the account gpk")]
 fn audit_reject_off_gpk_change_owner_out2() {
     let _ = main(
@@ -145,7 +136,6 @@ fn audit_reject_off_gpk_change_owner_out2() {
     );
 }
 
-// Reserved note_type 2 on out1: the MULTISIG pin precedes assert_valid_note_type for a self-mint.
 #[test(should_fail_with = "multisig self note must be MULTISIG")]
 fn audit_reject_out_note_type_2() {
     let _ = main(
@@ -164,7 +154,6 @@ fn audit_reject_out_note_type_2() {
     );
 }
 
-// A STANDARD out1 on a multisig self-mint: the note_type pin rejects it.
 #[test(should_fail_with = "multisig self note must be MULTISIG")]
 fn audit_reject_out_note_type_standard() {
     let _ = main(

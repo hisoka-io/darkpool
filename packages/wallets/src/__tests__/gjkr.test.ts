@@ -26,7 +26,7 @@ import {
   Partial,
 } from "../threshold/index.js";
 
-const CONTEXT = SCHNORR_DOMAIN; // any fixed context field binds the DKG PoPs
+const CONTEXT = SCHNORR_DOMAIN;
 
 async function partialsFor(
   quorum: bigint[],
@@ -42,7 +42,7 @@ describe("gjkr: nothing-up-my-sleeve second generator H", () => {
   it("is on-curve, prime-order, and distinct from the identity and Base8", async () => {
     const H = await getH();
     expect(inCurve(H)).toBe(true);
-    expect(inSubgroupNonId(H)).toBe(true); // prime-order subgroup AND non-identity
+    expect(inSubgroupNonId(H)).toBe(true);
     expect(pointEq(H, IDENTITY)).toBe(false);
     expect(pointEq(H, BASE8)).toBe(false);
   });
@@ -78,13 +78,11 @@ describe("gjkr: full (3,5) DKG", () => {
     const { C, shares, V, qual } = await runGjkrDkg(5, 3, CONTEXT);
     expect(qual.length).toBe(5);
 
-    // TEST-ONLY reconstruction of c from the aggregate shares; the committee never runs this on c.
+    // TEST-ONLY reconstruction; the committee never runs this on c.
     const c = interpolateAtZero(shares, [1n, 2n, 3n]);
     expect(pointEq(scalarBaseMul(c), C)).toBe(true);
-    // Any t shares interpolate to the same c (degree t-1 polynomial).
     expect(interpolateAtZero(shares, [2n, 4n, 5n])).toBe(c);
 
-    // Each member's public verification key V_i == c_i*Base8.
     for (const [id, s] of shares) {
       expect(pointEq(V.get(id)!, scalarBaseMul(s))).toBe(true);
     }
@@ -99,7 +97,6 @@ describe("gjkr: full (3,5) DKG", () => {
     });
     expect(bad.qual).not.toContain(2n);
     expect(bad.qual.length).toBe(4);
-    // C = sum over QUAL of A_{i,0} still matches the aggregate shares of the surviving dealers.
     const c = interpolateAtZero(bad.shares, [1n, 3n, 4n]);
     expect(pointEq(scalarBaseMul(c), bad.C)).toBe(true);
   });

@@ -7,7 +7,6 @@ import {MerkleTreeLib} from "./libraries/MerkleTreeLib.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-// OZ namespaced import path exceeds 120 chars and has no shorter alias.
 // solhint-disable-next-line max-line-length
 import {AccessControlDefaultAdminRulesUpgradeable} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
@@ -23,18 +22,10 @@ interface IHonkVerifier {
 
 /**
  * @title Hisoka DarkPool
- * @notice The core contract for the Hisoka privacy protocol.
- * @dev Leaf = Poseidon2 over secret note fields, so the contract cannot recompute it: every minting
- *      circuit emits the leaf and membership root as public outputs; the contract inserts the leaf and
- *      validates the root against isKnownRoot. Ciphertext integrity is the circuit's psi binding.
- *      A standard spend and its FROST-multisig twin share a byte-identical public-input layout (gpk, R, z
- *      and recipient keys are all private circuit witnesses), so each op-family routes through one
- *      verify+effects helper parameterized only by which verifier (circuitId) proves it.
- *      Cross-chain replay is defended by the chain-specific tree genesis (slot0): the reserved genesis leaf
- *      at index 0 is Poseidon2(domain, block.chainid), so every root is chain-specific and a spend (or its
- *      FROST signature over that root) cannot be replayed on another chain -- no per-circuit chain_id field.
- *      UUPS proxy: all mutable state lives in ERC-7201 namespaces so appending a config field can never
- *      shift the anonymity-set slots (tree/nullifiers/memos). Upgrades gated by UPGRADER_ROLE.
+ * @notice Core contract for the Hisoka privacy protocol: verifies ZK spend proofs, manages the note tree,
+ *         nullifiers, and compliance key. UUPS proxy with ERC-7201 namespaced storage.
+ * @dev A standard spend and its FROST-multisig twin share one public-input layout, so each op-family routes
+ *      through a single verify+effects helper parameterized by circuitId.
  */
 contract DarkPool is
     Initializable,
@@ -67,8 +58,8 @@ contract DarkPool is
     uint256 private constant NOT_ENTERED = 1;
     uint256 private constant ENTERED = 2;
 
-    /// @dev BabyJubJub twisted Edwards params: a*x^2 + y^2 == 1 + d*x^2*y^2 over BN254 Fr.
-    /// noir-edwards v0.2.5 src/bjj.nr:6-10 (a=168700, d=168696).
+    /// @dev BabyJubJub twisted Edwards params a*x^2 + y^2 == 1 + d*x^2*y^2 over BN254 Fr
+    /// (noir-edwards v0.2.5 src/bjj.nr).
     uint256 private constant BJJ_A = 168700;
     uint256 private constant BJJ_D = 168696;
     /// @dev BN254 scalar field order; matches Poseidon/Field.sol PRIME and verifiers/*.sol MODULUS.
@@ -108,8 +99,7 @@ contract DarkPool is
         bytes32[7] packedCiphertext
     );
 
-    /// @dev `tag` is the incoming Raven discovery key (recipient view key .x); `cekWrap` wraps the content
-    /// key to the recipient. Indexed by tag so a recipient can fetch its memos by their static address tag.
+    /// @dev `tag` is the recipient discovery key (view key .x), indexed so a recipient can fetch its memos.
     event NewPrivateMemo(
         uint256 indexed leafIndex,
         bytes32 indexed commitment,
@@ -178,14 +168,13 @@ contract DarkPool is
         uint256 version;
     }
 
-    /// @dev Ported from OZ ReentrancyGuardUpgradeable: contracts-upgradeable 5.6.1 dropped that base once the
-    /// non-upgradeable ReentrancyGuard became stateless, but upgrades-core still rejects its constructor, so
-    /// the guard is inlined here against OZ's canonical namespace to stay storage-compatible if it returns.
+    /// @dev Inlined OZ ReentrancyGuard, kept on OZ's canonical namespace for storage-compat if the base returns.
     /// @custom:storage-location erc7201:openzeppelin.storage.ReentrancyGuard
     struct ReentrancyStorage {
         uint256 status;
     }
 
+    // ERC-7201: keccak256(abi.encode(uint256(keccak256(id)) - 1)) & ~bytes32(uint256(0xff)).
     // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.tree")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant TREE_LOCATION =
         0xbdd00c81e71bd165e3ff2099ca204334ffd58a8d7225a33b4761542b7a86e200;
@@ -205,7 +194,7 @@ contract DarkPool is
     bytes32 private constant REENTRANCY_LOCATION =
         0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
 
-    // Domain separator for the chain-specific genesis leaf: keccak256("hisoka.darkpool.genesis") reduced.
+    // Genesis-leaf domain tag; reduced mod BN254_FR in _genesisLeaf.
     bytes32 private constant GENESIS_DOMAIN_TAG =
         keccak256("hisoka.darkpool.genesis");
 
@@ -293,12 +282,8 @@ contract DarkPool is
         _disableInitializers();
     }
 
-    /**
-     * @notice One-time proxy initialization. Grants roles to the passed-in governance addresses
-     *         (never msg.sender), registers all 10 circuit verifiers, sets the compliance key at version 1,
-     *         builds the merkle tree, and seeds the chain-specific genesis leaf at index 0. Callable exactly
-     *         once (initializer). Real notes start at leaf index 1.
-     */
+    /// @notice One-time proxy init: grants governance roles, registers the verifiers, sets the compliance
+    ///         key at version 1, and seeds the chain-specific genesis at index 0. Real notes start at index 1.
     function initialize(InitParams calldata p) external initializer {
         if (p.pauser == address(0)) revert ZeroPauser();
         if (p.upgrader == address(0)) revert ZeroUpgrader();
@@ -335,10 +320,8 @@ contract DarkPool is
         emit GenesisSeeded(block.chainid, genesis);
     }
 
-    /// @dev Chain-specific reserved genesis leaf at index 0 = Poseidon2(domain, chainid). Makes every root
-    /// chain-specific so a spend and its FROST signature over that root are non-replayable cross-chain
-    /// without a per-circuit chain_id input. Index 0 is a permanent non-spendable sentinel (no circuit ever
-    /// mints it), so a spend whose packed parents are 0 is unambiguously a deposit.
+    /// @dev Genesis leaf at index 0 = Poseidon2(domain, chainid): chain-binds every root (blocks cross-chain
+    /// replay) and is a non-spendable sentinel, so a spend with packed parents 0 is unambiguously a deposit.
     function _genesisLeaf() private view returns (bytes32) {
         uint256 domain = uint256(GENESIS_DOMAIN_TAG) % BN254_FR;
         Field.Type[] memory inputs = new Field.Type[](2);
@@ -347,7 +330,6 @@ contract DarkPool is
         return Field.toBytes32(Poseidon2.hash(inputs));
     }
 
-    // Body intentionally empty: the onlyRole(UPGRADER_ROLE) gate IS the upgrade authorization.
     // solhint-disable no-empty-blocks
     function _authorizeUpgrade(
         address newImplementation
@@ -362,11 +344,7 @@ contract DarkPool is
         _unpause();
     }
 
-    /**
-     * @notice Point a circuit's verifier at a new address (timelock-gated via UPGRADER_ROLE).
-     * @dev The spend-side public-input layout and nullifier derivation are frozen invariants; a
-     *      replacement verifier MUST accept all pre-existing notes (backward-compat is enforced off-chain).
-     */
+    /// @notice Point a circuit's verifier at a new address; a replacement MUST accept all pre-existing notes.
     function setVerifier(
         uint256 circuitId,
         address newVerifier
@@ -374,17 +352,10 @@ contract DarkPool is
         _setVerifier(circuitId, newVerifier);
     }
 
-    /**
-     * @notice Rotate the compliance public key to a new BabyJubJub subgroup point.
-     * @dev Additive/versioned: old notes stay spendable and old outputs stay decryptable off-chain against
-     *      the prior key version. On-chain validation covers the curve equation, non-identity, and coord
-     *      range. Prime-order-SUBGROUP membership is NOT checked here (needs a BJJ scalar-mul Solidity lib
-     *      absent from this repo); the backstop is the circuit assert_valid_compliance_pk, which runs
-     *      check_subgroup on every mint (packages/circuits/shared/src/mint.nr), so a non-subgroup key
-     *      cannot receive notes.
-     *      Callable WHILE PAUSED on purpose: a compromised compliance key can be rotated during a halt and the
-     *      pool then unpaused under the new key, without resuming activity under the compromised key.
-     */
+    /// @notice Rotate the compliance public key (additive/versioned; old notes stay spendable). Callable
+    ///         while paused so a compromised key can be replaced during a halt before unpausing.
+    /// @dev Subgroup membership is NOT checked here (no BJJ scalar-mul lib in-repo); the circuit's
+    ///      assert_valid_compliance_pk (shared/src/mint.nr) is the backstop, so a non-subgroup key gets no notes.
     function rotateComplianceKey(
         uint256 newX,
         uint256 newY
@@ -408,11 +379,8 @@ contract DarkPool is
         return (c.pkX, c.pkY, c.version);
     }
 
-    /**
-     * @notice Deposit public assets into the shielded pool (funds a STANDARD or MULTISIG account; the
-     *         account type is a private note witness, so the layout is identical either way).
-     * @dev Layout: [0,1] compliance; [2] leaf; [3,4] eph_pub; [5] value; [6] asset; [7..13] ciphertext.
-     */
+    /// @notice Deposit public assets into the shielded pool (funds a STANDARD or MULTISIG account).
+    /// @dev Layout: [0,1] compliance; [2] leaf; [3,4] eph_pub; [5] value; [6] asset; [7..13] ciphertext.
     function deposit(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -436,10 +404,7 @@ contract DarkPool is
         _insertNote(_publicInputs, 2, 3, 4, 7);
     }
 
-    /**
-     * @notice Withdraw private assets to a public address (single-signer spend).
-     * @dev Routes through _withdraw with the standard verifier. Layout in _withdraw.
-     */
+    /// @notice Withdraw private assets to a public address (single-signer spend).
     function withdraw(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -447,11 +412,7 @@ contract DarkPool is
         _withdraw(_proof, _publicInputs, CIRCUIT_WITHDRAW);
     }
 
-    /**
-     * @notice FROST-multisig withdraw. The spend is authorized by a group signature (private witness); the
-     *         signature binds the chain-specific root, so no per-circuit chain_id is needed. Byte-identical
-     *         public-input layout to the single-signer withdraw.
-     */
+    /// @notice FROST-multisig withdraw, authorized by a group signature (private witness).
     function withdrawMultisig(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -459,9 +420,7 @@ contract DarkPool is
         _withdraw(_proof, _publicInputs, CIRCUIT_WITHDRAW_MULTISIG);
     }
 
-    /**
-     * @notice Spend one note into a private memo to a recipient plus self change (single-signer).
-     */
+    /// @notice Spend one note into a private memo to a recipient plus self change (single-signer).
     function privateTransfer(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -469,9 +428,7 @@ contract DarkPool is
         _transfer(_proof, _publicInputs, CIRCUIT_TRANSFER);
     }
 
-    /**
-     * @notice FROST-multisig private transfer (memo + self change), authorized by a group signature.
-     */
+    /// @notice FROST-multisig private transfer (memo + self change), authorized by a group signature.
     function transferMultisig(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -479,9 +436,7 @@ contract DarkPool is
         _transfer(_proof, _publicInputs, CIRCUIT_TRANSFER_MULTISIG);
     }
 
-    /**
-     * @notice Join two notes into one (single-signer).
-     */
+    /// @notice Join two notes into one (single-signer).
     function join(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -489,9 +444,7 @@ contract DarkPool is
         _join(_proof, _publicInputs, CIRCUIT_JOIN);
     }
 
-    /**
-     * @notice FROST-multisig join (two notes into one), authorized by a group signature per input.
-     */
+    /// @notice FROST-multisig join (two notes into one), authorized by a group signature per input.
     function joinMultisig(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -499,9 +452,7 @@ contract DarkPool is
         _join(_proof, _publicInputs, CIRCUIT_JOIN_MULTISIG);
     }
 
-    /**
-     * @notice Split one note into two (single-signer).
-     */
+    /// @notice Split one note into two (single-signer).
     function split(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -509,9 +460,7 @@ contract DarkPool is
         _split(_proof, _publicInputs, CIRCUIT_SPLIT);
     }
 
-    /**
-     * @notice FROST-multisig split (one note into two), authorized by a group signature.
-     */
+    /// @notice FROST-multisig split (one note into two), authorized by a group signature.
     function splitMultisig(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -520,16 +469,12 @@ contract DarkPool is
     }
 
     /**
-     * @dev Withdraw verify+effects shared by the single-signer (id 1) and FROST-multisig (id 6) paths; the
-     *      only difference is which verifier proves the spend. Drain-critical indices live here once.
+     * @dev Withdraw verify+effects shared by single-signer (id 1) and FROST-multisig (id 6).
      *      Layout: [0] value; [1] recipient; [2] intent_hash; [3,4] compliance; [5] nullifier; [6] root;
      *      [7] asset; [8] change leaf; [9,10] change eph_pub; [11..17] change ciphertext.
-     *      Code-gate: a recipient with code must self-submit. An EIP-7702-delegated EOA reads as code
-     *      (code.length>0), so it too is self-submit-only; over-restrictive in the safe direction (no loss).
-     *      Freshness: a bare spend has NO freshness bound by design. Roots are never evicted (see
-     *      MerkleTreeLib), so a proof against any historical known root stays valid; the nullifier set, not
-     *      root recency, is the double-spend guard. Time-sensitive flows (adaptor/bundle) bind their own
-     *      freshness via intent+deadline. A bounded recent-root window is a possible future addition.
+     *      Code-gate: a recipient with code (incl. EIP-7702-delegated EOA) must self-submit.
+     *      No freshness bound by design: any historical known root is spendable; the nullifier set is the
+     *      double-spend guard.
      */
     function _withdraw(
         bytes calldata _proof,
@@ -566,7 +511,7 @@ contract DarkPool is
     }
 
     /**
-     * @dev Transfer verify+effects shared by the single-signer (id 2) and FROST-multisig (id 7) paths.
+     * @dev Transfer verify+effects (ids 2 / 7).
      *      Layout: [0,1] compliance; [2] nullifier; [3] root; [4] memo leaf; [5,6] memo eph_pub; [7] tag;
      *      [8] cek_wrap; [9..15] memo ciphertext; [16] change leaf; [17,18] change eph_pub;
      *      [19..25] change ciphertext.
@@ -590,7 +535,7 @@ contract DarkPool is
     }
 
     /**
-     * @dev Join verify+effects shared by the single-signer (id 3) and FROST-multisig (id 9) paths.
+     * @dev Join verify+effects (ids 3 / 9).
      *      Layout: [0,1] compliance; [2] nullifier_a; [3] nullifier_b; [4] root; [5] out leaf;
      *      [6,7] out eph_pub; [8..14] out ciphertext.
      */
@@ -613,7 +558,7 @@ contract DarkPool is
     }
 
     /**
-     * @dev Split verify+effects shared by the single-signer (id 4) and FROST-multisig (id 8) paths.
+     * @dev Split verify+effects (ids 4 / 8).
      *      Layout: [0,1] compliance; [2] nullifier; [3] root; [4] out1 leaf; [5,6] out1 eph_pub;
      *      [7..13] out1 ciphertext; [14] out2 leaf; [15,16] out2 eph_pub; [17..23] out2 ciphertext.
      */
@@ -635,10 +580,8 @@ contract DarkPool is
         _insertNote(_publicInputs, 14, 15, 16, 17);
     }
 
-    /**
-     * @notice Post a public memo redeemable by a designated key into the shielded pool.
-     * @dev memoId = Poseidon2(value, asset, timelock, ownerX, ownerY, salt) matches the public_claim circuit.
-     */
+    /// @notice Post a public memo redeemable by a designated key into the shielded pool.
+    /// @dev memoId = Poseidon2(value, asset, timelock, ownerX, ownerY, salt) matches the public_claim circuit.
     function publicTransfer(
         uint256 _ownerX,
         uint256 _ownerY,
@@ -672,13 +615,9 @@ contract DarkPool is
         emit NewPublicMemo(memoId, _asset, _value, _timelock, _salt);
     }
 
-    /**
-     * @notice Claim a public memo into a shielded self note.
-     * @dev Layout: [0] memoId; [1,2] compliance; [3] current_timestamp; [4] leaf; [5,6] eph_pub;
-     *      [7..13] ciphertext. current_timestamp is a real timelock gate (the circuit asserts it is at or
-     *      past the memo timelock); the contract bounds it to roughly now so a claimer cannot satisfy the
-     *      timelock with a fabricated future timestamp.
-     */
+    /// @notice Claim a public memo into a shielded self note.
+    /// @dev Layout: [0] memoId; [1,2] compliance; [3] current_timestamp; [4] leaf; [5,6] eph_pub;
+    ///      [7..13] ciphertext. The circuit gates the memo timelock on [3]; the contract ceilings it near now.
     function publicClaim(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -741,8 +680,7 @@ contract DarkPool is
         );
     }
 
-    /// @dev A memo's public inputs are contiguous from `leafIndex`: leaf, eph_x, eph_y, tag, cek_wrap,
-    /// then a 7-word ciphertext. Both the standard (id 2) and multisig (id 7) transfer base the memo at 4.
+    /// @dev Memo inputs are contiguous from `leafIndex`: leaf, eph_x, eph_y, tag, cek_wrap, 7-word ciphertext.
     function _insertMemoAt(
         bytes32[] calldata _publicInputs,
         uint256 leafIndex
@@ -773,8 +711,7 @@ contract DarkPool is
         }
     }
 
-    /// @dev On-curve (twisted Edwards) + non-identity + coord-range check. Not a subgroup check; see
-    /// rotateComplianceKey for the circuit-side backstop.
+    /// @dev On-curve + non-identity + coord-range. Not a subgroup check (see rotateComplianceKey backstop).
     function _requireValidComplianceKey(uint256 x, uint256 y) private pure {
         if (x >= BN254_FR || y >= BN254_FR) revert InvalidComplianceKeyPoint();
         if (x == 0 && y == 1) revert InvalidComplianceKeyPoint();
@@ -789,11 +726,7 @@ contract DarkPool is
         if (lhs != rhs) revert InvalidComplianceKeyPoint();
     }
 
-    /// @dev Bounds a prover-supplied timestamp to roughly now (+5min for latency/block variance). Used only
-    /// by publicClaim, whose circuit gates the memo timelock against this value; the ceiling stops a claimer
-    /// forging a future timestamp to clear the timelock early. Spends carry no timestamp and, by design, no
-    /// freshness bound -- any historical known root remains spendable (see _withdraw); time-sensitive flows
-    /// bound themselves via intent+deadline.
+    /// @dev Ceilings a prover timestamp near now so a claimer cannot forge a future one to clear the timelock.
     function _verifyProofTimestamp(uint256 timestamp) internal view {
         if (timestamp > block.timestamp + PROOF_TIMESTAMP_TOLERANCE)
             revert TimestampInvalid();
