@@ -1,4 +1,4 @@
-// TS mirror of the per-operation FROST spend message m (shared/src/frost.nr msg_* helpers) and the multisig
+// TS mirror of the per-operation FROST spend message m (shared/src/multisig/frost.nr msg_* helpers) and the multisig
 // owner commitment. These preimages are recomputed IN-CIRCUIT from the constrained public IO, so a byte drift
 // here makes a multisig proof unverifiable. Each op binds exactly the public values defining its spend that
 // are not already committed inside an output leaf. The membership root is chain-specific (genesis slot0 seeds

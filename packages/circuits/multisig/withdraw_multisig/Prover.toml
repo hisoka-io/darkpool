@@ -1,8 +1,6 @@
-chain_id = ""
 change_eph = ""
 compliance_pubkey_x = ""
 compliance_pubkey_y = ""
-current_timestamp = ""
 frost_z = ""
 intent_hash = ""
 old_note_index = ""

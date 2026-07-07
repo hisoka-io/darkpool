@@ -63,7 +63,7 @@ describe("gen frost KAT", () => {
     expect(await verify(cs, gpk, msg, sig)).toBe(true);
 
     // Parity lock: the TS signer must regenerate the exact values hard-coded in the Noir verify_frost_spend
-    // KAT (shared/src/frost.nr). A drift in the TS FROST hashing breaks BOTH this assertion and the Noir KAT.
+    // KAT (shared/src/multisig/frost.nr). A drift in the TS FROST hashing breaks BOTH this assertion and the Noir KAT.
     const hex = (x: bigint) => "0x" + x.toString(16).padStart(64, "0");
     expect(hex(gpk[0])).toBe(
       "0x2546ab52faee9ab8ead1ad868567473b9757c6456c137274b12a5c51330d764d",

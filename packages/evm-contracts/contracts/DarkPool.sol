@@ -382,11 +382,13 @@ contract DarkPool is
      *      absent from this repo); the backstop is the circuit assert_valid_compliance_pk, which runs
      *      check_subgroup on every mint (packages/circuits/shared/src/mint.nr), so a non-subgroup key
      *      cannot receive notes.
+     *      Callable WHILE PAUSED on purpose: a compromised compliance key can be rotated during a halt and the
+     *      pool then unpaused under the new key, without resuming activity under the compromised key.
      */
     function rotateComplianceKey(
         uint256 newX,
         uint256 newY
-    ) external onlyRole(UPGRADER_ROLE) whenNotPaused {
+    ) external onlyRole(UPGRADER_ROLE) {
         _requireValidComplianceKey(newX, newY);
         ComplianceStorage storage c = _complianceStorage();
         uint256 oldVersion = c.version;

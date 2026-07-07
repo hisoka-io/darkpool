@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Fr } from "@aztec/foundation/fields";
 import { demEncrypt, demDecrypt, DEM_FIELDS } from "../crypto/dem.js";
 
-// Shared note-format KAT fixture (byte-identical to Noir shared/src/dem.nr dem_kat_encrypt_decrypt).
+// Shared note-format KAT fixture (byte-identical to Noir shared/src/common/dem.nr dem_kat_encrypt_decrypt).
 const CEK = new Fr(
   0x1fbbfa289c50b7ded032c85e5faa8b3790afc2fd059fd3d299294ff879a08bdan,
 );

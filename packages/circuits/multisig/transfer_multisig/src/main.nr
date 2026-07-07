@@ -153,9 +153,9 @@ fn audit_reject_off_gpk_change_owner() {
     );
 }
 
-// Reserved note_type 2 on the STANDARD memo: mint_incoming_note has no note_type pin, so assert_valid_note_type
-// gates it directly.
-#[test(should_fail_with = "note_type not in {STANDARD, MULTISIG}")]
+// A non-STANDARD memo: the memo is pinned to STANDARD (send-to-multisig deferred), so the memo pin rejects it
+// before the change is minted. (The set-membership burn guard for note_type=2 is covered by the deposit main.)
+#[test(should_fail_with = "incoming memo must be STANDARD")]
 fn audit_reject_out_note_type_2() {
     let _ = main(
         CX,

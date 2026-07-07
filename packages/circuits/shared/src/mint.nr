@@ -130,15 +130,17 @@ pub struct IncomingMint {
 // Incoming memo to a recipient address in_pub_j. Under Option A the address IS the spend + view + discovery
 // key (one key), so owner, the cek_wrap target, and the tag ALL bind to in_pub_j. Binding the owner therefore
 // also binds the discovery/wrap key -- a minter cannot produce an owned-but-undiscoverable memo (griefing
-// lock). Sending to a MULTISIG account (where owner = Poseidon2(gpk) != the viewing key V) needs owner/view
-// decoupled and carries the same unproven-V gap as group public-claim; it is a DEFERRED feature and is
-// intentionally NOT expressible here.
+// lock). The memo is PINNED to STANDARD: sending to a MULTISIG account (owner = Poseidon2(gpk) != the viewing
+// key V) needs owner/view decoupled and carries the same unproven-V gap as group public-claim, so it is a
+// DEFERRED feature -- the note_type pin makes a degenerate MULTISIG memo (owner==view==tag==gpk, unspendable)
+// unmintable here rather than merely undiscoverable.
 pub fn mint_incoming_note(
     note: Note,
     eph: Field,
     compliance_pk: Point,
     in_pub: Point,
 ) -> IncomingMint {
+    assert(note.note_type == NOTE_TYPE_STANDARD, "incoming memo must be STANDARD");
     assert_valid_recipient_key(in_pub);
     assert(note.owner == owner::pubkey_owner(in_pub), "memo owner must be the recipient owner");
     let (leaf, eph_pub, cek, ciphertext) = mint_common(note, eph, compliance_pk);

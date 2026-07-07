@@ -1,5 +1,5 @@
 // Field-element domain-separation tags for the (t,n)-over-BabyJubJub primitives, computed as
-// keccak256(label) % BN254_Fr -- byte-identical to the Noir `shared/src/domains.nr` tags so TS and the
+// keccak256(label) % BN254_Fr -- byte-identical to the Noir `shared/src/common/domains.nr` tags so TS and the
 // circuit hash the same preimage. A shared tag would let one transcript alias another.
 
 /** In-circuit FROST challenge tag (keccak256("hisoka.frost.v1")). Matches Noir SCHNORR_DOMAIN. */

@@ -1,18 +1,15 @@
+mod common;
+mod multisig;
 mod spend;
 mod harness;
-mod domains;
-mod kem;
-mod dem;
-mod note_nullifier;
-pub mod note;
-mod even_y;
-mod owner;
 pub mod mint;
-pub mod conservation;
-pub mod frost;
-pub mod test_fixtures;
-use poseidon::poseidon2::Poseidon2;
+
+pub use common::{conservation, note, test_fixtures};
+use common::{dem, domains, even_y, kem, note_nullifier, owner};
+pub use multisig::frost;
 pub use spend::{open_multisig_note, verify_spend};
+
+use poseidon::poseidon2::Poseidon2;
 
 pub global TREE_DEPTH: u32 = 32;
 

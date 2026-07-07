@@ -119,6 +119,54 @@ describe("FROST over BabyJubJub+Poseidon2: 2-round sign", () => {
     expect(await verify(cs, gpk, encodeMessage(m), sig)).toBe(false);
   });
 
+  it("a group commitment assembled WITHOUT the per-participant binding factor rho_i is rejected", async () => {
+    const { C: gpk, shares } = await runDkg(5, 3, CONTEXT);
+    const quorum = [1n, 2n, 3n];
+    const msg = encodeMessage(0x5a5an);
+    const rounds = new Map<
+      bigint,
+      { nonces: NonceHandle; commitment: Commitment<Point> }
+    >();
+    for (const id of quorum)
+      rounds.set(id, await commit(cs, id, shares.get(id)!, rand32(), rand32()));
+    const commitments = quorum.map((id) => rounds.get(id)!.commitment);
+
+    // Honest partials: each z_i is bound to the real group commitment via its rho_i.
+    const zShares: bigint[] = [];
+    for (const id of quorum)
+      zShares.push(
+        await signShare(
+          cs,
+          id,
+          rounds.get(id)!.nonces,
+          shares.get(id)!,
+          gpk,
+          msg,
+          commitments,
+        ),
+      );
+    const rhos = await bindingFactors(cs, gpk, msg, commitments);
+    const { z } = aggregate(
+      cs,
+      groupCommitment(cs, commitments, rhos),
+      zShares,
+    );
+    // Baseline: with the correctly-bound R, the aggregate verifies.
+    expect(
+      await verify(cs, gpk, msg, {
+        R: groupCommitment(cs, commitments, rhos),
+        z,
+      }),
+    ).toBe(true);
+
+    // Drop the defense: reassemble R with rho_i = 1 (no per-participant binding). R' = sum_i (D_i + E_i) no
+    // longer matches the honestly-bound partials, so verify rejects. The per-participant binding factor (RFC
+    // 9591 section 4.4) is exactly what blocks ROS/Wagner parallel-session (drive-by) forgery of the aggregate.
+    const unitRhos = new Map<bigint, bigint>(quorum.map((id) => [id, 1n]));
+    const unboundR = groupCommitment(cs, commitments, unitRhos);
+    expect(await verify(cs, gpk, msg, { R: unboundR, z })).toBe(false);
+  });
+
   it("a commit() nonce handle is consume-once: a second signShare with it THROWS", async () => {
     const { C: gpk, shares } = await runDkg(5, 3, CONTEXT);
     const quorum = [1n, 2n, 3n];

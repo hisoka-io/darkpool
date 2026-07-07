@@ -64,3 +64,13 @@ fn audit_reject_unbound_psi() {
     note.psi = note.psi + 1;
     let _ = main(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note, 5);
 }
+
+// A witnessed reserved note_type (2) is rejected by the set-membership burn guard, so an unspendable note
+// (no circuit consumes type 2) cannot be minted. This is the generic-mint guard reached where note_type is a
+// free witness (deposit); the spend outputs pin their type, so they never reach it.
+#[test(should_fail_with = "note_type not in {STANDARD, MULTISIG}")]
+fn audit_reject_note_type_2() {
+    let mut note = fixture_note();
+    note.note_type = 2;
+    let _ = main(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note, 5);
+}

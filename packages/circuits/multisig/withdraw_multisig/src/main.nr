@@ -169,3 +169,66 @@ fn audit_reject_out_note_type_standard() {
         8,
     );
 }
+
+// A coherent multisig-withdraw witness carrying a REAL 3-of-5 FROST (R,z) over the in-circuit spend message m,
+// generated deterministically by the TS signer (packages/wallets gen-withdraw-multisig-kat). The quorum spends
+// a 1000-unit MULTISIG note at index 0 of a single-leaf tree (root == leaf), pays 300 to `recipient` in the
+// clear, and mints a 700 MULTISIG change (eph == 4 => even-y tag) back to the same account gpk. The signed m
+// binds root/nullifier/change.leaf/withdraw_value/asset/recipient/intent_hash.
+global KAT_OLD_VALUE: u128 = 1000;
+global KAT_WITHDRAW_VALUE: u128 = 300;
+global KAT_CHANGE_VALUE: u128 = 700;
+global KAT_RECIPIENT: Field = 0x00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee;
+global KAT_INTENT_HASH: Field = 0;
+global KAT_CHANGE_EPH: Field = 4;
+global KAT_CHANGE_PSI: Field = 0x2aaee0e06ff8b0e8cf78d66b27f27fe9d0e82cc687724cee2eb92b0d8a90c2c2;
+global KAT_FROST_Z: Field = 0x0320e625492f31f063eb5423a7644be6d52bba8f7c8c65eb6a33134f3f213c4e;
+
+fn kat_frost_r() -> Point {
+    Point {
+        x: 0x06b492e9a311833b4dddf083752ab3286f10a82df87703b3b85971501dc72890,
+        y: 0x17da10d4e0489493572b7cba2eaa016a6ef5106c003155e32348ef1cfc6d8574,
+    }
+}
+
+// The coherent witness is accepted: verify_frost_spend certifies the real quorum signature over m.
+#[test]
+fn kat_multisig_withdraw_accepts() {
+    let _ = main(
+        KAT_WITHDRAW_VALUE,
+        KAT_RECIPIENT,
+        KAT_INTENT_HASH,
+        CX,
+        CY,
+        kat_gpk(),
+        kat_frost_r(),
+        KAT_FROST_Z,
+        ms_input(KAT_OLD_VALUE),
+        0,
+        [0; TREE_DEPTH],
+        out_note(KAT_CHANGE_VALUE, 1, gpk_owner(), KAT_CHANGE_PSI),
+        KAT_CHANGE_EPH,
+    );
+}
+
+// Mutating a FROST-signed axis: `recipient` is bound into m but tripped by no earlier guard, so the circuit
+// recomputes m' != m and verify_frost_spend itself -- not a pre-FROST output guard -- rejects the tampered
+// spend. This is the main-level counterpart to shared/src/frost.nr's gadget-level mutation negatives.
+#[test(should_fail_with = "FROST signature invalid")]
+fn audit_reject_mutated_signed_recipient() {
+    let _ = main(
+        KAT_WITHDRAW_VALUE,
+        KAT_RECIPIENT + 1,
+        KAT_INTENT_HASH,
+        CX,
+        CY,
+        kat_gpk(),
+        kat_frost_r(),
+        KAT_FROST_Z,
+        ms_input(KAT_OLD_VALUE),
+        0,
+        [0; TREE_DEPTH],
+        out_note(KAT_CHANGE_VALUE, 1, gpk_owner(), KAT_CHANGE_PSI),
+        KAT_CHANGE_EPH,
+    );
+}

@@ -5,7 +5,7 @@ import { ENC_DOMAIN } from "./constants.js";
 
 // Poseidon2 stream DEM (eprint 2023/323) over the 7 transmitted note fields, fixed order
 // [note_version, asset_id, note_type, conditions_hash, value, owner, parents]; psi is derived from
-// CEK, never transmitted. Order MUST match Noir shared/src/dem.nr.
+// CEK, never transmitted. Order MUST match Noir shared/src/common/dem.nr.
 export const DEM_FIELDS = 7;
 
 async function demKeystream(cek: Fr, k: number): Promise<Fr> {

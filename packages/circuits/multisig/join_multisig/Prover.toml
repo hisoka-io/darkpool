@@ -1,7 +1,5 @@
-chain_id = ""
 compliance_pubkey_x = ""
 compliance_pubkey_y = ""
-current_timestamp = ""
 eph_out = ""
 frost_z_a = ""
 frost_z_b = ""

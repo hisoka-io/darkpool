@@ -133,6 +133,27 @@ fn audit_reject_memo_owner_mismatch() {
     );
 }
 
+// The incoming memo is pinned to STANDARD (send-to-multisig is deferred); a MULTISIG-typed memo is rejected
+// so a transfer cannot mint a degenerate unspendable MULTISIG memo.
+#[test(should_fail_with = "incoming memo must be STANDARD")]
+fn audit_reject_multisig_memo() {
+    let mut memo = memo_note();
+    memo.note_type = 1;
+    let _ = main(
+        CX,
+        CY,
+        recipient_in_pub(),
+        spent_note(),
+        789,
+        0,
+        [0; TREE_DEPTH],
+        memo,
+        0x378,
+        change_note(),
+        9,
+    );
+}
+
 // Distinct ephemerals per output: reusing one eph across memo and change reuses CEK (two-time pad).
 #[test(should_fail_with = "ephemerals must be distinct")]
 fn audit_reject_reused_ephemeral() {
