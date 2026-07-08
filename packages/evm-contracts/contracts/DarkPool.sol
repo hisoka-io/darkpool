@@ -82,6 +82,7 @@ contract DarkPool is
     error FeeOnTransferUnsupported();
     error OnlyRecipientMayPull();
     error UnknownCircuitId();
+    error VerifierHasNoCode();
     error VerifierUnset(uint256 circuitId);
     error InvalidComplianceKeyPoint();
     error ReentrancyGuardReentrantCall();
@@ -644,6 +645,7 @@ contract DarkPool is
     function _setVerifier(uint256 circuitId, address newVerifier) internal {
         if (circuitId >= CIRCUIT_COUNT) revert UnknownCircuitId();
         if (newVerifier == address(0)) revert ZeroAddress();
+        if (newVerifier.code.length == 0) revert VerifierHasNoCode();
         _verifierStorage().verifiers[circuitId] = newVerifier;
         emit VerifierUpdated(circuitId, newVerifier);
     }

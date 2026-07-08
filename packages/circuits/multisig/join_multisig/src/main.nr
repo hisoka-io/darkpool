@@ -212,3 +212,88 @@ fn audit_reject_cross_account_gpk() {
         28,
     );
 }
+
+// Real 3-of-5 FROST witness from the TS signer (gen-join-multisig-kat); accept parity. Both inputs share one
+// account gpk, so a single (R,z) verifies for gpk_a and gpk_b over the same m.
+global KAT_PSI_OUT: Field =
+    0x2aaee0e06ff8b0e8cf78d66b27f27fe9d0e82cc687724cee2eb92b0d8a90c2c2;
+global KAT_FROST_Z: Field =
+    0x0413fd66ff083810c4ed2b5983fe1bb590b1f504f72cf71f463c5e2af0665969;
+
+fn kat_frost_r() -> Point {
+    Point {
+        x: 0x0eb01cc518d80b04ff65166edfe9731d838791e90f07be3857597674b189bc0e,
+        y: 0x180531d77c5761fbbb55b43ff7eb01b5e607e17d82e37f2dbb0b72ad5700ed53,
+    }
+}
+
+fn kat_out_note() -> Note {
+    Note {
+        note_version: 1,
+        asset_id: ASSET_ID,
+        note_type: 1,
+        conditions_hash: 0,
+        value: 150,
+        owner: gpk_owner(),
+        psi: KAT_PSI_OUT,
+        parents: 0x100000000,
+    }
+}
+
+#[test]
+fn kat_multisig_join_accepts() {
+    let note_a = join_input(100, gpk_owner(), 0x01);
+    let note_b = join_input(50, gpk_owner(), 0x02);
+    let mut path_a = [0; TREE_DEPTH];
+    path_a[0] = note_b.leaf();
+    let mut path_b = [0; TREE_DEPTH];
+    path_b[0] = note_a.leaf();
+    let _ = main(
+        CX,
+        CY,
+        kat_gpk(),
+        kat_frost_r(),
+        KAT_FROST_Z,
+        note_a,
+        0,
+        path_a,
+        kat_gpk(),
+        kat_frost_r(),
+        KAT_FROST_Z,
+        note_b,
+        1,
+        path_b,
+        kat_out_note(),
+        4,
+    );
+}
+
+// Corrupting the SECOND signer's z exercises the join-specific double verify: the first verify_frost_spend
+// passes, the second (over the same m) rejects.
+#[test(should_fail_with = "FROST signature invalid")]
+fn audit_reject_mutated_signed_z_b() {
+    let note_a = join_input(100, gpk_owner(), 0x01);
+    let note_b = join_input(50, gpk_owner(), 0x02);
+    let mut path_a = [0; TREE_DEPTH];
+    path_a[0] = note_b.leaf();
+    let mut path_b = [0; TREE_DEPTH];
+    path_b[0] = note_a.leaf();
+    let _ = main(
+        CX,
+        CY,
+        kat_gpk(),
+        kat_frost_r(),
+        KAT_FROST_Z,
+        note_a,
+        0,
+        path_a,
+        kat_gpk(),
+        kat_frost_r(),
+        KAT_FROST_Z + 1,
+        note_b,
+        1,
+        path_b,
+        kat_out_note(),
+        4,
+    );
+}

@@ -74,11 +74,13 @@ function generateComplianceKeypair(): { sk: bigint; pk: Point<bigint> } {
 
 async function deployVerifier(
   contractPath: string,
+  zkTranscriptLib: string,
 ): Promise<{ verifier: string; name: string }> {
   const name =
     contractPath.split("/").pop()?.replace(".sol", "") || contractPath;
   const factory = await ethers.getContractFactory(
     `${contractPath}:HonkVerifier`,
+    { libraries: { [`${contractPath}:ZKTranscriptLib`]: zkTranscriptLib } },
   );
   const verifier = await factory.deploy();
   await verifier.waitForDeployment();
@@ -171,6 +173,16 @@ async function main() {
   console.log();
 
   console.log("Step 2: Circuit verifiers...");
+  // The ZK-on Honk verifier externalizes ZKTranscriptLib (a stateless transcript library) so each verifier
+  // stays under EIP-170. The body is byte-identical across all 10 verifiers, so one deployment links all.
+  const zkTranscriptLib = await (
+    await ethers.getContractFactory(
+      "contracts/verifiers/DepositVerifier.sol:ZKTranscriptLib",
+    )
+  ).deploy();
+  await zkTranscriptLib.waitForDeployment();
+  const zkTranscriptLibAddr = await zkTranscriptLib.getAddress();
+  console.log(`    ZKTranscriptLib (shared): ${zkTranscriptLibAddr}`);
   // Order MUST match the circuit-id constants in DarkPool.sol (deposit=0 .. join_multisig=9). There is
   // no deposit_multisig verifier: deposit is unified and mints a MULTISIG note from a private witness.
   const verifierPaths = [
@@ -186,7 +198,8 @@ async function main() {
     "contracts/verifiers/JoinMultisigVerifier.sol",
   ];
   const verifiers: { verifier: string; name: string }[] = [];
-  for (const p of verifierPaths) verifiers.push(await deployVerifier(p));
+  for (const p of verifierPaths)
+    verifiers.push(await deployVerifier(p, zkTranscriptLibAddr));
   console.log();
 
   console.log("Step 3: Staking token...");
@@ -476,6 +489,11 @@ async function main() {
   if (network.name !== "hardhat" && network.name !== "localhost") {
     console.log("Step 14: Block-explorer verification (best-effort)...");
     await tryVerify(poseidon2Addr, []);
+    await tryVerify(
+      zkTranscriptLibAddr,
+      [],
+      "contracts/verifiers/DepositVerifier.sol:ZKTranscriptLib",
+    );
     for (let i = 0; i < verifiers.length; i++) {
       await tryVerify(
         verifiers[i].verifier,
@@ -516,6 +534,7 @@ async function main() {
     },
     contracts: {
       poseidon2: poseidon2Addr,
+      zkTranscriptLib: zkTranscriptLibAddr,
       depositVerifier: verifiers[0].verifier,
       withdrawVerifier: verifiers[1].verifier,
       transferVerifier: verifiers[2].verifier,
@@ -538,6 +557,7 @@ async function main() {
     versions: {
       solidity: "0.8.28",
       optimizer: { enabled: true, runs: 1 },
+      evmVersion: "cancun",
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       hardhat: require("hardhat/package.json").version,
       noir: "1.0.0-beta.19",

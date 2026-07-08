@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { DarkAccount } from "../keys/DarkAccount";
 import { KeyRepository } from "../state/KeyRepository";
+import { InMemoryEphemeralCounterStore } from "../state/EphemeralCounterStore";
 import { UtxoRepository } from "../state/UtxoRepository";
 import { toFr } from "../crypto/fields";
 import { WalletNote } from "../state/types";
@@ -10,7 +11,7 @@ const MNEMONIC = "test test test test test test test test test test test junk";
 describe("Scan robustness", () => {
   it("matches a registered even-y self tag and misses an unknown tag", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const repo = new KeyRepository(account);
+    const repo = new KeyRepository(account, new InMemoryEphemeralCounterStore());
 
     const minted = await repo.nextSelfEphemeral();
     expect(repo.matchSelfTag(minted.ephPub[0])?.index).toBe(minted.index);
@@ -19,7 +20,7 @@ describe("Scan robustness", () => {
 
   it("advances the self lookahead after a high match (gap-limit recenter)", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const repo = new KeyRepository(account);
+    const repo = new KeyRepository(account, new InMemoryEphemeralCounterStore());
 
     await repo.ensureSelfLookahead(5);
     await repo.nextSelfEphemeral();
@@ -31,7 +32,7 @@ describe("Scan robustness", () => {
 
   it("restores scan cursors so high-index self-notes stay matchable", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const repo = new KeyRepository(account);
+    const repo = new KeyRepository(account, new InMemoryEphemeralCounterStore());
 
     const mints = [];
     for (let i = 0; i < 8; i++) mints.push(await repo.nextSelfEphemeral());
@@ -40,7 +41,7 @@ describe("Scan robustness", () => {
     const state = repo.getState();
     expect(state.selfMintCounter).toBe(last.index + 1);
 
-    const fresh = new KeyRepository(account);
+    const fresh = new KeyRepository(account, new InMemoryEphemeralCounterStore());
     await fresh.restore(state);
     expect(fresh.matchSelfTag(last.ephPub[0])?.index).toBe(last.index);
   });

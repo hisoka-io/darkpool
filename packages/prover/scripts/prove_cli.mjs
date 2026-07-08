@@ -54,12 +54,12 @@ async function main() {
     const { witness } = await noir.execute(inputs);
 
     const { proof, publicInputs } = await backend.generateProof(witness, {
-      verifierTarget: "evm-no-zk",
+      verifierTarget: "evm",
     });
 
     const verified = await backend.verifyProof(
       { proof, publicInputs },
-      { verifierTarget: "evm-no-zk" },
+      { verifierTarget: "evm" },
     );
 
     const publicInputsHex = publicInputs.map((x) => {

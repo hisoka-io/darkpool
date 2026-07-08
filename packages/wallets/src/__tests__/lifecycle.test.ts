@@ -3,6 +3,7 @@ import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
 import { DarkAccount } from "../keys/DarkAccount";
 import { KeyRepository } from "../state/KeyRepository";
+import { InMemoryEphemeralCounterStore } from "../state/EphemeralCounterStore";
 import { NoteProcessor } from "../sync/NoteProcessor";
 import { UnprocessedEvent } from "../sync/types";
 import {
@@ -215,7 +216,7 @@ describe("incoming-memo lifecycle (transfer memo fixture round-trip)", () => {
 describe("atomic self-ephemeral counter durability", () => {
   it("advances write-ahead, serializes concurrent mints, and never reuses an index across restart", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const repo = new KeyRepository(account);
+    const repo = new KeyRepository(account, new InMemoryEphemeralCounterStore());
 
     const first = await repo.nextSelfEphemeral();
     const second = await repo.nextSelfEphemeral();
@@ -232,7 +233,7 @@ describe("atomic self-ephemeral counter durability", () => {
     const priorIndices = [first, second, third, fourth];
     const priorMax = Math.max(...priorIndices.map((m) => m.index));
 
-    const fresh = new KeyRepository(account);
+    const fresh = new KeyRepository(account, new InMemoryEphemeralCounterStore());
     await fresh.restore(repo.getState());
     const resumed = await fresh.nextSelfEphemeral();
 

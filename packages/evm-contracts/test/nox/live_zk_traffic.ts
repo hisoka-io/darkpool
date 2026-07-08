@@ -23,6 +23,7 @@ import {
   NotePlaintext,
   DarkAccount,
   KeyRepository,
+  InMemoryEphemeralCounterStore,
   computeOwner,
 } from "@hisoka/wallets";
 import { proveDeposit, proveSplit } from "@hisoka/prover";
@@ -170,7 +171,7 @@ async function main() {
 
   const sig = await signer.signMessage("hisoka.darkpool.account.v1");
   const account = await DarkAccount.fromSignature(sig);
-  const keyRepo = new KeyRepository(account, COMPLIANCE_PK);
+  const keyRepo = new KeyRepository(account, new InMemoryEphemeralCounterStore());
   const darkPool = new ethers.Contract(DARKPOOL, DARKPOOL_ABI, provider);
 
   // Spend material for self-owned notes: verify_spend asserts owner == Poseidon2(nk*G).

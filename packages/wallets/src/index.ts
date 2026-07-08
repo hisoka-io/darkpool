@@ -8,6 +8,7 @@ export * from "./merkle/LeanIMT.js";
 export * from "./address.js";
 export * from "./state/types.js";
 export * from "./state/KeyRepository.js";
+export * from "./state/EphemeralCounterStore.js";
 export * from "./state/UtxoRepository.js";
 
 export * from "./note/note.js";

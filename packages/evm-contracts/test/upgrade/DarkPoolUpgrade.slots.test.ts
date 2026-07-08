@@ -79,9 +79,14 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
       },
     })) as unknown as DarkPool__factory;
 
+    const stub = await (
+      await ethers.getContractFactory("StubVerifier")
+    ).deploy();
+    await stub.waitForDeployment();
+    const stubAddr = await stub.getAddress();
     const verifierAddrs = Array.from(
       { length: VERIFIER_COUNT },
-      () => ethers.Wallet.createRandom().address,
+      () => stubAddr,
     );
     const params = [
       ...verifierAddrs,

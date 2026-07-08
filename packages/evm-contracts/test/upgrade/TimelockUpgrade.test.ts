@@ -45,10 +45,12 @@ async function deployWithTimelock() {
     libraries: { Poseidon2: posAddr },
   })) as unknown as DarkPool__factory;
 
-  const verifierAddrs = Array.from(
-    { length: 10 },
-    () => ethers.Wallet.createRandom().address,
-  );
+  const stub = await (
+    await ethers.getContractFactory("StubVerifier")
+  ).deploy();
+  await stub.waitForDeployment();
+  const stubAddr = await stub.getAddress();
+  const verifierAddrs = Array.from({ length: 10 }, () => stubAddr);
   const params: DarkPool.InitParamsStruct = {
     depositVerifier: verifierAddrs[0],
     withdrawVerifier: verifierAddrs[1],

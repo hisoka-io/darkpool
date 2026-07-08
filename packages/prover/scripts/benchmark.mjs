@@ -655,7 +655,7 @@ async function main() {
       const { witness } = await noir.execute(inputs);
       const t1 = performance.now();
       const { publicInputs } = await backend.generateProof(witness, {
-        verifierTarget: "evm-no-zk",
+        verifierTarget: "evm",
       });
       const t2 = performance.now();
       witnessMs.push(t1 - t0);
@@ -679,7 +679,7 @@ async function main() {
 
   const header =
     "## Per-op prove time (Part D)\n\n" +
-    `bb.js UltraHonk (verifierTarget evm-no-zk), BB_THREADS=${THREADS}, median of ${ITERS} iterations. ` +
+    `bb.js UltraHonk (verifierTarget evm), BB_THREADS=${THREADS}, median of ${ITERS} iterations. ` +
     "witness = noir.execute; prove = backend.generateProof.\n\n" +
     "| op | witness (ms) | prove (ms) | total (ms) | public inputs |\n" +
     "|----|-------------:|-----------:|-----------:|--------------:|\n" +

@@ -99,14 +99,14 @@ async function main() {
 
       // Generate proof
       const { proof, publicInputs } = await backend.generateProof(witness, {
-        verifierTarget: "evm-no-zk",
+        verifierTarget: "evm",
       });
 
       let verified = true;
       if (!skipVerify) {
         verified = await backend.verifyProof(
           { proof, publicInputs },
-          { verifierTarget: "evm-no-zk" },
+          { verifierTarget: "evm" },
         );
       }
 

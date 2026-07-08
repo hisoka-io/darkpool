@@ -16,6 +16,8 @@ const artifactsPath = circuitPackagesNames.map((circuitPackageName) =>
 const contractsDir = resolve(__dirname, "../../evm-contracts/contracts");
 const verifiersDir = resolve(contractsDir, "verifiers");
 const outputPath = CIRCUITS.map((c) => resolve(verifiersDir, c.verifier));
+const vkHashManifestPath = resolve(verifiersDir, "vk-hashes.json");
+const vkHashes = {};
 
 async function main() {
   console.log("--- Generating Solidity Verifiers ---");
@@ -40,12 +42,23 @@ async function main() {
 
     try {
       const verificationKey = await backend.getVerificationKey({
-        verifierTarget: "evm-no-zk",
+        verifierTarget: "evm",
       });
       const verifierString = await backend.getSolidityVerifier(
         verificationKey,
-        { verifierTarget: "evm-no-zk" },
+        { verifierTarget: "evm" },
       );
+
+      const vkHashMatch = verifierString.match(
+        /uint256 constant VK_HASH = (0x[0-9a-fA-F]{64});/,
+      );
+      if (!vkHashMatch) {
+        console.error(
+          `[Error] VK_HASH not found in the generated verifier for "${circuitPackagesNames[circuitIndex]}".`,
+        );
+        process.exit(1);
+      }
+      vkHashes[circuitPackagesNames[circuitIndex]] = vkHashMatch[1];
 
       console.log(`Writing ${outputPath[circuitIndex]}...`);
 
@@ -60,6 +73,9 @@ async function main() {
       await api.destroy();
     }
   }
+
+  writeFileSync(vkHashManifestPath, JSON.stringify(vkHashes, null, 2) + "\n");
+  console.log(`Wrote VK-hash manifest: ${vkHashManifestPath}`);
 }
 
 main();

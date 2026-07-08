@@ -3,6 +3,7 @@ import { Point, mulPointEscalar, Base8 } from "@zk-kit/baby-jubjub";
 import { Contract } from "ethers";
 import { DarkAccount } from "../keys/DarkAccount";
 import { KeyRepository } from "../state/KeyRepository";
+import { InMemoryEphemeralCounterStore } from "../state/EphemeralCounterStore";
 import { UtxoRepository } from "../state/UtxoRepository";
 import { LeanIMT } from "../merkle/LeanIMT";
 import { ScanEngine } from "../sync/ScanEngine";
@@ -41,7 +42,7 @@ function fakeContract(leaves: Leaf[], head: { value: number }): Contract {
 describe("ScanEngine finality depth", () => {
   it("holds unfinalized leaves out of the committed tree, inserts once finalized", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const keyRepo = new KeyRepository(account);
+    const keyRepo = new KeyRepository(account, new InMemoryEphemeralCounterStore());
     const utxoRepo = new UtxoRepository();
     const tree = new LeanIMT(32);
 
@@ -75,7 +76,7 @@ describe("ScanEngine finality depth", () => {
 
   it("finalityDepth 0 is optimistic (inserts immediately)", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const keyRepo = new KeyRepository(account);
+    const keyRepo = new KeyRepository(account, new InMemoryEphemeralCounterStore());
     const utxoRepo = new UtxoRepository();
     const tree = new LeanIMT(32);
 
