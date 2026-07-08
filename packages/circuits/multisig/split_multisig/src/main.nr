@@ -171,3 +171,56 @@ fn audit_reject_out_note_type_standard() {
         20,
     );
 }
+
+// Real 3-of-5 FROST witness from the TS signer (gen-split-multisig-kat); accept parity.
+global KAT_PSI1: Field =
+    0x2aaee0e06ff8b0e8cf78d66b27f27fe9d0e82cc687724cee2eb92b0d8a90c2c2;
+global KAT_PSI2: Field =
+    0x0981a88f9e119b057498a4ab99ed5379a1ea91c642454fc0c07aacc1f5cd5731;
+global KAT_FROST_Z: Field =
+    0x01a73179db74a78a18abe719d5f5d290530bf8423ebba655d0be46c5af723cec;
+
+fn kat_frost_r() -> Point {
+    Point {
+        x: 0x18b6a89104d7879120319bb3cd8c33535d7e654a294b2c42b681992fafdd5293,
+        y: 0x0d6be22193de6716d99f345013d474ce018968ac9aa3b836543a3b7515c47e27,
+    }
+}
+
+#[test]
+fn kat_multisig_split_accepts() {
+    let _ = main(
+        CX,
+        CY,
+        kat_gpk(),
+        kat_frost_r(),
+        KAT_FROST_Z,
+        ms_input(100),
+        0,
+        [0; TREE_DEPTH],
+        out_note(60, 1, gpk_owner(), KAT_PSI1),
+        4,
+        out_note(40, 1, gpk_owner(), KAT_PSI2),
+        5,
+    );
+}
+
+// Shifting a FROST-signed output value moves the out1/out2 leaves, so the recomputed m no longer matches the
+// signature; conservation still holds (61 + 39 == 100) so control reaches verify_frost_spend, which rejects.
+#[test(should_fail_with = "FROST signature invalid")]
+fn audit_reject_mutated_signed_value() {
+    let _ = main(
+        CX,
+        CY,
+        kat_gpk(),
+        kat_frost_r(),
+        KAT_FROST_Z,
+        ms_input(100),
+        0,
+        [0; TREE_DEPTH],
+        out_note(61, 1, gpk_owner(), KAT_PSI1),
+        4,
+        out_note(39, 1, gpk_owner(), KAT_PSI2),
+        5,
+    );
+}

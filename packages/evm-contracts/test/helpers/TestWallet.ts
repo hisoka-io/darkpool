@@ -7,6 +7,7 @@ import {
   addressToFr,
   packParents,
   KeyRepository,
+  InMemoryEphemeralCounterStore,
   UtxoRepository,
   ScanEngine,
   WalletNote,
@@ -78,7 +79,10 @@ export class TestWallet {
       ? (await provider.getNetwork()).chainId
       : HARDHAT_CHAIN_ID;
     wallet.tree = await newSeededTree(chainId);
-    wallet.keyRepo = new KeyRepository(wallet.account);
+    wallet.keyRepo = new KeyRepository(
+      wallet.account,
+      new InMemoryEphemeralCounterStore(),
+    );
     wallet.utxoRepo = new UtxoRepository();
     wallet.fromBlock = fromBlock ?? 0;
 

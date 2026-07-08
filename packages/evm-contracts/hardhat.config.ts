@@ -93,7 +93,10 @@ const config: HardhatUserConfig = {
     compilers: [
       {
         version: "0.8.28",
-        settings: { optimizer: { enabled: true, runs: 1 } },
+        settings: {
+          optimizer: { enabled: true, runs: 1 },
+          evmVersion: "cancun",
+        },
       },
     ],
     // Poseidon2 is a delegatecalled public library, so recompiling it at high runs shrinks the
@@ -104,19 +107,31 @@ const config: HardhatUserConfig = {
     overrides: {
       "contracts/Poseidon/Poseidon2.sol": {
         version: "0.8.28",
-        settings: { optimizer: { enabled: true, runs: 1000000 } },
+        settings: {
+          optimizer: { enabled: true, runs: 1000000 },
+          evmVersion: "cancun",
+        },
       },
       "contracts/Poseidon/Poseidon2Lib.sol": {
         version: "0.8.28",
-        settings: { optimizer: { enabled: true, runs: 1000000 } },
+        settings: {
+          optimizer: { enabled: true, runs: 1000000 },
+          evmVersion: "cancun",
+        },
       },
       "contracts/Poseidon/LibPoseidon2Yul.sol": {
         version: "0.8.28",
-        settings: { optimizer: { enabled: true, runs: 1000000 } },
+        settings: {
+          optimizer: { enabled: true, runs: 1000000 },
+          evmVersion: "cancun",
+        },
       },
       "contracts/Poseidon/Field.sol": {
         version: "0.8.28",
-        settings: { optimizer: { enabled: true, runs: 1000000 } },
+        settings: {
+          optimizer: { enabled: true, runs: 1000000 },
+          evmVersion: "cancun",
+        },
       },
     },
   },

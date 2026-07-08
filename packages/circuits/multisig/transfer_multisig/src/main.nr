@@ -177,3 +177,86 @@ fn audit_reject_out_note_type_standard() {
         9,
     );
 }
+
+// Real 3-of-5 FROST witness from the TS signer (gen-transfer-multisig-kat); accept parity.
+global KAT_MEMO_EPH: Field = 4;
+global KAT_CHANGE_EPH: Field = 5;
+global KAT_MEMO_PSI: Field =
+    0x2aaee0e06ff8b0e8cf78d66b27f27fe9d0e82cc687724cee2eb92b0d8a90c2c2;
+global KAT_CHANGE_PSI: Field =
+    0x0981a88f9e119b057498a4ab99ed5379a1ea91c642454fc0c07aacc1f5cd5731;
+global KAT_FROST_Z: Field =
+    0x01a7b0c8126c889afd1bbe450314cf0c95ca5a21e463e9bbe9ba498ceb061bc6;
+
+fn kat_frost_r() -> Point {
+    Point {
+        x: 0x2bb54910730146df7c5ee69e8cec36d2cd3be40e1f973de458ce24c4c831eeb1,
+        y: 0x168dccf0fdd2e58e723c2c5035f7136ce1cd807bfc2e80b9964cb42d7022f825,
+    }
+}
+
+fn kat_memo_note(value: u128) -> Note {
+    Note {
+        note_version: 1,
+        asset_id: ASSET_ID,
+        note_type: 0,
+        conditions_hash: 0,
+        value,
+        owner: 0x1113074e2fb269d979ad2b64e6fe70b1967c67b007b706600603b847306aefe3,
+        psi: KAT_MEMO_PSI,
+        parents: 0,
+    }
+}
+
+fn kat_change_note(value: u128) -> Note {
+    Note {
+        note_version: 1,
+        asset_id: ASSET_ID,
+        note_type: 1,
+        conditions_hash: 0,
+        value,
+        owner: gpk_owner(),
+        psi: KAT_CHANGE_PSI,
+        parents: 0,
+    }
+}
+
+#[test]
+fn kat_multisig_transfer_accepts() {
+    let _ = main(
+        CX,
+        CY,
+        kat_gpk(),
+        kat_frost_r(),
+        KAT_FROST_Z,
+        recipient_in_pub(),
+        ms_input(100),
+        0,
+        [0; TREE_DEPTH],
+        kat_memo_note(40),
+        KAT_MEMO_EPH,
+        kat_change_note(60),
+        KAT_CHANGE_EPH,
+    );
+}
+
+// Shifting a FROST-signed output value moves the memo/change leaves, so the recomputed m no longer matches the
+// signature; conservation still holds (41 + 59 == 100) so control reaches verify_frost_spend, which rejects.
+#[test(should_fail_with = "FROST signature invalid")]
+fn audit_reject_mutated_signed_value() {
+    let _ = main(
+        CX,
+        CY,
+        kat_gpk(),
+        kat_frost_r(),
+        KAT_FROST_Z,
+        recipient_in_pub(),
+        ms_input(100),
+        0,
+        [0; TREE_DEPTH],
+        kat_memo_note(41),
+        KAT_MEMO_EPH,
+        kat_change_note(59),
+        KAT_CHANGE_EPH,
+    );
+}

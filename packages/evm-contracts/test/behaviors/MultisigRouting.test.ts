@@ -36,6 +36,13 @@ describe("DarkPool Behavior: Multisig Routing", function () {
     ).to.be.revertedWithCustomError(darkPool, "UnknownCircuitId");
   });
 
+  it("rejects setVerifier pointing at an address with no code", async function () {
+    const { darkPool, alice } = await loadFixture(deployDarkPoolFixture);
+    await expect(
+      darkPool.setVerifier(0, alice.address),
+    ).to.be.revertedWithCustomError(darkPool, "VerifierHasNoCode");
+  });
+
   // Multisig entrypoints share the standard twins' decode; a wrong length reverts before the verifier.
   describe("InvalidInputsLength (multisig lengths match their standard twins)", function () {
     it("withdrawMultisig requires 18 inputs", async function () {

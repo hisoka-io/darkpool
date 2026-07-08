@@ -31,11 +31,11 @@ export async function generateProof(
   try {
     const { witness } = await noir.execute(noirInputs);
     const { proof, publicInputs } = await backend.generateProof(witness, {
-      verifierTarget: "evm-no-zk",
+      verifierTarget: "evm",
     });
     const verified = await backend.verifyProof(
       { proof, publicInputs },
-      { verifierTarget: "evm-no-zk" },
+      { verifierTarget: "evm" },
     );
 
     return { proof, publicInputs, verified };

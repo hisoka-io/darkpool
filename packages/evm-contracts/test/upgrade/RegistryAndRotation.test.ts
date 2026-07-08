@@ -80,9 +80,20 @@ describe("Verifier backward-compat + compliance rotation (VR-2, ZK-5)", function
       await tree.insert(dep.commitment); // index 1
 
       const oldVerifier = await darkPool.verifier(CIRCUIT_WITHDRAW);
+      const zkTranscriptLib = await (
+        await ethers.getContractFactory(
+          "contracts/verifiers/WithdrawVerifier.sol:ZKTranscriptLib",
+        )
+      ).deploy();
       const fresh = await (
         await ethers.getContractFactory(
           "contracts/verifiers/WithdrawVerifier.sol:HonkVerifier",
+          {
+            libraries: {
+              "contracts/verifiers/WithdrawVerifier.sol:ZKTranscriptLib":
+                await zkTranscriptLib.getAddress(),
+            },
+          },
         )
       ).deploy();
       await fresh.waitForDeployment();
