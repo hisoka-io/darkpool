@@ -12,6 +12,7 @@ import {
 } from "../helpers/fixtures";
 import { addressToFr, packParents } from "@hisoka/wallets";
 import { proveDeposit, proveSplit } from "@hisoka/prover";
+import { writeFileSync } from "fs";
 
 // PROFILE=1 npx hardhat test test/benchmark/VerifierProfile.bench.ts
 const run = process.env.PROFILE ? describe : describe.skip;
@@ -80,6 +81,10 @@ run("Verifier profile: verify vs overhead", function () {
       const eph = evenYEphemeral(101n);
       const built = await mintSelfNote(eph, 100n, spendScalar, assetFr);
       const proof = await proveDeposit({ compliancePk: COMPLIANCE_PK, note: built.note, eph });
+      writeFileSync(
+        "/home/dimeb/projects/darkpool-new/darkpool-v2/no-commit/verifier-gas/deposit-proof.json",
+        JSON.stringify({ proof: proof.proof, publicInputs: proof.publicInputs }),
+      );
       const verifyEst = await verifier.verify.estimateGas(proof.proof, proof.publicInputs);
       const cdV = calldataGas((await verifier.verify.populateTransaction(proof.proof, proof.publicInputs)).data!);
       await token.connect(alice).approve(await darkPool.getAddress(), 100n);

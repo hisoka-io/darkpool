@@ -617,21 +617,7 @@ contract DarkPoolV1 is
         return _treeStorage().tree.getCurrentRoot();
     }
 
-    function getMerklePath(
-        uint256 _leafIndex
-    ) external view returns (bytes32[32] memory) {
-        return _treeStorage().tree.getMerklePath(_leafIndex);
-    }
-
     function getNextLeafIndex() external view returns (uint256) {
         return _treeStorage().tree.nextLeafIndex;
-    }
-
-    function getSubtreeWithProof(
-        uint256 treeLevel,
-        uint256 positionAtLevel
-    ) external view returns (bytes32[] memory proof, bytes32[] memory leafs) {
-        return
-            _treeStorage().tree.getSubtreeWithProof(treeLevel, positionAtLevel);
     }
 }
