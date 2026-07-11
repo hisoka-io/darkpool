@@ -45,9 +45,7 @@ async function deployWithTimelock() {
     libraries: { Poseidon2: posAddr },
   })) as unknown as DarkPool__factory;
 
-  const stub = await (
-    await ethers.getContractFactory("StubVerifier")
-  ).deploy();
+  const stub = await (await ethers.getContractFactory("StubVerifier")).deploy();
   await stub.waitForDeployment();
   const stubAddr = await stub.getAddress();
   const verifierAddrs = Array.from({ length: 10 }, () => stubAddr);

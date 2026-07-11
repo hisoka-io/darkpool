@@ -11,7 +11,7 @@ import { LeanIMT, toFr } from "@hisoka/wallets";
 // FRONTIER=1 npx hardhat test test/benchmark/FrontierParity.bench.ts
 // Proves the frontier tree is byte-identical to the TS LeanIMT (the circuits' reference) at production depth 32
 // over a leaf set that exercises even/odd positions at every level, AND measures per-insert gas vs the whole-tree
-// baseline (no-commit/verifier-gas/insert-measure.log: ~386k-486k/insert).
+// baseline (~386k-486k/insert).
 const run = process.env.FRONTIER ? describe : describe.skip;
 
 run(

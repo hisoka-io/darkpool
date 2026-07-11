@@ -1,5 +1,7 @@
 contracts/verifiers/**/*.sol
 contracts/Poseidon/**/*.sol
+contracts/mocks/**/*.sol
+contracts/test/**/*.sol
 node_modules/
 artifacts/
 cache/

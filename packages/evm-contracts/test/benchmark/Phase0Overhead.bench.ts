@@ -53,10 +53,13 @@ run("Phase 0: verify vs overhead (mock no-op verifier)", function () {
     const full = await firstDepositGas(false);
     const overhead = await firstDepositGas(true);
     const verify = full - overhead;
-    const pct = (n: bigint) => `${((100 * Number(n)) / Number(full)).toFixed(1)}%`;
+    const pct = (n: bigint) =>
+      `${((100 * Number(n)) / Number(full)).toFixed(1)}%`;
     console.log(`\n=== Phase 0: deposit verify vs overhead (cancun) ===`);
     console.log(`  FULL action (real verifier) = ${full}`);
-    console.log(`  OVERHEAD (stub verify)      = ${overhead}   ${pct(overhead)}`);
+    console.log(
+      `  OVERHEAD (stub verify)      = ${overhead}   ${pct(overhead)}`,
+    );
     console.log(`  in-context VERIFY           = ${verify}   ${pct(verify)}`);
   });
 });

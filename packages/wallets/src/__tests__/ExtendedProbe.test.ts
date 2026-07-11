@@ -100,7 +100,10 @@ function fakeContract(noteLogs: unknown[]): Contract {
 describe("ScanEngine extended-probe recovery", () => {
   it("standard sync misses a post-gap self-note that the extended probe recovers", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const keyRepo = new KeyRepository(account, new InMemoryEphemeralCounterStore());
+    const keyRepo = new KeyRepository(
+      account,
+      new InMemoryEphemeralCounterStore(),
+    );
     const utxoRepo = new UtxoRepository();
 
     const gapIndex = await firstEvenYSelfIndex(
@@ -131,7 +134,10 @@ describe("ScanEngine extended-probe recovery", () => {
 
   it("probe returns false and adds nothing when no note hides past the window", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const keyRepo = new KeyRepository(account, new InMemoryEphemeralCounterStore());
+    const keyRepo = new KeyRepository(
+      account,
+      new InMemoryEphemeralCounterStore(),
+    );
     const utxoRepo = new UtxoRepository();
 
     const nearIndex = await firstEvenYSelfIndex(account, 0, STANDARD_WINDOW);

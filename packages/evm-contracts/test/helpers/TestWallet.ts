@@ -16,9 +16,13 @@ import {
   proveDeposit,
   proveWithdraw,
   proveTransfer,
+  proveSplit,
+  proveJoin,
   provePublicClaim,
   WithdrawInputs,
   TransferInputs,
+  SplitInputs,
+  JoinInputs,
   PublicClaimInputs,
   ProofData,
 } from "@hisoka/prover";
@@ -268,6 +272,98 @@ export class TestWallet {
       changeCommitment: change.commitment,
       publicInputs: proof.publicInputs,
     };
+  }
+
+  async split(amountA: bigint, amountB: bigint, asset?: string) {
+    const assetFr = await this.assetFr(asset);
+    const input = this.pickNote(assetFr, amountA + amountB);
+    const parents = packParents([
+      { leafIndex: Number(input.leafIndex) },
+      { leafIndex: 0 },
+    ]);
+    const spendScalar = await this.account.getSelfSpendKey();
+
+    const { eph: eph1 } = await this.keyRepo.nextSelfEphemeral();
+    const out1 = await mintSelfNote(
+      eph1,
+      amountA,
+      spendScalar,
+      assetFr,
+      parents,
+    );
+    const { eph: eph2 } = await this.keyRepo.nextSelfEphemeral();
+    const out2 = await mintSelfNote(
+      eph2,
+      amountB,
+      spendScalar,
+      assetFr,
+      parents,
+    );
+
+    const inputs: SplitInputs = {
+      compliancePk: COMPLIANCE_PK,
+      noteIn: noteToInput(input.note),
+      spendScalar: input.spendScalar,
+      indexIn: input.leafIndex,
+      pathIn: this.tree.getMerklePath(input.leafIndex),
+      noteOut1: out1.note,
+      eph1,
+      noteOut2: out2.note,
+      eph2,
+    };
+
+    const proof = await proveSplit(inputs);
+    await this.darkPool
+      .connect(this.signer)
+      .split(proof.proof, proof.publicInputs);
+
+    return { commitment1: out1.commitment, commitment2: out2.commitment };
+  }
+
+  async join(asset?: string) {
+    const assetFr = await this.assetFr(asset);
+    const notes = this.utxoRepo
+      .getUnspentNotes()
+      .filter((n) => n.note.assetId.equals(assetFr))
+      .sort((a, b) => Number(a.leafIndex) - Number(b.leafIndex));
+    if (notes.length < 2) {
+      throw new Error("join requires >= 2 unspent notes of the asset");
+    }
+    const [noteA, noteB] = notes;
+    const parents = packParents([
+      { leafIndex: Number(noteA.leafIndex) },
+      { leafIndex: Number(noteB.leafIndex) },
+    ]);
+    const spendScalar = await this.account.getSelfSpendKey();
+    const { eph: ephOut } = await this.keyRepo.nextSelfEphemeral();
+    const out = await mintSelfNote(
+      ephOut,
+      noteA.note.value + noteB.note.value,
+      spendScalar,
+      assetFr,
+      parents,
+    );
+
+    const inputs: JoinInputs = {
+      compliancePk: COMPLIANCE_PK,
+      noteA: noteToInput(noteA.note),
+      spendScalarA: noteA.spendScalar,
+      indexA: noteA.leafIndex,
+      pathA: this.tree.getMerklePath(noteA.leafIndex),
+      noteB: noteToInput(noteB.note),
+      spendScalarB: noteB.spendScalar,
+      indexB: noteB.leafIndex,
+      pathB: this.tree.getMerklePath(noteB.leafIndex),
+      noteOut: out.note,
+      ephOut,
+    };
+
+    const proof = await proveJoin(inputs);
+    await this.darkPool
+      .connect(this.signer)
+      .join(proof.proof, proof.publicInputs);
+
+    return { commitment: out.commitment };
   }
 
   async claimPublic(

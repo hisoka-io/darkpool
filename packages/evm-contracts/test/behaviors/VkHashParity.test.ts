@@ -35,10 +35,9 @@ describe("VK-hash manifest parity", function () {
 
   for (const [name, file] of Object.entries(NAME_TO_FILE)) {
     it(`${name}: committed verifier VK_HASH matches the manifest`, function () {
-      const match = readFileSync(
-        resolve(VERIFIERS_DIR, file),
-        "utf8",
-      ).match(VK_HASH_RE);
+      const match = readFileSync(resolve(VERIFIERS_DIR, file), "utf8").match(
+        VK_HASH_RE,
+      );
       expect(match, `VK_HASH not found in ${file}`).to.not.equal(null);
       expect(match![1]).to.equal(manifest[name]);
     });

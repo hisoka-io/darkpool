@@ -81,7 +81,7 @@ contract BundleExecutor is ReentrancyGuard {
     /**
      * @notice Atomically withdraw one shielded note to this contract and run the bound call bundle.
      * @param proof The withdraw proof.
-     * @param publicInputs The withdraw public inputs; index [3] is overwritten with the bundle intent hash.
+     * @param publicInputs The withdraw public inputs; index [2] is overwritten with the bundle intent hash.
      * @param boundCalls The calls to run after the withdraw, in order.
      * @param deadline Unix seconds after which `execute` reverts.
      * @param assetsToClear ERC20s (besides the withdrawn asset) that must end at zero balance here.

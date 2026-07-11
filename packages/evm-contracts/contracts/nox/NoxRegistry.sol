@@ -3,6 +3,7 @@ pragma solidity ^0.8.25;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+// solhint-disable-next-line max-line-length
 import {AccessControlDefaultAdminRulesUpgradeable} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -220,9 +221,11 @@ contract NoxRegistry is
         // XOR identity: empty set = bytes32(0). No genesis hash needed.
     }
 
+    // solhint-disable no-empty-blocks
     function _authorizeUpgrade(
         address newImplementation
     ) internal override onlyRole(UPGRADER_ROLE) {}
+    // solhint-enable no-empty-blocks
 
     /// @dev Self-inverse: XOR to add a node, XOR again to remove it.
     function _xorAddressIntoFingerprint(address nodeAddress) private {

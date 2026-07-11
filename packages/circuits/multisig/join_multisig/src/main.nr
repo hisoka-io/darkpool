@@ -215,10 +215,8 @@ fn audit_reject_cross_account_gpk() {
 
 // Real 3-of-5 FROST witness from the TS signer (gen-join-multisig-kat); accept parity. Both inputs share one
 // account gpk, so a single (R,z) verifies for gpk_a and gpk_b over the same m.
-global KAT_PSI_OUT: Field =
-    0x2aaee0e06ff8b0e8cf78d66b27f27fe9d0e82cc687724cee2eb92b0d8a90c2c2;
-global KAT_FROST_Z: Field =
-    0x0413fd66ff083810c4ed2b5983fe1bb590b1f504f72cf71f463c5e2af0665969;
+global KAT_PSI_OUT: Field = 0x2aaee0e06ff8b0e8cf78d66b27f27fe9d0e82cc687724cee2eb92b0d8a90c2c2;
+global KAT_FROST_Z: Field = 0x0413fd66ff083810c4ed2b5983fe1bb590b1f504f72cf71f463c5e2af0665969;
 
 fn kat_frost_r() -> Point {
     Point {

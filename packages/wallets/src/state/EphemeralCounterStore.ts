@@ -43,7 +43,9 @@ export class InMemoryEphemeralCounterStore implements EphemeralCounterStore {
   reserve(scope: string, span: number): Promise<EphemeralReservation> {
     if (!Number.isInteger(span) || span <= 0) {
       return Promise.reject(
-        new Error(`ephemeral reserve: span must be a positive integer (got ${span})`),
+        new Error(
+          `ephemeral reserve: span must be a positive integer (got ${span})`,
+        ),
       );
     }
     return this.#withLock(async () => {
@@ -71,7 +73,11 @@ export class InMemoryEphemeralCounterStore implements EphemeralCounterStore {
     this.#failNextWrite = true;
   }
 
-  #makeReservation(scope: string, base: number, span: number): EphemeralReservation {
+  #makeReservation(
+    scope: string,
+    base: number,
+    span: number,
+  ): EphemeralReservation {
     return {
       base,
       span,
@@ -96,7 +102,8 @@ export class InMemoryEphemeralCounterStore implements EphemeralCounterStore {
   #trim(scope: string, base: number, span: number, to: number): Promise<void> {
     return this.#withLock(async () => {
       // Only reclaim if no later reserve advanced past this reservation; never rewind below a subsequent base.
-      if (this.#highWater.get(scope) === base + span) this.#highWater.set(scope, to);
+      if (this.#highWater.get(scope) === base + span)
+        this.#highWater.set(scope, to);
     });
   }
 

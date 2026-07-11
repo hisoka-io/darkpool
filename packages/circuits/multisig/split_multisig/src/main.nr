@@ -173,12 +173,9 @@ fn audit_reject_out_note_type_standard() {
 }
 
 // Real 3-of-5 FROST witness from the TS signer (gen-split-multisig-kat); accept parity.
-global KAT_PSI1: Field =
-    0x2aaee0e06ff8b0e8cf78d66b27f27fe9d0e82cc687724cee2eb92b0d8a90c2c2;
-global KAT_PSI2: Field =
-    0x0981a88f9e119b057498a4ab99ed5379a1ea91c642454fc0c07aacc1f5cd5731;
-global KAT_FROST_Z: Field =
-    0x01a73179db74a78a18abe719d5f5d290530bf8423ebba655d0be46c5af723cec;
+global KAT_PSI1: Field = 0x2aaee0e06ff8b0e8cf78d66b27f27fe9d0e82cc687724cee2eb92b0d8a90c2c2;
+global KAT_PSI2: Field = 0x0981a88f9e119b057498a4ab99ed5379a1ea91c642454fc0c07aacc1f5cd5731;
+global KAT_FROST_Z: Field = 0x01a73179db74a78a18abe719d5f5d290530bf8423ebba655d0be46c5af723cec;
 
 fn kat_frost_r() -> Point {
     Point {
