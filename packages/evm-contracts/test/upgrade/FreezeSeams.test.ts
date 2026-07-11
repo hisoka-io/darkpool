@@ -4,11 +4,10 @@ import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { deployDarkPoolFixture } from "../helpers/fixtures";
+import { BN254_FR } from "../helpers/merkleTree";
 
 // Part I freeze-seam gap-fills. Each KAT fails if its frozen value changes.
 const VERIFIERS_DIR = resolve(process.cwd(), "contracts/verifiers");
-const BN254_FR =
-  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
 // The 10-circuit public-input layout is bound into each verifier's VK; a change forces a verifier+VK regen and a
 // replacement MUST accept all pre-existing notes, so the layout is frozen for the note set. The standard and
