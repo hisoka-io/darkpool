@@ -30,9 +30,10 @@ import {
 import { proveDeposit, proveSplit } from "@hisoka/prover";
 
 const SEED = process.env["SEED"] || "https://api.hisoka.io/seed";
-const PRIVATE_KEY =
-  process.env["PRIVATE_KEY"] ||
-  "3e8a4387dce9ecce4d3dabf84e8d3883074a4756ae369906175e8ca40f52af68";
+const PRIVATE_KEY = process.env["PRIVATE_KEY"];
+if (!PRIVATE_KEY) {
+  throw new Error("PRIVATE_KEY is required (set it in .env; no hardcoded fallback)");
+}
 const ARB_RPC = "https://sepolia-rollup.arbitrum.io/rpc";
 
 // Live contracts (Arbitrum Sepolia)
