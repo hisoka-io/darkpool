@@ -105,6 +105,15 @@ const config: HardhatUserConfig = {
     // Poseidon sources need the override: an internal library inherits its consumer's settings, so the
     // public Poseidon2 artifact only recompiles hot when its inlined helpers do too.
     overrides: {
+      // DarkPool is the hot-path action contract; it inherits the deploy-size-tuned runs=1 by default. It has
+      // ~8.3KB of EIP-170 headroom, so a runtime-tuned override trims per-action gas without a size risk.
+      "contracts/DarkPool.sol": {
+        version: "0.8.28",
+        settings: {
+          optimizer: { enabled: true, runs: 200 },
+          evmVersion: "cancun",
+        },
+      },
       "contracts/Poseidon/Poseidon2.sol": {
         version: "0.8.28",
         settings: {

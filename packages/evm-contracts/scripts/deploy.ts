@@ -576,9 +576,7 @@ async function main() {
       transfer_multisig: sha256File(
         path.join(circuitsDir, "transfer_multisig.json"),
       ),
-      split_multisig: sha256File(
-        path.join(circuitsDir, "split_multisig.json"),
-      ),
+      split_multisig: sha256File(path.join(circuitsDir, "split_multisig.json")),
       join_multisig: sha256File(path.join(circuitsDir, "join_multisig.json")),
     },
   };

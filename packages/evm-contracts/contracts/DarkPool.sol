@@ -668,9 +668,15 @@ contract DarkPool is
         bytes32 commitment = _publicInputs[leafIndex];
         uint256 insertedAt = _treeStorage().tree.insert(commitment);
 
+        // verify() gates publicInputs.length == NUMBER_OF_PUBLIC_INPUTS upstream, so the 7 ciphertext words
+        // from ctStartIndex are always in-range; copy them in one calldatacopy instead of a 7-iteration loop.
         bytes32[7] memory ct;
-        for (uint256 i = 0; i < 7; i++) {
-            ct[i] = _publicInputs[ctStartIndex + i];
+        assembly {
+            calldatacopy(
+                ct,
+                add(_publicInputs.offset, mul(ctStartIndex, 0x20)),
+                0xe0
+            )
         }
 
         emit NewNote(
@@ -690,9 +696,15 @@ contract DarkPool is
         bytes32 commitment = _publicInputs[leafIndex];
         uint256 insertedAt = _treeStorage().tree.insert(commitment);
 
+        // Contiguous ciphertext at leafIndex+5; verify() gates the input length upstream, so a single
+        // calldatacopy of the 7 words is in-range and replaces the 7-iteration loop.
         bytes32[7] memory ct;
-        for (uint256 i = 0; i < 7; i++) {
-            ct[i] = _publicInputs[leafIndex + 5 + i];
+        assembly {
+            calldatacopy(
+                ct,
+                add(_publicInputs.offset, mul(add(leafIndex, 5), 0x20)),
+                0xe0
+            )
         }
 
         emit NewPrivateMemo(
@@ -767,21 +779,7 @@ contract DarkPool is
         return _treeStorage().tree.getCurrentRoot();
     }
 
-    function getMerklePath(
-        uint256 _leafIndex
-    ) external view returns (bytes32[32] memory) {
-        return _treeStorage().tree.getMerklePath(_leafIndex);
-    }
-
     function getNextLeafIndex() external view returns (uint256) {
         return _treeStorage().tree.nextLeafIndex;
-    }
-
-    function getSubtreeWithProof(
-        uint256 treeLevel,
-        uint256 positionAtLevel
-    ) external view returns (bytes32[] memory proof, bytes32[] memory leafs) {
-        return
-            _treeStorage().tree.getSubtreeWithProof(treeLevel, positionAtLevel);
     }
 }

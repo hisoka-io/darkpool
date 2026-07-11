@@ -23,6 +23,8 @@ jobs:
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
+      - name: Prettier format check
+        run: pnpm run format:check
 
   circuits:
     name: Circuits (Noir)
@@ -35,6 +37,9 @@ jobs:
           export PATH="$HOME/.nargo/bin:$PATH"
           noirup -v 1.0.0-beta.19
           echo "$HOME/.nargo/bin" >> $GITHUB_PATH
+      - name: Check circuit formatting
+        working-directory: packages/circuits
+        run: nargo fmt --check
       - name: Test circuits
         working-directory: packages/circuits
         run: nargo test
@@ -98,5 +103,24 @@ jobs:
       # against DarkPoolV1), backed by the DarkPoolV1 storage-surface guard (scripts/regen-darkpoolv1.ts).
       - name: Check storage-layout snapshots
         run: pnpm --filter evm-contracts run storage:check
+
+  security:
+    name: Secrets + Deps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Secret scan (Trufflehog)
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --results=verified,unknown --exclude-paths=.trufflehog-ignore-paths
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+      - name: Dependency audit (prod deps, high severity)
+        run: pnpm audit --prod --audit-level high
 
   # Rust CI (lint, test, security) runs in hisoka-io/nox repo

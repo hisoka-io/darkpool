@@ -203,7 +203,8 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     const bob = evenYKeypair();
     const ownerB = await pubkeyOwner(bob.pub);
 
-    const psiFor = async (eph: Fr): Promise<Fr> => computePsi(deriveCek(eph, C));
+    const psiFor = async (eph: Fr): Promise<Fr> =>
+      computePsi(deriveCek(eph, C));
 
     async function committeeCek(ephPub: Point<bigint>): Promise<Fr> {
       const partials: Partial[] = await Promise.all(
@@ -519,7 +520,10 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     );
     const s1LeafExpected = await noteLeaf(s1Note);
     const s2LeafExpected = await noteLeaf(s2Note);
-    const nfChM = await computeNullifier(chMNote.psi, new Fr(BigInt(chM.index)));
+    const nfChM = await computeNullifier(
+      chMNote.psi,
+      new Fr(BigInt(chM.index)),
+    );
     const mS = await frost.msgSplit({
       root: root4.toBigInt(),
       nullifier: nfChM.toBigInt(),

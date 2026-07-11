@@ -20,6 +20,7 @@
     "gas-strict-inequalities": "off",
     "gas-increment-by-one": "off",
     "gas-indexed-events": "off",
+    "gas-struct-packing": "off",
     "one-contract-per-file": "off",
     "function-max-lines": "off",
     "explicit-types": "off",

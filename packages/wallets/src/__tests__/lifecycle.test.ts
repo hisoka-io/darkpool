@@ -12,8 +12,11 @@ import {
   KeyRepoState,
   SelfEphemeral,
 } from "../repositories";
-import { deriveCek, unwrapCek } from "../crypto/kem";
-import { publicKey } from "../note/keys";
+import { deriveCek, unwrapCek, wrapCek } from "../crypto/kem";
+import { demEncrypt } from "../crypto/dem";
+import { computePsi } from "../note/nullifier";
+import { leaf as computeLeaf } from "../note/note";
+import { publicKey, pubkeyOwner, discoveryTag } from "../note/keys";
 
 const MNEMONIC = "test test test test test test test test test test test junk";
 
@@ -213,10 +216,96 @@ describe("incoming-memo lifecycle (transfer memo fixture round-trip)", () => {
   });
 });
 
+// WN-1 regression: an incoming memo whose leaf/CEK/tag all match but whose `owner` is NOT the recipient's must be
+// DROPPED (a phantom, unspendable note = balance overstatement), not registered. Before the fix the incoming path
+// skipped the owner check, so it registered. A valid memo (owner == recipient) still registers.
+describe("WN-1: incoming note owner binding (phantom-note guard)", () => {
+  const EPH = new Fr(7n);
+  const IN_KEY = new Fr(4n);
+  const ASSET = new Fr(0x1234n);
+  const V1 = new Fr(1n);
+  const ZERO = new Fr(0n);
+  const hex = (f: Fr) => "0x" + f.toBigInt().toString(16).padStart(64, "0");
+
+  async function memoEventFor(owner: Fr): Promise<UnprocessedEvent> {
+    const inPub = publicKey(IN_KEY);
+    const cek = deriveCek(EPH, COMPLIANCE_PK);
+    const psi = await computePsi(cek);
+    const commitment = await computeLeaf({
+      noteVersion: V1,
+      assetId: ASSET,
+      noteType: ZERO,
+      conditionsHash: ZERO,
+      value: 40n,
+      owner,
+      psi,
+      parents: ZERO,
+    });
+    const ct = await demEncrypt(cek, [
+      V1,
+      ASSET,
+      ZERO,
+      ZERO,
+      new Fr(40n),
+      owner,
+      ZERO,
+    ]);
+    const cekWrap = await wrapCek(cek, EPH, inPub);
+    const ephPub = publicKey(EPH);
+    return {
+      type: "NEW_MEMO",
+      blockNumber: 1,
+      txHash: "0x00",
+      args: {
+        leafIndex: 0n,
+        commitment: hex(commitment),
+        ephemeralX: ephPub[0],
+        ephemeralY: ephPub[1],
+        packedCiphertext: ct.map(hex),
+        tag: discoveryTag(inPub).toBigInt(),
+        cekWrap: cekWrap.toBigInt(),
+      },
+    } as UnprocessedEvent;
+  }
+
+  function repoFor(): FixtureKeyRepo {
+    const tag = discoveryTag(publicKey(IN_KEY));
+    return new FixtureKeyRepo(
+      new Map(),
+      new Map([
+        [new Fr(tag.toBigInt()).toString(), { inKey: IN_KEY, index: 0 }],
+      ]),
+      new Fr(0n),
+      publicKey(new Fr(1n)),
+    );
+  }
+
+  it("registers a valid incoming note (owner == recipient)", async () => {
+    const owner = await pubkeyOwner(publicKey(IN_KEY));
+    const note = await new NoteProcessor(repoFor(), COMPLIANCE_PK).process(
+      await memoEventFor(owner),
+    );
+    expect(note).not.toBeNull();
+    expect(note!.note.owner.equals(owner)).toBe(true);
+    expect(note!.isIncoming).toBe(true);
+  });
+
+  it("drops a mismatched incoming note (owner != recipient) as a phantom", async () => {
+    const wrongOwner = await pubkeyOwner(publicKey(new Fr(999n)));
+    const note = await new NoteProcessor(repoFor(), COMPLIANCE_PK).process(
+      await memoEventFor(wrongOwner),
+    );
+    expect(note).toBeNull();
+  });
+});
+
 describe("atomic self-ephemeral counter durability", () => {
   it("advances write-ahead, serializes concurrent mints, and never reuses an index across restart", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const repo = new KeyRepository(account, new InMemoryEphemeralCounterStore());
+    const repo = new KeyRepository(
+      account,
+      new InMemoryEphemeralCounterStore(),
+    );
 
     const first = await repo.nextSelfEphemeral();
     const second = await repo.nextSelfEphemeral();
@@ -233,7 +322,10 @@ describe("atomic self-ephemeral counter durability", () => {
     const priorIndices = [first, second, third, fourth];
     const priorMax = Math.max(...priorIndices.map((m) => m.index));
 
-    const fresh = new KeyRepository(account, new InMemoryEphemeralCounterStore());
+    const fresh = new KeyRepository(
+      account,
+      new InMemoryEphemeralCounterStore(),
+    );
     await fresh.restore(repo.getState());
     const resumed = await fresh.nextSelfEphemeral();
 

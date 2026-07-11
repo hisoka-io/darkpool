@@ -19,20 +19,11 @@ contract MerkleTreeLibHarness {
         return tree.getCurrentRoot();
     }
 
-    function getMerklePath(
-        uint256 leafIndex
-    ) public view returns (bytes32[32] memory) {
-        return tree.getMerklePath(leafIndex);
-    }
-
     function getNextLeafIndex() public view returns (uint256) {
         return tree.nextLeafIndex;
     }
 
-    function getSubtreeWithProof(
-        uint256 treeLevel,
-        uint256 positionAtLevel
-    ) public view returns (bytes32[] memory proof, bytes32[] memory leafs) {
-        return tree.getSubtreeWithProof(treeLevel, positionAtLevel);
+    function isKnownRoot(bytes32 root) public view returns (bool) {
+        return tree.isKnownRoot[root];
     }
 }

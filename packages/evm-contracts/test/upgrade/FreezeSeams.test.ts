@@ -33,25 +33,36 @@ const TWINS: [string, string][] = [
 ];
 const N_RE = /NUMBER_OF_PUBLIC_INPUTS = (\d+)/;
 const readN = (n: string): number =>
-  Number(readFileSync(resolve(VERIFIERS_DIR, `${n}.sol`), "utf8").match(N_RE)![1]);
+  Number(
+    readFileSync(resolve(VERIFIERS_DIR, `${n}.sol`), "utf8").match(N_RE)![1],
+  );
 
 describe("Freeze seams (Part I)", function () {
   describe("public-input layout manifest", function () {
     for (const [name, expected] of Object.entries(PUBLIC_INPUTS)) {
       it(`${name}: NUMBER_OF_PUBLIC_INPUTS == ${expected} (contract passes ${expected - 8})`, function () {
-        const m = readFileSync(resolve(VERIFIERS_DIR, `${name}.sol`), "utf8").match(N_RE);
-        expect(m, `NUMBER_OF_PUBLIC_INPUTS not found in ${name}`).to.not.equal(null);
+        const m = readFileSync(
+          resolve(VERIFIERS_DIR, `${name}.sol`),
+          "utf8",
+        ).match(N_RE);
+        expect(m, `NUMBER_OF_PUBLIC_INPUTS not found in ${name}`).to.not.equal(
+          null,
+        );
         expect(Number(m![1])).to.equal(expected);
       });
     }
     it("standard and FROST-multisig twins share one layout", function () {
-      for (const [std, ms] of TWINS) expect(readN(std), `${std} vs ${ms}`).to.equal(readN(ms));
+      for (const [std, ms] of TWINS)
+        expect(readN(std), `${std} vs ${ms}`).to.equal(readN(ms));
     });
   });
 
   describe("genesis leaf (chain-binding sentinel)", function () {
     it("domain tag = keccak256('hisoka.darkpool.genesis') % BN254_FR (pinned)", function () {
-      const tag = BigInt(ethers.keccak256(ethers.toUtf8Bytes("hisoka.darkpool.genesis"))) % BN254_FR;
+      const tag =
+        BigInt(
+          ethers.keccak256(ethers.toUtf8Bytes("hisoka.darkpool.genesis")),
+        ) % BN254_FR;
       expect("0x" + tag.toString(16).padStart(64, "0")).to.equal(
         "0x0e900019988da19e3820a67141ab82ff80f44f2f34833360ca783945568cc35b",
       );

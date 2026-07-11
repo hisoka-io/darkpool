@@ -12,6 +12,7 @@ import {
 } from "../helpers/fixtures";
 import { addressToFr, packParents } from "@hisoka/wallets";
 import { proveDeposit, proveSplit } from "@hisoka/prover";
+import { writeFileSync } from "fs";
 
 // PROFILE=1 npx hardhat test test/benchmark/VerifierProfile.bench.ts
 const run = process.env.PROFILE ? describe : describe.skip;
@@ -19,7 +20,8 @@ const run = process.env.PROFILE ? describe : describe.skip;
 function calldataGas(hexData: string): number {
   const b = hexData.startsWith("0x") ? hexData.slice(2) : hexData;
   let g = 0;
-  for (let i = 0; i < b.length; i += 2) g += b.slice(i, i + 2) === "00" ? 4 : 16;
+  for (let i = 0; i < b.length; i += 2)
+    g += b.slice(i, i + 2) === "00" ? 4 : 16;
   return g;
 }
 
@@ -60,10 +62,18 @@ function report(
   console.log(
     `proof=${proofBytes}B, publicInputs=${pubCount}, full=${f}, verifyEst=${verifyEst}`,
   );
-  console.log(`  intrinsic        ${INTRINSIC.toString().padStart(9)}  ${pct(INTRINSIC)}`);
-  console.log(`  calldata         ${cdFull.toString().padStart(9)}  ${pct(cdFull)}`);
-  console.log(`  VERIFY internal  ${verifyInternal.toString().padStart(9)}  ${pct(verifyInternal)}`);
-  console.log(`  OVERHEAD (ours)  ${overhead.toString().padStart(9)}  ${pct(overhead)}`);
+  console.log(
+    `  intrinsic        ${INTRINSIC.toString().padStart(9)}  ${pct(INTRINSIC)}`,
+  );
+  console.log(
+    `  calldata         ${cdFull.toString().padStart(9)}  ${pct(cdFull)}`,
+  );
+  console.log(
+    `  VERIFY internal  ${verifyInternal.toString().padStart(9)}  ${pct(verifyInternal)}`,
+  );
+  console.log(
+    `  OVERHEAD (ours)  ${overhead.toString().padStart(9)}  ${pct(overhead)}`,
+  );
 }
 
 run("Verifier profile: verify vs overhead", function () {
@@ -74,30 +84,82 @@ run("Verifier profile: verify vs overhead", function () {
 
     // --- deposit (1 insert + ERC20 pull) ---
     {
-      const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
+      const { darkPool, token, alice } = await loadFixture(
+        deployDarkPoolFixture,
+      );
       const assetFr = addressToFr(await token.getAddress());
       const spendScalar = await userSpendScalar(alice.address);
       const eph = evenYEphemeral(101n);
       const built = await mintSelfNote(eph, 100n, spendScalar, assetFr);
-      const proof = await proveDeposit({ compliancePk: COMPLIANCE_PK, note: built.note, eph });
-      const verifyEst = await verifier.verify.estimateGas(proof.proof, proof.publicInputs);
-      const cdV = calldataGas((await verifier.verify.populateTransaction(proof.proof, proof.publicInputs)).data!);
+      const proof = await proveDeposit({
+        compliancePk: COMPLIANCE_PK,
+        note: built.note,
+        eph,
+      });
+      const proofDump = process.env["PROOF_DUMP"];
+      if (proofDump) {
+        writeFileSync(
+          proofDump,
+          JSON.stringify({
+            proof: proof.proof,
+            publicInputs: proof.publicInputs,
+          }),
+        );
+      }
+      const verifyEst = await verifier.verify.estimateGas(
+        proof.proof,
+        proof.publicInputs,
+      );
+      const cdV = calldataGas(
+        (
+          await verifier.verify.populateTransaction(
+            proof.proof,
+            proof.publicInputs,
+          )
+        ).data!,
+      );
       await token.connect(alice).approve(await darkPool.getAddress(), 100n);
-      const pop = await darkPool.connect(alice).deposit.populateTransaction(proof.proof, proof.publicInputs);
-      const rc = await (await darkPool.connect(alice).deposit(proof.proof, proof.publicInputs)).wait();
-      report("deposit", rc!.gasUsed, verifyEst, cdV, calldataGas(pop.data!), (proof.proof.length - 2) / 2, proof.publicInputs.length);
+      const pop = await darkPool
+        .connect(alice)
+        .deposit.populateTransaction(proof.proof, proof.publicInputs);
+      const rc = await (
+        await darkPool.connect(alice).deposit(proof.proof, proof.publicInputs)
+      ).wait();
+      report(
+        "deposit",
+        rc!.gasUsed,
+        verifyEst,
+        cdV,
+        calldataGas(pop.data!),
+        (proof.proof.length - 2) / 2,
+        proof.publicInputs.length,
+      );
     }
 
     // --- split (2 inserts, no ERC20) ---
     {
-      const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
+      const { darkPool, token, alice } = await loadFixture(
+        deployDarkPoolFixture,
+      );
       const assetFr = addressToFr(await token.getAddress());
       const dep = await makeDeposit(darkPool, token, alice, 100n);
       const tree = await newSeededTree();
       await tree.insert(dep.commitment);
       const outParents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
-      const out1 = await mintSelfNote(evenYEphemeral(111n), 40n, dep.spendScalar, assetFr, outParents);
-      const out2 = await mintSelfNote(evenYEphemeral(222n), 60n, dep.spendScalar, assetFr, outParents);
+      const out1 = await mintSelfNote(
+        evenYEphemeral(111n),
+        40n,
+        dep.spendScalar,
+        assetFr,
+        outParents,
+      );
+      const out2 = await mintSelfNote(
+        evenYEphemeral(222n),
+        60n,
+        dep.spendScalar,
+        assetFr,
+        outParents,
+      );
       const proof = await proveSplit({
         compliancePk: COMPLIANCE_PK,
         noteIn: noteToInput(dep.built.note),
@@ -110,10 +172,18 @@ run("Verifier profile: verify vs overhead", function () {
         eph2: out2.eph,
       });
       // split verifier differs; reuse deposit verifier only for calldata shape (verify gas is close across circuits)
-      const pop = await darkPool.connect(alice).split.populateTransaction(proof.proof, proof.publicInputs);
-      const rc = await (await darkPool.connect(alice).split(proof.proof, proof.publicInputs)).wait();
-      console.log(`\n=== split full=${rc!.gasUsed} proof=${(proof.proof.length - 2) / 2}B pub=${proof.publicInputs.length} calldata=${calldataGas(pop.data!)} ===`);
-      console.log("  (split has 2 inserts vs deposit's 1: full(split) - full(deposit) ~= 1 extra insert + 1 extra mint)");
+      const pop = await darkPool
+        .connect(alice)
+        .split.populateTransaction(proof.proof, proof.publicInputs);
+      const rc = await (
+        await darkPool.connect(alice).split(proof.proof, proof.publicInputs)
+      ).wait();
+      console.log(
+        `\n=== split full=${rc!.gasUsed} proof=${(proof.proof.length - 2) / 2}B pub=${proof.publicInputs.length} calldata=${calldataGas(pop.data!)} ===`,
+      );
+      console.log(
+        "  (split has 2 inserts vs deposit's 1: full(split) - full(deposit) ~= 1 extra insert + 1 extra mint)",
+      );
     }
   });
 });

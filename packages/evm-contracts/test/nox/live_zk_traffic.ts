@@ -25,6 +25,7 @@ import {
   KeyRepository,
   InMemoryEphemeralCounterStore,
   computeOwner,
+  LeanIMT,
 } from "@hisoka/wallets";
 import { proveDeposit, proveSplit } from "@hisoka/prover";
 
@@ -48,7 +49,7 @@ const DARKPOOL_ABI = [
   "function deposit(bytes proof, bytes32[] publicInputs)",
   "function split(bytes proof, bytes32[] publicInputs)",
   "function getCurrentRoot() view returns (bytes32)",
-  "function getMerklePath(uint256 leafIndex) view returns (bytes32[32])",
+  "event LeafInserted(uint256 indexed leafIndex, bytes32 leaf, bytes32 newRoot)",
   "event NewNote(uint256 indexed leafIndex, bytes32 indexed commitment, uint256 ephemeralPK_x, uint256 ephemeralPK_y, bytes32[7] packedCiphertext)",
 ];
 
@@ -171,7 +172,10 @@ async function main() {
 
   const sig = await signer.signMessage("hisoka.darkpool.account.v1");
   const account = await DarkAccount.fromSignature(sig);
-  const keyRepo = new KeyRepository(account, new InMemoryEphemeralCounterStore());
+  const keyRepo = new KeyRepository(
+    account,
+    new InMemoryEphemeralCounterStore(),
+  );
   const darkPool = new ethers.Contract(DARKPOOL, DARKPOOL_ABI, provider);
 
   // Spend material for self-owned notes: verify_spend asserts owner == Poseidon2(nk*G).
@@ -275,7 +279,18 @@ async function main() {
   const merkleRoot = await darkPool.getCurrentRoot();
   log(`Merkle root: ${merkleRoot.toString().slice(0, 18)}...`);
 
-  const actionPath = await darkPool.getMerklePath(actionNote.leafIndex);
+  // Frontier tree keeps only the O(depth) frontier on-chain; rebuild the sibling path locally from the
+  // LeafInserted event log (the events-only light-client path that replaces the removed getMerklePath).
+  const leafLogs = (await darkPool.queryFilter(
+    darkPool.filters.LeafInserted(),
+  )) as ethers.EventLog[];
+  const localTree = new LeanIMT(32);
+  for (const ev of [...leafLogs].sort(
+    (a, b) => Number(a.args[0]) - Number(b.args[0]),
+  )) {
+    await localTree.insert(toFr(BigInt(ev.args[1] as string)));
+  }
+  const actionPath = localTree.getMerklePath(actionNote.leafIndex);
   log(`Action note path: leaf=${actionNote.leafIndex}`);
 
   const actionSecret = await deriveSharedSecret(
@@ -313,7 +328,7 @@ async function main() {
     noteIn: actionNote.note,
     secretIn: actionSecret,
     indexIn: actionNote.leafIndex,
-    pathIn: actionPath.map((p: string) => toFr(BigInt(p))),
+    pathIn: actionPath,
     preimageIn: toFr(0),
     nk,
     noteOut1,

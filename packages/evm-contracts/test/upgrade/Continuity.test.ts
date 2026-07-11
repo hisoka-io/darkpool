@@ -90,7 +90,6 @@ describe("Anonymity-set continuity across upgrade (CI-6, anti-Nomad)", function 
     // Pre-upgrade snapshot of the anonymity-set observables.
     const rootBefore = await darkPool.getCurrentRoot();
     const nextIndexBefore = await darkPool.getNextLeafIndex();
-    const pathBefore = await darkPool.getMerklePath(0);
     expect(await darkPool.isNullifierSpent(realNullifier)).to.equal(true);
     expect(await darkPool.isKnownRoot(rootBefore)).to.equal(true);
     // genesis + depA + depB + wA change = 4.
@@ -135,7 +134,9 @@ describe("Anonymity-set continuity across upgrade (CI-6, anti-Nomad)", function 
     expect(await upgraded.getCurrentRoot()).to.equal(rootBefore);
     expect(await upgraded.getNextLeafIndex()).to.equal(nextIndexBefore);
     expect(await upgraded.isNullifierSpent(realNullifier)).to.equal(true);
-    expect(await upgraded.getMerklePath(0)).to.deep.equal(pathBefore);
+    // Tree continuity is proven by the preserved root + the raw-slot guard above (getMerklePath was
+    // removed with the frontier tree; full sibling paths are rebuilt off-chain from LeafInserted events).
+    expect(await treeSlot(3n)).to.equal(BigInt(rootBefore)); // latestRoot survives the upgrade
 
     // Anti-Nomad zero-sentinel guard: an empty root and an unseen nullifier are never trusted.
     expect(await upgraded.isKnownRoot(ZeroHash)).to.equal(false);
