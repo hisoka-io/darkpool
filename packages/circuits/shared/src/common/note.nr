@@ -130,3 +130,9 @@ fn kat_max_u32_boundary() {
     assert(unpacked[0].leaf_index == 0xffffffff);
     assert(unpacked[1].leaf_index == 0xffffffff);
 }
+
+// A packed value with any bit above 2^64 (here byte 8 set) is not two u32 leaf indices and must be rejected.
+#[test(should_fail_with = "packed parents exceeds 2^64")]
+fn audit_unpack_parents_overflow() {
+    let _ = unpack_parents(0x10000000000000000);
+}
