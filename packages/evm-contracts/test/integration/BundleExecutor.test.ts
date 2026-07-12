@@ -343,4 +343,41 @@ describe("Integration: BundleExecutor", function () {
       darkPool.connect(alice).withdraw(proof.proof, proof.publicInputs),
     ).to.be.revertedWithCustomError(darkPool, "OnlyRecipientMayPull");
   });
+
+  it("reentrancy: a bound call that re-enters execute is blocked by nonReentrant", async function () {
+    const ctx = await loadFixture(deployExecutorFixture);
+    const { executor } = ctx;
+    const attacker = await (
+      await ethers.getContractFactory("ReentrantBundleAttacker")
+    ).deploy(await executor.getAddress());
+
+    const deadline = BigInt((await time.latest()) + 3600);
+    const boundCalls = [
+      {
+        target: await attacker.getAddress(),
+        data: attacker.interface.encodeFunctionData("attack"),
+        value: 0n,
+        requireSuccess: true,
+        approveToken: ZERO,
+        approveAmount: 0n,
+      },
+    ];
+    const assetsToClear: string[] = [];
+    const intentHash = toFr(
+      await executor.intentHashOf(boundCalls, deadline, assetsToClear),
+    );
+
+    const { proof } = await proveWithdrawToExecutor(ctx, 100n, 40n, intentHash);
+
+    // The bound call re-enters execute; nonReentrant reverts at entry and (requireSuccess) propagates it.
+    await expect(
+      executor.execute(
+        proof.proof,
+        proof.publicInputs,
+        boundCalls,
+        deadline,
+        assetsToClear,
+      ),
+    ).to.be.revertedWithCustomError(executor, "ReentrancyGuardReentrantCall");
+  });
 });
