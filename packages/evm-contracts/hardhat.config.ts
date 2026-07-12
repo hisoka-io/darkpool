@@ -88,6 +88,20 @@ task("test:fork", "Runs adaptor tests (with mainnet fork)").setAction(
   },
 );
 
+task(
+  "test:slow",
+  "Runs proof-heavy tests excluded from the parallel fast suite (RootEviction root-history window)",
+).setAction(async (args, hre) => {
+  const setup = "test/setup/fail-on-unhandled-rejection.ts";
+  let testFiles: string[] = fs.existsSync(setup) ? [setup] : [];
+  for (const d of ["test/adversarial"])
+    testFiles = testFiles.concat(
+      getTestFiles(d).filter((f) => f.includes("RootEviction")),
+    );
+  console.log(`Running ${testFiles.length} slow tests...`);
+  await hre.run("test", { testFiles });
+});
+
 const config: HardhatUserConfig = {
   solidity: {
     compilers: [

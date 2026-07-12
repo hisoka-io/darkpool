@@ -135,6 +135,29 @@ fn audit_frost_reject_zero_z() {
     verify_frost_spend(kat_gpk(), kat_r(), 0, KAT_M);
 }
 
+// Pins the 248-bit challenge truncation, one half of the noir-edwards #49/#51 soundness fix: the challenge is
+// rebuilt from the low 31 bytes before the ScalarField<63> reduction. Widening the loop (e.g. 0..32) would set
+// a high byte here and fail. The OTHER half (that <63>, not <64>, binds the wNAF decomposition against a forged
+// e_scalar) is a proving-layer under-constraint: honest witness generation computes e_scalar identically under
+// both widths, so nargo cannot reach it; a full forgery regression needs a proving-layer witness-injection
+// harness (bb.js), tracked separately. The challenge/message binding itself is covered by the multisig
+// mutation tests and RealProofE2E per-public-input mutation.
+#[test]
+fn frost_challenge_is_truncated_to_248_bits() {
+    let g = kat_gpk();
+    let r = kat_r();
+    let e_full = Poseidon2::hash([SCHNORR_DOMAIN, r.x, r.y, g.x, g.y, KAT_M], 6);
+    let e_bytes: [u8; 32] = e_full.to_le_bytes();
+    let mut e: Field = 0;
+    let mut pow: Field = 1;
+    for i in 0..31 {
+        e += (e_bytes[i] as Field) * pow;
+        pow *= 256;
+    }
+    let e_le: [u8; 32] = e.to_le_bytes();
+    assert(e_le[31] == 0, "FROST challenge not truncated to 248 bits");
+}
+
 // TS<->Noir parity lock on the FROST message layout (wallets gen-m-kat).
 #[test]
 fn kat_msg_parity() {

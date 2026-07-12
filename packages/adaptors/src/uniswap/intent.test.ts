@@ -61,5 +61,23 @@ describe("Uniswap Adaptor Logic", () => {
 
       expect(hash1.toString()).toBe(hash2.toString());
     });
+
+    it("ExactInputSingle matches the committed Solidity golden (TS<->Sol parity)", async () => {
+      // The same GOLDEN is asserted against Solidity _calculateIntentHash in evm-contracts
+      // test/behaviors/UniswapIntentParity.test.ts; a drift here strands every swap-withdraw.
+      const params: UniswapSwapParams = {
+        type: SwapType.ExactInputSingle,
+        assetIn: "0x1111111111111111111111111111111111111111",
+        assetOut: "0x2222222222222222222222222222222222222222",
+        fee: 3000,
+        amountOutMin: 1000n,
+        recipient: { ownerX: 111n, ownerY: 222n },
+        salt: 42n,
+      };
+      const h = await hashUniswapIntent(params);
+      expect("0x" + h.toBigInt().toString(16)).toBe(
+        "0x2a32d4d602c0f860a19d63fc6a69aa0ec737be4b8d99a2ff036ff2f865c2fbbf",
+      );
+    });
   });
 });

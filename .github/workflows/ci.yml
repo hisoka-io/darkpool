@@ -91,6 +91,13 @@ jobs:
         run: pnpm turbo run build
       - name: Run Solidity tests
         run: pnpm --filter evm-contracts run test:fast
+      # Proof-heavy tests excluded from the parallel fast suite (RootEviction root-history window).
+      - name: Run slow Solidity tests
+        run: pnpm --filter evm-contracts run test:slow
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Run invariant tests (Foundry)
+        run: pnpm --filter evm-contracts run test:invariant
       # Upgrade-safety gate: validates the 3 UUPS impls (storage layout via DarkPoolV1 reference,
       # library-link pin, banned-flag and annotation scans). Fails the job on any drift.
       - name: Validate upgrade safety

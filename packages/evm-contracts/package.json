@@ -11,6 +11,8 @@
     "test:full": "pnpm run test:fast && pnpm run test:fork",
     "test:fast": "./test-parallel.sh",
     "test:fork": "./test-fork.sh",
+    "test:slow": "hardhat test:slow",
+    "test:invariant": "forge test --match-path 'test/invariant/**'",
     "validate:upgrades": "hardhat run scripts/validate-upgrade-safety.ts",
     "storage:snapshot": "hardhat run scripts/snapshot-storage-layout.ts",
     "storage:check": "hardhat run scripts/snapshot-storage-layout.ts && git diff --exit-code -- .storage-layout"

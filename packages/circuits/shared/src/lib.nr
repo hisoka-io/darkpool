@@ -65,6 +65,18 @@ pub fn test_lean_imt_inclusion_proof() {
     assert(root == 0x05d7e5aaddb74c086c24617065e8c97dea94b86fdae0eab7b498249e0dfee2a8);
 }
 
+// Boundary of assert_subgroup_scalar: SUBORDER-1 is the largest in-range scalar (accept); SUBORDER+1 is out
+// of range (reject). Pins the `lt` comparison against an off-by-one at the subgroup boundary.
+#[test]
+fn test_subgroup_scalar_accepts_max() {
+    assert_subgroup_scalar(SUBORDER - 1);
+}
+
+#[test(should_fail_with = "scalar not in BabyJubJub prime-order subgroup")]
+fn test_subgroup_scalar_rejects_over() {
+    assert_subgroup_scalar(SUBORDER + 1);
+}
+
 // Freeze pin: the LeanIMT depth drives every spend circuit's witness layout and every historical root; a change
 // unspends every existing note. This KAT fails if the frozen depth ever moves off 32 (parity with the on-chain
 // MERKLE_TREE_DEPTH pinned in DarkPoolUpgrade.slots.test.ts and the TS LeanIMT default depth 32).

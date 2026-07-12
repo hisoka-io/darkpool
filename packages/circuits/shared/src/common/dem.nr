@@ -57,3 +57,20 @@ fn dem_kat_encrypt_decrypt() {
         assert(recovered[k] == plaintext[k], "DEM roundtrip mismatch");
     }
 }
+
+// A wrong CEK must not recover the plaintext: the subtracted keystream differs at every position.
+#[test]
+fn audit_dem_wrong_cek_garbles() {
+    let ct: [Field; DEM_FIELDS] = [
+        0x2731638e2a7a9820452856622ce83bb4ed875a995d5f28e09a9e2813d1472f67,
+        0x17537f0cfa734af08271f104fe3a6b59c655a70ef150119205af625ab451b413,
+        0x214d78fb170e5a1de97ded5727a834f29b94f4ed0d3ca29b36aa98b597051302,
+        0x109dbab21c201fdac2cd7e0f59efdc423f18de696a918357c9fedea65869ff8e,
+        0x2065a8ce6a9cdce89ca92cad5e9bc7a80f2413b893219f03e27365ebead75032,
+        0x0124088cefa5b815b5213279cd8c7a7eef948183c37291e8740c9deccc202418,
+        0x2971fe65daaac4e80629e73dfbd54bf6a38f9748d9728257ffefdc8b97686211,
+    ];
+    let cek: Field = 0x1fbbfa289c50b7ded032c85e5faa8b3790afc2fd059fd3d299294ff879a08bda;
+    let garbled = dem_decrypt(cek + 1, ct);
+    assert(garbled[0] != 1, "a wrong CEK must not recover the plaintext");
+}

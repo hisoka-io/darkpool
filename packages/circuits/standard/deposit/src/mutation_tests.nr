@@ -111,3 +111,13 @@ fn m_eph_ge_suborder() {
         SUBORDER,
     );
 }
+
+// eph=6 derives an odd-y eph_pub. psi is bound to eph=6's CEK (computed via the wallets SDK) so mint_common's
+// psi check passes and the deposit even-y discovery-tag guard (mint.nr) is the assert that fires. Without this
+// an odd-y deposit tag would leave the note invisible to the wallet's even-y scan.
+#[test(should_fail_with = "deposit discovery tag must be even-y")]
+fn m_odd_y_deposit_eph() {
+    let mut note = note0();
+    note.psi = 0x28c44d31081da1455b5f66d1dc6114bcced5e4e571e81b77a3dc9405b09145bf;
+    run(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note, 6);
+}
