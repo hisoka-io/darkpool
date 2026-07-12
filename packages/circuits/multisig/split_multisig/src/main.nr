@@ -1,3 +1,5 @@
+mod mutation_tests;
+
 use ::ecdh::Point;
 use ::shared::{conservation, mint, open_multisig_note, TREE_DEPTH};
 use ::shared::frost::{msg_split, verify_frost_spend};
