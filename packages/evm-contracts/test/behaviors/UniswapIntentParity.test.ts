@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { sharedPoseidon2 } from "../helpers/merkleTree";
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 
 // TS<->Solidity parity golden for the Uniswap intent hash. The adaptor recomputes this on-chain and binds it to
 // the proof's intentHash, so a silent Poseidon2 drift between hashUniswapIntent (TS) and _calculateIntentHash
@@ -9,13 +9,24 @@ import { sharedPoseidon2 } from "../helpers/merkleTree";
 const GOLDEN =
   "0x2a32d4d602c0f860a19d63fc6a69aa0ec737be4b8d99a2ff036ff2f865c2fbbf";
 
+// Deploy inside a fixture so the linked Poseidon2 library is captured in the loadFixture snapshot and is not
+// wiped by another test's snapshot restore during the parallel suite.
+async function deployHarness() {
+  const poseidon2 = await (
+    await ethers.getContractFactory("Poseidon2")
+  ).deploy();
+  const dummy = "0x0000000000000000000000000000000000000001";
+  const harness = await (
+    await ethers.getContractFactory("UniswapIntentHarness", {
+      libraries: { Poseidon2: await poseidon2.getAddress() },
+    })
+  ).deploy(dummy, dummy);
+  return { harness };
+}
+
 describe("UniswapAdaptor intent-hash parity (Solidity golden)", function () {
   it("ExactInputSingle _calculateIntentHash matches the committed golden", async function () {
-    const Harness = await ethers.getContractFactory("UniswapIntentHarness", {
-      libraries: { Poseidon2: await sharedPoseidon2() },
-    });
-    const dummy = "0x0000000000000000000000000000000000000001";
-    const harness = await Harness.deploy(dummy, dummy);
+    const { harness } = await loadFixture(deployHarness);
 
     const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
       [

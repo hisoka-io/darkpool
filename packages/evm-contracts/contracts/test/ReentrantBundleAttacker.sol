@@ -17,9 +17,8 @@ contract ReentrantBundleAttacker {
     function attack() external {
         bytes memory proof = "";
         bytes32[] memory publicInputs = new bytes32[](18);
-        BundleExecutor.BundleCall[] memory calls = new BundleExecutor.BundleCall[](
-            0
-        );
+        BundleExecutor.BundleCall[]
+            memory calls = new BundleExecutor.BundleCall[](0);
         address[] memory assetsToClear = new address[](0);
         executor.execute(
             proof,

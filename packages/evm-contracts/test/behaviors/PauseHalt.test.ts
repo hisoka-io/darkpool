@@ -7,7 +7,9 @@ import { deployDarkPoolFixture } from "../helpers/fixtures";
 // silently defeat the emergency halt on that path and no other test would notice.
 describe("DarkPool: pause halts every money entrypoint", function () {
   it("reverts EnforcedPause on all spend/claim paths while paused", async function () {
-    const { darkPool, deployer, alice } = await loadFixture(deployDarkPoolFixture);
+    const { darkPool, deployer, alice } = await loadFixture(
+      deployDarkPoolFixture,
+    );
     await darkPool.connect(deployer).pause();
 
     const p = "0x";
@@ -25,7 +27,10 @@ describe("DarkPool: pause halts every money entrypoint", function () {
       () => darkPool.connect(alice).joinMultisig(p, pi),
     ];
     for (const call of proofCalls) {
-      await expect(call()).to.be.revertedWithCustomError(darkPool, "EnforcedPause");
+      await expect(call()).to.be.revertedWithCustomError(
+        darkPool,
+        "EnforcedPause",
+      );
     }
     await expect(
       darkPool

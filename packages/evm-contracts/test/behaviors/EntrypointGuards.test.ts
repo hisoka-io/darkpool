@@ -19,6 +19,9 @@ describe("DarkPool: entrypoint input + access guards", function () {
     const { darkPool, alice } = await loadFixture(deployDarkPoolFixture);
     await expect(
       darkPool.connect(alice).setVerifier(0, alice.address),
-    ).to.be.revertedWithCustomError(darkPool, "AccessControlUnauthorizedAccount");
+    ).to.be.revertedWithCustomError(
+      darkPool,
+      "AccessControlUnauthorizedAccount",
+    );
   });
 });
