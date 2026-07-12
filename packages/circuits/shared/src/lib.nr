@@ -3,6 +3,7 @@ mod multisig;
 mod spend;
 mod harness;
 pub mod mint;
+pub mod mutation;
 
 pub use common::{conservation, note, test_fixtures};
 use common::{dem, domains, even_y, kem, note_nullifier, owner};

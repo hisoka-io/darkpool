@@ -52,6 +52,39 @@ function mutate(publicInputs: string[], idx: number): string[] {
   return copy;
 }
 
+/** Corrupt a single byte of the proof (a field-element byte) so the deployed verifier must reject it.
+ *  getBytesCopy (not getBytes) is required: getBytes aliases a Uint8Array input, so an in-place flip would
+ *  corrupt the caller's pristine proof and make its later valid submission fail. */
+function corruptProof(proof: Uint8Array): string {
+  const bytes = ethers.getBytesCopy(proof);
+  bytes[32] ^= 0x01;
+  return ethers.hexlify(bytes);
+}
+
+/** Exhaustive deployed-verifier binding check: from ONE real proof, assert the on-chain verifier rejects (a) a
+ *  one-byte-corrupted proof and (b) a mutation of EVERY public input in turn -- i.e. every public input is
+ *  bound to the proof and no field is a free rider the verifier ignores. `.reverted` matches any revert
+ *  (Honk internal revert, InvalidRoot / InvalidNullifier prechecks) so no per-index special-casing is needed.
+ *  Only EVM calls (no new proofs), so exhaustiveness is near-free over the single proof each op already builds. */
+async function assertEveryInputAndProofBound(
+  submit: (
+    proof: Uint8Array | string,
+    publicInputs: string[],
+  ) => Promise<unknown>,
+  proof: { proof: Uint8Array; publicInputs: string[] },
+): Promise<void> {
+  await expect(
+    submit(corruptProof(proof.proof), proof.publicInputs),
+    "a one-byte-corrupted proof must be rejected",
+  ).to.be.reverted;
+  for (let i = 0; i < proof.publicInputs.length; i++) {
+    await expect(
+      submit(proof.proof, mutate(proof.publicInputs, i)),
+      `public input [${i}] must be bound to the proof`,
+    ).to.be.reverted;
+  }
+}
+
 /** A MULTISIG note (note_type == 1) owned by a FROST account (owner == Poseidon2(gpk)), ECDH-encrypted to
  *  the compliance key. Returns both the leaf commitment and the prover NoteInput view. */
 async function buildMultisigNote(
@@ -159,12 +192,11 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     });
 
     await token.connect(alice).approve(await darkPool.getAddress(), 100n);
-    // Negative: mutate value [5] -> the deployed verifier rejects.
-    await expect(
-      darkPool
-        .connect(alice)
-        .deposit(proof.proof, mutate(proof.publicInputs, 5)),
-    ).to.be.reverted;
+    // Negative (exhaustive): the deployed verifier rejects every single-input mutation + a corrupted proof.
+    await assertEveryInputAndProofBound(
+      (p, pi) => darkPool.connect(alice).deposit(p, pi),
+      proof,
+    );
 
     const dpBefore = await token.balanceOf(await darkPool.getAddress());
     await darkPool.connect(alice).deposit(proof.proof, proof.publicInputs);
@@ -207,12 +239,11 @@ describe("D1 real-proof e2e (STANDARD)", function () {
       changeEph: change.eph,
     });
 
-    // Negative: mutate recipient [1] -> verifier rejects (funds cannot be redirected).
-    await expect(
-      darkPool
-        .connect(alice)
-        .withdraw(proof.proof, mutate(proof.publicInputs, 1)),
-    ).to.be.reverted;
+    // Negative (exhaustive): every public input + the proof are bound -> the verifier rejects any mutation.
+    await assertEveryInputAndProofBound(
+      (p, pi) => darkPool.connect(alice).withdraw(p, pi),
+      proof,
+    );
 
     const bobBefore = await token.balanceOf(bob.address);
     await darkPool.connect(alice).withdraw(proof.proof, proof.publicInputs);
@@ -263,12 +294,11 @@ describe("D1 real-proof e2e (STANDARD)", function () {
       changeEph: change.eph,
     });
 
-    // Negative: mutate memo leaf [4] -> verifier rejects.
-    await expect(
-      darkPool
-        .connect(alice)
-        .privateTransfer(proof.proof, mutate(proof.publicInputs, 4)),
-    ).to.be.reverted;
+    // Negative (exhaustive): every public input + the proof are bound -> the verifier rejects any mutation.
+    await assertEveryInputAndProofBound(
+      (p, pi) => darkPool.connect(alice).privateTransfer(p, pi),
+      proof,
+    );
 
     await darkPool
       .connect(alice)
@@ -316,10 +346,11 @@ describe("D1 real-proof e2e (STANDARD)", function () {
       eph2: out2.eph,
     });
 
-    // Negative: mutate out1 leaf [4] -> verifier rejects.
-    await expect(
-      darkPool.connect(alice).split(proof.proof, mutate(proof.publicInputs, 4)),
-    ).to.be.reverted;
+    // Negative (exhaustive): every public input + the proof are bound -> the verifier rejects any mutation.
+    await assertEveryInputAndProofBound(
+      (p, pi) => darkPool.connect(alice).split(p, pi),
+      proof,
+    );
 
     await darkPool.connect(alice).split(proof.proof, proof.publicInputs);
 
@@ -361,10 +392,11 @@ describe("D1 real-proof e2e (STANDARD)", function () {
       ephOut: out.eph,
     });
 
-    // Negative: mutate out leaf [5] -> verifier rejects.
-    await expect(
-      darkPool.connect(alice).join(proof.proof, mutate(proof.publicInputs, 5)),
-    ).to.be.reverted;
+    // Negative (exhaustive): every public input + the proof are bound -> the verifier rejects any mutation.
+    await assertEveryInputAndProofBound(
+      (p, pi) => darkPool.connect(alice).join(p, pi),
+      proof,
+    );
 
     await darkPool.connect(alice).join(proof.proof, proof.publicInputs);
 
@@ -433,12 +465,11 @@ describe("D1 real-proof e2e (STANDARD)", function () {
       eph: outNote.eph,
     });
 
-    // Negative: mutate out leaf [4] -> verifier rejects.
-    await expect(
-      darkPool
-        .connect(alice)
-        .publicClaim(proof.proof, mutate(proof.publicInputs, 4)),
-    ).to.be.reverted;
+    // Negative (exhaustive): every public input + the proof are bound -> the verifier rejects any mutation.
+    await assertEveryInputAndProofBound(
+      (p, pi) => darkPool.connect(alice).publicClaim(p, pi),
+      proof,
+    );
 
     await darkPool.connect(alice).publicClaim(proof.proof, proof.publicInputs);
 
@@ -514,13 +545,11 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
         .connect(alice)
         .withdrawMultisig(proof.proof, mutate(proof.publicInputs, 6)),
     ).to.be.revertedWithCustomError(darkPool, "InvalidRoot");
-    // Recipient [1] is bound only by the proof; the Honk verifier reverts INTERNALLY (not `return false`) on
-    // a bad input, so InvalidProof is never reached -- assert a generic revert (funds cannot be redirected).
-    await expect(
-      darkPool
-        .connect(alice)
-        .withdrawMultisig(proof.proof, mutate(proof.publicInputs, 1)),
-    ).to.be.reverted;
+    // Negative (exhaustive): every public input + the proof are bound -> the verifier/contract rejects any mutation.
+    await assertEveryInputAndProofBound(
+      (p, pi) => darkPool.connect(alice).withdrawMultisig(p, pi),
+      proof,
+    );
 
     const bobBefore = await token.balanceOf(bob.address);
     await darkPool
@@ -669,13 +698,11 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
         .connect(alice)
         .transferMultisig(proof.proof, mutate(proof.publicInputs, 3)),
     ).to.be.revertedWithCustomError(darkPool, "InvalidRoot");
-    // Memo leaf [4] is bound only by the proof: the deployed Honk verifier reverts INTERNALLY on a bad public
-    // input, so the contract's InvalidProof wrapper is never reached -- assert a generic revert.
-    await expect(
-      darkPool
-        .connect(alice)
-        .transferMultisig(proof.proof, mutate(proof.publicInputs, 4)),
-    ).to.be.reverted;
+    // Negative (exhaustive): every public input + the proof are bound -> the verifier/contract rejects any mutation.
+    await assertEveryInputAndProofBound(
+      (p, pi) => darkPool.connect(alice).transferMultisig(p, pi),
+      proof,
+    );
 
     await darkPool
       .connect(alice)
@@ -754,13 +781,11 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
         .connect(alice)
         .splitMultisig(proof.proof, mutate(proof.publicInputs, 3)),
     ).to.be.revertedWithCustomError(darkPool, "InvalidRoot");
-    // out1 leaf [4] is bound only by the proof: the deployed Honk verifier reverts INTERNALLY on a bad public
-    // input, so the contract's InvalidProof wrapper is never reached -- assert a generic revert.
-    await expect(
-      darkPool
-        .connect(alice)
-        .splitMultisig(proof.proof, mutate(proof.publicInputs, 4)),
-    ).to.be.reverted;
+    // Negative (exhaustive): every public input + the proof are bound -> the verifier/contract rejects any mutation.
+    await assertEveryInputAndProofBound(
+      (p, pi) => darkPool.connect(alice).splitMultisig(p, pi),
+      proof,
+    );
 
     await darkPool
       .connect(alice)
@@ -845,13 +870,11 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
         .connect(alice)
         .joinMultisig(proof.proof, mutate(proof.publicInputs, 4)),
     ).to.be.revertedWithCustomError(darkPool, "InvalidRoot");
-    // out leaf [5] is bound only by the proof: the deployed Honk verifier reverts INTERNALLY on a bad public
-    // input, so the contract's InvalidProof wrapper is never reached -- assert a generic revert.
-    await expect(
-      darkPool
-        .connect(alice)
-        .joinMultisig(proof.proof, mutate(proof.publicInputs, 5)),
-    ).to.be.reverted;
+    // Negative (exhaustive): every public input + the proof are bound -> the verifier/contract rejects any mutation.
+    await assertEveryInputAndProofBound(
+      (p, pi) => darkPool.connect(alice).joinMultisig(p, pi),
+      proof,
+    );
 
     await darkPool.connect(alice).joinMultisig(proof.proof, proof.publicInputs);
 

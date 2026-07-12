@@ -1,3 +1,5 @@
+mod mutation_tests;
+
 use ::ecdh::{bjj::BJJ, ECDHTrait, Point};
 use ::poseidon::poseidon2::Poseidon2;
 use ::shared::{assert_subgroup_scalar, mint};

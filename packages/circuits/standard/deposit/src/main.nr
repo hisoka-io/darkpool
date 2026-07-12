@@ -1,3 +1,5 @@
+mod mutation_tests;
+
 use ::ecdh::Point;
 use ::shared::mint;
 use ::shared::note::Note;
