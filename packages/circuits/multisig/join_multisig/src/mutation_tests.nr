@@ -96,7 +96,7 @@ fn m_valid_accepts() {
     );
 }
 
-// --- compliance key: BJJ curve-op entry (assert_valid_compliance_pk) --------------------------------------
+// compliance key: BJJ curve-op entry (assert_valid_compliance_pk)
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();
@@ -138,7 +138,7 @@ fn m_compliance_non_subgroup() {
     );
 }
 
-// --- spend A: gpk_a (open_multisig_note gate: subgroup/identity, then owner pin) ---------------------------
+// spend A: gpk_a (open_multisig_note gate: subgroup/identity, then owner pin)
 #[test(should_fail_with = "gpk must not be the identity")]
 fn m_gpk_a_identity() {
     run(
@@ -236,7 +236,7 @@ fn m_gpk_a_wrong_valid() {
     );
 }
 
-// --- spend B: gpk_b (spend A stays valid so B's open_multisig_note is the one that rejects) ----------------
+// spend B: gpk_b (spend A stays valid so B's open_multisig_note is the one that rejects)
 #[test(should_fail_with = "gpk must not be the identity")]
 fn m_gpk_b_identity() {
     run(
@@ -333,7 +333,7 @@ fn m_gpk_b_wrong_valid() {
     );
 }
 
-// --- spend A: note_a membership ---------------------------------------------------------------------------
+// spend A: note_a membership
 #[test(should_fail_with = "spender does not own this multisig note")]
 fn m_note_a_owner() {
     let mut na = note_a_v();
@@ -417,7 +417,7 @@ fn m_note_a_noncanonical_index() {
     );
 }
 
-// --- spend B: note_b membership (spend A valid; B is opened second) ----------------------------------------
+// spend B: note_b membership (spend A valid; B is opened second)
 #[test(should_fail_with = "spender does not own this multisig note")]
 fn m_note_b_owner() {
     let mut nb = note_b_v();
@@ -501,7 +501,7 @@ fn m_note_b_noncanonical_index() {
     );
 }
 
-// --- join-structural guards -------------------------------------------------------------------------------
+// join-structural guards
 #[test(should_fail_with = "inputs must share a root")]
 fn m_inputs_share_root() {
     let na = note_a_v();
@@ -600,7 +600,7 @@ fn m_cross_account_gpk() {
     );
 }
 
-// --- asset binding ----------------------------------------------------------------------------------------
+// asset binding
 #[test(should_fail_with = "input asset mismatch")]
 fn m_input_asset_mismatch() {
     let mut na = note_a_v();
@@ -644,7 +644,7 @@ fn m_output_asset_mismatch() {
     );
 }
 
-// --- value conservation / overflow ------------------------------------------------------------------------
+// value conservation / overflow
 #[test(should_fail_with = "value not conserved")]
 fn m_value_not_conserved() {
     let mut out = out_v();
@@ -688,7 +688,7 @@ fn m_value_input_overflow() {
     );
 }
 
-// --- minted merged note (mint_self_note_multisig) ---------------------------------------------------------
+// minted merged note (mint_self_note_multisig)
 #[test(should_fail_with = "multisig change/self must be owned by the account gpk")]
 fn m_out_owner_off_gpk() {
     let mut out = out_v();
@@ -816,7 +816,7 @@ fn m_out_parents_forged() {
     );
 }
 
-// --- output ephemeral scalar ------------------------------------------------------------------------------
+// output ephemeral scalar
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_eph_zero() {
     run(
@@ -856,7 +856,7 @@ fn m_eph_ge_suborder() {
     );
 }
 
-// --- FROST: R (only R carries the on-curve + non-identity check; the equation catches the rest) ------------
+// FROST: R (only R carries the on-curve + non-identity check; the equation catches the rest)
 #[test(should_fail_with = "R must not be the identity")]
 fn m_frost_r_a_identity() {
     run(
@@ -1010,7 +1010,7 @@ fn m_frost_r_b_mutated() {
     );
 }
 
-// --- FROST: z (0 / >= suborder scalar guards, then the equation) ------------------------------------------
+// FROST: z (0 / >= suborder scalar guards, then the equation)
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_frost_z_a_zero() {
     run(
@@ -1127,7 +1127,7 @@ fn m_frost_z_b_mutated() {
     );
 }
 
-// --- message binding: a value with no pre-FROST pin flows into m via the nullifier --------------------------
+// message binding: a value with no pre-FROST pin flows into m via the nullifier
 // note.psi has no earlier value guard (only membership, which the derived paths satisfy); it feeds the
 // nullifier -> msg_join(m), so recomputing the challenge invalidates the KAT signature. This is the join
 // analog of a signed-only public input.

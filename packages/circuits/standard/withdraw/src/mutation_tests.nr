@@ -36,7 +36,7 @@ fn m_valid_accepts() {
     valid(cx, cy);
 }
 
-// --- spend scalar / ownership -----------------------------------------------------------------------------
+// spend scalar / ownership
 #[test(should_fail_with = "spender does not own this note")]
 fn m_spend_scalar_wrong() {
     let (cx, cy) = super::compliance();
@@ -60,7 +60,7 @@ fn m_old_owner_mutated() {
     run(WVAL, cx, cy, o, SCALAR, 0, change(), EPH);
 }
 
-// --- spent-note membership fields -------------------------------------------------------------------------
+// spent-note membership fields
 #[test(should_fail_with = "unexpected note type")]
 fn m_old_note_type() {
     let (cx, cy) = super::compliance();
@@ -88,7 +88,7 @@ fn m_noncanonical_leaf_index() {
     run(WVAL, cx, cy, old(), SCALAR, 7, change(), EPH);
 }
 
-// --- value conservation / u128 overflow -------------------------------------------------------------------
+// value conservation / u128 overflow
 #[test(should_fail_with = "value not conserved")]
 fn m_value_not_conserved() {
     let (cx, cy) = super::compliance();
@@ -102,7 +102,7 @@ fn m_value_output_overflow() {
     run(1, cx, cy, old(), SCALAR, 0, ch, EPH);
 }
 
-// --- minted change-note guards ----------------------------------------------------------------------------
+// minted change-note guards
 #[test(should_fail_with = "note owner must be non-zero")]
 fn m_change_owner_zero() {
     let (cx, cy) = super::compliance();
@@ -146,7 +146,7 @@ fn m_change_parents_forged() {
     run(WVAL, cx, cy, old(), SCALAR, 0, ch, EPH);
 }
 
-// --- compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup) ---------------
+// compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup)
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();
@@ -168,7 +168,7 @@ fn m_compliance_non_subgroup() {
     run(WVAL, p.x, p.y, old(), SCALAR, 0, change(), EPH);
 }
 
-// --- change ephemeral scalar (feeds the ECDH mul) ---------------------------------------------------------
+// change ephemeral scalar (feeds the ECDH mul)
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_change_eph_zero() {
     let (cx, cy) = super::compliance();

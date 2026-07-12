@@ -80,7 +80,7 @@ fn m_valid_accepts() {
     valid(super::CX, super::CY);
 }
 
-// --- compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup) ---------------
+// compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup)
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();
@@ -158,7 +158,7 @@ fn m_compliance_non_subgroup() {
     );
 }
 
-// --- input A: spend scalar / ownership / membership fields -------------------------------------------------
+// input A: spend scalar / ownership / membership fields
 #[test(should_fail_with = "spender does not own this note")]
 fn m_a_scalar_wrong() {
     let (pa, pb) = kat_paths();
@@ -314,7 +314,7 @@ fn m_a_noncanonical_index() {
     );
 }
 
-// --- input B: same guards on the second spend -------------------------------------------------------------
+// input B: same guards on the second spend
 #[test(should_fail_with = "spender does not own this note")]
 fn m_b_scalar_wrong() {
     let (pa, pb) = kat_paths();
@@ -468,7 +468,7 @@ fn m_b_noncanonical_index() {
     );
 }
 
-// --- two-input binding asserts (join-specific) ------------------------------------------------------------
+// two-input binding asserts (join-specific)
 #[test(should_fail_with = "inputs must share a root")]
 fn m_root_mismatch() {
     let (pa, _pb) = kat_paths();
@@ -532,7 +532,7 @@ fn m_unordered_inputs() {
     );
 }
 
-// --- asset binding across the join (a==b, a==out) ---------------------------------------------------------
+// asset binding across the join (a==b, a==out)
 #[test(should_fail_with = "input asset mismatch")]
 fn m_input_asset_mismatch() {
     // Both inputs legitimately in the tree but carrying different assets: recompute siblings so the roots agree,
@@ -580,7 +580,7 @@ fn m_output_asset_mismatch() {
     );
 }
 
-// --- value conservation / u128 overflow -------------------------------------------------------------------
+// value conservation / u128 overflow
 #[test(should_fail_with = "value not conserved")]
 fn m_value_not_conserved() {
     let (pa, pb) = kat_paths();
@@ -628,7 +628,7 @@ fn m_value_overflow() {
     );
 }
 
-// --- self output note (mint_self_note) --------------------------------------------------------------------
+// self output note (mint_self_note)
 #[test(should_fail_with = "note owner must be non-zero")]
 fn m_out_owner_zero() {
     let (pa, pb) = kat_paths();
@@ -750,7 +750,7 @@ fn m_out_parents() {
     );
 }
 
-// --- output ephemeral scalar (feeds the ECDH mul) ---------------------------------------------------------
+// output ephemeral scalar (feeds the ECDH mul)
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_eph_zero() {
     let (pa, pb) = kat_paths();

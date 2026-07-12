@@ -211,9 +211,10 @@ export class TestWallet {
       return proof;
     }
 
-    await this.darkPool
+    const tx = await this.darkPool
       .connect(this.signer)
       .withdraw(proof.proof, proof.publicInputs);
+    await tx.wait();
     return proof;
   }
 
@@ -263,9 +264,10 @@ export class TestWallet {
     };
 
     const proof = await proveTransfer(inputs);
-    await this.darkPool
+    const tx = await this.darkPool
       .connect(this.signer)
       .privateTransfer(proof.proof, proof.publicInputs);
+    await tx.wait();
 
     return {
       memoCommitment: memo.commitment,
@@ -313,9 +315,10 @@ export class TestWallet {
     };
 
     const proof = await proveSplit(inputs);
-    await this.darkPool
+    const tx = await this.darkPool
       .connect(this.signer)
       .split(proof.proof, proof.publicInputs);
+    await tx.wait();
 
     return { commitment1: out1.commitment, commitment2: out2.commitment };
   }
@@ -359,9 +362,10 @@ export class TestWallet {
     };
 
     const proof = await proveJoin(inputs);
-    await this.darkPool
+    const tx = await this.darkPool
       .connect(this.signer)
       .join(proof.proof, proof.publicInputs);
+    await tx.wait();
 
     return { commitment: out.commitment };
   }
@@ -399,9 +403,10 @@ export class TestWallet {
     };
 
     const proof = await provePublicClaim(inputs);
-    await this.darkPool
+    const tx = await this.darkPool
       .connect(this.signer)
       .publicClaim(proof.proof, proof.publicInputs);
+    await tx.wait();
 
     return { commitment: noteOut.commitment };
   }

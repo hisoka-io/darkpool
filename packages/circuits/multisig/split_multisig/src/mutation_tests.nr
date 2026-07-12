@@ -96,7 +96,7 @@ fn m_valid_accepts() {
     );
 }
 
-// --- FROST: gpk (also feeds the multisig owner pin + FROST verify) ----------------------------------------
+// FROST: gpk (also feeds the multisig owner pin + FROST verify)
 #[test(should_fail_with = "gpk must not be the identity")]
 fn m_gpk_identity() {
     v(
@@ -169,7 +169,7 @@ fn m_gpk_wrong_valid() {
     );
 }
 
-// --- FROST: R (on-curve + non-identity only; the equation binds the rest, checked last) -------------------
+// FROST: R (on-curve + non-identity only; the equation binds the rest, checked last)
 #[test(should_fail_with = "R must not be the identity")]
 fn m_frost_r_identity() {
     v(
@@ -227,7 +227,7 @@ fn m_frost_r_mutated() {
     );
 }
 
-// --- FROST: z (subgroup scalar, then the equation) --------------------------------------------------------
+// FROST: z (subgroup scalar, then the equation)
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_frost_z_zero() {
     v(gpk(), r(), 0, inp(), 0, o1(), EPH_1, o2(), EPH_2);
@@ -272,7 +272,7 @@ fn m_signed_out_value_shift() {
     );
 }
 
-// --- spent multisig note membership -----------------------------------------------------------------------
+// spent multisig note membership
 #[test(should_fail_with = "spender does not own this multisig note")]
 fn m_old_owner_mutated() {
     let mut n = inp();
@@ -353,7 +353,7 @@ fn m_noncanonical_leaf_index() {
     );
 }
 
-// --- value conservation / overflow ------------------------------------------------------------------------
+// value conservation / overflow
 #[test(should_fail_with = "value not conserved")]
 fn m_value_not_conserved() {
     let mut a1 = o1();
@@ -387,7 +387,7 @@ fn m_value_output_overflow() {
     );
 }
 
-// --- first minted self note (out1) ------------------------------------------------------------------------
+// first minted self note (out1)
 #[test(should_fail_with = "multisig change/self must be owned by the account gpk")]
 fn m_out1_owner_off_gpk() {
     let mut a1 = o1();
@@ -485,7 +485,7 @@ fn m_out1_parents_forged() {
     );
 }
 
-// --- second minted self note (out2); out1 mints fully with its golden self psi so control reaches out2 -----
+// second minted self note (out2); out1 mints fully with its golden self psi so control reaches out2
 #[test(should_fail_with = "multisig change/self must be owned by the account gpk")]
 fn m_out2_owner_off_gpk() {
     let mut a2 = o2();
@@ -583,7 +583,7 @@ fn m_out2_parents_forged() {
     );
 }
 
-// --- distinct ephemerals (a shared eph reuses the discovery tag across both outputs) -----------------------
+// distinct ephemerals (a shared eph reuses the discovery tag across both outputs)
 #[test(should_fail_with = "ephemerals must be distinct")]
 fn m_eph_equal() {
     v(
@@ -599,7 +599,7 @@ fn m_eph_equal() {
     );
 }
 
-// --- ephemeral scalars (each output's eph enters mint via assert_subgroup_scalar) -------------------------
+// ephemeral scalars (each output's eph enters mint via assert_subgroup_scalar)
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_eph_1_zero() {
     v(
@@ -657,7 +657,7 @@ fn m_eph_2_ge_suborder() {
     );
 }
 
-// --- compliance key: BJJ curve-op entry (first guard in main) ---------------------------------------------
+// compliance key: BJJ curve-op entry (first guard in main)
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();

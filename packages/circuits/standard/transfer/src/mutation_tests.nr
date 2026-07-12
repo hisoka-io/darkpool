@@ -63,7 +63,7 @@ fn m_valid_accepts() {
     v(rin(), old(), SCALAR, 0, memo(), MEPH, change(), CEPH);
 }
 
-// --- compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup) ---------------
+// compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup)
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();
@@ -129,7 +129,7 @@ fn m_compliance_non_subgroup() {
     );
 }
 
-// --- spend scalar / ownership -----------------------------------------------------------------------------
+// spend scalar / ownership
 #[test(should_fail_with = "spender does not own this note")]
 fn m_spend_scalar_wrong() {
     v(rin(), old(), 0x2a, 0, memo(), MEPH, change(), CEPH);
@@ -149,7 +149,7 @@ fn m_old_owner_mutated() {
     v(rin(), o, SCALAR, 0, memo(), MEPH, change(), CEPH);
 }
 
-// --- spent-note membership fields -------------------------------------------------------------------------
+// spent-note membership fields
 #[test(should_fail_with = "unexpected note type")]
 fn m_old_note_type() {
     let mut o = old();
@@ -174,7 +174,7 @@ fn m_noncanonical_leaf_index() {
     v(rin(), old(), SCALAR, 7, memo(), MEPH, change(), CEPH);
 }
 
-// --- value conservation / u128 overflow -------------------------------------------------------------------
+// value conservation / u128 overflow
 #[test(should_fail_with = "value not conserved")]
 fn m_value_not_conserved() {
     let mut o = old();
@@ -188,13 +188,13 @@ fn m_value_output_overflow() {
     v(rin(), old(), SCALAR, 0, memo(), MEPH, ch, CEPH);
 }
 
-// --- ephemerals must be distinct (reusing one eph reuses the CEK / two-time pad) ---------------------------
+// ephemerals must be distinct (reusing one eph reuses the CEK / two-time pad)
 #[test(should_fail_with = "ephemerals must be distinct")]
 fn m_ephemerals_equal() {
     v(rin(), old(), SCALAR, 0, memo(), MEPH, change(), MEPH);
 }
 
-// --- memo ephemeral scalar (feeds the incoming-memo ECDH mul) ---------------------------------------------
+// memo ephemeral scalar (feeds the incoming-memo ECDH mul)
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_memo_eph_zero() {
     v(rin(), old(), SCALAR, 0, memo(), 0, change(), CEPH);
@@ -204,7 +204,7 @@ fn m_memo_eph_ge_suborder() {
     v(rin(), old(), SCALAR, 0, memo(), SUBORDER, change(), CEPH);
 }
 
-// --- change ephemeral scalar (feeds the self-change ECDH mul) ----------------------------------------------
+// change ephemeral scalar (feeds the self-change ECDH mul)
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_change_eph_zero() {
     v(rin(), old(), SCALAR, 0, memo(), MEPH, change(), 0);
@@ -214,7 +214,7 @@ fn m_change_eph_ge_suborder() {
     v(rin(), old(), SCALAR, 0, memo(), MEPH, change(), SUBORDER);
 }
 
-// --- recipient in_pub: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup) -------------
+// recipient in_pub: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup)
 #[test(should_fail_with = "recipient key must not be the identity")]
 fn m_recipient_identity() {
     v(
@@ -268,7 +268,7 @@ fn m_recipient_non_subgroup() {
     );
 }
 
-// --- minted incoming-memo guards (mint_incoming_note) -----------------------------------------------------
+// minted incoming-memo guards (mint_incoming_note)
 #[test(should_fail_with = "incoming memo must be STANDARD")]
 fn m_memo_note_type() {
     let mut m = memo();
@@ -314,7 +314,7 @@ fn m_memo_odd_y_recipient() {
     v(odd, old(), SCALAR, 0, m, MEPH, change(), CEPH);
 }
 
-// --- minted self-change guards (mint_self_note) -----------------------------------------------------------
+// minted self-change guards (mint_self_note)
 #[test(should_fail_with = "note owner must be non-zero")]
 fn m_change_owner_zero() {
     let mut ch = change();

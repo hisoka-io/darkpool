@@ -30,7 +30,7 @@ fn m_valid_accepts() {
     valid();
 }
 
-// --- compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup) ---------------
+// compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup)
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();
@@ -52,7 +52,7 @@ fn m_compliance_non_subgroup() {
     run(p.x, p.y, note0(), EPH);
 }
 
-// --- minted note guards (mint_common) ---------------------------------------------------------------------
+// minted note guards (mint_common)
 #[test(should_fail_with = "note owner must be non-zero")]
 fn m_owner_zero() {
     let mut note = note0();
@@ -97,7 +97,7 @@ fn m_parents_nonzero() {
     run(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note, EPH);
 }
 
-// --- ephemeral scalar (feeds the ECDH mul) ----------------------------------------------------------------
+// ephemeral scalar (feeds the ECDH mul)
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_eph_zero() {
     run(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note0(), 0);

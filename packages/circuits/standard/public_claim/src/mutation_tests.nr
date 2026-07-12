@@ -109,7 +109,7 @@ fn m_timelock_matured_accepts() {
     );
 }
 
-// --- memo binding: memo_id = Poseidon2([val, asset, timelock, owner_x, owner_y, salt]) ---------------------
+// memo binding: memo_id = Poseidon2([val, asset, timelock, owner_x, owner_y, salt])
 // Mutating any single committed field while holding memo_id fixed breaks the FIRST guard.
 #[test(should_fail_with = "memo id mismatch")]
 fn m_memo_id_mutated() {
@@ -238,7 +238,7 @@ fn m_memo_salt_field() {
     );
 }
 
-// --- timelock maturity: reject a premature claim (current_timestamp < timelock) with a matching memo -------
+// timelock maturity: reject a premature claim (current_timestamp < timelock) with a matching memo
 #[test(should_fail_with = "Timelock has not expired")]
 fn m_timelock_premature() {
     let id = memo(VAL, ASSET, 1000, OWNER_X, OWNER_Y, SALT);
@@ -259,7 +259,7 @@ fn m_timelock_premature() {
     );
 }
 
-// --- recipient spend authority: recipient_sk -> owner point ------------------------------------------------
+// recipient spend authority: recipient_sk -> owner point
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_recipient_sk_zero() {
     run(
@@ -316,7 +316,7 @@ fn m_recipient_sk_wrong() {
     );
 }
 
-// --- owner-point binding: even with a forged (matching) memo, the point must equal derive(recipient_sk) ----
+// owner-point binding: even with a forged (matching) memo, the point must equal derive(recipient_sk)
 #[test(should_fail_with = "recipient key mismatch")]
 fn m_owner_x_rebound() {
     let id = memo(VAL, ASSET, TIMELOCK, OWNER_X + 1, OWNER_Y, SALT);
@@ -356,7 +356,7 @@ fn m_owner_y_rebound() {
     );
 }
 
-// --- claimed note reconstruction: note_out must restate the memo-committed value/asset and carry no parents -
+// claimed note reconstruction: note_out must restate the memo-committed value/asset and carry no parents -
 #[test(should_fail_with = "claim value mismatch")]
 fn m_claim_value_mismatch() {
     let mut n = note();
@@ -418,7 +418,7 @@ fn m_claim_parents_nonzero() {
     );
 }
 
-// --- minted self-note guards (mint_self_note / mint_common) ------------------------------------------------
+// minted self-note guards (mint_self_note / mint_common)
 #[test(should_fail_with = "self note must be STANDARD")]
 fn m_note_type_not_standard() {
     let mut n = note();
@@ -520,7 +520,7 @@ fn m_note_psi_unbound() {
     );
 }
 
-// --- ephemeral scalar (feeds the compliance ECDH mul) -----------------------------------------------------
+// ephemeral scalar (feeds the compliance ECDH mul)
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_eph_zero() {
     run(
@@ -558,7 +558,7 @@ fn m_eph_ge_suborder() {
     );
 }
 
-// --- compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup) ---------------
+// compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup)
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();

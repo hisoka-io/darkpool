@@ -46,7 +46,7 @@ fn as_ed(p: Point) -> BabyJubJub {
     BabyJubJub::new(p.x, p.y)
 }
 
-// --- self-tests: PROVE the vectors are what the comments claim -------------------------------------------
+// self-tests: PROVE the vectors are what the comments claim
 
 #[test]
 fn vector_identity_is_the_neutral_element() {

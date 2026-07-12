@@ -61,7 +61,7 @@ fn m_valid_accepts() {
     valid(cx, cy);
 }
 
-// --- consumed note: ownership / membership fields ---------------------------------------------------------
+// consumed note: ownership / membership fields
 #[test(should_fail_with = "spender does not own this note")]
 fn m_in_owner_mutated() {
     let (cx, cy) = compliance();
@@ -97,7 +97,7 @@ fn m_noncanonical_leaf_index() {
     run(cx, cy, note_in(), SCALAR, 7, out1(), EPH1, out2(), EPH2);
 }
 
-// --- spend scalar -----------------------------------------------------------------------------------------
+// spend scalar
 #[test(should_fail_with = "spender does not own this note")]
 fn m_spend_scalar_wrong() {
     let (cx, cy) = compliance();
@@ -114,7 +114,7 @@ fn m_spend_scalar_ge_suborder() {
     run(cx, cy, note_in(), SUBORDER, 0, out1(), EPH1, out2(), EPH2);
 }
 
-// --- value conservation / u128 overflow -------------------------------------------------------------------
+// value conservation / u128 overflow
 #[test(should_fail_with = "value not conserved")]
 fn m_value_not_conserved() {
     let (cx, cy) = compliance();
@@ -132,7 +132,7 @@ fn m_value_output_overflow() {
     run(cx, cy, note_in(), SCALAR, 0, o1, EPH1, o2, EPH2);
 }
 
-// --- minted self-output 1 guards --------------------------------------------------------------------------
+// minted self-output 1 guards
 #[test(should_fail_with = "note owner must be non-zero")]
 fn m_out1_owner_zero() {
     let (cx, cy) = compliance();
@@ -176,7 +176,7 @@ fn m_out1_parents_forged() {
     run(cx, cy, note_in(), SCALAR, 0, o1, EPH1, out2(), EPH2);
 }
 
-// --- minted self-output 2 guards (reached only after out_1 mints clean) -----------------------------------
+// minted self-output 2 guards (reached only after out_1 mints clean)
 #[test(should_fail_with = "note owner must be non-zero")]
 fn m_out2_owner_zero() {
     let (cx, cy) = compliance();
@@ -220,7 +220,7 @@ fn m_out2_parents_forged() {
     run(cx, cy, note_in(), SCALAR, 0, out1(), EPH1, o2, EPH2);
 }
 
-// --- compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup) ---------------
+// compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup)
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();
@@ -242,7 +242,7 @@ fn m_compliance_non_subgroup() {
     run(p.x, p.y, note_in(), SCALAR, 0, out1(), EPH1, out2(), EPH2);
 }
 
-// --- output ephemeral scalars (feed the ECDH mul) and their distinctness ----------------------------------
+// output ephemeral scalars (feed the ECDH mul) and their distinctness
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_eph1_zero() {
     let (cx, cy) = compliance();
