@@ -72,3 +72,9 @@ benchmark_logs
 
 # Dev sandbox (circuit test-vector generators — not published, not committed)
 packages/wallets/sandbox/
+
+# Foundry
+foundry-out/
+foundry-cache/
+packages/*/foundry-out/
+packages/*/foundry-cache/
