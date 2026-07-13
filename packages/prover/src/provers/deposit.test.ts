@@ -36,10 +36,10 @@ describe("proveDeposit (v2 note format, round-trip)", () => {
   it("proves and self-verifies, exposing the leaf/value/asset at the layout indices", async () => {
     const { verified, publicInputs } = await proveDeposit(inputs);
     expect(verified).toBe(true);
-    // Layout: [0,1] compliance, [2] leaf, [3,4] eph_pub, [5] value, [6] asset, [7..13] ciphertext.
+    // Layout: [0,1] compliance, [2] leaf, [3] eph_pub.x, [4] value, [5] asset, [6..12] ciphertext.
     expect(BigInt(publicInputs[2])).toBe(EXPECTED_LEAF);
-    expect(BigInt(publicInputs[5])).toBe(100n);
-    expect(BigInt(publicInputs[6])).toBe(
+    expect(BigInt(publicInputs[4])).toBe(100n);
+    expect(BigInt(publicInputs[5])).toBe(
       0x1234567890123456789012345678901234567890n,
     );
   }, 180000);

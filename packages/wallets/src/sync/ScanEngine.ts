@@ -196,7 +196,6 @@ export class ScanEngine {
         leafIndex: BigInt(eventLog.args["leafIndex"]),
         commitment: eventLog.args["commitment"] as string,
         ephemeralX: BigInt(eventLog.args["ephemeralPK_x"]),
-        ephemeralY: BigInt(eventLog.args["ephemeralPK_y"]),
         packedCiphertext: eventLog.args["packedCiphertext"] as string[],
         tag:
           eventType === "NEW_MEMO" ? BigInt(eventLog.args["tag"]) : undefined,

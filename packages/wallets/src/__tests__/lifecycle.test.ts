@@ -77,8 +77,6 @@ class FixtureKeyRepo implements IKeyRepository {
 describe("self-note lifecycle (deposit fixture round-trip)", () => {
   const DEPOSIT_TAG =
     0x1961ff2315812fd2f3e459a258f5ded2dde68cd35c79c8b9fb443e1860e1fbe4n;
-  const DEPOSIT_EPH_Y =
-    0x217d990737cc33efe8db5485973124fdd98c866783f0d81ffccfffe7102a9c6an;
   const DEPOSIT_LEAF =
     "0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551";
   const DEPOSIT_CEK = new Fr(
@@ -125,7 +123,6 @@ describe("self-note lifecycle (deposit fixture round-trip)", () => {
         leafIndex: 0n,
         commitment: DEPOSIT_LEAF,
         ephemeralX: DEPOSIT_TAG,
-        ephemeralY: DEPOSIT_EPH_Y,
         packedCiphertext: DEPOSIT_CT,
       },
     };
@@ -147,28 +144,28 @@ describe("incoming-memo lifecycle (transfer memo fixture round-trip)", () => {
   const MEMO_TAG =
     0x1b16e357953d68d73398c838aa883cc65ddae2aef75a4bc437e4232afdbe43c8n;
   const MEMO_EPH_X =
-    0x25fbe8bb651983f4e6651fb47245f7f058afcda6958a3e468dc50e8d77af07e6n;
+    0x0d2c8ddcfdd735e9fdd0d51538022ba533cfa83b81d2acec70b17f505c17f048n;
   const MEMO_EPH_Y =
-    0x2fe08fd5f557d0326251711696f8bfb3cfd33fc3c15168019ac86c9e8af6f3a9n;
+    0x0de8d63022d65a455c438aacda47f8bc4141566562eb1cab57e5085b62a5a75en;
   const MEMO_LEAF =
-    "0x192da44b73da0d163a65d76aac64fd3bc8ab96f2a1bee6ed64bc284e0ec4c6f2";
+    "0x24865e6a40c43311de26adacd9309c99c518638e7f6ff3c5823e275ae350d92a";
   const MEMO_CEK = new Fr(
-    0x0e94d7f61c674a233b14b9b972d8fe81f5c14f1ef33e2568a2cb20be47ce2991n,
+    0x1c656035636eab11b0e052ddb751154c610872bf191c4f737b5365f6f473f153n,
   );
   const MEMO_CEK_WRAP =
-    0x1b67cde705ce9682a9d976006cff63dfcc524dedaf6f8d4bc31ac09bc3e084a6n;
+    0x1c26e418b18e2072f8862447c7abbff3cc888b9bef1976bf14d7cf6910a926a0n;
   const OWNER_MEMO = new Fr(
     0x1113074e2fb269d979ad2b64e6fe70b1967c67b007b706600603b847306aefe3n,
   );
   const IN_KEY_J = new Fr(4n);
   const MEMO_CT = [
-    "0x29bb025dd94ba3d39cfc290a2b868a66b8053f6d9a6ecbf6aad13eec3430c45f",
-    "0x0cf24f6565c72b95af848758fd84320df5deba59a2d981ea80979c2b26c6aad1",
-    "0x2608f23654db19cf478e1dafb0def1df1ea850f80ba8017ecfa54d2bd412ef16",
-    "0x1c20829f07ff3709a9533be0681409540ddcb3571673e5deb1d70d95d6b70366",
-    "0x17450b54d6f9f2f6d675df6859b38a80e06306db392cf0137154537e4de4e042",
-    "0x2f8af6aee688f06521a50c621ff6d1b75c406013988d45016cfa8ab7b2dbc58d",
-    "0x21b3dd8c5596bdde64eca0bbcd19e2b52e3a42d70a64d9d521a50cf06bc6a4ec",
+    "0x068ce47d657722bad36cdc4a62ea2eda509a4d750d3aed5a6217f6bac4126413",
+    "0x20d005ef9d502a7c74d019cd228fce2fbc0af25226d21acc3b7c54b7959d1bb0",
+    "0x2c95d08b6f16d6013ce1bab83111e497e933c08bb1cbe85f7e6cbc8c28f4ada3",
+    "0x0e9454ccf13ae61faf1d29834fcdd952fcd84a1922d932ecc8c1fe671f19c157",
+    "0x1283d25e8fb77781bbffc4e9e66a68d1ed0ae3baadc24b5527b830a0800a59ad",
+    "0x0bd34ea266e55999966665f85484694b1ea1e343b19d41acc4200afed265b8f7",
+    "0x1adf0a5630fed360a4526ca7027b61171ea5afee21d64e9345340c07213b99ab",
   ];
 
   it("unwrapCek recovers the fixture CEK from in_key_j and eph_pub", async () => {
@@ -199,7 +196,6 @@ describe("incoming-memo lifecycle (transfer memo fixture round-trip)", () => {
         leafIndex: 0n,
         commitment: MEMO_LEAF,
         ephemeralX: MEMO_EPH_X,
-        ephemeralY: MEMO_EPH_Y,
         packedCiphertext: MEMO_CT,
         tag: MEMO_TAG,
         cekWrap: MEMO_CEK_WRAP,
@@ -220,7 +216,7 @@ describe("incoming-memo lifecycle (transfer memo fixture round-trip)", () => {
 // DROPPED (a phantom, unspendable note = balance overstatement), not registered. Before the fix the incoming path
 // skipped the owner check, so it registered. A valid memo (owner == recipient) still registers.
 describe("WN-1: incoming note owner binding (phantom-note guard)", () => {
-  const EPH = new Fr(7n);
+  const EPH = new Fr(8n);
   const IN_KEY = new Fr(4n);
   const ASSET = new Fr(0x1234n);
   const V1 = new Fr(1n);
@@ -260,7 +256,6 @@ describe("WN-1: incoming note owner binding (phantom-note guard)", () => {
         leafIndex: 0n,
         commitment: hex(commitment),
         ephemeralX: ephPub[0],
-        ephemeralY: ephPub[1],
         packedCiphertext: ct.map(hex),
         tag: discoveryTag(inPub).toBigInt(),
         cekWrap: cekWrap.toBigInt(),

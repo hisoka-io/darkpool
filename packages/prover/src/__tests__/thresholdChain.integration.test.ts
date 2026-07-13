@@ -13,6 +13,8 @@ import {
   pubkeyOwner,
   packParents,
   unpackParents,
+  PARENTS_HIDDEN,
+  recoverEvenY,
   LeanIMT,
   Note,
 } from "@hisoka/wallets";
@@ -252,7 +254,8 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
       ctBase: number,
     ): Promise<Landed> {
       const l = new Fr(outs[leafIdx]);
-      const ephPub: Point<bigint> = [outs[epkIdx], outs[epkIdx + 1]];
+      // The output carries only eph_pub.x; recover the even-y point off-chain before ECDH.
+      const ephPub: Point<bigint> = recoverEvenY(outs[epkIdx]);
       const ciphertext = outs
         .slice(ctBase, ctBase + DEM_FIELDS)
         .map((v) => new Fr(v));
@@ -293,7 +296,7 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     expect(dep.verified).toBe(true);
     const depOut = dep.publicInputs.map((p) => BigInt(p));
     expect(depOut[2]).toBe(dmLeafExpected.toBigInt());
-    const dm = await land(depOut, 2, 3, 7);
+    const dm = await land(depOut, 2, 3, 6);
     expect(dm.index).toBe(1);
 
     // transfer_multisig (MULTISIG -> STANDARD conversion): the account spends its deposit into a STANDARD
@@ -301,7 +304,7 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     // binds owner == view == tag to the single address in_pub_j.
     const oldPath1 = tree.getMerklePath(dm.index);
     const root1 = tree.getRoot();
-    const mbEph = new Fr(randSubgroupScalar());
+    const mbEph = await evenYEph();
     const tmTag = await frost.canonicalMultisigSelfTag(
       vScalar,
       selfMember,
@@ -313,7 +316,7 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
       400n,
       ownerB,
       await psiFor(mbEph),
-      parents1,
+      PARENTS_HIDDEN,
     );
     const tmNote = mkNote(
       NOTE_TYPE_MULTISIG,
@@ -350,21 +353,21 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     expect(tmv.verified).toBe(true);
     const tmvOut = tmv.publicInputs.map((p) => BigInt(p));
     expect(tmvOut[4]).toBe(mbLeafExpected.toBigInt());
-    expect(tmvOut[16]).toBe(tmLeafExpected.toBigInt());
+    expect(tmvOut[15]).toBe(tmLeafExpected.toBigInt());
     // The memo tag is Bob's static view tag (owner == view == in_pub_j for a standard recipient).
-    expect(tmvOut[7]).toBe(bob.pub[0]);
+    expect(tmvOut[6]).toBe(bob.pub[0]);
     // FORWARD cross-check: the committee reproduces DM's spend nullifier from the deposit's on-chain eph_pub.
     expect((await committeeNullifier(dm.ephPub, dm.index)).toBigInt()).toBe(
       tmvOut[2],
     );
-    const mb = await land(tmvOut, 4, 5, 9);
-    const tm = await land(tmvOut, 16, 17, 19);
+    const mb = await land(tmvOut, 4, 5, 8);
+    const tm = await land(tmvOut, 15, 16, 17);
     markSpent(new Fr(tmvOut[2]), [mb.index, tm.index]);
 
     // transfer (standard): Bob spends the converted note MB into a STANDARD memo to Alice (150) plus a
     // STANDARD change back to Bob (250). The standard lineage descends from the conversion.
     const oldPath2 = tree.getMerklePath(mb.index);
-    const maEph = new Fr(randSubgroupScalar());
+    const maEph = await evenYEph();
     const chBobEph = await evenYEph();
     const parents2 = packParents([{ leafIndex: mb.index }, { leafIndex: 0 }]);
     const maNote = mkNote(
@@ -372,7 +375,7 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
       150n,
       ownerA,
       await psiFor(maEph),
-      parents2,
+      PARENTS_HIDDEN,
     );
     const chBobNote = mkNote(
       NOTE_TYPE_STANDARD,
@@ -396,13 +399,13 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     expect(ts.verified).toBe(true);
     const tsOut = ts.publicInputs.map((p) => BigInt(p));
     expect(tsOut[4]).toBe((await noteLeaf(maNote)).toBigInt());
-    expect(tsOut[16]).toBe((await noteLeaf(chBobNote)).toBigInt());
+    expect(tsOut[15]).toBe((await noteLeaf(chBobNote)).toBigInt());
     // FORWARD cross-check on MB (a standard INCOMING note spent here).
     expect((await committeeNullifier(mb.ephPub, mb.index)).toBigInt()).toBe(
       tsOut[2],
     );
-    const ma = await land(tsOut, 4, 5, 9);
-    const chBob = await land(tsOut, 16, 17, 19);
+    const ma = await land(tsOut, 4, 5, 8);
+    const chBob = await land(tsOut, 15, 16, 17);
     markSpent(new Fr(tsOut[2]), [ma.index, chBob.index]);
 
     // withdraw_multisig: the account spends TM, pays 100 to a public recipient, mints MULTISIG change
@@ -457,7 +460,7 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     expect((await committeeNullifier(tm.ephPub, tm.index)).toBigInt()).toBe(
       wOut[5],
     );
-    const chM = await land(wOut, 8, 9, 11);
+    const chM = await land(wOut, 8, 9, 10);
     markSpent(new Fr(wOut[5]), [chM.index]);
 
     // Member + committee read of the MULTISIG SELF note Ch_M: the member re-derives its content via the
@@ -548,13 +551,13 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     expect(sp.verified).toBe(true);
     const spOut = sp.publicInputs.map((p) => BigInt(p));
     expect(spOut[4]).toBe(s1LeafExpected.toBigInt());
-    expect(spOut[14]).toBe(s2LeafExpected.toBigInt());
+    expect(spOut[13]).toBe(s2LeafExpected.toBigInt());
     // FORWARD cross-check on Ch_M (multisig SELF note spent here).
     expect((await committeeNullifier(chM.ephPub, chM.index)).toBigInt()).toBe(
       spOut[2],
     );
-    const s1 = await land(spOut, 4, 5, 7);
-    const s2 = await land(spOut, 14, 15, 17);
+    const s1 = await land(spOut, 4, 5, 6);
+    const s2 = await land(spOut, 13, 14, 15);
     markSpent(new Fr(spOut[2]), [s1.index, s2.index]);
 
     // join_multisig: the account joins S1 + S2 into one MULTISIG self note J (500). Each input's quorum
@@ -617,7 +620,7 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     expect((await committeeNullifier(s2.ephPub, s2.index)).toBigInt()).toBe(
       jnOut[3],
     );
-    const j = await land(jnOut, 5, 6, 8);
+    const j = await land(jnOut, 5, 6, 7);
     markSpent(new Fr(jnOut[2]), [j.index]);
     markSpent(new Fr(jnOut[3]), [j.index]);
 
@@ -634,6 +637,20 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     );
     expect(chMParents[0].leafIndex).toBe(tm.index);
     expect(chMParents[1].leafIndex).toBe(0);
+
+    // The transfer memo MB hides its backward link (parents == PARENTS_HIDDEN) so the recipient never learns
+    // the sender's leaf index, yet compliance still recovers MB's source: MB and the MULTISIG change TM are the
+    // two outputs of the same spend (nfDM), and TM's real parents point to the spent input dm, so dm is MB's
+    // source too. A backward trace from MB terminates (no direct edge).
+    const mbParentsField = (await committeeDecrypt(mb.ephPub, mb.ciphertext))
+      .fields[DEM_FIELDS - 1];
+    expect(mbParentsField.toBigInt()).toBe(PARENTS_HIDDEN.toBigInt());
+    const mbBack = await backwardTrace(mb.index, chainState, committeeDecrypt);
+    expect(mbBack.edges).toEqual([]);
+    const tmSource = unpackParents(
+      (await committeeDecrypt(tm.ephPub, tm.ciphertext)).fields[DEM_FIELDS - 1],
+    );
+    expect(tmSource[0].leafIndex).toBe(dm.index);
 
     // Compose the exact spend graph forward from the deposit and backward from the join output.
     const allNodes = [

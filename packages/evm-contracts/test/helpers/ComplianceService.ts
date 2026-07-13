@@ -8,6 +8,7 @@ import {
   computeNullifier,
   leaf,
   Note,
+  recoverEvenY,
 } from "@hisoka/wallets";
 import { Point } from "@zk-kit/baby-jubjub";
 
@@ -92,10 +93,10 @@ export class ComplianceService {
   }
 
   private async decrypt(event: EventLog, isTransfer: boolean): Promise<void> {
-    const ephPub: Point<bigint> = [
+    // The event carries only eph_pub.x; recover the even-y point off-chain before the ECDH.
+    const ephPub: Point<bigint> = recoverEvenY(
       BigInt(event.args.ephemeralPK_x),
-      BigInt(event.args.ephemeralPK_y),
-    ];
+    );
     const ciphertext = (event.args.packedCiphertext as string[]).map((h) =>
       toFr(h),
     );

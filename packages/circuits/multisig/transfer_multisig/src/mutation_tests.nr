@@ -540,7 +540,7 @@ fn m_memo_psi_unbound() {
         super::KAT_CHANGE_EPH,
     );
 }
-#[test(should_fail_with = "output parents not bound to consumed inputs")]
+#[test(should_fail_with = "memo parents must be hidden sentinel")]
 fn m_memo_parents_forged() {
     let mut mo = memon();
     mo.parents = 1;

@@ -14,7 +14,7 @@ use shared::SUBORDER;
 use shared::TREE_DEPTH;
 
 global SCALAR: Field = 789;
-global MEPH: Field = 0x378;
+global MEPH: Field = 15;
 global CEPH: Field = 9;
 global ASSET: Field = 0x1234567890123456789012345678901234567890;
 
@@ -299,7 +299,7 @@ fn m_memo_psi_unbound() {
     m.psi = m.psi + 1;
     v(rin(), old(), SCALAR, 0, m, MEPH, change(), CEPH);
 }
-#[test(should_fail_with = "output parents not bound to consumed inputs")]
+#[test(should_fail_with = "memo parents must be hidden sentinel")]
 fn m_memo_parents_forged() {
     let mut m = memo();
     m.parents = 1;

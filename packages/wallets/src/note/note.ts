@@ -54,6 +54,15 @@ export function packParents(parents: [Parent, Parent]): Fr {
   return new Fr(index0 + index1 * TWO_POW_32);
 }
 
+// Counterparty-memo parents sentinel = BN254_Fr - 1 (>= 2^64, so unpackParents rejects it as a real index pack).
+// A transfer memo binds parents to this instead of the sender's leaf index, hiding the sender's tree position;
+// compliance recovers the true source via the atomic tx (tx-grouping + global nullifier map). Matches Noir
+// `shared::note::PARENTS_HIDDEN`.
+export const PARENTS_HIDDEN = new Fr(
+  21888242871839275222246405745257275088548364400416034343698204186575808495617n -
+    1n,
+);
+
 export function unpackParents(packed: Fr): [Parent, Parent] {
   const value = packed.toBigInt();
   if (value >= TWO_POW_64) {

@@ -16,7 +16,7 @@ fn main(
     eph_1: Field,
     note_out_2: Note,
     eph_2: Field,
-) -> pub (Field, Field, Field, Field, Field, [Field; 7], Field, Field, Field, [Field; 7]) {
+) -> pub (Field, Field, Field, Field, [Field; 7], Field, Field, [Field; 7]) {
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
 
@@ -33,8 +33,8 @@ fn main(
     let out2 = mint::mint_self_note(note_out_2, eph_2, compliance_pk);
 
     (
-        nullifier, computed_root, out1.leaf, out1.eph_pub.x, out1.eph_pub.y, out1.ciphertext,
-        out2.leaf, out2.eph_pub.x, out2.eph_pub.y, out2.ciphertext,
+        nullifier, computed_root, out1.leaf, out1.eph_pub.x, out1.ciphertext, out2.leaf,
+        out2.eph_pub.x, out2.ciphertext,
     )
 }
 
@@ -69,7 +69,7 @@ fn test_split_kat() {
         60,
         0x1fc1420fa8dd294ee9feaa5067000d40945bdc796e47ce5dfbfa4cbb4210ef8d,
     );
-    let (nf, root, l1, x1, y1, ct1, l2, x2, y2, ct2) = main(
+    let (nf, root, l1, x1, ct1, l2, x2, ct2) = main(
         CX,
         CY,
         note_in(),
@@ -85,11 +85,9 @@ fn test_split_kat() {
     assert(root == 0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551);
     assert(l1 == 0x0bd308584b129cd9d8a38aedd72cf9d96ae13c4170f583959403de31c48f557c);
     assert(x1 == 0x0d2c8ddcfdd735e9fdd0d51538022ba533cfa83b81d2acec70b17f505c17f048);
-    assert(y1 == 0x0de8d63022d65a455c438aacda47f8bc4141566562eb1cab57e5085b62a5a75e);
     assert(ct1[0] == 0x068ce47d657722bad36cdc4a62ea2eda509a4d750d3aed5a6217f6bac4126413);
     assert(l2 == 0x1bd6da937554b7ddf449746023c99357419ff8b2481d7a93391a7610958421e0);
     assert(x2 == 0x28f4a492bbfdf5eed5ad1b304b95fb96040be5e4281bd288b1955f61bfac0afa);
-    assert(y2 == 0x304087f15a044598525cf1fb00bae9c4f345802d0537c82c7038fd968d31029e);
     assert(ct2[6] == 0x2169b27f06c7e58cd045788ab94ad891299566c4274efb8da2eccdc9985a02c2);
 }
 
@@ -188,7 +186,7 @@ fn audit_reject_reused_ephemeral() {
 fn audit_reject_non_membership() {
     let mut path = [0; TREE_DEPTH];
     path[0] = 0x0abc;
-    let (_, root, _, _, _, _, _, _, _, _) = main(
+    let (_, root, _, _, _, _, _, _) = main(
         CX,
         CY,
         note_in(),

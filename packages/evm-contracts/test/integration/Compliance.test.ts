@@ -6,7 +6,6 @@ import {
   mintSelfNote,
   mintIncomingNote,
   evenYEphemeral,
-  subgroupScalar,
   newSeededTree,
   COMPLIANCE_SK,
   COMPLIANCE_PK,
@@ -16,7 +15,9 @@ import {
   toFr,
   addressToFr,
   packParents,
+  PARENTS_HIDDEN,
   publicKey,
+  recoverEvenY,
   deriveCek,
   demDecrypt,
   computePsi,
@@ -58,10 +59,9 @@ class ComplianceTool {
   }
 
   private async decrypt(event: any, type: "NOTE" | "MEMO") {
-    const ephPub: Point<bigint> = [
+    const ephPub: Point<bigint> = recoverEvenY(
       BigInt(event.args.ephemeralPK_x),
-      BigInt(event.args.ephemeralPK_y),
-    ];
+    );
     const ciphertext = (event.args.packedCiphertext as string[]).map((h) =>
       toFr(h),
     );
@@ -110,12 +110,12 @@ describe("Integration: Compliance God View", function () {
 
     const parents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
     const memo = await mintIncomingNote(
-      subgroupScalar(12n),
+      evenYEphemeral(12n),
       40n,
       bobInPub,
       bobInKey,
       assetFr,
-      parents,
+      PARENTS_HIDDEN,
     );
     const change = await mintSelfNote(
       evenYEphemeral(34n),

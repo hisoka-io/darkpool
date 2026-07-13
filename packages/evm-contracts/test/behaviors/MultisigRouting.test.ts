@@ -45,31 +45,31 @@ describe("DarkPool Behavior: Multisig Routing", function () {
 
   // Multisig entrypoints share the standard twins' decode; a wrong length reverts before the verifier.
   describe("InvalidInputsLength (multisig lengths match their standard twins)", function () {
-    it("withdrawMultisig requires 18 inputs", async function () {
+    it("withdrawMultisig requires 17 inputs", async function () {
       const { darkPool } = await loadFixture(deployDarkPoolFixture);
       await expect(
-        darkPool.withdrawMultisig("0x", zeros(17)),
+        darkPool.withdrawMultisig("0x", zeros(16)),
       ).to.be.revertedWithCustomError(darkPool, "InvalidInputsLength");
     });
 
-    it("transferMultisig requires 26 inputs", async function () {
+    it("transferMultisig requires 24 inputs", async function () {
       const { darkPool } = await loadFixture(deployDarkPoolFixture);
       await expect(
-        darkPool.transferMultisig("0x", zeros(25)),
+        darkPool.transferMultisig("0x", zeros(23)),
       ).to.be.revertedWithCustomError(darkPool, "InvalidInputsLength");
     });
 
-    it("splitMultisig requires 24 inputs", async function () {
+    it("splitMultisig requires 22 inputs", async function () {
       const { darkPool } = await loadFixture(deployDarkPoolFixture);
       await expect(
-        darkPool.splitMultisig("0x", zeros(23)),
+        darkPool.splitMultisig("0x", zeros(21)),
       ).to.be.revertedWithCustomError(darkPool, "InvalidInputsLength");
     });
 
-    it("joinMultisig requires 15 inputs", async function () {
+    it("joinMultisig requires 14 inputs", async function () {
       const { darkPool } = await loadFixture(deployDarkPoolFixture);
       await expect(
-        darkPool.joinMultisig("0x", zeros(14)),
+        darkPool.joinMultisig("0x", zeros(13)),
       ).to.be.revertedWithCustomError(darkPool, "InvalidInputsLength");
     });
   });

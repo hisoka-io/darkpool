@@ -5,7 +5,7 @@
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "../tss/bjj.js";
 import { computePsi, computeNullifier } from "../note/nullifier.js";
-import { unpackParents } from "../note/note.js";
+import { unpackParents, PARENTS_HIDDEN } from "../note/note.js";
 import { DEM_FIELDS } from "../crypto/dem.js";
 
 // parents is the last DEM field; psi is re-derived from CEK, never transmitted.
@@ -144,6 +144,10 @@ export async function backwardTrace(
     }
     const packed = fields[PARENTS_FIELD_INDEX];
     if (packed.toBigInt() === 0n) return [];
+    // A counterparty memo hides its source (parents == PARENTS_HIDDEN). The backward link is not encoded in
+    // parents; compliance recovers the source via the atomic tx (tx-grouping + global nullifier map), so the
+    // parents-based backward trace terminates here rather than unpacking the sentinel as a real index pack.
+    if (packed.toBigInt() === PARENTS_HIDDEN.toBigInt()) return [];
     const expansions: Expansion[] = [];
     for (const parent of consumedLeaves(packed)) {
       assertInRange(parent, chain);

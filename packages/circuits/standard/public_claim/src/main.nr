@@ -21,7 +21,7 @@ fn main(
     recipient_sk: Field,
     note_out: Note,
     eph: Field,
-) -> pub (Field, Field, Field, [Field; 7]) {
+) -> pub (Field, Field, [Field; 7]) {
     let computed_id = Poseidon2::hash([val, asset_id, timelock, owner_x, owner_y, salt], 6);
     assert(computed_id == memo_id, "memo id mismatch");
     assert(
@@ -42,7 +42,7 @@ fn main(
     mint::assert_valid_compliance_pk(compliance_pk);
     let minted = mint::mint_self_note(note_out, eph, compliance_pk);
 
-    (minted.leaf, minted.eph_pub.x, minted.eph_pub.y, minted.ciphertext)
+    (minted.leaf, minted.eph_pub.x, minted.ciphertext)
 }
 
 fn note_out() -> Note {
@@ -64,7 +64,7 @@ global CY: Field = FIXTURE_COMPLIANCE_Y;
 // KAT: byte-identical to the TS/Solidity golden vector (recipient_sk 0x3039, memo of 6 fields, eph 31).
 #[test]
 fn test_public_claim_kat() {
-    let (leaf, epk_x, epk_y, ct) = main(
+    let (leaf, epk_x, ct) = main(
         0x0731300919ae74d1507ab3b22cac576da8c86deb8ddc11f24317b861f17f6f93,
         CX,
         CY,
@@ -81,7 +81,6 @@ fn test_public_claim_kat() {
     );
     assert(leaf == 0x09a98ec0c22cfd2a253e128d36453471a20e6de6b049bc9e342c4dcfa5716fe2);
     assert(epk_x == 0x1390b1c9d9a82d2159b46c2bb964b4b2f33fce1689896c95545db5582db57f2e);
-    assert(epk_y == 0x29cec8b61d518c9fb134222a259fb1aac3ef5a0e96ffe08d5f6102a388e5f488);
     assert(ct[0] == 0x25b192408132608596a8fcb2580b40eef0ae69bac2ddd618919bfead13c9fc22);
     assert(ct[6] == 0x1271e8440d429e8b2e2bfbe6f6cdae0c76b0238dac17d93e83c663b7d893761f);
 }

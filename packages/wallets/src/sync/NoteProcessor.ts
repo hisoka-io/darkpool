@@ -7,7 +7,7 @@ import { demDecrypt } from "../crypto/dem.js";
 import { deriveCek, unwrapCek } from "../crypto/kem.js";
 import { computeNullifier, computePsi } from "../note/nullifier.js";
 import { leaf as computeLeaf, Note } from "../note/note.js";
-import { publicKey, pubkeyOwner } from "../note/keys.js";
+import { publicKey, pubkeyOwner, recoverEvenY } from "../note/keys.js";
 import { UnprocessedEvent } from "./types.js";
 
 // asset ids are ERC20 addresses; anything at or above 2^160 cannot be a real asset.
@@ -59,13 +59,14 @@ export class NoteProcessor {
     event: UnprocessedEvent,
   ): Promise<WalletNote | null> {
     try {
-      const { tag, cekWrap, ephemeralX, ephemeralY } = event.args;
+      const { tag, cekWrap, ephemeralX } = event.args;
       if (tag === undefined || cekWrap === undefined) return null;
 
       const match = this.keyRepository.matchIncomingTag(tag);
       if (!match) return null;
 
-      const ephPub: Point<bigint> = [ephemeralX, ephemeralY];
+      // The event carries only eph_pub.x; recover the even-y point off-chain before the ECDH.
+      const ephPub: Point<bigint> = recoverEvenY(ephemeralX);
       const cek = await unwrapCek(new Fr(cekWrap), match.inKey, ephPub);
       const commitment = toFr(event.args.commitment);
       const leafIndex = Number(event.args.leafIndex);

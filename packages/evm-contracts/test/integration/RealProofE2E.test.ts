@@ -19,6 +19,7 @@ import {
   toFr,
   addressToFr,
   packParents,
+  PARENTS_HIDDEN,
   publicKey,
   deriveCek,
   computePsi,
@@ -267,12 +268,12 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     const bobInPub = publicKey(bobInKey);
     const parents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
     const memo = await mintIncomingNote(
-      subgroupScalar(12345n),
+      evenYEphemeral(12345n),
       40n,
       bobInPub,
       bobInKey,
       assetFr,
-      parents,
+      PARENTS_HIDDEN,
     );
     const change = await mintSelfNote(
       evenYEphemeral(67890n),
@@ -653,12 +654,12 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
     const bobInPub = publicKey(bobInKey);
     const parents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
     const memo = await mintIncomingNote(
-      subgroupScalar(0x9911n),
+      evenYEphemeral(0x9911n),
       40n,
       bobInPub,
       bobInKey,
       assetFr,
-      parents,
+      PARENTS_HIDDEN,
     );
     const changeEph = evenYEphemeral(2202n);
     const change = await buildMultisigNote(

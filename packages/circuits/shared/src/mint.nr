@@ -118,6 +118,9 @@ pub fn mint_incoming_note(
     assert(note.owner == owner::pubkey_owner(in_pub), "memo owner must be the recipient owner");
     let (leaf, eph_pub, cek, ciphertext) = mint_common(note, eph, compliance_pk);
     assert(even_y::is_even_y(in_pub), "incoming discovery tag must be even-y");
+    // The emitted eph_pub rides on-chain as x only, so it must be even-y for the recipient/compliance to
+    // recover y from x before the unwrap ECDH (mint_self and deposit pin this too).
+    assert(even_y::is_even_y(eph_pub), "incoming eph tag must be even-y");
     let cek_wrap = kem::wrap_cek(cek, eph, in_pub);
     IncomingMint { leaf, eph_pub, tag: in_pub.x, cek_wrap, ciphertext }
 }

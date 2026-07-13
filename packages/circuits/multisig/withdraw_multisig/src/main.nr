@@ -20,7 +20,7 @@ fn main(
     old_note_path: [Field; TREE_DEPTH],
     change_note: Note,
     change_eph: Field,
-) -> pub (Field, Field, Field, Field, Field, Field, [Field; 7]) {
+) -> pub (Field, Field, Field, Field, Field, [Field; 7]) {
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
 
@@ -44,10 +44,7 @@ fn main(
     );
     verify_frost_spend(gpk, frost_r, frost_z, m);
 
-    (
-        nullifier, computed_root, old_note.asset_id, change.leaf, change.eph_pub.x,
-        change.eph_pub.y, change.ciphertext,
-    )
+    (nullifier, computed_root, old_note.asset_id, change.leaf, change.eph_pub.x, change.ciphertext)
 }
 
 // Output guards run before verify_frost_spend, so a never-reached dummy (frost_r, frost_z) suffices.

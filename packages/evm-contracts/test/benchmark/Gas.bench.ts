@@ -20,6 +20,7 @@ import {
   toFr,
   addressToFr,
   packParents,
+  PARENTS_HIDDEN,
   publicKey,
   computeNullifier,
 } from "@hisoka/wallets";
@@ -123,12 +124,12 @@ run("Benchmark: per-entrypoint gas", function () {
     const bobInPub = publicKey(bobInKey);
     const parents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
     const memo = await mintIncomingNote(
-      subgroupScalar(12345n),
+      evenYEphemeral(12345n),
       40n,
       bobInPub,
       bobInKey,
       assetFr,
-      parents,
+      PARENTS_HIDDEN,
     );
     const change = await mintSelfNote(
       evenYEphemeral(67890n),
@@ -366,12 +367,12 @@ run("Benchmark: per-entrypoint gas", function () {
     const bobInPub = publicKey(bobInKey);
     const parents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
     const memo = await mintIncomingNote(
-      subgroupScalar(0x9911n),
+      evenYEphemeral(0x9911n),
       40n,
       bobInPub,
       bobInKey,
       assetFr,
-      parents,
+      PARENTS_HIDDEN,
     );
     const changeEph = evenYEphemeral(2202n);
     const change = await buildMultisigNote(

@@ -21,9 +21,9 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
     it("should reject Deposit with invalid input length", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
 
-      // Expected: 14 inputs
-      const tooShort = Array(13).fill(randomBytes32());
-      const tooLong = Array(15).fill(randomBytes32());
+      // Expected: 13 inputs
+      const tooShort = Array(12).fill(randomBytes32());
+      const tooLong = Array(14).fill(randomBytes32());
 
       await expect(
         darkPool.connect(alice).deposit(DUMMY_PROOF, tooShort),
@@ -37,8 +37,8 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
     it("should reject Withdraw with invalid input length", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
 
-      // Expected: 18 inputs
-      const tooShort = Array(17).fill(randomBytes32());
+      // Expected: 17 inputs
+      const tooShort = Array(16).fill(randomBytes32());
 
       await expect(
         darkPool.connect(alice).withdraw(DUMMY_PROOF, tooShort),
@@ -48,8 +48,8 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
     it("should reject Private Transfer with invalid input length", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
 
-      // Expected: 26 inputs
-      const tooShort = Array(25).fill(randomBytes32());
+      // Expected: 24 inputs
+      const tooShort = Array(23).fill(randomBytes32());
 
       await expect(
         darkPool.connect(alice).privateTransfer(DUMMY_PROOF, tooShort),
@@ -58,7 +58,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
 
     it("should reject Join with invalid input length", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
-      // Expected: 15
+      // Expected: 14
       await expect(
         darkPool.connect(alice).join(DUMMY_PROOF, []),
       ).to.be.revertedWithCustomError(darkPool, "InvalidInputsLength");
@@ -66,7 +66,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
 
     it("should reject Split with invalid input length", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
-      // Expected: 24
+      // Expected: 22
       await expect(
         darkPool.connect(alice).split(DUMMY_PROOF, []),
       ).to.be.revertedWithCustomError(darkPool, "InvalidInputsLength");
@@ -76,7 +76,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
   describe("Compliance Key Binding", function () {
     it("Deposit: should reject invalid Compliance Key X", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
-      const inputs = Array(14).fill(randomBytes32());
+      const inputs = Array(13).fill(randomBytes32());
 
       inputs[0] = ethers.ZeroHash; // index 0 = compliance X
 
@@ -87,7 +87,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
 
     it("Withdraw: should reject invalid Compliance Key Y", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
-      const inputs = Array(18).fill(randomBytes32());
+      const inputs = Array(17).fill(randomBytes32());
 
       inputs[6] = await darkPool.getCurrentRoot(); // root at [6]
 
@@ -102,7 +102,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
 
     it("Transfer: should reject invalid Compliance Key", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
-      const inputs = Array(26).fill(randomBytes32());
+      const inputs = Array(24).fill(randomBytes32());
 
       inputs[3] = await darkPool.getCurrentRoot(); // pass root check (root at [3])
 
@@ -119,7 +119,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
     it("should reject unknown Merkle Roots", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
 
-      const inputs = Array(18).fill(randomBytes32());
+      const inputs = Array(17).fill(randomBytes32());
       inputs[6] = ethers.hexlify(ethers.randomBytes(32)); // unknown root at index 6
 
       await expect(

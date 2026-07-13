@@ -10,7 +10,7 @@ fn main(
     compliance_pubkey_y: pub Field,
     note: Note,
     eph: Field,
-) -> pub (Field, Field, Field, Field, Field, [Field; 7]) {
+) -> pub (Field, Field, Field, Field, [Field; 7]) {
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
 
@@ -18,16 +18,13 @@ fn main(
 
     let minted = mint::mint_deposit(note, eph, compliance_pk);
 
-    (
-        minted.leaf, minted.eph_pub.x, minted.eph_pub.y, note.value as Field, note.asset_id,
-        minted.ciphertext,
-    )
+    (minted.leaf, minted.eph_pub.x, note.value as Field, note.asset_id, minted.ciphertext)
 }
 
 // KAT: byte-identical to the TS/Solidity golden vector (sandbox gen_v2_fixtures, eph=5).
 #[test]
 fn test_deposit_kat() {
-    let (leaf, epk_x, epk_y, value, asset, ct) = main(
+    let (leaf, epk_x, value, asset, ct) = main(
         FIXTURE_COMPLIANCE_X,
         FIXTURE_COMPLIANCE_Y,
         fixture_note(),
@@ -35,7 +32,6 @@ fn test_deposit_kat() {
     );
     assert(leaf == 0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551);
     assert(epk_x == 0x1961ff2315812fd2f3e459a258f5ded2dde68cd35c79c8b9fb443e1860e1fbe4);
-    assert(epk_y == 0x217d990737cc33efe8db5485973124fdd98c866783f0d81ffccfffe7102a9c6a);
     assert(value == 100);
     assert(asset == 0x1234567890123456789012345678901234567890);
     assert(ct[0] == 0x13e12fd48ec5eefe22cea1ccf4f29e16f8883011140afbe24dfe35a049b34f1d);

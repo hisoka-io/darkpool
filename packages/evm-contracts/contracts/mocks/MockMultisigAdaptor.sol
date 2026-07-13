@@ -30,7 +30,7 @@ contract MockMultisigAdaptor is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /// @dev Withdraw public-input layout: [0] value, [1] recipient, [7] asset. See DarkPool._withdraw.
-    uint256 internal constant WITHDRAW_INPUTS = 18;
+    uint256 internal constant WITHDRAW_INPUTS = 17;
     uint256 internal constant VALUE_IDX = 0;
     uint256 internal constant RECIPIENT_IDX = 1;
     uint256 internal constant ASSET_IDX = 7;

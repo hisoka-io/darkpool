@@ -39,6 +39,10 @@ const RECIPIENT_IN_PUB: Point = [
   0x1b16e357953d68d73398c838aa883cc65ddae2aef75a4bc437e4232afdbe43c8n,
   0x02d7ee0be055310d2895c5ed5090a8aa1c700e73c64294f1e817ec77f46b4fdcn,
 ];
+// Transfer memo binds parents to the hidden sentinel (BN254_Fr - 1), not the sender's index.
+const PARENTS_HIDDEN =
+  21888242871839275222246405745257275088548364400416034343698204186575808495617n -
+  1n;
 
 function evenYEphsFrom(start: bigint, n: number): bigint[] {
   const out: bigint[] = [];
@@ -93,7 +97,7 @@ describe("gen transfer_multisig KAT", () => {
       value: MEMO_VALUE,
       owner: memoOwner,
       psi: memoPsi,
-      parents: new Fr(0n),
+      parents: new Fr(PARENTS_HIDDEN),
     };
     const changeNote: Note = {
       noteVersion: new Fr(1n),
@@ -175,22 +179,22 @@ describe("gen transfer_multisig KAT", () => {
       "0x2761654f0b4e9f47ac9bafe900c723ead042a888da718a34b6ecc8036850755e",
     );
     expect(hex(memoLeaf.toBigInt())).toBe(
-      "0x11903d804ce4720ec01b6c6653dacb1dc6db0af1017ce86a64e7e7888b2afedd",
+      "0x078de93a5d7d0d4a119a39cc25d110afb5851fd6414905a9e7d82a8fd04ca519",
     );
     expect(hex(changeLeaf.toBigInt())).toBe(
       "0x0d6eb6dce077a02a8ccd1eb8d2053cf89139f154c26b59a9120bd3730a81fc49",
     );
     expect(hex(sig.R[0])).toBe(
-      "0x2bb54910730146df7c5ee69e8cec36d2cd3be40e1f973de458ce24c4c831eeb1",
+      "0x008babeca5f9585000f81e056618f155be2465d91cb96fe6816033427124216e",
     );
     expect(hex(sig.R[1])).toBe(
-      "0x168dccf0fdd2e58e723c2c5035f7136ce1cd807bfc2e80b9964cb42d7022f825",
+      "0x08ec1033e38655b06fee2209b3e635117d9df86e34340901e3c14c3d24f90848",
     );
     expect(hex(sig.z)).toBe(
-      "0x01a7b0c8126c889afd1bbe450314cf0c95ca5a21e463e9bbe9ba498ceb061bc6",
+      "0x0424497705eaf7f6ba5f214139a68360f95452f59e3ad516d5ecae9add7394c3",
     );
     expect(hex(m)).toBe(
-      "0x08fae7378961f64e3d781ff4ca52e77466fbde3b8230f8f64bf7729c6d459fb7",
+      "0x2bd99da50034a9638baf66ab2a38b9d6db9a7dc6f4f5b5a365b3ad815d4c5525",
     );
   });
 });
