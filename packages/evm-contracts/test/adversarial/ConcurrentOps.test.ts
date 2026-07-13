@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import { EventLog } from "ethers";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployDarkPoolFixture,
@@ -8,7 +9,7 @@ import {
   newSeededTree,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import { toFr, addressToFr, packParents } from "@hisoka/wallets";
+import { toFr, addressToFr, packParents, Fr } from "@hisoka/wallets";
 import { proveWithdraw, WithdrawInputs } from "@hisoka/prover";
 
 describe("Adversarial: Concurrent Operations", function () {
@@ -28,10 +29,25 @@ describe("Adversarial: Concurrent Operations", function () {
     // genesis leaf at index 0 + three deposits.
     expect(nextIdx).to.equal(4n);
 
+    // Deposits land concurrently, so the on-chain insertion order need not match
+    // the submission order; rebuild the local tree in actual leaf-index order.
+    const noteEvents = (await darkPool.queryFilter(
+      darkPool.filters.NewNote(),
+    )) as EventLog[];
+    const leafIndexOf = (commitment: Fr): number => {
+      const ev = noteEvents.find((e) =>
+        toFr(e.args.commitment).equals(commitment),
+      );
+      if (!ev)
+        throw new Error("deposit commitment missing from NewNote events");
+      return Number(ev.args.leafIndex);
+    };
     const tree = await newSeededTree();
-    await tree.insert(depA.commitment);
-    await tree.insert(depB.commitment);
-    await tree.insert(depC.commitment);
+    for (const dep of [depA, depB, depC].sort(
+      (a, b) => leafIndexOf(a.commitment) - leafIndexOf(b.commitment),
+    )) {
+      await tree.insert(dep.commitment);
+    }
     expect(await darkPool.isKnownRoot(tree.getRoot().toString())).to.equal(
       true,
     );
