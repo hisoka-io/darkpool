@@ -17,7 +17,7 @@ fn main(
     memo_eph: Field,
     change_note: Note,
     change_eph: Field,
-    ) -> pub (Field, Field, Field, Field, Field, Field, [Field; 7], Field, Field, [Field; 7]) {
+) -> pub (Field, Field, Field, Field, Field, Field, [Field; 7], Field, Field, [Field; 7]) {
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
 
@@ -35,9 +35,8 @@ fn main(
     let change = mint::mint_self_note(change_note, change_eph, compliance_pk);
 
     (
-        nullifier, computed_root, memo.leaf, memo.eph_pub.x, memo.tag,
-        memo.cek_wrap, memo.ciphertext, change.leaf, change.eph_pub.x,
-        change.ciphertext,
+        nullifier, computed_root, memo.leaf, memo.eph_pub.x, memo.tag, memo.cek_wrap,
+        memo.ciphertext, change.leaf, change.eph_pub.x, change.ciphertext,
     )
 }
 

@@ -45,8 +45,8 @@ fn main(
     verify_frost_spend(gpk, frost_r, frost_z, m);
 
     (
-        nullifier, computed_root, out1.leaf, out1.eph_pub.x, out1.ciphertext,
-        out2.leaf, out2.eph_pub.x, out2.ciphertext,
+        nullifier, computed_root, out1.leaf, out1.eph_pub.x, out1.ciphertext, out2.leaf,
+        out2.eph_pub.x, out2.ciphertext,
     )
 }
 

@@ -18,10 +18,7 @@ fn main(
 
     let minted = mint::mint_deposit(note, eph, compliance_pk);
 
-    (
-        minted.leaf, minted.eph_pub.x, note.value as Field, note.asset_id,
-        minted.ciphertext,
-    )
+    (minted.leaf, minted.eph_pub.x, note.value as Field, note.asset_id, minted.ciphertext)
 }
 
 // KAT: byte-identical to the TS/Solidity golden vector (sandbox gen_v2_fixtures, eph=5).

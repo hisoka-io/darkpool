@@ -30,10 +30,7 @@ fn main(
 
     let change = mint::mint_self_note(change_note, change_eph, compliance_pk);
 
-    (
-        nullifier, computed_root, old_note.asset_id, change.leaf, change.eph_pub.x,
-        change.ciphertext,
-    )
+    (nullifier, computed_root, old_note.asset_id, change.leaf, change.eph_pub.x, change.ciphertext)
 }
 
 fn spent_note() -> Note {

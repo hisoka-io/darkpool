@@ -33,8 +33,8 @@ fn main(
     let out2 = mint::mint_self_note(note_out_2, eph_2, compliance_pk);
 
     (
-        nullifier, computed_root, out1.leaf, out1.eph_pub.x, out1.ciphertext,
-        out2.leaf, out2.eph_pub.x, out2.ciphertext,
+        nullifier, computed_root, out1.leaf, out1.eph_pub.x, out1.ciphertext, out2.leaf,
+        out2.eph_pub.x, out2.ciphertext,
     )
 }
 

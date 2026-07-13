@@ -44,10 +44,7 @@ fn main(
     );
     verify_frost_spend(gpk, frost_r, frost_z, m);
 
-    (
-        nullifier, computed_root, old_note.asset_id, change.leaf, change.eph_pub.x,
-        change.ciphertext,
-    )
+    (nullifier, computed_root, old_note.asset_id, change.leaf, change.eph_pub.x, change.ciphertext)
 }
 
 // Output guards run before verify_frost_spend, so a never-reached dummy (frost_r, frost_z) suffices.
