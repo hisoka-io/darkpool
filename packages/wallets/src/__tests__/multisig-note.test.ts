@@ -163,7 +163,9 @@ describe("multisig scan: read a MULTISIG note end to end (incoming + self)", () 
     });
     const { viewPub, ownerCommitment } = await multisigAddress(gpk, v);
 
-    const eph = new Fr(randScalar());
+    // The emitted memo eph must be even-y so the member recovers it from x on-chain.
+    let eph = new Fr(randScalar());
+    while (!isEvenY(scalarBaseMul(eph.toBigInt()))) eph = new Fr(randScalar());
     const inc = await buildIncomingMultisigNote(
       eph,
       compliancePk,
@@ -258,7 +260,9 @@ describe("multisig scan: read a MULTISIG note end to end (incoming + self)", () 
     });
     const { viewPub, ownerCommitment } = await multisigAddress(gpk, v);
 
-    const eph = new Fr(randScalar());
+    // The emitted memo eph must be even-y so the member recovers it from x on-chain.
+    let eph = new Fr(randScalar());
+    while (!isEvenY(scalarBaseMul(eph.toBigInt()))) eph = new Fr(randScalar());
     const inc = await buildIncomingMultisigNote(
       eph,
       compliancePk,

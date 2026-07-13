@@ -2,7 +2,7 @@ mod mutation_tests;
 
 use ::ecdh::Point;
 use ::shared::{conservation, mint, TREE_DEPTH, verify_spend};
-use ::shared::note::{assert_parents_bound, Note};
+use ::shared::note::{assert_parents_bound, Note, PARENTS_HIDDEN};
 use ::shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, fixture_note};
 
 fn main(
@@ -17,7 +17,7 @@ fn main(
     memo_eph: Field,
     change_note: Note,
     change_eph: Field,
-    ) -> pub (Field, Field, Field, Field, Field, Field, Field, [Field; 7], Field, Field, Field, [Field; 7]) {
+    ) -> pub (Field, Field, Field, Field, Field, Field, [Field; 7], Field, Field, [Field; 7]) {
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
 
@@ -28,15 +28,15 @@ fn main(
     assert(old_note.asset_id == change_note.asset_id, "change asset mismatch");
     assert(memo_eph != change_eph, "ephemerals must be distinct");
     conservation::assert_conserved([old_note.value], [memo_note.value, change_note.value], 0);
-    assert_parents_bound(memo_note, [old_note_index, 0]);
+    assert(memo_note.parents == PARENTS_HIDDEN, "memo parents must be hidden sentinel");
     assert_parents_bound(change_note, [old_note_index, 0]);
 
     let memo = mint::mint_incoming_note(memo_note, memo_eph, compliance_pk, recipient_in_pub);
     let change = mint::mint_self_note(change_note, change_eph, compliance_pk);
 
     (
-        nullifier, computed_root, memo.leaf, memo.eph_pub.x, memo.eph_pub.y, memo.tag,
-        memo.cek_wrap, memo.ciphertext, change.leaf, change.eph_pub.x, change.eph_pub.y,
+        nullifier, computed_root, memo.leaf, memo.eph_pub.x, memo.tag,
+        memo.cek_wrap, memo.ciphertext, change.leaf, change.eph_pub.x,
         change.ciphertext,
     )
 }
@@ -53,8 +53,8 @@ fn memo_note() -> Note {
         conditions_hash: 0,
         value: 40,
         owner: 0x1113074e2fb269d979ad2b64e6fe70b1967c67b007b706600603b847306aefe3,
-        psi: 0x2ae9db6316c6ee380fa8c43bed4df9818e3207ff00b3cfb15a5ee1ef925f456d,
-        parents: 0,
+        psi: 0x017131231dbfc29f6bdfb775d6e859c148b7379acc2844380ff9f824fa7073ad,
+        parents: 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000,
     }
 }
 
@@ -84,7 +84,7 @@ global CY: Field = FIXTURE_COMPLIANCE_Y;
 // KAT: byte-identical to the TS/Solidity golden vector (memo eph 0x378 to in_key_j=4, change eph 9).
 #[test]
 fn test_transfer_kat() {
-    let (nf, root, memo_leaf, memo_x, memo_y, tag, cek_wrap, memo_ct, ch_leaf, ch_x, ch_y, ch_ct) = main(
+    let (nf, root, memo_leaf, memo_x, tag, cek_wrap, memo_ct, ch_leaf, ch_x, ch_ct) = main(
         CX,
         CY,
         recipient_in_pub(),
@@ -93,21 +93,19 @@ fn test_transfer_kat() {
         0,
         [0; TREE_DEPTH],
         memo_note(),
-        0x378,
+        15,
         change_note(),
         9,
     );
     assert(nf == 0x2761654f0b4e9f47ac9bafe900c723ead042a888da718a34b6ecc8036850755e);
     assert(root == 0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551);
-    assert(memo_leaf == 0x192da44b73da0d163a65d76aac64fd3bc8ab96f2a1bee6ed64bc284e0ec4c6f2);
-    assert(memo_x == 0x25fbe8bb651983f4e6651fb47245f7f058afcda6958a3e468dc50e8d77af07e6);
-    assert(memo_y == 0x2fe08fd5f557d0326251711696f8bfb3cfd33fc3c15168019ac86c9e8af6f3a9);
+    assert(memo_leaf == 0x24865e6a40c43311de26adacd9309c99c518638e7f6ff3c5823e275ae350d92a);
+    assert(memo_x == 0x0d2c8ddcfdd735e9fdd0d51538022ba533cfa83b81d2acec70b17f505c17f048);
     assert(tag == 0x1b16e357953d68d73398c838aa883cc65ddae2aef75a4bc437e4232afdbe43c8);
-    assert(cek_wrap == 0x1b67cde705ce9682a9d976006cff63dfcc524dedaf6f8d4bc31ac09bc3e084a6);
-    assert(memo_ct[0] == 0x29bb025dd94ba3d39cfc290a2b868a66b8053f6d9a6ecbf6aad13eec3430c45f);
+    assert(cek_wrap == 0x1c26e418b18e2072f8862447c7abbff3cc888b9bef1976bf14d7cf6910a926a0);
+    assert(memo_ct[0] == 0x068ce47d657722bad36cdc4a62ea2eda509a4d750d3aed5a6217f6bac4126413);
     assert(ch_leaf == 0x1dfb591c5a79719d6d3b8f3c602079a6c186a567bd8b3d1d8e7993a660ac5983);
     assert(ch_x == 0x0a677185fd6cd905b6a544b1006f4b3ea4a0dd596d47cabdab76a305859d928f);
-    assert(ch_y == 0x197ff60e146d51c662c83f975fdb7d86ed9a3be3d68ec62213c43264ef75a148);
     assert(ch_ct[6] == 0x186a5c31e828e71e5f90dd57189b8c718fc107fecda0a132f22e705a6896c8d6);
 }
 
@@ -124,7 +122,7 @@ fn audit_reject_memo_owner_mismatch() {
         0,
         [0; TREE_DEPTH],
         memo,
-        0x378,
+        15,
         change_note(),
         9,
     );
@@ -143,7 +141,7 @@ fn audit_reject_multisig_memo() {
         0,
         [0; TREE_DEPTH],
         memo,
-        0x378,
+        15,
         change_note(),
         9,
     );
@@ -167,7 +165,7 @@ fn audit_reject_reused_ephemeral() {
     );
 }
 
-#[test(should_fail_with = "output parents not bound to consumed inputs")]
+#[test(should_fail_with = "memo parents must be hidden sentinel")]
 fn audit_reject_forged_memo_parents() {
     let mut memo = memo_note();
     memo.parents = 0x100000000;
@@ -180,7 +178,7 @@ fn audit_reject_forged_memo_parents() {
         0,
         [0; TREE_DEPTH],
         memo,
-        0x378,
+        15,
         change_note(),
         9,
     );
@@ -199,7 +197,7 @@ fn audit_reject_value_inflation() {
         0,
         [0; TREE_DEPTH],
         memo,
-        0x378,
+        15,
         change_note(),
         9,
     );
@@ -218,7 +216,7 @@ fn audit_reject_change_asset_mismatch() {
         0,
         [0; TREE_DEPTH],
         memo_note(),
-        0x378,
+        15,
         change,
         9,
     );
@@ -228,7 +226,7 @@ fn audit_reject_change_asset_mismatch() {
 fn audit_reject_non_membership() {
     let mut path = [0; TREE_DEPTH];
     path[0] = 0x0abc;
-    let (_, root, _, _, _, _, _, _, _, _, _, _) = main(
+    let (_, root, _, _, _, _, _, _, _, _) = main(
         CX,
         CY,
         recipient_in_pub(),
@@ -237,7 +235,7 @@ fn audit_reject_non_membership() {
         0,
         path,
         memo_note(),
-        0x378,
+        15,
         change_note(),
         9,
     );

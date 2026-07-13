@@ -8,6 +8,12 @@ pub global NOTE_TYPE_STANDARD: Field = 0;
 pub global NOTE_TYPE_MULTISIG: Field = 1;
 pub global NOTE_TYPE_CONDITIONAL: Field = 2;
 
+// Counterparty-memo parents sentinel = BN254_Fr - 1. It is >= 2^64, so `unpack_parents` provably rejects it as a
+// real (u32, u32) index pack; a transfer memo binds parents to this instead of the sender's leaf index, hiding
+// the sender's tree position (compliance recovers the true source from the atomic tx).
+pub global PARENTS_HIDDEN: Field =
+    0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000;
+
 // A note_type outside the enabled set commits to a leaf no circuit consumes (silent burn).
 pub fn assert_valid_note_type(note_type: Field) {
     assert(

@@ -17,7 +17,7 @@ fn main(
     old_note_path: [Field; TREE_DEPTH],
     change_note: Note,
     change_eph: Field,
-) -> pub (Field, Field, Field, Field, Field, Field, [Field; 7]) {
+) -> pub (Field, Field, Field, Field, Field, [Field; 7]) {
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
 
@@ -32,7 +32,7 @@ fn main(
 
     (
         nullifier, computed_root, old_note.asset_id, change.leaf, change.eph_pub.x,
-        change.eph_pub.y, change.ciphertext,
+        change.ciphertext,
     )
 }
 
@@ -61,7 +61,7 @@ fn compliance() -> (Field, Field) {
 #[test]
 fn test_withdraw_kat() {
     let (cx, cy) = compliance();
-    let (nf, root, asset, change_leaf, epk_x, epk_y, ct) = main(
+    let (nf, root, asset, change_leaf, epk_x, ct) = main(
         40,
         0x1234567890123456789012345678901234567890,
         0,
@@ -79,7 +79,6 @@ fn test_withdraw_kat() {
     assert(asset == 0x1234567890123456789012345678901234567890);
     assert(change_leaf == 0x18509db8cff8ae040ded2a5ef14477885362213786db084c16c4b544f62776ef);
     assert(epk_x == 0x10c347ae3592776a678f9fc29ecd029f8297367209a4f28f7cb49b09bffd4145);
-    assert(epk_y == 0x113f8246f336e8d375c9daab552816825f481c210226f307bc863e017642566c);
     assert(ct[0] == 0x2bbfb5aee72b9356d592a976eac4ad5286227a78e9daa3d8c2cb843c882fdf2e);
 }
 
@@ -166,7 +165,7 @@ fn audit_reject_non_membership() {
     let (cx, cy) = compliance();
     let mut path = [0; TREE_DEPTH];
     path[0] = 0x0abc;
-    let (_, root, _, _, _, _, _) = main(
+    let (_, root, _, _, _, _) = main(
         40,
         0,
         0,

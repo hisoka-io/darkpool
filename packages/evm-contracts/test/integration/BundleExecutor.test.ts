@@ -326,7 +326,7 @@ describe("Integration: BundleExecutor", function () {
   it("expired deadline reverts before any withdraw", async function () {
     const { executor } = await loadFixture(deployExecutorFixture);
     const deadline = BigInt((await time.latest()) - 3600);
-    const dummyInputs = Array(18).fill(ethers.ZeroHash);
+    const dummyInputs = Array(17).fill(ethers.ZeroHash);
 
     await expect(
       executor.execute("0x", dummyInputs, [], deadline, []),

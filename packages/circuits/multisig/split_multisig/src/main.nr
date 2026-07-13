@@ -19,7 +19,7 @@ fn main(
     eph_1: Field,
     note_out_2: Note,
     eph_2: Field,
-) -> pub (Field, Field, Field, Field, Field, [Field; 7], Field, Field, Field, [Field; 7]) {
+) -> pub (Field, Field, Field, Field, [Field; 7], Field, Field, [Field; 7]) {
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
 
@@ -45,8 +45,8 @@ fn main(
     verify_frost_spend(gpk, frost_r, frost_z, m);
 
     (
-        nullifier, computed_root, out1.leaf, out1.eph_pub.x, out1.eph_pub.y, out1.ciphertext,
-        out2.leaf, out2.eph_pub.x, out2.eph_pub.y, out2.ciphertext,
+        nullifier, computed_root, out1.leaf, out1.eph_pub.x, out1.ciphertext,
+        out2.leaf, out2.eph_pub.x, out2.ciphertext,
     )
 }
 

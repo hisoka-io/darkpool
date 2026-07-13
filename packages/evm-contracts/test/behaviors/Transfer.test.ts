@@ -6,7 +6,6 @@ import {
   mintSelfNote,
   mintIncomingNote,
   evenYEphemeral,
-  subgroupScalar,
   newSeededTree,
   COMPLIANCE_PK,
   COMPLIANCE_SK,
@@ -16,7 +15,9 @@ import {
   toFr,
   addressToFr,
   packParents,
+  PARENTS_HIDDEN,
   publicKey,
+  recoverEvenY,
   deriveCek,
   demDecrypt,
 } from "@hisoka/wallets";
@@ -40,12 +41,12 @@ describe("DarkPool Behavior: Private Transfer", function () {
 
     const parents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
     const memo = await mintIncomingNote(
-      subgroupScalar(12345n),
+      evenYEphemeral(12345n),
       40n,
       bobInPub,
       bobInKey,
       assetFr,
-      parents,
+      PARENTS_HIDDEN,
     );
     const change = await mintSelfNote(
       evenYEphemeral(67890n),
@@ -94,12 +95,12 @@ describe("DarkPool Behavior: Private Transfer", function () {
 
     const parents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
     const memo = await mintIncomingNote(
-      subgroupScalar(1n),
+      evenYEphemeral(5n),
       50n,
       bobInPub,
       bobInKey,
       assetFr,
-      parents,
+      PARENTS_HIDDEN,
     );
     const change = await mintSelfNote(
       evenYEphemeral(2n),
@@ -147,11 +148,12 @@ describe("DarkPool Behavior: Private Transfer", function () {
       const bobInPub = publicKey(bobInKey);
       const dep = await makeDeposit(darkPool, token, alice, 100n);
       const memo = await mintIncomingNote(
-        subgroupScalar(memoEph),
+        evenYEphemeral(memoEph),
         40n,
         bobInPub,
         bobInKey,
         assetFr,
+        PARENTS_HIDDEN,
       );
       const change = await mintSelfNote(
         evenYEphemeral(changeEph),
@@ -180,8 +182,8 @@ describe("DarkPool Behavior: Private Transfer", function () {
     const p2 = await transferToBob(777n, 33333n, 44444n);
 
     const norm = (x: string): string => toFr(x).toString();
-    expect(p1.length).to.equal(26);
-    expect(p2.length).to.equal(26);
+    expect(p1.length).to.equal(24);
+    expect(p2.length).to.equal(24);
 
     // Past the protocol-public prefix [0,1] (compliance x/y), nullifier [2] and root [3], no value repeats
     // across the two payments: memo/change leaves, ephemerals, tag, cek_wrap, ciphertexts are all fresh.
@@ -192,13 +194,13 @@ describe("DarkPool Behavior: Private Transfer", function () {
       .filter((v) => tail1.has(v));
     expect(shared).to.deep.equal([]);
 
-    // Compliance decrypts each memo structurally: CEK = (complianceSk * memo_eph_pub).x, memo eph at [5,6],
-    // ciphertext at [9..15].
+    // Compliance decrypts each memo structurally: CEK = (complianceSk * memo_eph_pub).x. The memo ephemeral
+    // rides on-chain as x at [5] (even-y), recovered off-chain; ciphertext at [8..14].
     for (const pub of [p1, p2]) {
       const fr = pub.map((s) => toFr(s));
-      const ephPub: Point<bigint> = [fr[5].toBigInt(), fr[6].toBigInt()];
+      const ephPub: Point<bigint> = recoverEvenY(fr[5].toBigInt());
       const cek = deriveCek(new Fr(COMPLIANCE_SK), ephPub);
-      const plaintext = await demDecrypt(cek, fr.slice(9, 16));
+      const plaintext = await demDecrypt(cek, fr.slice(8, 15));
       expect(plaintext[4].equals(toFr(40n))).to.equal(true);
     }
   });

@@ -13,16 +13,16 @@ const VERIFIERS_DIR = resolve(process.cwd(), "contracts/verifiers");
 // replacement MUST accept all pre-existing notes, so the layout is frozen for the note set. The standard and
 // FROST-multisig twins MUST share one layout (one verify+effects helper routed by circuitId).
 const PUBLIC_INPUTS: Record<string, number> = {
-  DepositVerifier: 22,
-  WithdrawVerifier: 26,
-  TransferVerifier: 34,
-  JoinVerifier: 23,
-  SplitVerifier: 32,
-  PublicClaimVerifier: 22,
-  WithdrawMultisigVerifier: 26,
-  TransferMultisigVerifier: 34,
-  SplitMultisigVerifier: 32,
-  JoinMultisigVerifier: 23,
+  DepositVerifier: 21,
+  WithdrawVerifier: 25,
+  TransferVerifier: 32,
+  JoinVerifier: 22,
+  SplitVerifier: 30,
+  PublicClaimVerifier: 21,
+  WithdrawMultisigVerifier: 25,
+  TransferMultisigVerifier: 32,
+  SplitMultisigVerifier: 30,
+  JoinMultisigVerifier: 22,
 };
 const TWINS: [string, string][] = [
   ["WithdrawVerifier", "WithdrawMultisigVerifier"],

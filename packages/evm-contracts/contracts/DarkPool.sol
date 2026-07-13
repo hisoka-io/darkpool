@@ -96,7 +96,6 @@ contract DarkPool is
         uint256 indexed leafIndex,
         bytes32 indexed commitment,
         uint256 ephemeralPK_x,
-        uint256 ephemeralPK_y,
         bytes32[7] packedCiphertext
     );
 
@@ -106,7 +105,6 @@ contract DarkPool is
         bytes32 indexed commitment,
         uint256 indexed tag,
         uint256 ephemeralPK_x,
-        uint256 ephemeralPK_y,
         uint256 cekWrap,
         bytes32[7] packedCiphertext
     );
@@ -381,19 +379,19 @@ contract DarkPool is
     }
 
     /// @notice Deposit public assets into the shielded pool (funds a STANDARD or MULTISIG account).
-    /// @dev Layout: [0,1] compliance; [2] leaf; [3,4] eph_pub; [5] value; [6] asset; [7..13] ciphertext.
+    /// @dev Layout: [0,1] compliance; [2] leaf; [3] eph_pub.x; [4] value; [5] asset; [6..12] ciphertext.
     function deposit(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
-        if (_publicInputs.length != 14) revert InvalidInputsLength();
+        if (_publicInputs.length != 13) revert InvalidInputsLength();
         _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
 
         if (!_verifier(CIRCUIT_DEPOSIT).verify(_proof, _publicInputs))
             revert InvalidProof();
 
-        uint256 value = uint256(_publicInputs[5]);
-        address asset = address(uint160(uint256(_publicInputs[6])));
+        uint256 value = uint256(_publicInputs[4]);
+        address asset = address(uint160(uint256(_publicInputs[5])));
         if (value == 0) revert ValueZero();
 
         uint256 bal0 = IERC20(asset).balanceOf(address(this));
@@ -402,7 +400,7 @@ contract DarkPool is
             revert FeeOnTransferUnsupported();
         emit Deposited(msg.sender, asset, value);
 
-        _insertNote(_publicInputs, 2, 3, 4, 7);
+        _insertNote(_publicInputs, 2, 3, 6);
     }
 
     /// @notice Withdraw private assets to a public address (single-signer spend).
@@ -472,7 +470,7 @@ contract DarkPool is
     /**
      * @dev Withdraw verify+effects shared by single-signer (id 1) and FROST-multisig (id 6).
      *      Layout: [0] value; [1] recipient; [2] intent_hash; [3,4] compliance; [5] nullifier; [6] root;
-     *      [7] asset; [8] change leaf; [9,10] change eph_pub; [11..17] change ciphertext.
+     *      [7] asset; [8] change leaf; [9] change eph_pub.x; [10..16] change ciphertext.
      *      Code-gate: a recipient with code (incl. EIP-7702-delegated EOA) must self-submit.
      *      No freshness bound by design: any historical known root is spendable; the nullifier set is the
      *      double-spend guard.
@@ -482,7 +480,7 @@ contract DarkPool is
         bytes32[] calldata _publicInputs,
         uint256 circuitId
     ) internal {
-        if (_publicInputs.length != 18) revert InvalidInputsLength();
+        if (_publicInputs.length != 17) revert InvalidInputsLength();
 
         address recipient = address(uint160(uint256(_publicInputs[1])));
         if (recipient.code.length > 0 && msg.sender != recipient)
@@ -499,7 +497,7 @@ contract DarkPool is
         bytes32 nullifierHash = _publicInputs[5];
         _spendNullifier(nullifierHash);
 
-        _insertNote(_publicInputs, 8, 9, 10, 11);
+        _insertNote(_publicInputs, 8, 9, 10);
 
         uint256 withdrawValue = uint256(_publicInputs[0]);
         address asset = address(uint160(uint256(_publicInputs[7])));
@@ -513,57 +511,11 @@ contract DarkPool is
 
     /**
      * @dev Transfer verify+effects (ids 2 / 7).
-     *      Layout: [0,1] compliance; [2] nullifier; [3] root; [4] memo leaf; [5,6] memo eph_pub; [7] tag;
-     *      [8] cek_wrap; [9..15] memo ciphertext; [16] change leaf; [17,18] change eph_pub;
-     *      [19..25] change ciphertext.
+     *      Layout: [0,1] compliance; [2] nullifier; [3] root; [4] memo leaf; [5] memo eph_pub.x; [6] tag;
+     *      [7] cek_wrap; [8..14] memo ciphertext; [15] change leaf; [16] change eph_pub.x;
+     *      [17..23] change ciphertext.
      */
     function _transfer(
-        bytes calldata _proof,
-        bytes32[] calldata _publicInputs,
-        uint256 circuitId
-    ) internal {
-        if (_publicInputs.length != 26) revert InvalidInputsLength();
-        if (!_treeStorage().tree.isKnownRoot[_publicInputs[3]])
-            revert InvalidRoot();
-        _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
-
-        if (!_verifier(circuitId).verify(_proof, _publicInputs))
-            revert InvalidProof();
-
-        _spendNullifier(_publicInputs[2]);
-        _insertMemoAt(_publicInputs, 4);
-        _insertNote(_publicInputs, 16, 17, 18, 19);
-    }
-
-    /**
-     * @dev Join verify+effects (ids 3 / 9).
-     *      Layout: [0,1] compliance; [2] nullifier_a; [3] nullifier_b; [4] root; [5] out leaf;
-     *      [6,7] out eph_pub; [8..14] out ciphertext.
-     */
-    function _join(
-        bytes calldata _proof,
-        bytes32[] calldata _publicInputs,
-        uint256 circuitId
-    ) internal {
-        if (_publicInputs.length != 15) revert InvalidInputsLength();
-        if (!_treeStorage().tree.isKnownRoot[_publicInputs[4]])
-            revert InvalidRoot();
-        _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
-
-        if (!_verifier(circuitId).verify(_proof, _publicInputs))
-            revert InvalidProof();
-
-        _spendNullifier(_publicInputs[2]);
-        _spendNullifier(_publicInputs[3]);
-        _insertNote(_publicInputs, 5, 6, 7, 8);
-    }
-
-    /**
-     * @dev Split verify+effects (ids 4 / 8).
-     *      Layout: [0,1] compliance; [2] nullifier; [3] root; [4] out1 leaf; [5,6] out1 eph_pub;
-     *      [7..13] out1 ciphertext; [14] out2 leaf; [15,16] out2 eph_pub; [17..23] out2 ciphertext.
-     */
-    function _split(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs,
         uint256 circuitId
@@ -577,8 +529,54 @@ contract DarkPool is
             revert InvalidProof();
 
         _spendNullifier(_publicInputs[2]);
-        _insertNote(_publicInputs, 4, 5, 6, 7);
-        _insertNote(_publicInputs, 14, 15, 16, 17);
+        _insertMemoAt(_publicInputs, 4);
+        _insertNote(_publicInputs, 15, 16, 17);
+    }
+
+    /**
+     * @dev Join verify+effects (ids 3 / 9).
+     *      Layout: [0,1] compliance; [2] nullifier_a; [3] nullifier_b; [4] root; [5] out leaf;
+     *      [6] out eph_pub.x; [7..13] out ciphertext.
+     */
+    function _join(
+        bytes calldata _proof,
+        bytes32[] calldata _publicInputs,
+        uint256 circuitId
+    ) internal {
+        if (_publicInputs.length != 14) revert InvalidInputsLength();
+        if (!_treeStorage().tree.isKnownRoot[_publicInputs[4]])
+            revert InvalidRoot();
+        _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
+
+        if (!_verifier(circuitId).verify(_proof, _publicInputs))
+            revert InvalidProof();
+
+        _spendNullifier(_publicInputs[2]);
+        _spendNullifier(_publicInputs[3]);
+        _insertNote(_publicInputs, 5, 6, 7);
+    }
+
+    /**
+     * @dev Split verify+effects (ids 4 / 8).
+     *      Layout: [0,1] compliance; [2] nullifier; [3] root; [4] out1 leaf; [5] out1 eph_pub.x;
+     *      [6..12] out1 ciphertext; [13] out2 leaf; [14] out2 eph_pub.x; [15..21] out2 ciphertext.
+     */
+    function _split(
+        bytes calldata _proof,
+        bytes32[] calldata _publicInputs,
+        uint256 circuitId
+    ) internal {
+        if (_publicInputs.length != 22) revert InvalidInputsLength();
+        if (!_treeStorage().tree.isKnownRoot[_publicInputs[3]])
+            revert InvalidRoot();
+        _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
+
+        if (!_verifier(circuitId).verify(_proof, _publicInputs))
+            revert InvalidProof();
+
+        _spendNullifier(_publicInputs[2]);
+        _insertNote(_publicInputs, 4, 5, 6);
+        _insertNote(_publicInputs, 13, 14, 15);
     }
 
     /// @notice Post a public memo redeemable by a designated key into the shielded pool.
@@ -617,13 +615,13 @@ contract DarkPool is
     }
 
     /// @notice Claim a public memo into a shielded self note.
-    /// @dev Layout: [0] memoId; [1,2] compliance; [3] current_timestamp; [4] leaf; [5,6] eph_pub;
-    ///      [7..13] ciphertext. The circuit gates the memo timelock on [3]; the contract ceilings it near now.
+    /// @dev Layout: [0] memoId; [1,2] compliance; [3] current_timestamp; [4] leaf; [5] eph_pub.x;
+    ///      [6..12] ciphertext. The circuit gates the memo timelock on [3]; the contract ceilings it near now.
     function publicClaim(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
-        if (_publicInputs.length != 14) revert InvalidInputsLength();
+        if (_publicInputs.length != 13) revert InvalidInputsLength();
 
         bytes32 memoId = _publicInputs[0];
         MemoStorage storage m = _memoStorage();
@@ -639,7 +637,7 @@ contract DarkPool is
         m.isPublicMemoSpent[memoId] = true;
         emit PublicMemoSpent(memoId);
 
-        _insertNote(_publicInputs, 4, 5, 6, 7);
+        _insertNote(_publicInputs, 4, 5, 6);
     }
 
     function _setVerifier(uint256 circuitId, address newVerifier) internal {
@@ -662,7 +660,6 @@ contract DarkPool is
         bytes32[] calldata _publicInputs,
         uint256 leafIndex,
         uint256 epkXIndex,
-        uint256 epkYIndex,
         uint256 ctStartIndex
     ) internal {
         bytes32 commitment = _publicInputs[leafIndex];
@@ -683,12 +680,11 @@ contract DarkPool is
             insertedAt,
             commitment,
             uint256(_publicInputs[epkXIndex]),
-            uint256(_publicInputs[epkYIndex]),
             ct
         );
     }
 
-    /// @dev Memo inputs are contiguous from `leafIndex`: leaf, eph_x, eph_y, tag, cek_wrap, 7-word ciphertext.
+    /// @dev Memo inputs are contiguous from `leafIndex`: leaf, eph_x, tag, cek_wrap, 7-word ciphertext.
     function _insertMemoAt(
         bytes32[] calldata _publicInputs,
         uint256 leafIndex
@@ -696,13 +692,13 @@ contract DarkPool is
         bytes32 commitment = _publicInputs[leafIndex];
         uint256 insertedAt = _treeStorage().tree.insert(commitment);
 
-        // Contiguous ciphertext at leafIndex+5; verify() gates the input length upstream, so a single
+        // Contiguous ciphertext at leafIndex+4; verify() gates the input length upstream, so a single
         // calldatacopy of the 7 words is in-range and replaces the 7-iteration loop.
         bytes32[7] memory ct;
         assembly {
             calldatacopy(
                 ct,
-                add(_publicInputs.offset, mul(add(leafIndex, 5), 0x20)),
+                add(_publicInputs.offset, mul(add(leafIndex, 4), 0x20)),
                 0xe0
             )
         }
@@ -710,10 +706,9 @@ contract DarkPool is
         emit NewPrivateMemo(
             insertedAt,
             commitment,
-            uint256(_publicInputs[leafIndex + 3]),
-            uint256(_publicInputs[leafIndex + 1]),
             uint256(_publicInputs[leafIndex + 2]),
-            uint256(_publicInputs[leafIndex + 4]),
+            uint256(_publicInputs[leafIndex + 1]),
+            uint256(_publicInputs[leafIndex + 3]),
             ct
         );
     }

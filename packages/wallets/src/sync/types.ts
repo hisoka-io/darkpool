@@ -8,7 +8,6 @@ export interface UnprocessedEvent {
     leafIndex: bigint;
     commitment: string;
     ephemeralX: bigint;
-    ephemeralY: bigint;
     packedCiphertext: string[];
     // NEW_MEMO only: tag == in_pub_j.x, cekWrap wraps the content key to the recipient.
     tag?: bigint;

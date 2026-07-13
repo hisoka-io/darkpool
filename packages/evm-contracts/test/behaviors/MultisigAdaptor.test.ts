@@ -127,7 +127,7 @@ describe("Behavior: MockMultisigAdaptor (FROST withdraw -> public-transfer)", fu
 
   it("rejects a withdraw whose recipient is not the adaptor before touching the pool", async function () {
     const { adaptor, bob } = await loadFixture(deployAdaptorFixture);
-    const inputs = Array(18).fill(ethers.ZeroHash);
+    const inputs = Array(17).fill(ethers.ZeroHash);
     inputs[1] = ethers.zeroPadValue(bob.address, 32); // recipient != adaptor
     await expect(
       adaptor.pullAndForward("0x", inputs, 1n, 2n, 0n),
@@ -136,7 +136,7 @@ describe("Behavior: MockMultisigAdaptor (FROST withdraw -> public-transfer)", fu
 
   it("rejects a wrong-length public-input array", async function () {
     const { adaptor } = await loadFixture(deployAdaptorFixture);
-    const inputs = Array(17).fill(ethers.ZeroHash);
+    const inputs = Array(16).fill(ethers.ZeroHash);
     await expect(
       adaptor.pullAndForward("0x", inputs, 1n, 2n, 0n),
     ).to.be.revertedWithCustomError(adaptor, "InvalidInputsLength");

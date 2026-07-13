@@ -12,7 +12,13 @@ import {
   newSeededTree,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
-import { toFr, addressToFr, packParents, Fr } from "@hisoka/wallets";
+import {
+  toFr,
+  addressToFr,
+  packParents,
+  PARENTS_HIDDEN,
+  Fr,
+} from "@hisoka/wallets";
 import {
   proveWithdraw,
   proveTransfer,
@@ -32,12 +38,12 @@ import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
 // mis-sized against the on-chain verifier.
 const PAIRING_POINTS_SIZE = 8;
 const VERIFIER_NUM_PUBLIC_INPUTS: Record<string, number> = {
-  deposit: 22,
-  withdraw: 26,
-  transfer: 34,
-  join: 23,
-  split: 32,
-  publicClaim: 22,
+  deposit: 21,
+  withdraw: 25,
+  transfer: 32,
+  join: 22,
+  split: 30,
+  publicClaim: 21,
 };
 
 function bi(x: string): bigint {
@@ -55,7 +61,7 @@ function assertField(
 }
 
 describe("Semantic public-input index trace", function () {
-  it("deposit: [2] leaf, [3] tag, [5] value, [6] asset", async function () {
+  it("deposit: [2] leaf, [3] tag, [4] value, [5] asset", async function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
     const asset = addressToFr(await token.getAddress());
 
@@ -67,8 +73,8 @@ describe("Semantic public-input index trace", function () {
     );
     assertField(pi, 2, dep.built.commitment.toBigInt(), "leaf");
     assertField(pi, 3, dep.built.tag.toBigInt(), "tag");
-    assertField(pi, 5, 123n, "value");
-    assertField(pi, 6, asset.toBigInt(), "asset");
+    assertField(pi, 4, 123n, "value");
+    assertField(pi, 5, asset.toBigInt(), "asset");
   });
 
   it("withdraw: [0] value, [1] recipient, [5] nullifier, [6] root, [7] asset, [8] change leaf, [9] tag", async function () {
@@ -122,7 +128,7 @@ describe("Semantic public-input index trace", function () {
     expect(await darkPool.isNullifierSpent(pi[5]!)).to.equal(true);
   });
 
-  it("privateTransfer: [2] nullifier, [3] root, [4] memo leaf, [7] tag, [16] change leaf", async function () {
+  it("privateTransfer: [2] nullifier, [3] root, [4] memo leaf, [6] tag, [15] change leaf", async function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
     const asset = addressToFr(await token.getAddress());
 
@@ -133,14 +139,14 @@ describe("Semantic public-input index trace", function () {
 
     const recipientInKey = evenYEphemeral(0x1234n);
     const recipientInPub = mulPointEscalar(Base8, recipientInKey.toBigInt());
-    const memoEph = subgroupScalar(0x55aan);
+    const memoEph = evenYEphemeral(0x55aan);
     const memo = await mintIncomingNote(
       memoEph,
       30n,
       recipientInPub,
       toFr(0n),
       asset,
-      packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
+      PARENTS_HIDDEN,
     );
 
     const spendScalar = await userSpendScalar(alice.address);
@@ -172,8 +178,8 @@ describe("Semantic public-input index trace", function () {
     );
     assertField(pi, 3, root.toBigInt(), "root");
     assertField(pi, 4, memo.commitment.toBigInt(), "memo leaf");
-    assertField(pi, 7, new Fr(recipientInPub[0]).toBigInt(), "tag");
-    assertField(pi, 16, change.commitment.toBigInt(), "change leaf");
+    assertField(pi, 6, new Fr(recipientInPub[0]).toBigInt(), "tag");
+    assertField(pi, 15, change.commitment.toBigInt(), "change leaf");
     expect(bi(pi[2]!)).to.not.equal(root.toBigInt());
     expect(bi(pi[2]!)).to.not.equal(memo.commitment.toBigInt());
     await darkPool
@@ -229,7 +235,7 @@ describe("Semantic public-input index trace", function () {
     expect(await darkPool.isNullifierSpent(pi[3]!)).to.equal(true);
   });
 
-  it("split: [2] nullifier, [3] root, [4] out1 leaf, [5] out1 tag, [14] out2 leaf, [15] out2 tag", async function () {
+  it("split: [2] nullifier, [3] root, [4] out1 leaf, [5] out1 tag, [13] out2 leaf, [14] out2 tag", async function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
     const asset = addressToFr(await token.getAddress());
 
@@ -273,8 +279,8 @@ describe("Semantic public-input index trace", function () {
     assertField(pi, 3, root.toBigInt(), "root");
     assertField(pi, 4, out1.commitment.toBigInt(), "out1 leaf");
     assertField(pi, 5, out1.tag.toBigInt(), "out1 tag");
-    assertField(pi, 14, out2.commitment.toBigInt(), "out2 leaf");
-    assertField(pi, 15, out2.tag.toBigInt(), "out2 tag");
+    assertField(pi, 13, out2.commitment.toBigInt(), "out2 leaf");
+    assertField(pi, 14, out2.tag.toBigInt(), "out2 tag");
     expect(bi(pi[2]!)).to.not.equal(root.toBigInt());
     await darkPool.connect(alice).split(proof.proof, proof.publicInputs);
     expect(await darkPool.isNullifierSpent(pi[2]!)).to.equal(true);

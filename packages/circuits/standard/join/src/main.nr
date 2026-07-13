@@ -18,7 +18,7 @@ fn main(
     path_b: [Field; TREE_DEPTH],
     note_out: Note,
     eph_out: Field,
-) -> pub (Field, Field, Field, Field, Field, Field, [Field; 7]) {
+) -> pub (Field, Field, Field, Field, Field, [Field; 7]) {
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
 
@@ -36,7 +36,7 @@ fn main(
 
     let out = mint::mint_self_note(note_out, eph_out, compliance_pk);
 
-    (nullifier_a, nullifier_b, root_a, out.leaf, out.eph_pub.x, out.eph_pub.y, out.ciphertext)
+    (nullifier_a, nullifier_b, root_a, out.leaf, out.eph_pub.x, out.ciphertext)
 }
 
 fn note(value: u128, psi: Field) -> Note {
@@ -78,7 +78,7 @@ fn test_join_kat() {
     let mut path_b = [0; TREE_DEPTH];
     path_b[0] = LEAF_A;
 
-    let (nf_a, nf_b, root, leaf, epk_x, epk_y, ct) = main(
+    let (nf_a, nf_b, root, leaf, epk_x, ct) = main(
         CX,
         CY,
         note_a,
@@ -97,7 +97,6 @@ fn test_join_kat() {
     assert(root == 0x23bbb50573c7f196c32e4fd8cd8e1d3fe32285e77deddc2bdcb2728ee512b8bb);
     assert(leaf == 0x1b008ec77c6cb53d1f0cafce3e1e993cb1b0b828173ac378e809547f83972038);
     assert(epk_x == 0x239a26d12954771a03d624b21a260f447412b746b66eede628a2f0af3be0a212);
-    assert(epk_y == 0x00ba27f648e334fba30865fee39f857d8f64a0417d2b8cd5fc2f238d64cd3d1e);
     assert(ct[0] == 0x059d4801f52074b83e793e4c9461d1686c52340eb324ae906ee4392535da6a57);
 }
 

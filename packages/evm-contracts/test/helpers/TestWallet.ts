@@ -6,6 +6,9 @@ import {
   toFr,
   addressToFr,
   packParents,
+  PARENTS_HIDDEN,
+  isEvenY,
+  publicKey,
   KeyRepository,
   InMemoryEphemeralCounterStore,
   UtxoRepository,
@@ -230,14 +233,19 @@ export class TestWallet {
       { leafIndex: 0 },
     ]);
 
-    const memoEph = subgroupScalar(ethers.toBigInt(ethers.randomBytes(16)));
+    // The emitted memo eph_pub must be even-y so its y is recoverable off-chain; roll until even.
+    let memoEph = subgroupScalar(ethers.toBigInt(ethers.randomBytes(16)));
+    while (!isEvenY(publicKey(memoEph))) {
+      memoEph = subgroupScalar(ethers.toBigInt(ethers.randomBytes(16)));
+    }
+    // The counterparty memo binds parents to the hidden sentinel, not the sender's index.
     const memo = await mintIncomingNote(
       memoEph,
       amount,
       recipientInPub,
       toFr(0n),
       assetFr,
-      parents,
+      PARENTS_HIDDEN,
     );
 
     const { eph: changeEph } = await this.keyRepo.nextSelfEphemeral();

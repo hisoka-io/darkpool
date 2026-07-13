@@ -25,7 +25,7 @@ contract BundleExecutor is ReentrancyGuard {
         21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
     /// @dev Withdraw public-input layout: [0] value, [1] recipient, [2] intent hash, [7] asset. See DarkPool.
-    uint256 internal constant WITHDRAW_INPUTS = 18;
+    uint256 internal constant WITHDRAW_INPUTS = 17;
     uint256 internal constant RECIPIENT_IDX = 1;
     uint256 internal constant INTENT_IDX = 2;
     uint256 internal constant NULLIFIER_IDX = 5;

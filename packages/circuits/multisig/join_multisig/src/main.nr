@@ -23,7 +23,7 @@ fn main(
     path_b: [Field; TREE_DEPTH],
     note_out: Note,
     eph_out: Field,
-) -> pub (Field, Field, Field, Field, Field, Field, [Field; 7]) {
+) -> pub (Field, Field, Field, Field, Field, [Field; 7]) {
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
     mint::assert_valid_compliance_pk(compliance_pk);
 
@@ -48,7 +48,7 @@ fn main(
     verify_frost_spend(gpk_a, frost_r_a, frost_z_a, m);
     verify_frost_spend(gpk_b, frost_r_b, frost_z_b, m);
 
-    (nullifier_a, nullifier_b, root_a, out.leaf, out.eph_pub.x, out.eph_pub.y, out.ciphertext)
+    (nullifier_a, nullifier_b, root_a, out.leaf, out.eph_pub.x, out.ciphertext)
 }
 
 // Output guards run before verify_frost_spend, so never-reached dummy (frost_r, frost_z) suffice.

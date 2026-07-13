@@ -8,7 +8,7 @@ import { demDecrypt } from "../crypto/dem.js";
 import { deriveCek } from "../crypto/kem.js";
 import { computeNullifier, computePsi } from "../note/nullifier.js";
 import { leaf as computeLeaf, Note } from "../note/note.js";
-import { isEvenY } from "../note/keys.js";
+import { isEvenY, recoverEvenY } from "../note/keys.js";
 import type { UnprocessedEvent } from "../sync/types.js";
 import {
   MultisigAddress,
@@ -116,10 +116,11 @@ export class MultisigScanner {
   async #readIncoming(
     event: UnprocessedEvent,
   ): Promise<MultisigNoteView | null> {
-    const { tag, cekWrap, ephemeralX, ephemeralY } = event.args;
+    const { tag, cekWrap, ephemeralX } = event.args;
     if (tag === undefined || cekWrap === undefined) return null;
     if (tagKey(tag) !== this.#incomingTag) return null;
-    const ephPub: Point = [ephemeralX, ephemeralY];
+    // Recover the even-y point from x before the member ECDH.
+    const ephPub: Point = recoverEvenY(ephemeralX);
     const cek = await memberReadIncoming(new Fr(cekWrap), this.#v, ephPub);
     return this.#recover(event, cek, true, undefined, undefined);
   }
@@ -189,7 +190,6 @@ export function selfNoteEvent(args: {
       leafIndex: args.leafIndex,
       commitment: args.commitment.toString(),
       ephemeralX: args.ephPub[0],
-      ephemeralY: args.ephPub[1],
       packedCiphertext: args.packedCiphertext.map((f) => f.toString()),
     },
   };
@@ -211,7 +211,6 @@ export function incomingNoteEvent(args: {
       leafIndex: args.leafIndex,
       commitment: args.commitment.toString(),
       ephemeralX: args.ephPub[0],
-      ephemeralY: args.ephPub[1],
       packedCiphertext: args.packedCiphertext.map((f) => f.toString()),
       tag: args.tag.toBigInt(),
       cekWrap: args.cekWrap.toBigInt(),

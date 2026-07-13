@@ -53,7 +53,7 @@ const DARKPOOL_ABI = [
   "function split(bytes proof, bytes32[] publicInputs)",
   "function getCurrentRoot() view returns (bytes32)",
   "event LeafInserted(uint256 indexed leafIndex, bytes32 leaf, bytes32 newRoot)",
-  "event NewNote(uint256 indexed leafIndex, bytes32 indexed commitment, uint256 ephemeralPK_x, uint256 ephemeralPK_y, bytes32[7] packedCiphertext)",
+  "event NewNote(uint256 indexed leafIndex, bytes32 indexed commitment, uint256 ephemeralPK_x, bytes32[7] packedCiphertext)",
 ];
 
 const MULTICALL_ABI = [
