@@ -18,6 +18,7 @@ const NAME_TO_FILE: Record<string, string> = {
   transfer_multisig: "TransferMultisigVerifier.sol",
   split_multisig: "SplitMultisigVerifier.sol",
   join_multisig: "JoinMultisigVerifier.sol",
+  swap_settle: "KageVerifier.sol",
 };
 
 const VK_HASH_RE = /uint256 constant VK_HASH = (0x[0-9a-fA-F]{64});/;
@@ -27,7 +28,7 @@ describe("VK-hash manifest parity", function () {
     readFileSync(resolve(VERIFIERS_DIR, "vk-hashes.json"), "utf8"),
   ) as Record<string, string>;
 
-  it("manifest covers exactly the 10 circuits", function () {
+  it("manifest covers exactly the 11 verifiers", function () {
     expect(Object.keys(manifest).sort()).to.deep.equal(
       Object.keys(NAME_TO_FILE).sort(),
     );

@@ -37,12 +37,12 @@ global CT_LEN: u32 = 7;
 // hash(vk)==key_hash (backend-defined; barretenberg enforces it, as Payy relies on in production), so it is gated
 // by an adversarial test: wrong VK / different-circuit proof / tampered public inputs all reject.
 pub global INTENT_VK_HASH: Field =
-    0x00fb71aeb00e890cc5e4e94bbc75ac0043eb2e0eb9e9a333461bf3c0eee38cb2;
+    0x2f282faa1ed7f0c76b2d4dfd8ef8555ad443c8fb448373936bb11a1f2678313b;
 pub global PROOF_TYPE: u32 = 6;
 // VK / proof widths are the compiled swap_intent's bb recursion values (verifierTarget noir-recursive); regenerate on
 // any swap_intent change. Tests never touch the recursion call (they drive settle_swap on real swap_intent output).
 pub global INTENT_VK_LEN: u32 = 115;
-pub global INTENT_PROOF_LEN: u32 = 500;
+pub global INTENT_PROOF_LEN: u32 = 458;
 
 // Public-input width swap_intent exposes (see pack_intent): 9 scalars + (leaf + eph_x + ct[7]) per note x 2.
 pub global INTENT_PI_LEN: u32 = 27;

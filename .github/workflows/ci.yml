@@ -35,7 +35,7 @@ jobs:
         run: |
           curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
           export PATH="$HOME/.nargo/bin:$PATH"
-          noirup -v 1.0.0-beta.19
+          noirup -v 1.0.0-beta.22
           echo "$HOME/.nargo/bin" >> $GITHUB_PATH
       - name: Check circuit formatting
         working-directory: packages/circuits
@@ -58,7 +58,7 @@ jobs:
         run: |
           curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
           export PATH="$HOME/.nargo/bin:$PATH"
-          noirup -v 1.0.0-beta.19
+          noirup -v 1.0.0-beta.22
           echo "$HOME/.nargo/bin" >> $GITHUB_PATH
       - run: pnpm install --frozen-lockfile
       - name: Build packages
@@ -84,7 +84,7 @@ jobs:
         run: |
           curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
           export PATH="$HOME/.nargo/bin:$PATH"
-          noirup -v 1.0.0-beta.19
+          noirup -v 1.0.0-beta.22
           echo "$HOME/.nargo/bin" >> $GITHUB_PATH
       - run: pnpm install --frozen-lockfile
       - name: Build all packages

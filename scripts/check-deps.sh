@@ -31,11 +31,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # --- Expected versions ---
-REQ_NARGO="1.0.0-beta.19"
+REQ_NARGO="1.0.0-beta.22"
 REQ_CARGO="1.80.0"
 REQ_JUST="1.40.0"
 REQ_NODE="20.0.0"
-REQ_BBJS="4.0.0-nightly.20260218"
+REQ_BBJS="5.0.0"
 REQ_TS="5.9.2"
 REQ_OZ_CONTRACTS="5.6.1"
 REQ_OZ_UPGRADEABLE="5.6.1"

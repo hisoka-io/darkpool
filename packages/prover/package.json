@@ -23,9 +23,9 @@
     "lint:fix": "eslint 'src/**/*.ts' --fix"
   },
   "dependencies": {
-    "@aztec/bb.js": "4.0.0-nightly.20260218",
+    "@aztec/bb.js": "5.0.0",
     "@aztec/foundation": "^2.0.4",
-    "@noir-lang/noir_js": "1.0.0-beta.19",
+    "@noir-lang/noir_js": "1.0.0-beta.22",
     "@hisoka/wallets": "workspace:*",
     "@zk-kit/baby-jubjub": "^1.0.3"
   },

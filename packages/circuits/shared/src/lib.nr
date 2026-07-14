@@ -30,7 +30,7 @@ pub fn lean_imt_inclusion_proof<let MAX_DEPTH: u32>(
     leaf_index: Field,
     siblings: [Field; MAX_DEPTH],
 ) -> Field {
-    let path_bits: [u1; MAX_DEPTH] = leaf_index.to_le_bits();
+    let path_bits: [bool; MAX_DEPTH] = leaf_index.to_le_bits();
     let mut current = leaf;
 
     for i in 0..MAX_DEPTH {
@@ -41,7 +41,7 @@ pub fn lean_imt_inclusion_proof<let MAX_DEPTH: u32>(
             let right = sibling + path_bit * (current - sibling);
             current = Poseidon2::hash([left, right], 2);
         } else {
-            assert(path_bits[i] == 0, "non-canonical leaf index: right child at empty level");
+            assert(!path_bits[i], "non-canonical leaf index: right child at empty level");
         }
     }
     current

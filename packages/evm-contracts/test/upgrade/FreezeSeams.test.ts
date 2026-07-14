@@ -30,7 +30,9 @@ const TWINS: [string, string][] = [
   ["SplitVerifier", "SplitMultisigVerifier"],
   ["JoinVerifier", "JoinMultisigVerifier"],
 ];
-const N_RE = /NUMBER_OF_PUBLIC_INPUTS = (\d+)/;
+// bb 5.0 --optimized verifiers name the total public-input count NUMBER_PUBLIC_INPUTS (4.x was
+// NUMBER_OF_PUBLIC_INPUTS); the frozen totals are unchanged (contract passes N - 8 pairing-point limbs).
+const N_RE = /constant NUMBER_PUBLIC_INPUTS = (\d+)/;
 const readN = (n: string): number =>
   Number(
     readFileSync(resolve(VERIFIERS_DIR, `${n}.sol`), "utf8").match(N_RE)![1],
@@ -39,12 +41,12 @@ const readN = (n: string): number =>
 describe("Freeze seams (Part I)", function () {
   describe("public-input layout manifest", function () {
     for (const [name, expected] of Object.entries(PUBLIC_INPUTS)) {
-      it(`${name}: NUMBER_OF_PUBLIC_INPUTS == ${expected} (contract passes ${expected - 8})`, function () {
+      it(`${name}: NUMBER_PUBLIC_INPUTS == ${expected} (contract passes ${expected - 8})`, function () {
         const m = readFileSync(
           resolve(VERIFIERS_DIR, `${name}.sol`),
           "utf8",
         ).match(N_RE);
-        expect(m, `NUMBER_OF_PUBLIC_INPUTS not found in ${name}`).to.not.equal(
+        expect(m, `NUMBER_PUBLIC_INPUTS not found in ${name}`).to.not.equal(
           null,
         );
         expect(Number(m![1])).to.equal(expected);

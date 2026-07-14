@@ -26,20 +26,9 @@ function calldataGas(hexData: string): number {
 }
 
 async function isolatedDepositVerifier() {
-  const zk = await (
-    await ethers.getContractFactory(
-      "contracts/verifiers/DepositVerifier.sol:ZKTranscriptLib",
-    )
-  ).deploy();
-  const zkAddr = await zk.getAddress();
   return await (
     await ethers.getContractFactory(
       "contracts/verifiers/DepositVerifier.sol:HonkVerifier",
-      {
-        libraries: {
-          "contracts/verifiers/DepositVerifier.sol:ZKTranscriptLib": zkAddr,
-        },
-      },
     )
   ).deploy();
 }
