@@ -1,5 +1,5 @@
 [package]
-name = "pre_swap"
+name = "swap_intent"
 type = "bin"
 authors = ["hisoka-io"]
 license = "Apache-2.0"

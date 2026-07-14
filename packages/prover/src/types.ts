@@ -106,3 +106,53 @@ export interface ProofData {
   publicInputs: string[];
   verified: boolean;
 }
+
+// Kage taker half (swap_intent, inner): spend the taker input, mint the taker's change + received self-notes.
+export interface SwapIntentInputs {
+  compliancePk: Point<bigint>;
+
+  noteIn: NoteInput;
+  spendScalar: Fr;
+  indexIn: number;
+  pathIn: Fr[];
+
+  changeNote: NoteInput;
+  changeEph: Fr;
+
+  receivedNote: NoteInput;
+  receivedEph: Fr;
+
+  toAsset: Fr;
+  fromAmount: Fr; // u128 range-checked at the marshal boundary
+  expiry: Fr;
+}
+
+// swap_intent's recursion artifacts, consumed as witness by swap_settle's std::verify_proof_with_type.
+export interface SwapIntentProof {
+  proof: Uint8Array;
+  proofAsFields: string[]; // INTENT_PROOF_LEN
+  publicInputs: string[]; // INTENT_PI_LEN
+  vkAsFields: string[]; // INTENT_VK_LEN
+  vkHash: string;
+  verified: boolean;
+}
+
+// Kage maker half (swap_settle, outer): verify the taker's proof inside, spend the maker input, mint the maker's
+// received + change self-notes.
+export interface SwapSettleInputs {
+  compliancePk: Point<bigint>;
+  currentTimestamp: Fr;
+
+  intent: SwapIntentProof;
+
+  makerNoteIn: NoteInput;
+  makerSpendScalar: Fr;
+  makerIndex: number;
+  makerPath: Fr[];
+
+  makerReceived: NoteInput;
+  makerReceivedEph: Fr;
+
+  makerChange: NoteInput;
+  makerChangeEph: Fr;
+}

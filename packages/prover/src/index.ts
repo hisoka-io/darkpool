@@ -11,3 +11,6 @@ export * from "./provers/withdrawMultisig.js";
 export * from "./provers/transferMultisig.js";
 export * from "./provers/splitMultisig.js";
 export * from "./provers/joinMultisig.js";
+export * from "./config.js";
+export * from "./provers/swapIntent.js";
+export * from "./provers/swapSettle.js";

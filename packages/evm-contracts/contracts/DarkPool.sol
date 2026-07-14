@@ -595,9 +595,9 @@ contract DarkPool is
 
     /**
      * @dev Kage verify+effects (id 10). One recursive proof settles both halves of a swap. Layout:
-     *      [0,1] compliance; [2] current_timestamp; [3] nullifier_a; [4] nullifier_b; [5] root;
-     *      [6] alice_change leaf; [7] eph_pub.x; [8..14] ciphertext; [15] alice_received leaf; [16] eph_pub.x;
-     *      [17..23] ciphertext; [24] bob_received leaf; [25] eph_pub.x; [26..32] ciphertext; [33] bob_change
+     *      [0,1] compliance; [2] current_timestamp; [3] taker_nullifier; [4] maker_nullifier; [5] root;
+     *      [6] taker_change leaf; [7] eph_pub.x; [8..14] ciphertext; [15] taker_received leaf; [16] eph_pub.x;
+     *      [17..23] ciphertext; [24] maker_received leaf; [25] eph_pub.x; [26..32] ciphertext; [33] maker_change
      *      leaf; [34] eph_pub.x; [35..41] ciphertext. All four outputs are self-notes; no ERC20 movement.
      */
     function _kage(
@@ -615,10 +615,10 @@ contract DarkPool is
 
         _spendNullifier(_publicInputs[3]);
         _spendNullifier(_publicInputs[4]);
-        _insertNote(_publicInputs, 6, 7, 8); // alice_change
-        _insertNote(_publicInputs, 15, 16, 17); // alice_received
-        _insertNote(_publicInputs, 24, 25, 26); // bob_received
-        _insertNote(_publicInputs, 33, 34, 35); // bob_change
+        _insertNote(_publicInputs, 6, 7, 8); // taker_change
+        _insertNote(_publicInputs, 15, 16, 17); // taker_received
+        _insertNote(_publicInputs, 24, 25, 26); // maker_received
+        _insertNote(_publicInputs, 33, 34, 35); // maker_change
     }
 
     /// @notice Post a public memo redeemable by a designated key into the shielded pool.
@@ -784,7 +784,7 @@ contract DarkPool is
     }
 
     /// @dev Floors a prover timestamp near now: the Kage circuit asserts current_timestamp < expiry, so a solver
-    ///      who picked a small timestamp could otherwise settle an expired swap against Alice's stale price. This
+    ///      who picked a small timestamp could otherwise settle an expired swap against the taker's stale price. This
     ///      is the OPPOSITE bound from _verifyProofTimestamp's ceiling.
     function _verifyProofTimestampFloor(uint256 timestamp) internal view {
         if (timestamp + PROOF_TIMESTAMP_TOLERANCE < block.timestamp)
