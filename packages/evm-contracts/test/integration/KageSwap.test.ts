@@ -32,9 +32,7 @@ async function deployStubbedDarkPool(): Promise<{
   const [admin] = await ethers.getSigners();
   const pos = await (await ethers.getContractFactory("Poseidon2")).deploy();
   await pos.waitForDeployment();
-  const stub = await (
-    await ethers.getContractFactory("StubVerifier")
-  ).deploy();
+  const stub = await (await ethers.getContractFactory("StubVerifier")).deploy();
   await stub.waitForDeployment();
   const stubAddr = await stub.getAddress();
   const verifiers = Array.from({ length: 11 }, () => stubAddr);
@@ -112,9 +110,9 @@ describe("kageSwap (effects + guards)", function () {
     });
     expect(newNotes.length).to.equal(4);
     // No ERC20 path exists in kageSwap (no token param, no transfer): a swap is purely internal.
-    expect(await ethers.provider.getBalance(await darkPool.getAddress())).to.equal(
-      0n,
-    );
+    expect(
+      await ethers.provider.getBalance(await darkPool.getAddress()),
+    ).to.equal(0n);
   });
 
   it("reverts InvalidRoot for a stale/unknown root", async function () {
@@ -148,7 +146,9 @@ describe("kageSwap (effects + guards)", function () {
 
   it("accepts current_timestamp inside the floor tolerance", async function () {
     const now = BigInt((await ethers.provider.getBlock("latest"))!.timestamp);
-    const pi = await kagePublicInputs(darkPool, { timestamp: now - TOLERANCE + 10n });
+    const pi = await kagePublicInputs(darkPool, {
+      timestamp: now - TOLERANCE + 10n,
+    });
     await expect(darkPool.kageSwap("0x", pi)).to.not.be.reverted;
   });
 

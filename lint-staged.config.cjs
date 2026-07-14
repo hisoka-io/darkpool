@@ -1,6 +1,6 @@
 module.exports = {
-  "**/*.{ts,tsx}": ["eslint --fix"],
-  "**/*.sol": ["solhint --fix"],
+  "**/*.{ts,tsx}": ["eslint --fix", "prettier --write"],
+  "**/*.sol": ["solhint --fix", "prettier --write"],
   "**/*.{js,cjs,mjs,json,md}": ["prettier --write"],
   "*": (filenames) => {
     const ignoredPaths = [
