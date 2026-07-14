@@ -8,20 +8,9 @@ import { KAGE_PROOF, KAGE_PUBLIC_INPUTS } from "./kageGolden";
 // exercises verify() directly; the e2e drives the same proof through kageSwap with full effects.
 describe("KageVerifier (on-chain recursive-proof KAT)", function () {
   async function deployVerifier() {
-    const zkTranscriptLib = await (
-      await ethers.getContractFactory(
-        "contracts/verifiers/KageVerifier.sol:ZKTranscriptLib",
-      )
-    ).deploy();
     const verifier = await (
       await ethers.getContractFactory(
         "contracts/verifiers/KageVerifier.sol:HonkVerifier",
-        {
-          libraries: {
-            "contracts/verifiers/KageVerifier.sol:ZKTranscriptLib":
-              await zkTranscriptLib.getAddress(),
-          },
-        },
       )
     ).deploy();
     return verifier;

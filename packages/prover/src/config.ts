@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 // build. Base circuits + the Kage INNER (swap_intent) proof stay on bb.js.
 export const BB_NATIVE_PATH: string =
   process.env.BB_NATIVE_PATH ?? resolve(homedir(), ".bb", "bb");
-export const BB_NATIVE_VERSION = "4.0.0-nightly.20260218";
+export const BB_NATIVE_VERSION = "5.0.0";
 
 // verify_proof_with_type proof-type: HONK_ZK in bb 4.0.0-nightly (7 is HN_FINAL/HyperNova, which UltraBuilder
 // rejects).
@@ -15,9 +15,9 @@ export const KAGE_PROOF_TYPE = 6;
 // vkHash-parity gate enforces: swap_intent's compiled recursion vkHash MUST equal this, or the recursion pin is
 // stale and swap_settle would reject every real proof.
 export const INTENT_VK_HASH =
-  "0x00fb71aeb00e890cc5e4e94bbc75ac0043eb2e0eb9e9a333461bf3c0eee38cb2";
+  "0x2f282faa1ed7f0c76b2d4dfd8ef8555ad443c8fb448373936bb11a1f2678313b";
 export const INTENT_VK_LEN = 115;
-export const INTENT_PROOF_LEN = 500;
+export const INTENT_PROOF_LEN = 458;
 export const INTENT_PI_LEN = 27;
 
 // swap_settle on-chain proof widths (native bb, -t evm). 42 public inputs = KageVerifier NUMBER_OF_PUBLIC_INPUTS

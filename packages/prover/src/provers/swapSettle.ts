@@ -8,7 +8,12 @@ import { circuit } from "../generated/swap_settle_circuit.js";
 import { SwapSettleInputs, ProofData } from "../types.js";
 import { marshalNote, pointHex } from "../marshal.js";
 import { ProofError } from "../errors.js";
-import { BB_NATIVE_PATH, BB_NATIVE_VERSION, SETTLE_PI_LEN } from "../config.js";
+import {
+  BB_NATIVE_PATH,
+  BB_NATIVE_VERSION,
+  SETTLE_PI_LEN,
+  SETTLE_PROOF_FIELDS,
+} from "../config.js";
 
 // The maker (a server/solver) proves swap_settle with NATIVE bb: the recursion (std::verify_proof_with_type) is
 // excluded from the bb.js WASM build. Witness generation is off bb.js/noir_js; only the prove step shells to the
@@ -110,6 +115,14 @@ export async function proveSwapSettle(
     );
 
     const proof = readFileSync(join(outDir, "proof"));
+    // SETTLE_PROOF_FIELDS is a frozen recursion-ABI width; a toolchain bump that changes the outer-proof size
+    // (as bb 5.0 changed the inner proof 500 -> 458) must fail here, not silently at on-chain verify.
+    if (proof.length !== SETTLE_PROOF_FIELDS * 32) {
+      throw new ProofError(
+        "swap_settle",
+        `outer-proof field-count drift: got ${proof.length / 32} want ${SETTLE_PROOF_FIELDS}`,
+      );
+    }
     const pubsBuf = readFileSync(join(outDir, "public_inputs"));
     const publicInputs: string[] = [];
     for (let i = 0; i < pubsBuf.length; i += 32) {

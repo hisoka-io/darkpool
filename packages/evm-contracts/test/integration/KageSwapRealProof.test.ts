@@ -34,20 +34,9 @@ async function deployAndSeedFixture(): Promise<{
   const stub = await (await ethers.getContractFactory("StubVerifier")).deploy();
   const stubAddr = await stub.getAddress();
 
-  const zkLib = await (
-    await ethers.getContractFactory(
-      "contracts/verifiers/KageVerifier.sol:ZKTranscriptLib",
-    )
-  ).deploy();
   const kageVerifier = await (
     await ethers.getContractFactory(
       "contracts/verifiers/KageVerifier.sol:HonkVerifier",
-      {
-        libraries: {
-          "contracts/verifiers/KageVerifier.sol:ZKTranscriptLib":
-            await zkLib.getAddress(),
-        },
-      },
     )
   ).deploy();
 

@@ -197,20 +197,11 @@ export async function deployDarkPoolFixture() {
   const Poseidon2Factory = await ethers.getContractFactory("Poseidon2");
   const poseidon2Lib = await Poseidon2Factory.deploy();
 
-  // The ZK-on Honk verifier externalizes ZKTranscriptLib to stay under EIP-170. The library body is
-  // byte-identical across all 10 verifiers, so one deployment links into every verifier.
-  const zkTranscriptLib = await (
-    await ethers.getContractFactory(
-      "contracts/verifiers/DepositVerifier.sol:ZKTranscriptLib",
-    )
-  ).deploy();
-  const zkTranscriptAddr = await zkTranscriptLib.getAddress();
-
+  // bb 5.0 --optimized verifiers are self-contained monolithic contracts (no externalized ZKTranscriptLib) and
+  // fit EIP-170 on their own.
   const deployVerifier = async (contractPath: string) => {
     const Verifier = await (
-      await ethers.getContractFactory(`${contractPath}:HonkVerifier`, {
-        libraries: { [`${contractPath}:ZKTranscriptLib`]: zkTranscriptAddr },
-      })
+      await ethers.getContractFactory(`${contractPath}:HonkVerifier`)
     ).deploy();
     return Verifier;
   };

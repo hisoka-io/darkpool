@@ -18,7 +18,7 @@
     "storage:check": "hardhat run scripts/snapshot-storage-layout.ts && git diff --exit-code -- .storage-layout"
   },
   "devDependencies": {
-    "@aztec/bb.js": "4.0.0-nightly.20260218",
+    "@aztec/bb.js": "5.0.0",
     "@aztec/foundation": "^2.0.4",
     "@hisoka-io/nox-client": "^0.1.9",
     "@hisoka-io/nox-wasm": "^0.1.4",

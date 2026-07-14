@@ -75,8 +75,8 @@ cat > "${ARCHIVE_DIR}/versions.json" << EOF
   "archived_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "solidity": "0.8.25",
   "optimizer": { "enabled": true, "runs": 1 },
-  "noir": "1.0.0-beta.19",
-  "bb_js": "4.0.0-nightly.20260218",
+  "noir": "1.0.0-beta.22",
+  "bb_js": "5.0.0",
   "hardhat": "$(npx hardhat --version 2>/dev/null || echo 'unknown')",
   "node": "$(node --version 2>/dev/null || echo 'unknown')",
   "archive_name": "${DEPLOYMENT_NAME}"

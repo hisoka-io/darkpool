@@ -199,18 +199,9 @@ export async function deployUniswapFixture() {
   const poseidon2Lib = await Poseidon2Factory.deploy(GAS_OVERRIDES);
   const poseidonAddress = await poseidon2Lib.getAddress();
 
-  // ZK-on verifiers externalize ZKTranscriptLib (identical across all 10); one deployment links into all.
-  const zkTranscriptLib = await (
-    await ethers.getContractFactory(
-      "contracts/verifiers/DepositVerifier.sol:ZKTranscriptLib",
-    )
-  ).deploy(GAS_OVERRIDES);
-  const zkTranscriptAddr = await zkTranscriptLib.getAddress();
-
+  // bb 5.0 --optimized verifiers are self-contained monolithic contracts (no externalized ZKTranscriptLib).
   const getVerifierFactory = async (path: string) => {
-    return ethers.getContractFactory(`${path}:HonkVerifier`, {
-      libraries: { [`${path}:ZKTranscriptLib`]: zkTranscriptAddr },
-    });
+    return ethers.getContractFactory(`${path}:HonkVerifier`);
   };
 
   const DepVerifier = await (
