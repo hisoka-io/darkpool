@@ -1,5 +1,5 @@
 [package]
-name = "recursive_swap"
+name = "swap_settle"
 type = "bin"
 authors = ["hisoka-io"]
 license = "Apache-2.0"

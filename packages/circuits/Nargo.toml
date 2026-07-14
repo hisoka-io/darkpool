@@ -12,6 +12,6 @@ members = [
     "multisig/split_multisig",
     "multisig/join_multisig",
     "kage/kage_lib",
-    "kage/pre_swap",
-    "kage/recursive_swap",
+    "kage/swap_intent",
+    "kage/swap_settle",
 ]

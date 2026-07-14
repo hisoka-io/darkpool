@@ -16,6 +16,7 @@
     "clean": "rm -rf dist src/generated *.tsbuildinfo",
     "build": "node ./scripts/compile_circuit.js && node ./scripts/generate_verifier.js && tsup",
     "test": "vitest run",
+    "test:native": "KAGE_NATIVE=1 vitest run src/__tests__/kageRecursion.native.test.ts",
     "benchmark": "node ./scripts/benchmark.mjs",
     "lint": "eslint 'src/**/*.ts'",
     "gen-verifier": "node ./scripts/generate_verifier.js",

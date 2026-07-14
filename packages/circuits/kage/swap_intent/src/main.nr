@@ -1,18 +1,18 @@
-//! Kage pre_swap (Alice / taker). Spends A_in (fromAsset) and mints her OWN two self-notes: the fromAsset change
-//! and the toAsset she wants to receive. Because Alice mints her received note herself, Bob cannot redirect or
-//! shortchange it. Fully client-provable (no recursion); Bob's recursive_swap verifies THIS proof inside itself.
-//! The 27 public inputs are consumed by Bob's circuit as witness and never surface on-chain. Logic + the full
+//! Kage swap_intent (the taker / taker). Spends A_in (fromAsset) and mints her OWN two self-notes: the fromAsset change
+//! and the toAsset she wants to receive. Because the taker mints her received note herself, the maker cannot redirect or
+//! shortchange it. Fully client-provable (no recursion); the maker's swap_settle verifies THIS proof inside itself.
+//! The 27 public inputs are consumed by the maker's circuit as witness and never surface on-chain. Logic + the full
 //! negative battery live in `kage_lib`.
 
 use ::ecdh::Point;
-use ::kage_lib::{ALICE_PI_LEN, pack_alice_pi, pre_swap_core};
+use ::kage_lib::{build_intent, INTENT_PI_LEN, pack_intent};
 use ::shared::note::Note;
 use ::shared::TREE_DEPTH;
 
-// pre_swap is an INNER proof (never submitted on-chain), so it has NO `pub` params: its ONLY public inputs are the
-// 27-wide return, which recursive_swap consumes as alice_public_inputs. compliance rides in the pack (indices
+// swap_intent is an INNER proof (never submitted on-chain), so it has NO `pub` params: its ONLY public inputs are the
+// 27-wide return, which swap_settle consumes as intent_public_inputs. compliance rides in the pack (indices
 // 2,3). Making compliance a `pub` param here would inflate the real public-input vector and duplicate compliance,
-// so a real pre_swap proof would fail recursive_swap's 27-wide verify.
+// so a real swap_intent proof would fail swap_settle's 27-wide verify.
 fn main(
     compliance_pubkey_x: Field,
     compliance_pubkey_y: Field,
@@ -27,9 +27,9 @@ fn main(
     to_asset: Field,
     from_amount: u128,
     expiry: Field,
-) -> pub [Field; ALICE_PI_LEN] {
+) -> pub [Field; INTENT_PI_LEN] {
     let compliance_pk = Point { x: compliance_pubkey_x, y: compliance_pubkey_y };
-    let pi = pre_swap_core(
+    let pi = build_intent(
         compliance_pk,
         note_in,
         spend_scalar,
@@ -43,7 +43,7 @@ fn main(
         from_amount,
         expiry,
     );
-    pack_alice_pi(pi)
+    pack_intent(pi)
 }
 
 mod kat {
@@ -79,7 +79,7 @@ mod kat {
     // nullifier + root, so a parity drift on the shared spend path fails here too. Pins the 27-wide scalar prefix
     // layout (indices 0..8) so a public-input reorder breaks the recursion ABI here.
     #[test]
-    fn pre_swap_accepts() {
+    fn swap_intent_accepts() {
         let c = Point { x: FIXTURE_COMPLIANCE_X, y: FIXTURE_COMPLIANCE_Y };
         let change = self_note(fixture_note().asset_id, 40, 9, c);
         let received = self_note(TO_ASSET, 50, 15, c);
@@ -98,7 +98,7 @@ mod kat {
             60,
             2000000000,
         );
-        assert(out[0] == 0x2761654f0b4e9f47ac9bafe900c723ead042a888da718a34b6ecc8036850755e); // nullifier_a
+        assert(out[0] == 0x2761654f0b4e9f47ac9bafe900c723ead042a888da718a34b6ecc8036850755e); // taker_nullifier
         assert(out[1] == 0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551); // root
         assert(out[2] == FIXTURE_COMPLIANCE_X); // compliance_x
         assert(out[3] == FIXTURE_COMPLIANCE_Y); // compliance_y
