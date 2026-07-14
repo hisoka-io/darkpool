@@ -212,9 +212,9 @@ describe("incoming-memo lifecycle (transfer memo fixture round-trip)", () => {
   });
 });
 
-// WN-1 regression: an incoming memo whose leaf/CEK/tag all match but whose `owner` is NOT the recipient's must be
-// DROPPED (a phantom, unspendable note = balance overstatement), not registered. Before the fix the incoming path
-// skipped the owner check, so it registered. A valid memo (owner == recipient) still registers.
+// An incoming memo whose leaf/CEK/tag all match but whose `owner` is NOT the recipient's must be
+// DROPPED (a phantom, unspendable note = balance overstatement), not registered.
+// A valid memo (owner == recipient) still registers.
 describe("WN-1: incoming note owner binding (phantom-note guard)", () => {
   const EPH = new Fr(8n);
   const IN_KEY = new Fr(4n);

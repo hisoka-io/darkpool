@@ -1,8 +1,6 @@
-//! Additive mutation harness for the `withdraw` circuit (Layer-1, constraint-level). Prove-then-mutate-then-
-//! reject: from a valid witness, flip ONE soundness-relevant asserted witness and require the constraint
-//! system to reject with the SPECIFIC guard message (a wrong-reason failure would not match `should_fail_with`,
-//! so a test only passes if the intended guard fired). Fields bound to a public OUTPUT (nullifier/root) are
-//! covered at the deployed-verifier layer (RealProofE2E), not here. No circuit logic is touched.
+//! Mutation harness: from a valid witness flip ONE soundness-relevant witness and require rejection with the
+//! specific guard (should_fail_with means a wrong-reason failure still fails). Public-output-bound fields
+//! (nullifier/root) are covered at the deployed-verifier layer (RealProofE2E), not here.
 
 use shared::mutation;
 use shared::note::Note;
@@ -21,7 +19,6 @@ fn change() -> Note {
     super::change_note()
 }
 
-// Full-arg runner with the valid transaction as defaults; each test overrides exactly one argument.
 fn run(wval: u128, cx: Field, cy: Field, o: Note, s: Field, idx: Field, ch: Note, eph: Field) {
     let _ = super::main(wval, 0, 0, cx, cy, o, s, idx, [0; TREE_DEPTH], ch, eph);
 }
@@ -36,7 +33,6 @@ fn m_valid_accepts() {
     valid(cx, cy);
 }
 
-// spend scalar / ownership
 #[test(should_fail_with = "spender does not own this note")]
 fn m_spend_scalar_wrong() {
     let (cx, cy) = super::compliance();
@@ -60,7 +56,6 @@ fn m_old_owner_mutated() {
     run(WVAL, cx, cy, o, SCALAR, 0, change(), EPH);
 }
 
-// spent-note membership fields
 #[test(should_fail_with = "unexpected note type")]
 fn m_old_note_type() {
     let (cx, cy) = super::compliance();
@@ -88,7 +83,6 @@ fn m_noncanonical_leaf_index() {
     run(WVAL, cx, cy, old(), SCALAR, 7, change(), EPH);
 }
 
-// value conservation / u128 overflow
 #[test(should_fail_with = "value not conserved")]
 fn m_value_not_conserved() {
     let (cx, cy) = super::compliance();
@@ -102,7 +96,6 @@ fn m_value_output_overflow() {
     run(1, cx, cy, old(), SCALAR, 0, ch, EPH);
 }
 
-// minted change-note guards
 #[test(should_fail_with = "note owner must be non-zero")]
 fn m_change_owner_zero() {
     let (cx, cy) = super::compliance();
@@ -146,7 +139,6 @@ fn m_change_parents_forged() {
     run(WVAL, cx, cy, old(), SCALAR, 0, ch, EPH);
 }
 
-// compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup)
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();
@@ -168,7 +160,6 @@ fn m_compliance_non_subgroup() {
     run(WVAL, p.x, p.y, old(), SCALAR, 0, change(), EPH);
 }
 
-// change ephemeral scalar (feeds the ECDH mul)
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_change_eph_zero() {
     let (cx, cy) = super::compliance();

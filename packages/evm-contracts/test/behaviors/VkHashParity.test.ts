@@ -2,9 +2,9 @@ import { expect } from "chai";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
-// Freeze-gap #1: pin every verifier's committed VK_HASH to the generated manifest, so a hand-edited or
-// half-regenerated verifier fails loudly here instead of silently at proof time (InvalidProof). The manifest
-// is written by prover/scripts/generate_verifier.js from the same verifier string it emits.
+// Pin every verifier's committed VK_HASH to the generated manifest, so a hand-edited or half-regenerated
+// verifier fails loudly here instead of silently at proof time (InvalidProof). The manifest is written by
+// prover/scripts/generate_verifier.js from the same verifier string it emits.
 const VERIFIERS_DIR = resolve(process.cwd(), "contracts/verifiers");
 
 const NAME_TO_FILE: Record<string, string> = {

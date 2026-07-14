@@ -48,7 +48,7 @@ async function deployWithTimelock() {
   const stub = await (await ethers.getContractFactory("StubVerifier")).deploy();
   await stub.waitForDeployment();
   const stubAddr = await stub.getAddress();
-  const verifierAddrs = Array.from({ length: 10 }, () => stubAddr);
+  const verifierAddrs = Array.from({ length: 11 }, () => stubAddr);
   const params: DarkPool.InitParamsStruct = {
     depositVerifier: verifierAddrs[0],
     withdrawVerifier: verifierAddrs[1],
@@ -60,6 +60,7 @@ async function deployWithTimelock() {
     transferMultisigVerifier: verifierAddrs[7],
     splitMultisigVerifier: verifierAddrs[8],
     joinMultisigVerifier: verifierAddrs[9],
+    kageVerifier: verifierAddrs[10],
     compliancePkX: BASE8_X,
     compliancePkY: BASE8_Y,
     initialAdminDelay: 0, // timelock holds DEFAULT_ADMIN immediately

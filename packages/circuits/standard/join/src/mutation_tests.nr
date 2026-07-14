@@ -1,9 +1,8 @@
-//! Additive mutation harness for the `join` circuit (Layer-1, constraint-level). Prove-then-mutate-then-reject:
-//! from the valid KAT witness, flip ONE soundness-relevant asserted field and require the constraint system to
-//! reject with the SPECIFIC guard message (a wrong-reason failure would not match `should_fail_with`). join
-//! consumes TWO input notes (a, b) into ONE self output, so every input guard is covered on BOTH a and b, plus
-//! the three two-input binding asserts (shared root, distinct nullifier, strict index order). Fields bound to a
-//! public OUTPUT (nullifiers/root) are covered at the deployed-verifier layer, not here. No circuit logic touched.
+//! Mutation harness: from the valid KAT witness flip ONE soundness-relevant field and require rejection with
+//! the specific guard (should_fail_with means a wrong-reason failure still fails). join consumes TWO inputs
+//! (a, b) into ONE output, so every input guard is covered on BOTH a and b, plus the three two-input binding
+//! asserts (shared root, distinct nullifier, strict index order). Public-output-bound fields (nullifiers/root)
+//! are covered at the deployed-verifier layer, not here.
 
 use shared::mutation;
 use shared::note::Note;
@@ -56,7 +55,6 @@ fn run(
     let _ = super::main(cx, cy, na, sa, ia, pa, nb, sb, ib, pb, no, eph);
 }
 
-// The byte-identical golden transaction; every should_fail test below overrides exactly one field off this.
 fn valid(cx: Field, cy: Field) {
     let (pa, pb) = kat_paths();
     run(
@@ -80,7 +78,6 @@ fn m_valid_accepts() {
     valid(super::CX, super::CY);
 }
 
-// compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup)
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();
@@ -158,7 +155,6 @@ fn m_compliance_non_subgroup() {
     );
 }
 
-// input A: spend scalar / ownership / membership fields
 #[test(should_fail_with = "spender does not own this note")]
 fn m_a_scalar_wrong() {
     let (pa, pb) = kat_paths();
@@ -314,7 +310,6 @@ fn m_a_noncanonical_index() {
     );
 }
 
-// input B: same guards on the second spend
 #[test(should_fail_with = "spender does not own this note")]
 fn m_b_scalar_wrong() {
     let (pa, pb) = kat_paths();
@@ -468,7 +463,6 @@ fn m_b_noncanonical_index() {
     );
 }
 
-// two-input binding asserts (join-specific)
 #[test(should_fail_with = "inputs must share a root")]
 fn m_root_mismatch() {
     let (pa, _pb) = kat_paths();
@@ -532,7 +526,6 @@ fn m_unordered_inputs() {
     );
 }
 
-// asset binding across the join (a==b, a==out)
 #[test(should_fail_with = "input asset mismatch")]
 fn m_input_asset_mismatch() {
     // Both inputs legitimately in the tree but carrying different assets: recompute siblings so the roots agree,
@@ -580,7 +573,6 @@ fn m_output_asset_mismatch() {
     );
 }
 
-// value conservation / u128 overflow
 #[test(should_fail_with = "value not conserved")]
 fn m_value_not_conserved() {
     let (pa, pb) = kat_paths();
@@ -628,7 +620,6 @@ fn m_value_overflow() {
     );
 }
 
-// self output note (mint_self_note)
 #[test(should_fail_with = "note owner must be non-zero")]
 fn m_out_owner_zero() {
     let (pa, pb) = kat_paths();
@@ -750,7 +741,6 @@ fn m_out_parents() {
     );
 }
 
-// output ephemeral scalar (feeds the ECDH mul)
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_eph_zero() {
     let (pa, pb) = kat_paths();

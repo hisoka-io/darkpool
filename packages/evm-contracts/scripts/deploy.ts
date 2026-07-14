@@ -196,6 +196,7 @@ async function main() {
     "contracts/verifiers/TransferMultisigVerifier.sol",
     "contracts/verifiers/SplitMultisigVerifier.sol",
     "contracts/verifiers/JoinMultisigVerifier.sol",
+    "contracts/verifiers/KageVerifier.sol",
   ];
   const verifiers: { verifier: string; name: string }[] = [];
   for (const p of verifierPaths)
@@ -290,6 +291,7 @@ async function main() {
         verifiers[7].verifier,
         verifiers[8].verifier,
         verifiers[9].verifier,
+        verifiers[10].verifier,
         compliance.pk[0],
         compliance.pk[1],
         ADMIN_TRANSFER_DELAY,
@@ -545,6 +547,7 @@ async function main() {
       transferMultisigVerifier: verifiers[7].verifier,
       splitMultisigVerifier: verifiers[8].verifier,
       joinMultisigVerifier: verifiers[9].verifier,
+      kageVerifier: verifiers[10].verifier,
       complianceRegistry: complianceRegistryAddr,
       noxRegistry: noxRegistryAddr,
       noxRewardPool: rewardPoolAddr,

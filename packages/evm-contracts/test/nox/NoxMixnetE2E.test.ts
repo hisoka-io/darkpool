@@ -59,7 +59,7 @@ async function createNoxClient(meshInfo: MeshInfo): Promise<NoxClient> {
 }
 
 describe("NOX Mixnet: Full DeFi E2E", function () {
-  this.timeout(600_000); // 10 min — ZK proofs + mixnet latency
+  this.timeout(600_000); // 10 min -- ZK proofs + mixnet latency
 
   let meshInfo: MeshInfo | null;
   let noxClient: any;

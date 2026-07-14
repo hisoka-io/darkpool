@@ -3,7 +3,7 @@ import { InMemoryEphemeralCounterStore } from "../state/EphemeralCounterStore.js
 import { DarkAccount } from "../keys/DarkAccount.js";
 import { KeyRepository } from "../state/KeyRepository.js";
 
-// WC-1 / I-1: a reused self-eph index reuses the CEK -> the additive Poseidon2 DEM keystream = two-time-pad.
+// A reused self-eph index reuses the CEK -> the additive Poseidon2 DEM keystream = two-time-pad.
 // The store's job is to make that structurally impossible: reserve() durably advances the high-water before any
 // index is handed out.
 describe("EphemeralCounterStore (WC-1)", () => {

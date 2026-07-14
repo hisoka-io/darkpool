@@ -38,7 +38,7 @@ const EXPECTED: Record<keyof typeof NS, string> = {
     "0x4c6336ddd730b3b6886dcf6c397e5676dac845842540c4592f4e52cea8e9ae00",
 };
 
-const VERIFIER_COUNT = 10;
+const VERIFIER_COUNT = 11;
 
 const REENTRANCY_LOCATION =
   "0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00";
@@ -164,7 +164,7 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
     expect(await slotValue(proxyAddr, REENTRANCY_LOCATION)).to.equal(1n);
   });
 
-  it("initialize set compliance key at version 1 and all 10 verifiers (init-path)", async function () {
+  it("initialize set compliance key at version 1 and all 11 verifiers (init-path)", async function () {
     const [x, y, version] = await darkpool.complianceKey();
     expect(x).to.equal(BASE8_X);
     expect(y).to.equal(BASE8_Y);

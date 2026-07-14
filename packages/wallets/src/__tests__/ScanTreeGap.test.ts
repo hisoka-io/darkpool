@@ -344,7 +344,7 @@ describe("ScanEngine NoteProcessor rejects (owner==0, assetId out of range)", ()
     const { keyRepo, utxoRepo } = freshRepos(account);
     const [d] = await evenYSelfIndices(account, 1, STANDARD_WINDOW);
 
-    // owner is the real self owner (so the WN-1 owner check would pass); only the asset-range guard drops it.
+    // owner is the real self owner (so the owner check would pass); only the asset-range guard drops it.
     const note = await selfNoteLog(account, d!, 0, 100n, {
       assetId: new Fr(ASSET_MODULUS),
     });

@@ -82,7 +82,7 @@ run("Verifier profile: verify vs overhead", function () {
   it("deposit / withdraw / split split", async function () {
     const verifier = await isolatedDepositVerifier();
 
-    // --- deposit (1 insert + ERC20 pull) ---
+    // deposit: 1 insert + ERC20 pull
     {
       const { darkPool, token, alice } = await loadFixture(
         deployDarkPoolFixture,
@@ -136,7 +136,7 @@ run("Verifier profile: verify vs overhead", function () {
       );
     }
 
-    // --- split (2 inserts, no ERC20) ---
+    // split: 2 inserts, no ERC20
     {
       const { darkPool, token, alice } = await loadFixture(
         deployDarkPoolFixture,

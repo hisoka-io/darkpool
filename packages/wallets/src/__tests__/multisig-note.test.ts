@@ -112,7 +112,7 @@ describe("multisig note VIEW layer (FROST accounts, decoupled owner/view, member
   });
 
   it("two spends never collide even if two members reuse the same counter index", async () => {
-    // Two members colliding on j=0 still yield distinct eph (the shared-v two-time-pad fix).
+    // Two members colliding on j=0 still yield distinct eph (no two-time-pad).
     const m1 = await deriveSelfEph(v, 1n, 0n);
     const m3 = await deriveSelfEph(v, 3n, 0n);
     expect(m1.eph.equals(m3.eph)).toBe(false);
