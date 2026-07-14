@@ -89,7 +89,14 @@ function main() {
   console.log(
     "--- Generating Solidity Verifiers (native bb 5.0 --optimized) ---",
   );
-  assertNativeBb();
+  try {
+    assertNativeBb();
+  } catch (e) {
+    // --optimized generation is CLI-only; when native bb is absent (CI, bb.js-only dev), keep the committed
+    // verifiers + manifest (guarded by VkHashParity) instead of failing the build.
+    console.log(`[skip] ${e.message}; keeping committed verifiers.`);
+    return;
+  }
   if (!existsSync(verifiersDir)) mkdirSync(verifiersDir, { recursive: true });
 
   const vkHashes = {};

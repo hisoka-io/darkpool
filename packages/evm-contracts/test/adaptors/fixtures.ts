@@ -234,6 +234,9 @@ export async function deployUniswapFixture() {
   const JoinMultisigVerifier = await (
     await getVerifierFactory("contracts/verifiers/JoinMultisigVerifier.sol")
   ).deploy(GAS_OVERRIDES);
+  const KageVerifier = await (
+    await getVerifierFactory("contracts/verifiers/KageVerifier.sol")
+  ).deploy(GAS_OVERRIDES);
 
   const MockRegistryFactory =
     await ethers.getContractFactory("MockNoxRegistry");
@@ -277,6 +280,7 @@ export async function deployUniswapFixture() {
         await TrfMultisigVerifier.getAddress(),
         await SplitMultisigVerifier.getAddress(),
         await JoinMultisigVerifier.getAddress(),
+        await KageVerifier.getAddress(),
         COMPLIANCE_PK[0],
         COMPLIANCE_PK[1],
         0,
