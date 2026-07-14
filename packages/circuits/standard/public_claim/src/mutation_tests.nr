@@ -1,11 +1,7 @@
-//! Additive mutation harness for the `public_claim` circuit (Layer-1, constraint-level). Prove-then-mutate-
-//! then-reject: from the valid KAT witness, flip ONE soundness-relevant asserted witness and require the
-//! constraint system to reject with the SPECIFIC guard message (a wrong-reason failure would not match
-//! `should_fail_with`, so a test only passes if the intended guard fired). This circuit is a public/
-//! conditional-memo claim, structurally unlike the spend circuits: it binds a memo commitment (memo_id =
-//! Poseidon2 over val/asset/timelock/owner-point/salt), a maturity timelock vs current_timestamp, and the
-//! recipient's spend authority (recipient_sk -> owner point), before minting the claimed self-note. No
-//! circuit logic is touched.
+//! Mutation harness: from the valid KAT witness flip ONE soundness-relevant witness and require rejection with
+//! the specific guard (should_fail_with means a wrong-reason failure still fails). public_claim binds a memo
+//! commitment (memo_id = Poseidon2 over val/asset/timelock/owner-point/salt), a maturity timelock vs
+//! current_timestamp, and the recipient's spend authority (recipient_sk -> owner point) before minting.
 
 use poseidon::poseidon2::Poseidon2;
 use shared::mutation;
@@ -31,8 +27,6 @@ fn memo(val: Field, asset: Field, timelock: Field, ox: Field, oy: Field, salt: F
     Poseidon2::hash([val, asset, timelock, ox, oy, salt], 6)
 }
 
-// Full-arg runner with the valid KAT as defaults; each test overrides exactly one witness (or, for the
-// memo-bound fields, a coordinated pair so the intended downstream guard is the one that fires).
 fn run(
     memo_id: Field,
     cx: Field,
@@ -238,7 +232,6 @@ fn m_memo_salt_field() {
     );
 }
 
-// timelock maturity: reject a premature claim (current_timestamp < timelock) with a matching memo
 #[test(should_fail_with = "Timelock has not expired")]
 fn m_timelock_premature() {
     let id = memo(VAL, ASSET, 1000, OWNER_X, OWNER_Y, SALT);
@@ -259,7 +252,6 @@ fn m_timelock_premature() {
     );
 }
 
-// recipient spend authority: recipient_sk -> owner point
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_recipient_sk_zero() {
     run(
@@ -356,7 +348,7 @@ fn m_owner_y_rebound() {
     );
 }
 
-// claimed note reconstruction: note_out must restate the memo-committed value/asset and carry no parents -
+// note_out must restate the memo-committed value/asset and carry no parents.
 #[test(should_fail_with = "claim value mismatch")]
 fn m_claim_value_mismatch() {
     let mut n = note();
@@ -418,7 +410,6 @@ fn m_claim_parents_nonzero() {
     );
 }
 
-// minted self-note guards (mint_self_note / mint_common)
 #[test(should_fail_with = "self note must be STANDARD")]
 fn m_note_type_not_standard() {
     let mut n = note();
@@ -520,7 +511,6 @@ fn m_note_psi_unbound() {
     );
 }
 
-// ephemeral scalar (feeds the compliance ECDH mul)
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_eph_zero() {
     run(
@@ -558,7 +548,6 @@ fn m_eph_ge_suborder() {
     );
 }
 
-// compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup)
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();

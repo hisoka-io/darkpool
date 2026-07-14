@@ -565,7 +565,7 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
     expect(await darkPool.getCurrentRoot()).to.equal(tree.getRoot().toString());
   });
 
-  // H1 at the proof layer: a multisig spend cannot mint its change to an owner off the account gpk. Every
+  // At the proof layer, a multisig spend cannot mint its change to an owner off the account gpk. Every
   // field is valid (including a real quorum signature) except the change owner, so the prover throws at
   // witness generation on mint_self_note_multisig's owner pin -- no proof of the theft can be produced.
   it("withdrawMultisig prover rejects an off-gpk change owner", async function () {

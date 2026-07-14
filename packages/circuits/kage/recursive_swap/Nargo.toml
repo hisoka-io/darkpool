@@ -1,0 +1,10 @@
+[package]
+name = "recursive_swap"
+type = "bin"
+authors = ["hisoka-io"]
+license = "Apache-2.0"
+
+[dependencies]
+kage_lib = { path = "../kage_lib" }
+shared = { path = "../../shared" }
+ecdh = { tag = "ecdh-v0.0.2", git = "https://github.com/zk-kit/zk-kit.noir", directory = "packages/ecdh" }

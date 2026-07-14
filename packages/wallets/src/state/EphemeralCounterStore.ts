@@ -1,4 +1,4 @@
-// Durable, single-writer self-ephemeral index reservation (WC-1 / I-1). A reused self-eph index reuses the
+// Durable, single-writer self-ephemeral index reservation. A reused self-eph index reuses the
 // CEK, hence the additive Poseidon2 DEM keystream, which is a two-time-pad on the note plaintext (and collides
 // psi/tag). The security barrier is reserve(): it durably raises the high-water BEFORE any index is handed out,
 // so a crash after reserve() can never reissue. Skipping indices is harmless; reusing one is catastrophic, so
@@ -118,7 +118,7 @@ export class InMemoryEphemeralCounterStore implements EphemeralCounterStore {
 }
 
 // Fail-closed default for a KeyRepository with no configured counter: refuse to hand out an index rather than
-// silently reuse self-eph indices from a non-durable counter (the WC-1 two-time-pad hazard). Production passes a
+// silently reuse self-eph indices from a non-durable counter (the two-time-pad hazard). Production passes a
 // durable backend; tests pass an explicit InMemoryEphemeralCounterStore. reserve() rejects, so nextSelfEphemeral
 // throws instead of minting.
 export class SealedEphemeralCounterStore implements EphemeralCounterStore {

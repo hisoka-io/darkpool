@@ -1,10 +1,8 @@
-//! Additive mutation harness for the `split` circuit (Layer-1, constraint-level). Prove-then-mutate-then-
-//! reject: from the valid KAT witness, flip ONE soundness-relevant asserted witness and require the constraint
-//! system to reject with the SPECIFIC guard message (a wrong-reason failure would not match `should_fail_with`,
-//! so a test only passes if the intended guard fired). Fields bound only to a public OUTPUT (nullifier/root/
-//! leaf/eph_pub/ciphertext) are covered at the deployed-verifier layer (RealProofE2E), not here. Guard order is
-//! load-bearing: outputs mint left-to-right, so an out_2 mint-field mutation only surfaces after out_1 mints
-//! clean. No circuit logic is touched.
+//! Mutation harness: from the valid KAT witness flip ONE soundness-relevant witness and require rejection with
+//! the specific guard (should_fail_with means a wrong-reason failure still fails). Public-output-bound fields
+//! (nullifier/root/leaf/eph_pub/ciphertext) are covered at the deployed-verifier layer (RealProofE2E). Guard
+//! order is load-bearing: outputs mint left-to-right, so an out_2 mint-field mutation surfaces only after out_1
+//! mints clean.
 
 use shared::mutation;
 use shared::note::Note;
@@ -36,7 +34,6 @@ fn compliance() -> (Field, Field) {
     (super::CX, super::CY)
 }
 
-// Full-arg runner with the valid split transaction as defaults; each test overrides exactly one argument.
 fn run(
     cx: Field,
     cy: Field,
@@ -61,7 +58,6 @@ fn m_valid_accepts() {
     valid(cx, cy);
 }
 
-// consumed note: ownership / membership fields
 #[test(should_fail_with = "spender does not own this note")]
 fn m_in_owner_mutated() {
     let (cx, cy) = compliance();
@@ -97,7 +93,6 @@ fn m_noncanonical_leaf_index() {
     run(cx, cy, note_in(), SCALAR, 7, out1(), EPH1, out2(), EPH2);
 }
 
-// spend scalar
 #[test(should_fail_with = "spender does not own this note")]
 fn m_spend_scalar_wrong() {
     let (cx, cy) = compliance();
@@ -114,7 +109,6 @@ fn m_spend_scalar_ge_suborder() {
     run(cx, cy, note_in(), SUBORDER, 0, out1(), EPH1, out2(), EPH2);
 }
 
-// value conservation / u128 overflow
 #[test(should_fail_with = "value not conserved")]
 fn m_value_not_conserved() {
     let (cx, cy) = compliance();
@@ -132,7 +126,6 @@ fn m_value_output_overflow() {
     run(cx, cy, note_in(), SCALAR, 0, o1, EPH1, o2, EPH2);
 }
 
-// minted self-output 1 guards
 #[test(should_fail_with = "note owner must be non-zero")]
 fn m_out1_owner_zero() {
     let (cx, cy) = compliance();
@@ -176,7 +169,7 @@ fn m_out1_parents_forged() {
     run(cx, cy, note_in(), SCALAR, 0, o1, EPH1, out2(), EPH2);
 }
 
-// minted self-output 2 guards (reached only after out_1 mints clean)
+// out_2 mint guards are reached only after out_1 mints clean.
 #[test(should_fail_with = "note owner must be non-zero")]
 fn m_out2_owner_zero() {
     let (cx, cy) = compliance();
@@ -220,7 +213,6 @@ fn m_out2_parents_forged() {
     run(cx, cy, note_in(), SCALAR, 0, out1(), EPH1, o2, EPH2);
 }
 
-// compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup)
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();
@@ -242,7 +234,6 @@ fn m_compliance_non_subgroup() {
     run(p.x, p.y, note_in(), SCALAR, 0, out1(), EPH1, out2(), EPH2);
 }
 
-// output ephemeral scalars (feed the ECDH mul) and their distinctness
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_eph1_zero() {
     let (cx, cy) = compliance();

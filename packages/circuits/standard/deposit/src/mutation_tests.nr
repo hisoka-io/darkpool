@@ -1,8 +1,5 @@
-//! Additive mutation harness for the `deposit` circuit (Layer-1, constraint-level). Prove-then-mutate-then-
-//! reject: from the valid KAT witness, flip ONE soundness-relevant asserted witness and require the constraint
-//! system to reject with the SPECIFIC guard message (a wrong-reason failure would not match `should_fail_with`,
-//! so a test only passes if the intended guard fired). deposit is the simplest circuit: no spend, no
-//! conservation, no change note; it only mints one self-note. No circuit logic is touched.
+//! Mutation harness: from the valid KAT witness flip ONE soundness-relevant witness and require rejection
+//! with the specific guard (should_fail_with means a wrong-reason failure still fails the test).
 
 use shared::mutation;
 use shared::note::Note;
@@ -16,7 +13,6 @@ fn note0() -> Note {
     fixture_note()
 }
 
-// Full-arg runner with the valid deposit as defaults; each test overrides exactly one argument.
 fn run(cx: Field, cy: Field, note: Note, eph: Field) {
     let _ = super::main(cx, cy, note, eph);
 }
@@ -30,7 +26,6 @@ fn m_valid_accepts() {
     valid();
 }
 
-// compliance key: BJJ curve-op entry (identity / off-curve / small-order / non-subgroup)
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();
@@ -52,7 +47,6 @@ fn m_compliance_non_subgroup() {
     run(p.x, p.y, note0(), EPH);
 }
 
-// minted note guards (mint_common)
 #[test(should_fail_with = "note owner must be non-zero")]
 fn m_owner_zero() {
     let mut note = note0();
@@ -97,7 +91,6 @@ fn m_parents_nonzero() {
     run(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note, EPH);
 }
 
-// ephemeral scalar (feeds the ECDH mul)
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_eph_zero() {
     run(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note0(), 0);

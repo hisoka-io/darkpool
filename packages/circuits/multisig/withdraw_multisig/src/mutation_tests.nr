@@ -1,8 +1,6 @@
-//! Additive mutation harness for the `withdraw_multisig` circuit (Layer-1). Prove (real 3-of-5 FROST KAT)
-//! then mutate one soundness-relevant witness / signed public input and require rejection with the specific
-//! guard. Adds the FROST surface (gpk / R / z / m) on top of the shared spend+mint+conservation surface.
-//! Guard order: assert_valid_compliance_pk -> open_multisig_note(gpk subgroup/identity, owner, note_type,
-//! membership) -> asset/conservation/parents -> mint_self_note_multisig -> verify_frost_spend(gpk,R,z,m).
+//! Mutation harness: prove the real 3-of-5 FROST KAT then mutate one soundness-relevant witness / signed
+//! public input and require rejection with the specific guard. Adds the FROST surface (gpk / R / z / m) on top
+//! of the shared spend+mint+conservation surface.
 
 use shared::mutation;
 use shared::note::Note;
@@ -27,7 +25,6 @@ fn out() -> Note {
     )
 }
 
-// Valid transaction as defaults; each test overrides exactly one argument.
 fn run(
     wval: u128,
     recip: Field,
@@ -88,7 +85,6 @@ fn m_valid_accepts() {
     );
 }
 
-// FROST: gpk (also feeds the multisig owner + FROST verify)
 #[test(should_fail_with = "gpk must not be the identity")]
 fn m_gpk_identity() {
     let p = mutation::bad_identity();
@@ -155,7 +151,6 @@ fn m_gpk_wrong_valid() {
     );
 }
 
-// FROST: R
 #[test(should_fail_with = "R must not be the identity")]
 fn m_frost_r_identity() {
     v(
@@ -206,7 +201,7 @@ fn m_frost_r_mutated() {
     );
 }
 
-// FROST: z + challenge/message binding (ScalarField<63> is derived, not a free witness)
+// ScalarField<63> challenge is derived from m, not a free witness.
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_frost_z_zero() {
     v(gpk(), r(), 0, inp(), 0, out(), super::KAT_CHANGE_EPH);
@@ -263,7 +258,6 @@ fn m_signed_intent_hash() {
     );
 }
 
-// spent multisig note membership
 #[test(should_fail_with = "spender does not own this multisig note")]
 fn m_old_owner_mutated() {
     let mut o = inp();
@@ -333,7 +327,6 @@ fn m_noncanonical_leaf_index() {
     );
 }
 
-// value conservation / overflow
 #[test(should_fail_with = "value not conserved")]
 fn m_value_not_conserved() {
     run(
@@ -371,7 +364,6 @@ fn m_value_output_overflow() {
     );
 }
 
-// minted change note (multisig-owned)
 #[test(should_fail_with = "multisig change/self must be owned by the account gpk")]
 fn m_change_owner_off_gpk() {
     let mut ch = out();
@@ -457,7 +449,6 @@ fn m_change_parents_forged() {
     );
 }
 
-// compliance key: BJJ curve-op entry
 #[test(should_fail_with = "compliance key must not be the identity")]
 fn m_compliance_identity() {
     let p = mutation::bad_identity();
@@ -495,7 +486,6 @@ fn m_compliance_non_subgroup() {
     );
 }
 
-// change ephemeral scalar
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_change_eph_zero() {
     v(gpk(), r(), super::KAT_FROST_Z, inp(), 0, out(), 0);

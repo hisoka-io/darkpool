@@ -6,7 +6,7 @@ import { resolve } from "path";
 import { deployDarkPoolFixture } from "../helpers/fixtures";
 import { BN254_FR } from "../helpers/merkleTree";
 
-// Part I freeze-seam gap-fills. Each KAT fails if its frozen value changes.
+// Each KAT fails if its frozen value changes.
 const VERIFIERS_DIR = resolve(process.cwd(), "contracts/verifiers");
 
 // The 10-circuit public-input layout is bound into each verifier's VK; a change forces a verifier+VK regen and a

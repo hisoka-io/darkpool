@@ -8,7 +8,7 @@ const CIRCUIT_WITHDRAW_MULTISIG = 6;
 const CIRCUIT_TRANSFER_MULTISIG = 7;
 const CIRCUIT_SPLIT_MULTISIG = 8;
 const CIRCUIT_JOIN_MULTISIG = 9;
-const CIRCUIT_COUNT = 10;
+const CIRCUIT_COUNT = 11;
 
 const zeros = (n: number): string[] => Array(n).fill(ethers.ZeroHash);
 

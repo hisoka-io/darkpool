@@ -51,7 +51,8 @@ contract DarkPool is
     uint256 private constant CIRCUIT_TRANSFER_MULTISIG = 7;
     uint256 private constant CIRCUIT_SPLIT_MULTISIG = 8;
     uint256 private constant CIRCUIT_JOIN_MULTISIG = 9;
-    uint256 private constant CIRCUIT_COUNT = 10;
+    uint256 private constant CIRCUIT_KAGE = 10;
+    uint256 private constant CIRCUIT_COUNT = 11;
 
     uint32 private constant MERKLE_TREE_DEPTH = 32;
 
@@ -268,6 +269,7 @@ contract DarkPool is
         address transferMultisigVerifier;
         address splitMultisigVerifier;
         address joinMultisigVerifier;
+        address kageVerifier;
         uint256 compliancePkX;
         uint256 compliancePkY;
         uint48 initialAdminDelay;
@@ -306,6 +308,7 @@ contract DarkPool is
         _setVerifier(CIRCUIT_TRANSFER_MULTISIG, p.transferMultisigVerifier);
         _setVerifier(CIRCUIT_SPLIT_MULTISIG, p.splitMultisigVerifier);
         _setVerifier(CIRCUIT_JOIN_MULTISIG, p.joinMultisigVerifier);
+        _setVerifier(CIRCUIT_KAGE, p.kageVerifier);
 
         _requireValidComplianceKey(p.compliancePkX, p.compliancePkY);
         ComplianceStorage storage c = _complianceStorage();
@@ -467,6 +470,17 @@ contract DarkPool is
         _split(_proof, _publicInputs, CIRCUIT_SPLIT_MULTISIG);
     }
 
+    /// @notice Kage private in-pool swap: one recursive proof settles a two-party swap. No ERC20 movement -- four
+    ///         self-notes are inserted (two per party) and two input nullifiers spent. The call reveals no swap
+    ///         terms, assets, amounts, or counterparty link; every Kage swap is mutually unlinkable (its own
+    ///         anonymity set).
+    function kageSwap(
+        bytes calldata _proof,
+        bytes32[] calldata _publicInputs
+    ) external nonReentrant whenNotPaused {
+        _kage(_proof, _publicInputs);
+    }
+
     /**
      * @dev Withdraw verify+effects shared by single-signer (id 1) and FROST-multisig (id 6).
      *      Layout: [0] value; [1] recipient; [2] intent_hash; [3,4] compliance; [5] nullifier; [6] root;
@@ -577,6 +591,34 @@ contract DarkPool is
         _spendNullifier(_publicInputs[2]);
         _insertNote(_publicInputs, 4, 5, 6);
         _insertNote(_publicInputs, 13, 14, 15);
+    }
+
+    /**
+     * @dev Kage verify+effects (id 10). One recursive proof settles both halves of a swap. Layout:
+     *      [0,1] compliance; [2] current_timestamp; [3] nullifier_a; [4] nullifier_b; [5] root;
+     *      [6] alice_change leaf; [7] eph_pub.x; [8..14] ciphertext; [15] alice_received leaf; [16] eph_pub.x;
+     *      [17..23] ciphertext; [24] bob_received leaf; [25] eph_pub.x; [26..32] ciphertext; [33] bob_change
+     *      leaf; [34] eph_pub.x; [35..41] ciphertext. All four outputs are self-notes; no ERC20 movement.
+     */
+    function _kage(
+        bytes calldata _proof,
+        bytes32[] calldata _publicInputs
+    ) internal {
+        if (_publicInputs.length != 42) revert InvalidInputsLength();
+        if (!_treeStorage().tree.isKnownRoot[_publicInputs[5]])
+            revert InvalidRoot();
+        _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
+        _verifyProofTimestampFloor(uint256(_publicInputs[2]));
+
+        if (!_verifier(CIRCUIT_KAGE).verify(_proof, _publicInputs))
+            revert InvalidProof();
+
+        _spendNullifier(_publicInputs[3]);
+        _spendNullifier(_publicInputs[4]);
+        _insertNote(_publicInputs, 6, 7, 8); // alice_change
+        _insertNote(_publicInputs, 15, 16, 17); // alice_received
+        _insertNote(_publicInputs, 24, 25, 26); // bob_received
+        _insertNote(_publicInputs, 33, 34, 35); // bob_change
     }
 
     /// @notice Post a public memo redeemable by a designated key into the shielded pool.
@@ -738,6 +780,14 @@ contract DarkPool is
     /// @dev Ceilings a prover timestamp near now so a claimer cannot forge a future one to clear the timelock.
     function _verifyProofTimestamp(uint256 timestamp) internal view {
         if (timestamp > block.timestamp + PROOF_TIMESTAMP_TOLERANCE)
+            revert TimestampInvalid();
+    }
+
+    /// @dev Floors a prover timestamp near now: the Kage circuit asserts current_timestamp < expiry, so a solver
+    ///      who picked a small timestamp could otherwise settle an expired swap against Alice's stale price. This
+    ///      is the OPPOSITE bound from _verifyProofTimestamp's ceiling.
+    function _verifyProofTimestampFloor(uint256 timestamp) internal view {
+        if (timestamp + PROOF_TIMESTAMP_TOLERANCE < block.timestamp)
             revert TimestampInvalid();
     }
 

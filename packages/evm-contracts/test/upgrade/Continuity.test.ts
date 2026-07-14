@@ -134,8 +134,8 @@ describe("Anonymity-set continuity across upgrade (CI-6, anti-Nomad)", function 
     expect(await upgraded.getCurrentRoot()).to.equal(rootBefore);
     expect(await upgraded.getNextLeafIndex()).to.equal(nextIndexBefore);
     expect(await upgraded.isNullifierSpent(realNullifier)).to.equal(true);
-    // Tree continuity is proven by the preserved root + the raw-slot guard above (getMerklePath was
-    // removed with the frontier tree; full sibling paths are rebuilt off-chain from LeafInserted events).
+    // Tree continuity is proven by the preserved root + the raw-slot guard above (full sibling paths are
+    // rebuilt off-chain from LeafInserted events, not read on-chain).
     expect(await treeSlot(3n)).to.equal(BigInt(rootBefore)); // latestRoot survives the upgrade
 
     // Anti-Nomad zero-sentinel guard: an empty root and an unseen nullifier are never trusted.

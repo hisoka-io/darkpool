@@ -119,7 +119,7 @@ export class NoteProcessor {
     // even when its leaf matches, so a malformed on-chain commitment never enters the spendable set.
     if (note.owner.toBigInt() === 0n) return null;
     if (note.assetId.toBigInt() >= ASSET_MODULUS) return null;
-    // WN-1: bind the note owner to the key that decrypted it. `spendScalar` is the self-spend key for a self note
+    // Bind the note owner to the key that decrypted it. `spendScalar` is the self-spend key for a self note
     // and the incoming key for a memo; both are the scalar behind `owner` (owner = pubkeyOwner(publicKey(that
     // key))). Enforcing it on the incoming path too drops a mismatched incoming note (owner != recipient) instead
     // of registering it as a phantom, unspendable balance (an overstatement, not theft).

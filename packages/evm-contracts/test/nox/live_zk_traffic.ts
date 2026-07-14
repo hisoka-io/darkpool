@@ -283,7 +283,7 @@ async function main() {
   log(`Merkle root: ${merkleRoot.toString().slice(0, 18)}...`);
 
   // Frontier tree keeps only the O(depth) frontier on-chain; rebuild the sibling path locally from the
-  // LeafInserted event log (the events-only light-client path that replaces the removed getMerklePath).
+  // LeafInserted event log (the events-only light-client path).
   const leafLogs = (await darkPool.queryFilter(
     darkPool.filters.LeafInserted(),
   )) as ethers.EventLog[];

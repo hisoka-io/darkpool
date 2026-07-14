@@ -87,20 +87,19 @@ describe("RelayerMulticall", function () {
         target: await mockTarget.getAddress(),
         data: successData,
         value: 0,
-        requireSuccess: true, // critical
+        requireSuccess: true,
       },
       {
         target: await mockTarget.getAddress(),
         data: failData,
         value: 0,
-        requireSuccess: false, // non-critical
+        requireSuccess: false,
       },
     ];
 
     const tx = await multicall.multicall(calls);
     await tx.wait();
 
-    // Expect CallExecuted(0, true), CallFailed(1), CallExecuted(1, false)
     await expect(tx)
       .to.emit(multicall, "CallExecuted")
       .withArgs(0, true, (_d: string) => true);
@@ -216,7 +215,6 @@ describe("RelayerMulticall", function () {
 
       const tx = await multicall.multicall(calls);
 
-      // Verify events: 0->Fail, 1->Success
       await expect(tx).to.emit(multicall, "CallFailed");
       await expect(tx)
         .to.emit(multicall, "CallExecuted")

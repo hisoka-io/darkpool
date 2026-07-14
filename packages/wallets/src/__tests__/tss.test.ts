@@ -58,7 +58,7 @@ describe("tss: Shamir + Lagrange mod SUBORDER", () => {
   });
 
   it("a mod-BN254 Lagrange variant would break reconstruction (guards T7)", () => {
-    // Full-width coeffs so the shares wrap mod SUBORDER; interpolating them under BN254 Fr diverges (T7).
+    // Full-width coeffs so the shares wrap mod SUBORDER; interpolating them under BN254 Fr diverges.
     const BN254 =
       21888242871839275222246405745257275088548364400416034343698204186575808495617n;
     const secret = randScalar();
