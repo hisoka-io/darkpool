@@ -589,7 +589,7 @@ async function main() {
   if (adaptorAddr) console.log(`  UniswapAdaptor:${adaptorAddr}`);
   console.log();
 
-  console.log("REQUIRED BACKUP (S15) - back these up to the private repo now:");
+  console.log("REQUIRED BACKUP - back these up to the private repo now:");
   console.log(`  - ${deployFile} (addresses, slots, verifier hashes)`);
   console.log(
     "  - Compliance secret key (below): store in the secrets vault ONLY.",

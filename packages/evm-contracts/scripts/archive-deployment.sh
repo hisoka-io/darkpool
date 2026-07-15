@@ -23,7 +23,6 @@ echo "  Circuits dir:  ${CIRCUITS_DIR}"
 echo "  Archive dir:   ${ARCHIVE_DIR}"
 echo
 
-# Create archive structure
 mkdir -p "${ARCHIVE_DIR}/circuits" "${ARCHIVE_DIR}/verifiers" "${ARCHIVE_DIR}/abis"
 
 # 1. Copy deployment JSON + secrets
@@ -60,7 +59,6 @@ done
 # 4. Copy ABIs
 echo "[4/6] Copying ABIs..."
 for abi in DarkPool NoxRegistry NoxRewardPool MockERC20 RelayerMulticall; do
-  # Find the ABI in artifacts
   found=$(find "${CONTRACTS_DIR}/artifacts" -name "${abi}.json" -not -name "*.dbg.json" -not -path "*/build-info/*" | head -1)
   if [ -n "$found" ]; then
     cp "$found" "${ARCHIVE_DIR}/abis/${abi}.json"

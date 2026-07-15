@@ -1,0 +1,7 @@
+[package]
+name = "ecdh"
+type = "lib"
+authors = ["0xreze", "YashBit", "signorecello"]
+
+[dependencies]
+edwards = { path = "../noir-edwards" }

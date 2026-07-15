@@ -85,7 +85,7 @@ fn kat_tree_depth_frozen() {
     assert(TREE_DEPTH == 32, "LeanIMT depth is a frozen seam: must stay 32");
 }
 
-// Tri-parity KAT (generated from the TS LeanIMT via sandbox/gen_leanimt_parity.ts): the Noir inclusion
+// Tri-parity KAT (generated from the TS LeanIMT reference): the Noir inclusion
 // proof reconstructs the same root the TS reference produced, over edge cases (single leaf, power-of-2
 // boundaries, deep-carry). Solidity<->TS parity is proven by FrontierParity.bench.ts. Depth 32 frozen.
 #[test]

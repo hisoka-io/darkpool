@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Hisoka — Environment Dependency Checker
+# Hisoka - Environment Dependency Checker
 # Usage:
 #   ./check-deps.sh                  Pre-install checks (system tools)
 #   ./check-deps.sh --post-install   Post-install checks (npm-installed tools + version pins)

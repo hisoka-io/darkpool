@@ -37,7 +37,7 @@ const Q96 = 2n ** 96n;
 
 /**
  * Fetch live ETH/USD and BTC/USD prices from Uniswap V3 pool state on the forked chain.
- * Deterministic per fork block — no external API calls needed.
+ * Deterministic per fork block - no external API calls needed.
  */
 export async function fetchLivePrices(): Promise<{
   ethUsd: number;
