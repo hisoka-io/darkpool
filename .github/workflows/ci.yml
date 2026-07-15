@@ -43,6 +43,8 @@ jobs:
       - name: Test circuits
         working-directory: packages/circuits
         run: nargo test
+      - name: Circuit regression guards
+        run: bash scripts/circuit-guards.sh
 
   ts-tests:
     name: TS Tests
@@ -127,6 +129,7 @@ jobs:
         with:
           node-version: "20"
       - name: Dependency audit (prod deps, high severity)
-        run: pnpm audit --prod --audit-level high
+        # Advisory only: the npm audit endpoint pnpm uses was retired, so this cannot gate reliably.
+        run: pnpm audit --prod --audit-level high || true
 
   # Rust CI (lint, test, security) runs in hisoka-io/nox repo

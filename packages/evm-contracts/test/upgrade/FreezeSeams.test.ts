@@ -38,7 +38,7 @@ const readN = (n: string): number =>
     readFileSync(resolve(VERIFIERS_DIR, `${n}.sol`), "utf8").match(N_RE)![1],
   );
 
-describe("Freeze seams (Part I)", function () {
+describe("Freeze seams", function () {
   describe("public-input layout manifest", function () {
     for (const [name, expected] of Object.entries(PUBLIC_INPUTS)) {
       it(`${name}: NUMBER_PUBLIC_INPUTS == ${expected} (contract passes ${expected - 8})`, function () {

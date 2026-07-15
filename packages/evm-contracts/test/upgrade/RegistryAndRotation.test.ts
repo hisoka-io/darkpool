@@ -68,8 +68,8 @@ async function buildSelfNoteWithPk(
   return { note, commitment };
 }
 
-describe("Verifier backward-compat + compliance rotation (VR-2, ZK-5)", function () {
-  describe("VR-2: identical-VK verifier redeploy", function () {
+describe("Verifier backward-compat + compliance rotation", function () {
+  describe("identical-VK verifier redeploy", function () {
     it("keeps a pre-existing note spendable after setVerifier swaps in a fresh identical verifier", async function () {
       const ctx = await deployDarkPoolFixture();
       const { darkPool, token, alice } = ctx;
@@ -122,7 +122,7 @@ describe("Verifier backward-compat + compliance rotation (VR-2, ZK-5)", function
     });
   });
 
-  describe("ZK-5: compliance key rotation", function () {
+  describe("compliance key rotation", function () {
     const NEW_SK = 555777999n;
     const NEW_PK: Point<bigint> = mulPointEscalar(Base8, NEW_SK);
 
