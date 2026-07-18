@@ -45,6 +45,14 @@ jobs:
         run: nargo test
       - name: Circuit regression guards
         run: bash scripts/circuit-guards.sh
+      # The forged-scalar regression net for the FROST width-63 wNAF binding. The byte-identity check must run
+      # first: it re-derives the vendored constrained region and fails if the mirror has drifted, so a vendored
+      # bump cannot silently invalidate the differential below.
+      - name: FROST forged-scalar harness
+        working-directory: packages/prover/test-harness/frost-forgery
+        run: |
+          ./check-byte-identity.sh
+          nargo test
 
   ts-tests:
     name: TS Tests
@@ -71,6 +79,46 @@ jobs:
         run: pnpm --filter @hisoka/adaptors run test
       - name: Test prover
         run: pnpm --filter @hisoka/prover run test
+
+  kage-native-gate:
+    name: Kage native VK-pin gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+      - name: Install Nargo
+        run: |
+          curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+          export PATH="$HOME/.nargo/bin:$PATH"
+          noirup -v 1.0.0-beta.22
+          echo "$HOME/.nargo/bin" >> $GITHUB_PATH
+      - name: Install native bb 5.0.0
+        run: |
+          curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/master/barretenberg/bbup/install | bash
+          export PATH="$HOME/.bb:$PATH"
+          bbup -v 5.0.0
+          echo "$HOME/.bb" >> $GITHUB_PATH
+      - run: pnpm install --frozen-lockfile
+      # generate_verifier (native bb) + compile_circuit (nargo) run in the prover build.
+      - name: Build prover
+        run: pnpm turbo run build --filter=@hisoka/wallets --filter=@hisoka/prover
+      # The gate self-skips (green) when native bb is absent or KAGE_NATIVE is unset. This step forces it to
+      # RUN: it fails loudly if native bb is missing, if the gate skips for any reason, or if it does not report
+      # a passing assertion. A missing gate must never read as a green build.
+      - name: Run gate (must execute, never skip)
+        run: |
+          test -x "$HOME/.bb/bb" || { echo "::error::native bb not installed at ~/.bb/bb"; exit 1; }
+          "$HOME/.bb/bb" --version | grep -q '5.0.0' || { echo "::error::native bb is not 5.0.0"; exit 1; }
+          out="$(KAGE_NATIVE=1 pnpm --filter @hisoka/prover run test:native 2>&1)"; rc=$?
+          echo "$out"
+          echo "$out" | grep -q 'skipping (not passing)' && { echo "::error::Kage native gate SKIPPED"; exit 1; }
+          echo "$out" | grep -q 'opt-in only' && { echo "::error::gate did not receive KAGE_NATIVE=1"; exit 1; }
+          echo "$out" | grep -qE '1 passed' || { echo "::error::gate did not report a passing assertion"; exit 1; }
+          exit $rc
 
   evm-tests:
     name: EVM Tests

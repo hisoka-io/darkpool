@@ -1,0 +1,10 @@
+[package]
+name = "frost_forgery"
+type = "bin"
+authors = [""]
+compiler_version = ">=1.0.0"
+
+[dependencies]
+edwards = { path = "../../../circuits/vendor/noir-edwards" }
+ecdh = { path = "../../../circuits/vendor/ecdh" }
+poseidon = { path = "../../../circuits/vendor/poseidon" }
