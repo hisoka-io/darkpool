@@ -22,7 +22,7 @@ lives: witness generation.
 ```bash
 cd packages/prover/test-harness/frost-forgery
 ./check-byte-identity.sh     # the mirror still matches the vendored library
-nargo test                   # the differential (7 tests)
+nargo test                   # the differential (8 tests)
 ./run-gold-standard.sh       # bb prove + verify of the ACCEPTED forgery
 ```
 

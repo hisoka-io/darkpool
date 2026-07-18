@@ -45,6 +45,14 @@ jobs:
         run: nargo test
       - name: Circuit regression guards
         run: bash scripts/circuit-guards.sh
+      # The forged-scalar regression net for the FROST width-63 wNAF binding. The byte-identity check must run
+      # first: it re-derives the vendored constrained region and fails if the mirror has drifted, so a vendored
+      # bump cannot silently invalidate the differential below.
+      - name: FROST forged-scalar harness
+        working-directory: packages/prover/test-harness/frost-forgery
+        run: |
+          ./check-byte-identity.sh
+          nargo test
 
   ts-tests:
     name: TS Tests
