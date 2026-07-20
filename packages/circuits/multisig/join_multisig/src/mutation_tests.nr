@@ -1111,9 +1111,9 @@ fn m_frost_z_b_mutated() {
     );
 }
 
-// message binding: a value with no pre-FROST pin flows into m via the nullifier
+// message binding: a value with no pre-FROST pin flows into m via the nullifier.
 // note.psi has no earlier value guard (only membership, which the derived paths satisfy); it feeds the
-// nullifier -> msg_join(m), so recomputing the challenge invalidates the KAT signature. This is the join
+// nullifier into msg_join(m), so recomputing the challenge invalidates the KAT signature. This is the join
 // analog of a signed-only public input.
 #[test(should_fail_with = "FROST signature invalid")]
 fn m_signed_nullifier_a() {

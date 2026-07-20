@@ -1,11 +1,20 @@
 import { Fr } from "@hisoka/wallets";
 import { AbiCoder, randomBytes, toBigInt } from "ethers";
 import { hashUniswapIntent } from "./intent.js";
-import { UniswapSwapParams, SwapType, RecipientIdentity } from "./types.js";
+import {
+  UniswapSwapParams,
+  UniswapSwapParamsInput,
+  SwapType,
+  RecipientIdentity,
+} from "./types.js";
 
 export interface SwapIntent {
   intentHash: Fr;
   encodedParams: string;
+  deadline: bigint;
+  // The salt actually used. Returned because the caller needs it to reconstruct the memo id, and
+  // buildSwapIntent may have drawn it rather than received it.
+  salt: bigint;
 }
 
 // Fresh return-note salt bound into the swap intent hash: unpredictable, so a griefer cannot pre-post the
@@ -93,10 +102,20 @@ function encodeSwapParams(params: UniswapSwapParams): string {
   }
 }
 
+// `deadline` is a unix timestamp bound into intentHash and re-checked on-chain, so a captured proof cannot be
+// executed at an attacker-chosen block. It must be within MAX_INTENT_LIFETIME of execution or the swap reverts.
 export async function buildSwapIntent(
-  params: UniswapSwapParams,
+  params: UniswapSwapParamsInput,
+  deadline: bigint,
 ): Promise<SwapIntent> {
-  const intentHash = await hashUniswapIntent(params);
-  const encodedParams = encodeSwapParams(params);
-  return { intentHash, encodedParams };
+  // Adding `salt: bigint` to any Unsalted<X> yields X; the cast only tells the compiler that, since a spread
+  // does not distribute over a discriminated union.
+  const salted = {
+    ...params,
+    salt: params.salt ?? randomSalt(),
+  } as UniswapSwapParams;
+
+  const intentHash = await hashUniswapIntent(salted, deadline);
+  const encodedParams = encodeSwapParams(salted);
+  return { intentHash, encodedParams, deadline, salt: salted.salt };
 }

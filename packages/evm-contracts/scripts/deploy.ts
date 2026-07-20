@@ -310,9 +310,15 @@ async function main() {
   console.log();
 
   console.log("Step 8: Governance wiring...");
+  // CANCELLER must NOT go to the DarkPool PAUSER holder. OZ TimelockController is its own DEFAULT_ADMIN
+  // (TimelockController.sol:117), so revoking a canceller must itself be scheduled through the timelock, where
+  // that same canceller can cancel the revocation. An entity holding both PAUSER and CANCELLER can therefore
+  // pause the pool and cancel every unpause forever, with no on-chain recovery: a permanent freeze of all
+  // pooled value by a 2-of-3 minority. The roles are split so the guardian keeps the fast emergency stop while
+  // only govSafe can veto queued operations. Enforced structurally by the assertion in the verification step.
   const CANCELLER_ROLE = await timelock.CANCELLER_ROLE();
-  await (await timelock.grantRole(CANCELLER_ROLE, guardianSafe)).wait();
-  console.log(`  Granted Timelock CANCELLER_ROLE to guardian ${guardianSafe}`);
+  await (await timelock.grantRole(CANCELLER_ROLE, govSafe)).wait();
+  console.log(`  Granted Timelock CANCELLER_ROLE to govSafe ${govSafe}`);
   // DarkPool PAUSER was granted to the guardian in initialize (deployer cannot grant it post-init).
   console.log();
 
@@ -401,6 +407,13 @@ async function main() {
     {
       label: "Guardian is DarkPool PAUSER",
       ok: await darkPool.hasRole(PAUSER_ROLE, guardianSafe),
+    },
+    // The separation that prevents a permanent freeze. If one entity ever holds both, it can pause and then
+    // cancel every unpause, and the revocation of its own CANCELLER is equally cancellable.
+    {
+      label:
+        "DarkPool PAUSER does NOT hold Timelock CANCELLER (no freeze deadlock)",
+      ok: !(await timelock.hasRole(CANCELLER_ROLE, guardianSafe)),
     },
     {
       label: "Timelock is NoxRegistry DEFAULT_ADMIN",
@@ -520,7 +533,6 @@ async function main() {
     },
     contracts: {
       poseidon2: poseidon2Addr,
-      zkTranscriptLib: zkTranscriptLibAddr,
       depositVerifier: verifiers[0].verifier,
       withdrawVerifier: verifiers[1].verifier,
       transferVerifier: verifiers[2].verifier,

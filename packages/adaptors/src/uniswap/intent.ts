@@ -8,10 +8,7 @@ function hashBytesToField(data: string): Fr {
   return new Fr(reduced);
 }
 
-// Per-variant field order MUST match Solidity UniswapAdaptor._calculateIntentHash() exactly.
-export async function hashUniswapIntent(
-  params: UniswapSwapParams,
-): Promise<Fr> {
+async function hashSwapParams(params: UniswapSwapParams): Promise<Fr> {
   switch (params.type) {
     case SwapType.ExactInputSingle:
       return await Poseidon.hash([
@@ -62,4 +59,12 @@ export async function hashUniswapIntent(
     default:
       throw new Error(`Unknown SwapType: ${(params as { type: number }).type}`);
   }
+}
+
+export async function hashUniswapIntent(
+  params: UniswapSwapParams,
+  deadline: bigint,
+): Promise<Fr> {
+  const base = await hashSwapParams(params);
+  return await Poseidon.hash([base, toFr(deadline)]);
 }

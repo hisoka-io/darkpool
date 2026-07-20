@@ -1,14 +1,18 @@
 import { generateProof } from "../prover-base.js";
 import { circuit } from "../generated/withdraw_circuit.js";
 import { WithdrawInputs, ProofData } from "../types.js";
-import { marshalNote, pointHex } from "../marshal.js";
+import { marshalNote, marshalU128, pointHex } from "../marshal.js";
 
 export async function proveWithdraw(
   inputs: WithdrawInputs,
 ): Promise<ProofData> {
   const c = pointHex(inputs.compliancePk);
   return generateProof("withdraw", circuit, {
-    withdraw_value: inputs.withdrawValue.toString(),
+    withdraw_value: marshalU128(
+      "withdraw",
+      "withdraw_value",
+      inputs.withdrawValue,
+    ),
     _recipient: inputs.recipient.toString(),
     _intent_hash: inputs.intentHash.toString(),
     compliance_pubkey_x: c.x,

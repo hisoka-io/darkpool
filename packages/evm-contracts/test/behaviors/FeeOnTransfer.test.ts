@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
+import { publicKey, Fr } from "@hisoka/wallets";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployDarkPoolFixture,
@@ -11,6 +12,10 @@ import {
 import { toFr, addressToFr } from "@hisoka/wallets";
 import { proveDeposit } from "@hisoka/prover";
 import { MockFeeOnTransferERC20 } from "../../typechain-types";
+
+// A real derived key: publicTransfer validates the escrow destination is on-curve, so a placeholder
+// point would revert there and mask the fee-on-transfer check this test exists to exercise.
+const FOT_OWNER = publicKey(new Fr(0x1234n));
 
 describe("DarkPool Behavior: fee-on-transfer rejection", function () {
   async function deployFoT(feeBps: number): Promise<MockFeeOnTransferERC20> {
@@ -65,7 +70,14 @@ describe("DarkPool Behavior: fee-on-transfer rejection", function () {
     await expect(
       darkPool
         .connect(alice)
-        .publicTransfer(1n, 2n, await fot.getAddress(), amount, 0n, 12345n),
+        .publicTransfer(
+          FOT_OWNER[0],
+          FOT_OWNER[1],
+          await fot.getAddress(),
+          amount,
+          0n,
+          12345n,
+        ),
     ).to.be.revertedWithCustomError(darkPool, "FeeOnTransferUnsupported");
   });
 });

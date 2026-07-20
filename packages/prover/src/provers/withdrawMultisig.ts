@@ -3,7 +3,7 @@ import { Point } from "@zk-kit/baby-jubjub";
 import { generateProof } from "../prover-base.js";
 import { circuit } from "../generated/withdraw_multisig_circuit.js";
 import { NoteInput, ProofData } from "../types.js";
-import { marshalNote, pointHex } from "../marshal.js";
+import { marshalNote, marshalU128, pointHex } from "../marshal.js";
 
 export interface WithdrawMultisigInputs {
   withdrawValue: Fr;
@@ -28,7 +28,11 @@ export async function proveWithdrawMultisig(
 ): Promise<ProofData> {
   const c = pointHex(inputs.compliancePk);
   return generateProof("withdraw_multisig", circuit, {
-    withdraw_value: inputs.withdrawValue.toString(),
+    withdraw_value: marshalU128(
+      "withdraw_multisig",
+      "withdraw_value",
+      inputs.withdrawValue,
+    ),
     recipient: inputs.recipient.toString(),
     intent_hash: inputs.intentHash.toString(),
     compliance_pubkey_x: c.x,

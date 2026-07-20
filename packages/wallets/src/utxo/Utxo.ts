@@ -1,5 +1,4 @@
 import { Fr } from "@aztec/foundation/fields";
-import { getAddress } from "ethers";
 import { IUTXO } from "../interfaces.js";
 import { Note } from "../note/note.js";
 import { computeNullifier } from "../note/nullifier.js";
@@ -17,12 +16,14 @@ export class Utxo implements IUTXO {
       throw new Error("Note owner (spend-key commitment) must be non-zero.");
     }
 
-    const addressBytes = note.assetId.toBuffer().slice(FR_TO_ADDRESS_OFFSET);
-    const addressString = "0x" + Buffer.from(addressBytes).toString("hex");
-    try {
-      getAddress(addressString);
-    } catch {
-      throw new Error("Invalid assetID");
+    // The circuit constrains asset_id to an EVM address, so the only failure this can see is a field
+    // wider than 160 bits. Validating the low 20 bytes cannot detect that (every 20-byte string is a
+    // well-formed address); the high 12 bytes are what carries the invariant.
+    const high = note.assetId.toBuffer().subarray(0, FR_TO_ADDRESS_OFFSET);
+    if (high.some((b) => b !== 0)) {
+      throw new Error(
+        `Invalid assetID: ${note.assetId.toString()} exceeds 160 bits (not an EVM address).`,
+      );
     }
   }
 

@@ -1,8 +1,9 @@
-//! Kage private in-pool swap -- shared core logic for both halves.
+//! Kage private in-pool swap shared core logic for both halves.
 //!
-//! A swap is FOUR self-notes, two minted by each party. the taker mints her own outputs inside her own proof, so the maker
-//! cannot redirect or shortchange them -- the output-owner binding is STRUCTURAL, not a constraint. Neither party
-//! learns the other's psi (each mints to itself) or leaf index (each binds parents to only its own input).
+//! A swap is FOUR self-notes, two minted by each party. The taker mints her own outputs inside her own proof, so
+//! the maker cannot redirect or shortchange them: the output-owner binding is STRUCTURAL, not a constraint.
+//! Neither party learns the other's psi (each mints to itself) or leaf index (each binds parents to only its
+//! own input).
 //!
 //!   swap_intent       (taker): spend A_in (fromAsset); mint A_out_change (fromAsset) + A_out_received
 //!                                 (toAsset), both self-notes; expose the values the maker needs + expiry.
@@ -13,9 +14,9 @@
 //!   fromAsset:  A_in == from_amount + A_out_change   (the taker)   AND   B_out_received == from_amount   (the maker)
 //!   toAsset:    B_in == expected_return + B_out_change            (the maker, using the taker's exposed expected_return)
 //!
-//! Reuses the frozen shared primitives (verify_spend / mint_self_note / conservation / note), so Kage is additive
-//! to the note format. eph.x-only: every emitted ephemeral is even-y canonicalized (mint_self_note asserts it), so
-//! only eph_pub.x is surfaced and y is recovered off-chain.
+//! Reuses the frozen shared primitives (verify_spend / mint_self_note / conservation / note), so Kage is
+//! additive to the note format. eph.x-only: every emitted ephemeral is even-y canonicalized (mint_self_note
+//! asserts it), so only eph_pub.x is surfaced and y is recovered off-chain.
 
 use ecdh::Point;
 use shared::conservation;
@@ -27,20 +28,22 @@ use shared::verify_spend;
 // DEM transmitted-field count (shared/src/common/dem.nr DEM_FIELDS).
 global CT_LEN: u32 = 7;
 
-// Inner-VK binding -- the single most load-bearing value in Kage. `verification_key` is a solver-supplied WITNESS;
-// the only thing stopping a solver from passing a random VK plus a proof of his own malicious circuit (forging
-// the taker's entire half) is this key_hash: verify_proof_with_type makes the backend enforce
+// Inner-VK binding, the single most load-bearing value in Kage. `verification_key` is a solver-supplied
+// WITNESS; the only thing stopping a solver from passing a random VK plus a proof of his own malicious circuit
+// (forging the taker's entire half) is this key_hash: verify_proof_with_type makes the backend enforce
 // hash(verification_key) == key_hash, and because it is a hardcoded CONSTANT it pins the inner circuit to the
-// canonical swap_intent. Three requirements: (1) set it to the real bb VK hash of the compiled swap_intent (`0` = NOT
-// pinned = total forge); (2) keep it a compile-time CONSTANT (the stdlib assert_constants proof_type but NOT
-// key_hash; a witness key_hash lets the solver pick both VK and hash); (3) the stdlib does not itself constrain
-// hash(vk)==key_hash (backend-defined; barretenberg enforces it, as Payy relies on in production), so it is gated
-// by an adversarial test: wrong VK / different-circuit proof / tampered public inputs all reject.
+// canonical swap_intent. Three requirements: (1) set it to the real bb VK hash of the compiled swap_intent (`0`
+// means NOT pinned, which is a total forge); (2) keep it a compile-time CONSTANT (the stdlib asserts constants
+// for proof_type but NOT for key_hash, and a witness key_hash lets the solver pick both VK and hash); (3) the
+// stdlib does not itself constrain hash(vk) == key_hash (it is backend-defined, and barretenberg enforces it,
+// as Payy relies on in production), so it is gated by an adversarial test: wrong VK, different-circuit proof,
+// and tampered public inputs all reject.
 pub global INTENT_VK_HASH: Field =
     0x2f282faa1ed7f0c76b2d4dfd8ef8555ad443c8fb448373936bb11a1f2678313b;
 pub global PROOF_TYPE: u32 = 6;
-// VK / proof widths are the compiled swap_intent's bb recursion values (verifierTarget noir-recursive); regenerate on
-// any swap_intent change. Tests never touch the recursion call (they drive settle_swap on real swap_intent output).
+// VK / proof widths are the compiled swap_intent's bb recursion values (verifierTarget noir-recursive);
+// regenerate on any swap_intent change. Tests never touch the recursion call (they drive settle_swap on real
+// swap_intent output).
 pub global INTENT_VK_LEN: u32 = 115;
 pub global INTENT_PROOF_LEN: u32 = 458;
 
@@ -152,7 +155,8 @@ pub struct KageOutputs {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Circuit 1 -- swap_intent (the taker). Spend A_in + mint her own two self-notes (change + received). Client-provable.
+// Circuit 1, swap_intent (the taker). Spend A_in + mint her own two self-notes (change + received).
+// Client-provable.
 // ---------------------------------------------------------------------------------------------------------------
 pub fn build_intent(
     compliance_pk: Point,
@@ -208,7 +212,7 @@ pub fn build_intent(
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Circuit 2 -- swap_settle (the maker), settlement logic. Called AFTER main authenticates intent via
+// Circuit 2, swap_settle (the maker), settlement logic. Called AFTER main authenticates intent via
 // std::verify_proof_with_type. the maker mints only his two self-notes; both conservations live here.
 // ---------------------------------------------------------------------------------------------------------------
 pub fn settle_swap(
@@ -248,8 +252,8 @@ pub fn settle_swap(
     assert_parents_bound(maker_received, [maker_index, 0]);
     let breceived = mint::mint_self_note(maker_received, maker_received_eph, compliance_pk);
 
-    // B_out_change: the maker keeps the toAsset remainder. toAsset conservation binds the taker's ask (expected_return): the maker
-    // cannot settle unless he gives the taker exactly what her received note claims.
+    // B_out_change: the maker keeps the toAsset remainder. toAsset conservation binds the taker's ask
+    // (expected_return): the maker cannot settle unless he gives the taker exactly what her received note claims.
     assert(maker_change.asset_id == intent.to_asset, "maker_change asset mismatch");
     conservation::assert_conserved(
         [maker_note_in.value],
@@ -259,8 +263,8 @@ pub fn settle_swap(
     assert_parents_bound(maker_change, [maker_index, 0]);
     let bchange = mint::mint_self_note(maker_change, maker_change_eph, compliance_pk);
 
-    // All 4 output ephemerals distinct: a shared eph -> shared CEK -> two-time-pad on the stream DEM. Comparing
-    // eph_pub.x is exact on the prime-order subgroup (same x => same point).
+    // All 4 output ephemerals distinct: a shared eph gives a shared CEK, which is a two-time-pad on the stream
+    // DEM. Comparing eph_pub.x is exact on the prime-order subgroup (same x implies same point).
     let e0 = intent.change_eph_x;
     let e1 = intent.received_eph_x;
     let e2 = breceived.eph_pub.x;
@@ -300,10 +304,10 @@ pub fn settle_swap(
 }
 
 // ===============================================================================================================
-// Tests -- self-contained (no SDK / no live recursion). A 2-leaf tree is built in-circuit; every psi is derived
+// Tests, self-contained (no SDK / no live recursion). A 2-leaf tree is built in-circuit; every psi is derived
 // with the same ECDH+Poseidon2 the mint asserts, so notes are valid by construction. settle_swap runs on the REAL
-// SwapIntent from build_intent, so the two halves are proven to compose on genuine values -- the only
-// unproven link is std::verify_proof_with_type (exercised in the bb.js e2e, not here).
+// SwapIntent from build_intent, so the two halves are proven to compose on genuine values. The only unproven
+// link is std::verify_proof_with_type (exercised in the bb.js e2e, not here).
 // ===============================================================================================================
 mod tests {
     use super::{build_intent, KageOutputs, settle_swap, SwapIntent};

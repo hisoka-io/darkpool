@@ -3,7 +3,7 @@ import { CompiledCircuit, InputMap, Noir } from "@noir-lang/noir_js";
 import { Buffer } from "node:buffer";
 import { circuit } from "../generated/swap_intent_circuit.js";
 import { SwapIntentInputs, SwapIntentProof } from "../types.js";
-import { marshalNote, pointHex } from "../marshal.js";
+import { marshalNote, marshalU128, pointHex } from "../marshal.js";
 import { ProofError } from "../errors.js";
 import { ensureBBInitialized } from "../prover-base.js";
 import { INTENT_PI_LEN, INTENT_PROOF_LEN, INTENT_VK_LEN } from "../config.js";
@@ -29,7 +29,7 @@ export async function proveSwapIntent(
     received_note: marshalNote("swap_intent", inputs.receivedNote),
     received_eph: inputs.receivedEph.toString(),
     to_asset: inputs.toAsset.toString(),
-    from_amount: inputs.fromAmount.toString(),
+    from_amount: marshalU128("swap_intent", "from_amount", inputs.fromAmount),
     expiry: inputs.expiry.toString(),
   };
 

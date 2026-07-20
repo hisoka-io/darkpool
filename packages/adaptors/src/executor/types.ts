@@ -11,8 +11,9 @@ export interface BundleCall {
   approveAmount: bigint;
 }
 
-/** A bundle plus its intent hash. `intentHash` MUST be written into the withdraw proof's public input [3];
- * `BundleExecutor.execute` recomputes it from `boundCalls/deadline/assetsToClear` and rebinds [3]. */
+/** A bundle plus its intent hash. `intentHash` MUST be written into the withdraw proof's public input [2]
+ * (`BundleExecutor.INTENT_IDX`); `execute` recomputes it from `boundCalls/deadline/assetsToClear` and rebinds
+ * that index. */
 export interface BuiltBundle {
   intentHash: Fr;
   boundCalls: BundleCall[];

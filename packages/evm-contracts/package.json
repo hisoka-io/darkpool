@@ -7,6 +7,8 @@
   "scripts": {
     "build": "hardhat compile",
     "lint": "solhint \"contracts/**/*.sol\"",
+    "typecheck": "tsc --noEmit",
+    "typecheck:scripts": "tsc --noEmit -p tsconfig.scripts.json",
     "test": "pnpm run test:fast",
     "test:full": "pnpm run test:fast && pnpm run test:fork",
     "test:fast": "./test-parallel.sh",

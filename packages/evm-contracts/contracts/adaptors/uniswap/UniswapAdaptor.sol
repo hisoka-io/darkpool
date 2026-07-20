@@ -18,12 +18,19 @@ contract UniswapAdaptor is ReentrancyGuard {
     error WithdrawAmountMismatch();
     error UnsupportedSwapType();
     error PathTooShort();
+    error IntentExpired();
+    error DeadlineTooFar();
+    error ZeroSlippageBound();
 
     address public immutable DARK_POOL;
     ISwapRouter public immutable UNISWAP_ROUTER;
 
     uint256 constant PRIME =
         0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001;
+
+    // Upper bound on how far ahead an intent may be dated. Without it a client could set a deadline decades out
+    // and reintroduce the perpetual-option exposure the deadline exists to close.
+    uint256 public constant MAX_INTENT_LIFETIME = 1 hours;
 
     enum SwapType {
         ExactInputSingle,
@@ -79,9 +86,17 @@ contract UniswapAdaptor is ReentrancyGuard {
         bytes calldata proof,
         bytes32[] memory publicInputs,
         SwapType swapType,
-        bytes calldata encodedParams
+        bytes calldata encodedParams,
+        uint256 deadline
     ) external nonReentrant {
-        bytes32 intentHash = _calculateIntentHash(swapType, encodedParams);
+        if (block.timestamp > deadline) revert IntentExpired();
+        if (deadline > block.timestamp + MAX_INTENT_LIFETIME)
+            revert DeadlineTooFar();
+
+        bytes32 intentHash = _bindDeadline(
+            _calculateIntentHash(swapType, encodedParams),
+            deadline
+        );
 
         address proofRecipient = address(uint160(uint256(publicInputs[1])));
         if (proofRecipient != address(this)) revert InvalidProofRecipient();
@@ -101,25 +116,29 @@ contract UniswapAdaptor is ReentrancyGuard {
             (outAsset, outPreBal) = _handleExactInputSingle(
                 withdrawnAmount,
                 withdrawnAsset,
-                encodedParams
+                encodedParams,
+                deadline
             );
         } else if (swapType == SwapType.ExactInput) {
             (outAsset, outPreBal) = _handleExactInput(
                 withdrawnAmount,
                 withdrawnAsset,
-                encodedParams
+                encodedParams,
+                deadline
             );
         } else if (swapType == SwapType.ExactOutputSingle) {
             (outAsset, outPreBal) = _handleExactOutputSingle(
                 withdrawnAmount,
                 withdrawnAsset,
-                encodedParams
+                encodedParams,
+                deadline
             );
         } else if (swapType == SwapType.ExactOutput) {
             (outAsset, outPreBal) = _handleExactOutput(
                 withdrawnAmount,
                 withdrawnAsset,
-                encodedParams
+                encodedParams,
+                deadline
             );
         } else {
             revert UnsupportedSwapType();
@@ -140,13 +159,15 @@ contract UniswapAdaptor is ReentrancyGuard {
     function _handleExactInputSingle(
         uint256 amountIn,
         address withdrawnAsset,
-        bytes calldata encoded
+        bytes calldata encoded,
+        uint256 deadline
     ) internal returns (address outAsset, uint256 outPreBal) {
         ExactInputSingleParams memory p = abi.decode(
             encoded,
             (ExactInputSingleParams)
         );
         if (p.assetIn != withdrawnAsset) revert AssetMismatch();
+        if (p.amountOutMin == 0) revert ZeroSlippageBound();
         outAsset = p.assetOut;
         outPreBal = IERC20(outAsset).balanceOf(address(this));
         IERC20(p.assetIn).forceApprove(address(UNISWAP_ROUTER), amountIn);
@@ -156,7 +177,7 @@ contract UniswapAdaptor is ReentrancyGuard {
                 tokenOut: p.assetOut,
                 fee: p.fee,
                 recipient: address(this),
-                deadline: block.timestamp,
+                deadline: deadline,
                 amountIn: amountIn,
                 amountOutMinimum: p.amountOutMin,
                 sqrtPriceLimitX96: 0
@@ -168,11 +189,13 @@ contract UniswapAdaptor is ReentrancyGuard {
     function _handleExactInput(
         uint256 amountIn,
         address withdrawnAsset,
-        bytes calldata encoded
+        bytes calldata encoded,
+        uint256 deadline
     ) internal returns (address outAsset, uint256 outPreBal) {
         ExactInputParams memory p = abi.decode(encoded, (ExactInputParams));
         address tokenIn = BytesLib.toAddress(p.path, 0);
         if (tokenIn != withdrawnAsset) revert AssetMismatch();
+        if (p.amountOutMin == 0) revert ZeroSlippageBound();
 
         // Path: TokenIn -> ... -> TokenOut
         address tokenOut = _getLastToken(p.path);
@@ -184,7 +207,7 @@ contract UniswapAdaptor is ReentrancyGuard {
             .ExactInputParams({
                 path: p.path,
                 recipient: address(this),
-                deadline: block.timestamp,
+                deadline: deadline,
                 amountIn: amountIn,
                 amountOutMinimum: p.amountOutMin
             });
@@ -195,7 +218,8 @@ contract UniswapAdaptor is ReentrancyGuard {
     function _handleExactOutputSingle(
         uint256 amountInMax,
         address withdrawnAsset,
-        bytes calldata encoded
+        bytes calldata encoded,
+        uint256 deadline
     ) internal returns (address outAsset, uint256 outPreBal) {
         ExactOutputSingleParams memory p = abi.decode(
             encoded,
@@ -212,7 +236,7 @@ contract UniswapAdaptor is ReentrancyGuard {
                 tokenOut: p.assetOut,
                 fee: p.fee,
                 recipient: address(this),
-                deadline: block.timestamp,
+                deadline: deadline,
                 amountOut: p.amountOut,
                 amountInMaximum: amountInMax,
                 sqrtPriceLimitX96: 0
@@ -233,7 +257,8 @@ contract UniswapAdaptor is ReentrancyGuard {
     function _handleExactOutput(
         uint256 amountInMax,
         address withdrawnAsset,
-        bytes calldata encoded
+        bytes calldata encoded,
+        uint256 deadline
     ) internal returns (address outAsset, uint256 outPreBal) {
         ExactOutputParams memory p = abi.decode(encoded, (ExactOutputParams));
         if (amountInMax != p.amountInMaximum) revert WithdrawAmountMismatch();
@@ -250,7 +275,7 @@ contract UniswapAdaptor is ReentrancyGuard {
             .ExactOutputParams({
                 path: p.path,
                 recipient: address(this),
-                deadline: block.timestamp,
+                deadline: deadline,
                 amountOut: p.amountOut,
                 amountInMaximum: amountInMax
             });
@@ -296,6 +321,19 @@ contract UniswapAdaptor is ReentrancyGuard {
             token := shr(96, loaded)
         }
         return token;
+    }
+
+    // The user-chosen expiry is folded into the intent hash, which the withdraw proof commits to as public
+    // input 2. A caller who supplies a different deadline produces a different hash and the proof fails, so the
+    // expiry cannot be stripped from a captured proof. Mirrored by hashUniswapIntent in @hisoka/adaptors.
+    function _bindDeadline(
+        bytes32 base,
+        uint256 deadline
+    ) internal pure returns (bytes32) {
+        Field.Type[] memory f = new Field.Type[](2);
+        f[0] = Field.toField(uint256(base));
+        f[1] = Field.toField(deadline);
+        return Field.toBytes32(Poseidon2.hash(f));
     }
 
     function _calculateIntentHash(

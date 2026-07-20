@@ -18,4 +18,14 @@ contract UniswapIntentHarness is UniswapAdaptor {
     ) external pure returns (bytes32) {
         return _calculateIntentHash(sType, encoded);
     }
+
+    // The deadline-bound hash executeSwap actually writes into publicInputs[2]. Parity-covered separately from
+    // the base hash so a drift in either the params fold or the deadline fold is caught.
+    function calcBoundIntentHash(
+        SwapType sType,
+        bytes calldata encoded,
+        uint256 deadline
+    ) external pure returns (bytes32) {
+        return _bindDeadline(_calculateIntentHash(sType, encoded), deadline);
+    }
 }

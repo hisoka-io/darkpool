@@ -1,16 +1,16 @@
 //! Kage swap_intent (the taker / taker). Spends A_in (fromAsset) and mints her OWN two self-notes: the fromAsset change
 //! and the toAsset she wants to receive. Because the taker mints her received note herself, the maker cannot redirect or
-//! shortchange it. Fully client-provable (no recursion); the maker's swap_settle verifies THIS proof inside itself.
-//! The 27 public inputs are consumed by the maker's circuit as witness and never surface on-chain. Logic + the full
-//! negative battery live in `kage_lib`.
+//! shortchange it. Fully client-provable (no recursion); the maker's swap_settle verifies THIS proof inside
+//! itself. The 27 public inputs are consumed by the maker's circuit as witness and never surface on-chain.
+//! Logic plus the full negative battery live in `kage_lib`.
 
 use ::ecdh::Point;
 use ::kage_lib::{build_intent, INTENT_PI_LEN, pack_intent};
 use ::shared::note::Note;
 use ::shared::TREE_DEPTH;
 
-// swap_intent is an INNER proof (never submitted on-chain), so it has NO `pub` params: its ONLY public inputs are the
-// 27-wide return, which swap_settle consumes as intent_public_inputs. compliance rides in the pack (indices
+// swap_intent is an INNER proof (never submitted on-chain), so it has NO `pub` params: its ONLY public inputs are
+// the 27-wide return, which swap_settle consumes as intent_public_inputs. compliance rides in the pack (indices
 // 2,3). Making compliance a `pub` param here would inflate the real public-input vector and duplicate compliance,
 // so a real swap_intent proof would fail swap_settle's 27-wide verify.
 fn main(
@@ -75,7 +75,7 @@ mod kat {
         }
     }
 
-    // Spends the shared fixture note (fromAsset 100, key 789, index 0) -> ties to the split/transfer golden
+    // Spends the shared fixture note (fromAsset 100, key 789, index 0), which ties to the split/transfer golden
     // nullifier + root, so a parity drift on the shared spend path fails here too. Pins the 27-wide scalar prefix
     // layout (indices 0..8) so a public-input reorder breaks the recursion ABI here.
     #[test]

@@ -1,6 +1,7 @@
-# Foundry is used ONLY for stateful invariant fuzzing of the money-adjacent libraries (MerkleTreeLib root
-# retention). Hardhat remains the primary toolchain for unit/integration/e2e. Heavy generated verifiers and the
-# proxy contracts are skipped so forge compiles only what the invariants reach.
+# Foundry is used ONLY for stateful invariant fuzzing of the money paths (DarkPool ledger/nullifier/memo
+# invariants and MerkleTreeLib root retention). Hardhat remains the primary toolchain for unit/integration/e2e.
+# The generated verifiers are skipped because the invariants drive DarkPool behind StubVerifier, so the ~30k-line
+# UltraHonk contracts would only cost compile time.
 [profile.default]
 src = "contracts"
 out = "foundry-out"
@@ -13,13 +14,11 @@ optimizer_runs = 200
 evm_version = "cancun"
 skip = [
   "contracts/verifiers/**",
-  "contracts/DarkPool.sol",
   "contracts/DarkPoolV1.sol",
   "contracts/adaptors/**",
   "contracts/nox/**",
   "contracts/governance/**",
   "contracts/compliance/**",
-  "contracts/mocks/**",
 ]
 remappings = [
   "@openzeppelin/=node_modules/@openzeppelin/",

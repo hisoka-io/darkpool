@@ -50,4 +50,23 @@ describe("Utxo", () => {
   it("rejects a zero owner", () => {
     expect(() => new Utxo(depositNote({ owner: new Fr(0n) }))).toThrow(/owner/);
   });
+
+  // The circuit constrains asset_id to an EVM address. Only the high 12 bytes can carry a violation, so a
+  // check that inspects the low 20 bytes accepts every field and catches nothing.
+  it("rejects an assetId wider than 160 bits", () => {
+    const oversized = new Fr(
+      (1n << 160n) | 0x1234567890123456789012345678901234567890n,
+    );
+    expect(() => new Utxo(depositNote({ assetId: oversized }))).toThrow(
+      /160 bits/,
+    );
+  });
+
+  it("accepts an assetId that fits an EVM address", () => {
+    expect(() => new Utxo(depositNote({ assetId: ASSET }))).not.toThrow();
+    expect(() => new Utxo(depositNote({ assetId: new Fr(0n) }))).not.toThrow();
+    expect(
+      () => new Utxo(depositNote({ assetId: new Fr((1n << 160n) - 1n) })),
+    ).not.toThrow();
+  });
 });

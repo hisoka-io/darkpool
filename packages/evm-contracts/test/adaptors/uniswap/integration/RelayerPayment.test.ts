@@ -12,10 +12,15 @@ import { Fr, toFr } from "@hisoka/wallets";
 import { hashUniswapIntent, SwapType, encodePath } from "@hisoka/adaptors";
 import { RelayerMulticall__factory } from "../../../../typechain-types";
 
+// Within MAX_INTENT_LIFETIME (1h) of the current block, so executeSwap accepts it.
+const swapDeadline = async () =>
+  BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 600n;
+
 describe("Relayer Safe Settlement: Integration", function () {
   this.timeout(0); // Mainnet Forking
 
   it("should process Payment but shield Relayer from failed Swap", async function () {
+    const deadline = await swapDeadline();
     const data = await loadFixture(deployUniswapFixture);
     const { uniswapAdaptor, darkPool, weth, deployer } = data;
 
@@ -46,7 +51,7 @@ describe("Relayer Safe Settlement: Integration", function () {
       salt: 333n,
     };
     // @ts-ignore adaptor intent params
-    const intentHash: Fr = await hashUniswapIntent(params);
+    const intentHash: Fr = await hashUniswapIntent(params, deadline);
     const swapProof = await buildAdaptorWithdraw({
       built: swapSetup.built,
       spendScalar: swapSetup.spendScalar,
@@ -82,6 +87,7 @@ describe("Relayer Safe Settlement: Integration", function () {
         swapProof.pubHex,
         SwapType.ExactInput,
         encodedParams,
+        deadline,
       ],
     );
 

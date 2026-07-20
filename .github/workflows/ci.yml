@@ -45,9 +45,6 @@ jobs:
         run: nargo test
       - name: Circuit regression guards
         run: bash scripts/circuit-guards.sh
-      # The forged-scalar regression net for the FROST width-63 wNAF binding. The byte-identity check must run
-      # first: it re-derives the vendored constrained region and fails if the mirror has drifted, so a vendored
-      # bump cannot silently invalidate the differential below.
       - name: FROST forged-scalar harness
         working-directory: packages/prover/test-harness/frost-forgery
         run: |
@@ -103,22 +100,31 @@ jobs:
           bbup -v 5.0.0
           echo "$HOME/.bb" >> $GITHUB_PATH
       - run: pnpm install --frozen-lockfile
-      # generate_verifier (native bb) + compile_circuit (nargo) run in the prover build.
       - name: Build prover
         run: pnpm turbo run build --filter=@hisoka/wallets --filter=@hisoka/prover
-      # The gate self-skips (green) when native bb is absent or KAGE_NATIVE is unset. This step forces it to
-      # RUN: it fails loudly if native bb is missing, if the gate skips for any reason, or if it does not report
-      # a passing assertion. A missing gate must never read as a green build.
       - name: Run gate (must execute, never skip)
         run: |
           test -x "$HOME/.bb/bb" || { echo "::error::native bb not installed at ~/.bb/bb"; exit 1; }
           "$HOME/.bb/bb" --version | grep -q '5.0.0' || { echo "::error::native bb is not 5.0.0"; exit 1; }
-          out="$(KAGE_NATIVE=1 pnpm --filter @hisoka/prover run test:native 2>&1)"; rc=$?
+          rc=0
+          out="$(KAGE_NATIVE=1 pnpm --filter @hisoka/prover run test:native 2>&1)" || rc=$?
           echo "$out"
           echo "$out" | grep -q 'skipping (not passing)' && { echo "::error::Kage native gate SKIPPED"; exit 1; }
           echo "$out" | grep -q 'opt-in only' && { echo "::error::gate did not receive KAGE_NATIVE=1"; exit 1; }
           echo "$out" | grep -qE '1 passed' || { echo "::error::gate did not report a passing assertion"; exit 1; }
-          exit $rc
+          exit "$rc"
+      - name: FROST forgery accept-path control (must execute, never skip)
+        run: |
+          test -x "$HOME/.bb/bb" || { echo "::error::native bb not installed at ~/.bb/bb"; exit 1; }
+          "$HOME/.bb/bb" --version | grep -q '5.0.0' || { echo "::error::native bb is not 5.0.0"; exit 1; }
+          # `out=$(cmd)` under bash -e aborts at the assignment when cmd fails, so a separate `rc=$?` line
+          # would never run. Capture the status in the same command instead.
+          rc=0
+          out="$(packages/prover/test-harness/frost-forgery/run-gold-standard.sh 2>&1)" || rc=$?
+          echo "$out"
+          test "$rc" -eq 0 || { echo "::error::accept control exited $rc"; exit 1; }
+          echo "$out" | grep -q 'Proof verified successfully' || { echo "::error::bb never reported a verified proof; the accept control did not run"; exit 1; }
+          echo "$out" | grep -q 'produced a VERIFYING proof' || { echo "::error::accept control did not reach its success assertion"; exit 1; }
 
   evm-tests:
     name: EVM Tests
@@ -139,25 +145,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build all packages
         run: pnpm turbo run build
+      - name: Typecheck deploy/ops scripts and hardhat config
+        run: pnpm --filter evm-contracts run typecheck:scripts
       - name: Run Solidity tests
         run: pnpm --filter evm-contracts run test:fast
-      # Proof-heavy tests excluded from the parallel fast suite (RootEviction root-history window).
       - name: Run slow Solidity tests
         run: pnpm --filter evm-contracts run test:slow
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
       - name: Run invariant tests (Foundry)
         run: pnpm --filter evm-contracts run test:invariant
-      # Upgrade-safety gate: validates the 3 UUPS impls (storage layout via DarkPoolV1 reference,
-      # library-link pin, banned-flag and annotation scans). Fails the job on any drift.
       - name: Validate upgrade safety
         run: pnpm --filter evm-contracts run validate:upgrades
-      # Storage-layout tripwire: regenerates the committed snapshots and diffs them. The
-      # .storage-layout/*.json snapshots and linked-libraries.json MUST be committed for this to
-      # arm (an empty/absent snapshot makes the diff pass vacuously). Those snapshots are
-      # empty-by-design (all state is in ERC-7201 namespaces); they only catch a NEW bare
-      # sequential slot. The load-bearing upgrade gate is validate:upgrades above (validateUpgrade
-      # against DarkPoolV1), backed by the DarkPoolV1 storage-surface guard (scripts/regen-darkpoolv1.ts).
       - name: Check storage-layout snapshots
         run: pnpm --filter evm-contracts run storage:check
 
@@ -177,7 +176,5 @@ jobs:
         with:
           node-version: "20"
       - name: Dependency audit (prod deps, high severity)
-        # Advisory only: the npm audit endpoint pnpm uses was retired, so this cannot gate reliably.
         run: pnpm audit --prod --audit-level high || true
 
-  # Rust CI (lint, test, security) runs in hisoka-io/nox repo

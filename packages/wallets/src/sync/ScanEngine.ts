@@ -53,37 +53,54 @@ export class ScanEngine {
     return this.utxoRepo.getAllNotes().length > before;
   }
 
+  // Every log query floors to deploymentBlock. UtxoRepository has no persistence, so a sync rebuilds
+  // state from scratch; starting a note/memo query above the pool's first block drops the caller's own
+  // earlier notes and understates the balance while spend-state still looks correct.
+  private scanFloor(fromBlock: number): number {
+    return Math.min(fromBlock, this.deploymentBlock);
+  }
+
   private async scanPasses(fromBlock: number, window: number): Promise<void> {
     await this.keyRepo.ensureSelfLookahead(window);
     await this.keyRepo.ensureIncomingLookahead(window);
 
+    // Fetched once for the whole loop: passes differ only in how far the key lookahead has been
+    // extended, not in which logs are in range, so re-querying per pass repeats identical RPC range
+    // queries up to maxPasses times.
+    const { leafLogs, nullLogs } = await this.fetchScanLogs(fromBlock);
+
     const maxPasses = 64;
     for (let pass = 0; pass < maxPasses; pass++) {
-      await this.scanOnce(fromBlock);
+      await this.scanOnce(leafLogs, nullLogs);
       const ext1 = await this.keyRepo.ensureSelfLookahead(window);
       const ext2 = await this.keyRepo.ensureIncomingLookahead(window);
       if (!ext1 && !ext2) break;
     }
   }
 
-  private async scanOnce(fromBlock: number): Promise<void> {
+  private async fetchScanLogs(fromBlock: number): Promise<{
+    leafLogs: Array<EventLog | Log>;
+    nullLogs: Array<EventLog | Log>;
+  }> {
+    const floor = this.scanFloor(fromBlock);
+
     const noteLogs = await this.contract.queryFilter(
       this.contract.filters.NewNote(),
-      fromBlock,
+      floor,
     );
 
     const memoLogs: Array<EventLog | Log> = await this.contract.queryFilter(
       this.contract.filters.NewPrivateMemo(),
-      fromBlock,
+      floor,
     );
 
     const nullLogs = await this.contract.queryFilter(
       this.contract.filters.NullifierSpent(),
-      Math.min(fromBlock, this.deploymentBlock),
+      floor,
     );
 
     const finalized = await this.finalizedBlock();
-    const allLogs = [...noteLogs, ...memoLogs]
+    const leafLogs = [...noteLogs, ...memoLogs]
       .filter((l) => l.blockNumber <= finalized)
       .sort((a, b) => {
         if (a.blockNumber !== b.blockNumber)
@@ -91,6 +108,16 @@ export class ScanEngine {
         return a.index - b.index;
       });
 
+    return {
+      leafLogs,
+      nullLogs: nullLogs.filter((l) => l.blockNumber <= finalized),
+    };
+  }
+
+  private async scanOnce(
+    allLogs: Array<EventLog | Log>,
+    nullLogs: Array<EventLog | Log>,
+  ): Promise<void> {
     for (const log of allLogs) {
       if (!("args" in log)) continue;
       const eventLog = log as EventLog;
@@ -100,11 +127,7 @@ export class ScanEngine {
         const currentTreeIndex = this.merkleTree.nextLeafIndex;
 
         if (eventLeafIndex > currentTreeIndex) {
-          await this.repairTreeGap(
-            fromBlock,
-            currentTreeIndex,
-            eventLeafIndex - 1,
-          );
+          await this.repairTreeGap(eventLeafIndex - 1);
         }
         if (eventLeafIndex === this.merkleTree.nextLeafIndex) {
           const comm = eventLog.args["commitment"] as string;
@@ -116,7 +139,7 @@ export class ScanEngine {
     }
 
     for (const log of nullLogs) {
-      if ("args" in log && log.blockNumber <= finalized) {
+      if ("args" in log) {
         const eventLog = log as EventLog;
         const nfHash = eventLog.args["nullifierHash"] as string;
         this.utxoRepo.markSpent(nfHash);
@@ -124,14 +147,8 @@ export class ScanEngine {
     }
   }
 
-  private async repairTreeGap(
-    fromBlock: number,
-    startIndex: number,
-    endIndex: number,
-  ): Promise<void> {
+  private async repairTreeGap(endIndex: number): Promise<void> {
     if (!this.merkleTree) return;
-    void startIndex;
-    void fromBlock;
 
     const maxAttempts = 8;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {

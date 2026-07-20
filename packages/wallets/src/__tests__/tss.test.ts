@@ -58,11 +58,17 @@ describe("tss: Shamir + Lagrange mod SUBORDER", () => {
   });
 
   it("a mod-BN254 Lagrange variant would break reconstruction (guards T7)", () => {
-    // Full-width coeffs so the shares wrap mod SUBORDER; interpolating them under BN254 Fr diverges.
     const BN254 =
       21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-    const secret = randScalar();
-    const coeffs = [secret, randScalar(), randScalar()];
+    // Deterministic by necessity, not preference. Each share is y_i = f(i) - k_i*SUBORDER, so the BN254
+    // variant yields secret - (sum lambda_i k_i)*SUBORDER; for quorum {2,4,5} the Lagrange coefficients are
+    // 10/3, -5, 8/3, so it wrongly reproduces the secret exactly when 10*k_2 - 15*k_4 + 8*k_5 == 0. Random
+    // full-width coefficients satisfy that relation about 6.5% of the time (measured over 20k draws), which
+    // made this negative control fail roughly one CI run in fifteen. At SUBORDER/10 the wrap counts are
+    // k_2=0, k_4=2, k_5=3, so sum lambda_i k_i = -2 and the BN254 variant lands on secret + 2*SUBORDER:
+    // the divergence is structural rather than probabilistic.
+    const secret = SUBORDER / 10n;
+    const coeffs = [secret, SUBORDER / 10n, SUBORDER / 10n];
     // Quorum {2,4,5} has non-integer Lagrange coeffs, so the modular inverse differs between SUBORDER and BN254.
     const quorum = [2n, 4n, 5n];
     const shares = quorum.map((i) => ({ i, y: polyEval(coeffs, i) }));

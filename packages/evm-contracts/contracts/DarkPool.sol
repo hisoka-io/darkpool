@@ -86,6 +86,7 @@ contract DarkPool is
     error VerifierHasNoCode();
     error VerifierUnset(uint256 circuitId);
     error InvalidComplianceKeyPoint();
+    error InvalidMemoOwnerPoint();
     error ReentrancyGuardReentrantCall();
     error ComplianceKeyStale(
         uint256 currentVersion,
@@ -633,6 +634,11 @@ contract DarkPool is
     ) external nonReentrant whenNotPaused {
         if (_value == 0) revert ValueZero();
         if (_value > type(uint128).max) revert ValueTooLarge();
+        // The escrow destination gets the same validation the compliance key already gets. public_claim asserts
+        // the claimant's derived key equals this point, so an off-curve or identity point is unclaimable by
+        // anyone, and MemoStorage records neither depositor nor value, so nothing can be recovered afterwards:
+        // an unvalidated coordinate burns the escrow permanently.
+        if (!_isValidBjjPoint(_ownerX, _ownerY)) revert InvalidMemoOwnerPoint();
 
         Field.Type[] memory inputs = new Field.Type[](6);
         inputs[0] = Field.toField(_value);
@@ -763,9 +769,12 @@ contract DarkPool is
     }
 
     /// @dev On-curve + non-identity + coord-range. Not a subgroup check (see rotateComplianceKey backstop).
-    function _requireValidComplianceKey(uint256 x, uint256 y) private pure {
-        if (x >= BN254_FR || y >= BN254_FR) revert InvalidComplianceKeyPoint();
-        if (x == 0 && y == 1) revert InvalidComplianceKeyPoint();
+    function _isValidBjjPoint(
+        uint256 x,
+        uint256 y
+    ) private pure returns (bool) {
+        if (x >= BN254_FR || y >= BN254_FR) return false;
+        if (x == 0 && y == 1) return false;
         uint256 x2 = mulmod(x, x, BN254_FR);
         uint256 y2 = mulmod(y, y, BN254_FR);
         uint256 lhs = addmod(mulmod(BJJ_A, x2, BN254_FR), y2, BN254_FR);
@@ -774,7 +783,11 @@ contract DarkPool is
             mulmod(mulmod(BJJ_D, x2, BN254_FR), y2, BN254_FR),
             BN254_FR
         );
-        if (lhs != rhs) revert InvalidComplianceKeyPoint();
+        return lhs == rhs;
+    }
+
+    function _requireValidComplianceKey(uint256 x, uint256 y) private pure {
+        if (!_isValidBjjPoint(x, y)) revert InvalidComplianceKeyPoint();
     }
 
     /// @dev Ceilings a prover timestamp near now so a claimer cannot forge a future one to clear the timelock.

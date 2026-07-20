@@ -13,6 +13,10 @@ import {
 import { Fr } from "@hisoka/wallets";
 import { hashUniswapIntent, SwapType } from "@hisoka/adaptors";
 
+// Within MAX_INTENT_LIFETIME (1h) of the current block, so executeSwap accepts it.
+const swapDeadline = async () =>
+  BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 600n;
+
 describe("Uniswap Adaptor: Single Hop Integration", function () {
   this.timeout(0);
 
@@ -24,6 +28,7 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
   });
 
   it("should execute ExactOutputSingle and REFUND excess input", async function () {
+    const deadline = await swapDeadline();
     const data = await loadFixture(deployUniswapFixture);
     const { uniswapAdaptor, darkPool, alice } = data;
     const setup = await setupAdaptorNote(data, "10"); // 10 WETH
@@ -42,7 +47,7 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
     };
 
     // @ts-ignore adaptor intent params
-    const intentHash: Fr = await hashUniswapIntent(params);
+    const intentHash: Fr = await hashUniswapIntent(params, deadline);
     const { proofHex, pubHex } = await buildAdaptorWithdraw({
       built: setup.built,
       spendScalar: setup.spendScalar,
@@ -71,7 +76,13 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
 
     const tx = await uniswapAdaptor
       .connect(alice)
-      .executeSwap(proofHex, pubHex, SwapType.ExactOutputSingle, encodedParams);
+      .executeSwap(
+        proofHex,
+        pubHex,
+        SwapType.ExactOutputSingle,
+        encodedParams,
+        deadline,
+      );
     const receipt = await tx.wait();
 
     // Expect two NewPublicMemo events: target output + refund.

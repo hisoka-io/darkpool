@@ -11,6 +11,10 @@ import {
 import { Fr } from "@hisoka/wallets";
 import { hashUniswapIntent, SwapType } from "@hisoka/adaptors";
 
+// Within MAX_INTENT_LIFETIME (1h) of the current block, so executeSwap accepts it.
+const swapDeadline = async () =>
+  BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 600n;
+
 const EIS_TUPLE =
   "tuple(address assetIn, address assetOut, uint24 fee, tuple(uint256 ownerX, uint256 ownerY) recipient, uint256 amountOutMin, uint256 salt)";
 
@@ -52,16 +56,17 @@ describe("Uniswap Adaptor: Security & Validation", function () {
     assetOut: USDC_ADDRESS,
     fee: 3000,
     recipient: { ownerX: 777n, ownerY: 888n },
-    amountOutMin: 0n,
+    amountOutMin: 1n,
     salt: 999n,
   };
 
   it("SECURITY: Should reject if Intent Params are modified (Hijack Attempt)", async function () {
+    const deadline = await swapDeadline();
     const data = await loadFixture(fixture);
     const { uniswapAdaptor, alice } = data;
 
     // @ts-ignore adaptor intent params
-    const intentHash: Fr = await hashUniswapIntent(goodParams);
+    const intentHash: Fr = await hashUniswapIntent(goodParams, deadline);
     const { proofHex, pubHex } = await buildAdaptorWithdraw({
       built: data.built,
       spendScalar: data.spendScalar,
@@ -83,16 +88,18 @@ describe("Uniswap Adaptor: Security & Validation", function () {
           pubHex,
           SwapType.ExactInputSingle,
           encodeEIS(hijacked),
+          deadline,
         ),
     ).to.be.reverted;
   });
 
   it("SECURITY: Should reject if Proof Recipient is not the Adaptor", async function () {
+    const deadline = await swapDeadline();
     const data = await loadFixture(fixture);
     const { uniswapAdaptor, alice } = data;
 
     // @ts-ignore
-    const intentHash: Fr = await hashUniswapIntent(goodParams);
+    const intentHash: Fr = await hashUniswapIntent(goodParams, deadline);
     const { proofHex, pubHex } = await buildAdaptorWithdraw({
       built: data.built,
       spendScalar: data.spendScalar,
@@ -110,11 +117,13 @@ describe("Uniswap Adaptor: Security & Validation", function () {
           pubHex,
           SwapType.ExactInputSingle,
           encodeEIS(goodParams),
+          deadline,
         ),
     ).to.be.revertedWithCustomError(uniswapAdaptor, "InvalidProofRecipient");
   });
 
   it("FIX1: rejects swapping an asset other than the withdrawn asset", async function () {
+    const deadline = await swapDeadline();
     const data = await loadFixture(fixture);
     const { uniswapAdaptor, alice } = data;
     const mismatch = {
@@ -123,7 +132,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
       assetOut: WETH_ADDRESS,
     };
     // @ts-ignore
-    const intentHash: Fr = await hashUniswapIntent(mismatch);
+    const intentHash: Fr = await hashUniswapIntent(mismatch, deadline);
     const { proofHex, pubHex } = await buildAdaptorWithdraw({
       built: data.built,
       spendScalar: data.spendScalar,
@@ -140,15 +149,17 @@ describe("Uniswap Adaptor: Security & Validation", function () {
           pubHex,
           SwapType.ExactInputSingle,
           encodeEIS(mismatch),
+          deadline,
         ),
     ).to.be.revertedWithCustomError(uniswapAdaptor, "AssetMismatch");
   });
 
   it("FIX1: rejects a replayed proof after a completed atomic swap", async function () {
+    const deadline = await swapDeadline();
     const data = await loadFixture(fixture);
     const { uniswapAdaptor, darkPool, alice } = data;
     // @ts-ignore
-    const intentHash: Fr = await hashUniswapIntent(goodParams);
+    const intentHash: Fr = await hashUniswapIntent(goodParams, deadline);
     const { proofHex, pubHex } = await buildAdaptorWithdraw({
       built: data.built,
       spendScalar: data.spendScalar,
@@ -164,6 +175,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
         pubHex,
         SwapType.ExactInputSingle,
         encodeEIS(goodParams),
+        deadline,
       );
     await expect(
       uniswapAdaptor
@@ -173,15 +185,17 @@ describe("Uniswap Adaptor: Security & Validation", function () {
           pubHex,
           SwapType.ExactInputSingle,
           encodeEIS(goodParams),
+          deadline,
         ),
     ).to.be.revertedWithCustomError(darkPool, "NullifierAlreadySpent");
   });
 
   it("C-1: blocks a direct withdraw to a contract recipient from a non-recipient caller", async function () {
+    const deadline = await swapDeadline();
     const data = await loadFixture(fixture);
     const { darkPool, attacker, uniswapAdaptor } = data;
     // @ts-ignore
-    const intentHash: Fr = await hashUniswapIntent(goodParams);
+    const intentHash: Fr = await hashUniswapIntent(goodParams, deadline);
     const { proofHex, pubHex } = await buildAdaptorWithdraw({
       built: data.built,
       spendScalar: data.spendScalar,

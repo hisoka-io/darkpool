@@ -16,6 +16,10 @@ import { Fr } from "@hisoka/wallets";
 import { hashUniswapIntent, SwapType, encodePath } from "@hisoka/adaptors";
 import { assert } from "console";
 
+// Within MAX_INTENT_LIFETIME (1h) of the current block, so executeSwap accepts it.
+const swapDeadline = async () =>
+  BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 600n;
+
 describe("Uniswap Adaptor: Multi-Hop Integration", function () {
   this.timeout(0); // Mainnet Forking
 
@@ -29,6 +33,7 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
   });
 
   it("should swap WETH -> USDC -> DAI (Exact Input)", async function () {
+    const deadline = await swapDeadline();
     const data = await loadFixture(deployUniswapFixture);
     const { uniswapAdaptor, darkPool, alice } = data;
     const setup = await setupAdaptorNote(data, "1.0"); // 1 WETH
@@ -41,12 +46,12 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
       type: SwapType.ExactInput,
       path,
       recipient: { ownerX: 111n, ownerY: 222n },
-      amountOutMin: 0n,
+      amountOutMin: 1n,
       salt: 333n,
     };
 
     // @ts-ignore adaptor intent params
-    const intentHash: Fr = await hashUniswapIntent(params);
+    const intentHash: Fr = await hashUniswapIntent(params, deadline);
     const { proofHex, pubHex } = await buildAdaptorWithdraw({
       built: setup.built,
       spendScalar: setup.spendScalar,
@@ -72,7 +77,13 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
 
     const tx = await uniswapAdaptor
       .connect(alice)
-      .executeSwap(proofHex, pubHex, SwapType.ExactInput, encodedParams);
+      .executeSwap(
+        proofHex,
+        pubHex,
+        SwapType.ExactInput,
+        encodedParams,
+        deadline,
+      );
     const receipt = await tx.wait();
 
     const log = receipt!.logs
@@ -98,6 +109,7 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
   });
 
   it("should swap WETH -> USDC -> WBTC (Exact Output) with Refund", async function () {
+    const deadline = await swapDeadline();
     const data = await loadFixture(deployUniswapFixture);
     const { uniswapAdaptor, darkPool, alice } = data;
     const setup = await setupAdaptorNote(data, "10.0");
@@ -117,7 +129,7 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
     };
 
     // @ts-ignore
-    const intentHash: Fr = await hashUniswapIntent(params);
+    const intentHash: Fr = await hashUniswapIntent(params, deadline);
     const { proofHex, pubHex } = await buildAdaptorWithdraw({
       built: setup.built,
       spendScalar: setup.spendScalar,
@@ -144,7 +156,13 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
 
     const tx = await uniswapAdaptor
       .connect(alice)
-      .executeSwap(proofHex, pubHex, SwapType.ExactOutput, encodedParams);
+      .executeSwap(
+        proofHex,
+        pubHex,
+        SwapType.ExactOutput,
+        encodedParams,
+        deadline,
+      );
     const receipt = await tx.wait();
 
     const logs = receipt!.logs

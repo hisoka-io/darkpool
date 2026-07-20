@@ -18,6 +18,10 @@ import { Point } from "@zk-kit/baby-jubjub";
 import { DarkPool, IERC20, UniswapAdaptor } from "../../../../typechain-types";
 import { TestWallet } from "../../../helpers/TestWallet";
 
+// Within MAX_INTENT_LIFETIME (1h) of the current block, so executeSwap accepts it.
+const swapDeadline = async () =>
+  BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 600n;
+
 class TraderAgent {
   private claimIdx = 0n;
 
@@ -48,7 +52,7 @@ class TraderAgent {
       assetIn,
       assetOut,
       fee,
-      amountOutMin: 0n,
+      amountOutMin: 1n,
       recipient: {
         ownerX: recipientPk[0],
         ownerY: recipientPk[1],
@@ -56,7 +60,9 @@ class TraderAgent {
       salt: 1n,
     };
 
-    const intentHash = await hashUniswapIntent(params);
+    // One deadline for both the hash and the call: two independent reads would drift across a block.
+    const deadline = await swapDeadline();
+    const intentHash = await hashUniswapIntent(params, deadline);
 
     const proof = await this.wallet.withdraw(amountIn, {
       asset: assetIn,
@@ -87,7 +93,13 @@ class TraderAgent {
 
     const tx = await this.adaptor
       .connect(this.wallet.signer as never)
-      .executeSwap(proofHex, pubHex, SwapType.ExactInputSingle, encodedParams);
+      .executeSwap(
+        proofHex,
+        pubHex,
+        SwapType.ExactInputSingle,
+        encodedParams,
+        deadline,
+      );
     const receipt = await tx.wait();
 
     await this.wallet.sync();

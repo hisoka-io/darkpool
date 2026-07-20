@@ -7,4 +7,3 @@ license = "Apache-2.0"
 [dependencies]
 shared = { path = "../../shared" }
 ecdh = { path = "../../vendor/ecdh" }
-poseidon = { path = "../../vendor/poseidon" }

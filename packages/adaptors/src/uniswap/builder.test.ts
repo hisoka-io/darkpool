@@ -12,6 +12,8 @@ import {
   ExactOutputParams,
 } from "./types.js";
 
+const TEST_DEADLINE = 1_800_000_000n;
+
 const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const WBTC = "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599";
@@ -131,7 +133,7 @@ function handRolled(params: UniswapSwapParams): string {
 
 describe("buildSwapIntent", () => {
   it("ExactInputSingle: encodedParams matches hand-rolled, round-trips, intentHash matches", async () => {
-    const built = await buildSwapIntent(exactInputSingle);
+    const built = await buildSwapIntent(exactInputSingle, TEST_DEADLINE);
 
     expect(built.encodedParams).toBe(handRolled(exactInputSingle));
 
@@ -144,12 +146,12 @@ describe("buildSwapIntent", () => {
     expect(decoded.amountOutMin).toBe(exactInputSingle.amountOutMin);
     expect(decoded.salt).toBe(exactInputSingle.salt);
 
-    const direct = await hashUniswapIntent(exactInputSingle);
+    const direct = await hashUniswapIntent(exactInputSingle, TEST_DEADLINE);
     expect(built.intentHash.toString()).toBe(direct.toString());
   });
 
   it("ExactInput: encodedParams matches hand-rolled, round-trips, intentHash matches", async () => {
-    const built = await buildSwapIntent(exactInput);
+    const built = await buildSwapIntent(exactInput, TEST_DEADLINE);
 
     expect(built.encodedParams).toBe(handRolled(exactInput));
 
@@ -160,12 +162,12 @@ describe("buildSwapIntent", () => {
     expect(decoded.amountOutMin).toBe(exactInput.amountOutMin);
     expect(decoded.salt).toBe(exactInput.salt);
 
-    const direct = await hashUniswapIntent(exactInput);
+    const direct = await hashUniswapIntent(exactInput, TEST_DEADLINE);
     expect(built.intentHash.toString()).toBe(direct.toString());
   });
 
   it("ExactOutputSingle: encodedParams matches hand-rolled, round-trips, intentHash matches", async () => {
-    const built = await buildSwapIntent(exactOutputSingle);
+    const built = await buildSwapIntent(exactOutputSingle, TEST_DEADLINE);
 
     expect(built.encodedParams).toBe(handRolled(exactOutputSingle));
 
@@ -179,12 +181,12 @@ describe("buildSwapIntent", () => {
     expect(decoded.amountInMaximum).toBe(exactOutputSingle.amountInMaximum);
     expect(decoded.salt).toBe(exactOutputSingle.salt);
 
-    const direct = await hashUniswapIntent(exactOutputSingle);
+    const direct = await hashUniswapIntent(exactOutputSingle, TEST_DEADLINE);
     expect(built.intentHash.toString()).toBe(direct.toString());
   });
 
   it("ExactOutput: encodedParams matches hand-rolled, round-trips, intentHash matches", async () => {
-    const built = await buildSwapIntent(exactOutput);
+    const built = await buildSwapIntent(exactOutput, TEST_DEADLINE);
 
     expect(built.encodedParams).toBe(handRolled(exactOutput));
 
@@ -196,7 +198,43 @@ describe("buildSwapIntent", () => {
     expect(decoded.amountInMaximum).toBe(exactOutput.amountInMaximum);
     expect(decoded.salt).toBe(exactOutput.salt);
 
-    const direct = await hashUniswapIntent(exactOutput);
+    const direct = await hashUniswapIntent(exactOutput, TEST_DEADLINE);
     expect(built.intentHash.toString()).toBe(direct.toString());
+  });
+});
+
+// The salt is what stops a griefer precomputing the memo id a pending swap settles to and front-running it
+// with an identical publicTransfer, which makes the victim's whole swap revert on MemoCollision. Leaving it
+// to the caller made that guarantee a documentation hope: every salt in this repo was a small literal.
+describe("buildSwapIntent salt entropy", () => {
+  const { salt: _drop, ...unsalted } = exactInputSingle;
+
+  it("draws a fresh salt when none is supplied", async () => {
+    const a = await buildSwapIntent(unsalted, TEST_DEADLINE);
+    const b = await buildSwapIntent(unsalted, TEST_DEADLINE);
+
+    expect(a.salt).not.toBe(b.salt);
+    expect(a.intentHash.toString()).not.toBe(b.intentHash.toString());
+  });
+
+  it("draws a salt with real entropy, not a small counter", async () => {
+    for (let i = 0; i < 8; i++) {
+      const { salt } = await buildSwapIntent(unsalted, TEST_DEADLINE);
+      expect(salt).toBeGreaterThan(1n << 200n);
+    }
+  });
+
+  it("returns the drawn salt so the caller can reconstruct the memo id", async () => {
+    const built = await buildSwapIntent(unsalted, TEST_DEADLINE);
+    const rebuilt = await hashUniswapIntent(
+      { ...unsalted, salt: built.salt },
+      TEST_DEADLINE,
+    );
+    expect(built.intentHash.toString()).toBe(rebuilt.toString());
+  });
+
+  it("still honours an explicitly supplied salt", async () => {
+    const built = await buildSwapIntent(exactInputSingle, TEST_DEADLINE);
+    expect(built.salt).toBe(salt);
   });
 });
