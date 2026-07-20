@@ -3,7 +3,7 @@ import type {
   MerkleTreeLibHarness,
   FullWalkMerkleTreeHarness,
   BreakBeforeWriteMerkleTreeHarness,
-} from "../typechain-types";
+} from "../../typechain-types";
 
 /** BN254 scalar field modulus. Field.toField rejects anything at or above it. */
 export const BN254_FR =

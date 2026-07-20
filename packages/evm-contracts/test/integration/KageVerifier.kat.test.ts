@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { KAGE_PROOF, KAGE_PUBLIC_INPUTS } from "./kageGolden";
+import { HonkVerifier__factory } from "../../typechain-types/factories/contracts/verifiers/KageVerifier.sol";
 
 // Known-answer test: the REAL native-bb swap_settle proof verifies on-chain through the generated
 // KageVerifier.sol (the same verifier DarkPool registers for CIRCUIT_KAGE). The golden vectors live in
@@ -8,12 +9,8 @@ import { KAGE_PROOF, KAGE_PUBLIC_INPUTS } from "./kageGolden";
 // exercises verify() directly; the e2e drives the same proof through kageSwap with full effects.
 describe("KageVerifier (on-chain recursive-proof KAT)", function () {
   async function deployVerifier() {
-    const verifier = await (
-      await ethers.getContractFactory(
-        "contracts/verifiers/KageVerifier.sol:HonkVerifier",
-      )
-    ).deploy();
-    return verifier;
+    const [deployer] = await ethers.getSigners();
+    return new HonkVerifier__factory(deployer).deploy();
   }
 
   it("verifies the real recursive proof on-chain", async function () {

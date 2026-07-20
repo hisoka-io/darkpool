@@ -10,6 +10,7 @@ import {
 } from "../../fixtures";
 import { Fr } from "@hisoka/wallets";
 import { hashUniswapIntent, SwapType } from "@hisoka/adaptors";
+import { publicKey } from "@hisoka/wallets";
 
 // Within MAX_INTENT_LIFETIME (1h) of the current block, so executeSwap accepts it.
 const swapDeadline = async () =>
@@ -41,6 +42,10 @@ function encodeEIS(p: {
   );
 }
 
+// publicTransfer validates the escrow destination is on-curve. A placeholder point would be
+// unclaimable in production, so these fixtures use real derived keys.
+const OWNER = publicKey(new Fr(0xe55en));
+
 describe("Uniswap Adaptor: Security & Validation", function () {
   this.timeout(0); // Forking
 
@@ -55,7 +60,7 @@ describe("Uniswap Adaptor: Security & Validation", function () {
     assetIn: WETH_ADDRESS,
     assetOut: USDC_ADDRESS,
     fee: 3000,
-    recipient: { ownerX: 777n, ownerY: 888n },
+    recipient: { ownerX: OWNER[0], ownerY: OWNER[1] },
     amountOutMin: 1n,
     salt: 999n,
   };

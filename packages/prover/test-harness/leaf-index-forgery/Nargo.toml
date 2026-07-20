@@ -1,0 +1,9 @@
+[package]
+name = "leaf_index_forgery"
+type = "bin"
+authors = [""]
+compiler_version = ">=1.0.0"
+
+[dependencies]
+shared = { path = "../../../circuits/shared" }
+poseidon = { path = "../../../circuits/vendor/poseidon" }

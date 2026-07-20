@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers, upgrades } from "hardhat";
-import type { DarkPool, MockERC20 } from "../typechain-types";
+import type { DarkPool, MockERC20 } from "../../typechain-types";
 import { COMPLIANCE_PK } from "../helpers/fixtures";
 import { bitLength, leafAt, deployMerkleHarness } from "../helpers/merkleTree";
 

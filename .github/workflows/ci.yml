@@ -45,11 +45,14 @@ jobs:
         run: nargo test
       - name: Circuit regression guards
         run: bash scripts/circuit-guards.sh
-      - name: FROST forged-scalar harness
-        working-directory: packages/prover/test-harness/frost-forgery
+      - name: Witness-injection soundness harnesses
         run: |
-          ./check-byte-identity.sh
-          nargo test
+          for h in frost-forgery psi-cek-forgery leaf-index-forgery; do
+            echo "::group::$h"
+            ( cd "packages/prover/test-harness/$h" && ./check-byte-identity.sh && nargo test ) \
+              || { echo "::error::soundness harness $h failed"; exit 1; }
+            echo "::endgroup::"
+          done
 
   ts-tests:
     name: TS Tests
@@ -145,8 +148,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build all packages
         run: pnpm turbo run build
-      - name: Typecheck deploy/ops scripts and hardhat config
-        run: pnpm --filter evm-contracts run typecheck:scripts
+      - name: Typecheck evm-contracts (scripts + tests)
+        run: pnpm --filter evm-contracts run typecheck
       - name: Run Solidity tests
         run: pnpm --filter evm-contracts run test:fast
       - name: Run slow Solidity tests

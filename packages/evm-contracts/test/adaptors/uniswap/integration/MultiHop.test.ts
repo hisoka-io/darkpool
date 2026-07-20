@@ -15,10 +15,16 @@ import {
 import { Fr } from "@hisoka/wallets";
 import { hashUniswapIntent, SwapType, encodePath } from "@hisoka/adaptors";
 import { assert } from "console";
+import { publicKey } from "@hisoka/wallets";
 
 // Within MAX_INTENT_LIFETIME (1h) of the current block, so executeSwap accepts it.
 const swapDeadline = async () =>
   BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 600n;
+
+// publicTransfer validates the escrow destination is on-curve. A placeholder point would be
+// unclaimable in production, so these fixtures use real derived keys.
+const OWNER_0 = publicKey(new Fr(0xa11an));
+const OWNER_1 = publicKey(new Fr(0xb22bn));
 
 describe("Uniswap Adaptor: Multi-Hop Integration", function () {
   this.timeout(0); // Mainnet Forking
@@ -33,7 +39,6 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
   });
 
   it("should swap WETH -> USDC -> DAI (Exact Input)", async function () {
-    const deadline = await swapDeadline();
     const data = await loadFixture(deployUniswapFixture);
     const { uniswapAdaptor, darkPool, alice } = data;
     const setup = await setupAdaptorNote(data, "1.0"); // 1 WETH
@@ -45,11 +50,12 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
     const params = {
       type: SwapType.ExactInput,
       path,
-      recipient: { ownerX: 111n, ownerY: 222n },
+      recipient: { ownerX: OWNER_0[0], ownerY: OWNER_0[1] },
       amountOutMin: 1n,
       salt: 333n,
     };
 
+    const deadline = await swapDeadline();
     // @ts-ignore adaptor intent params
     const intentHash: Fr = await hashUniswapIntent(params, deadline);
     const { proofHex, pubHex } = await buildAdaptorWithdraw({
@@ -109,7 +115,6 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
   });
 
   it("should swap WETH -> USDC -> WBTC (Exact Output) with Refund", async function () {
-    const deadline = await swapDeadline();
     const data = await loadFixture(deployUniswapFixture);
     const { uniswapAdaptor, darkPool, alice } = data;
     const setup = await setupAdaptorNote(data, "10.0");
@@ -122,12 +127,13 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
     const params = {
       type: SwapType.ExactOutput,
       path,
-      recipient: { ownerX: 333n, ownerY: 444n },
+      recipient: { ownerX: OWNER_1[0], ownerY: OWNER_1[1] },
       amountOut: BigInt(TARGET_WBTC),
       amountInMaximum: BigInt(setup.amount),
       salt: 555n,
     };
 
+    const deadline = await swapDeadline();
     // @ts-ignore
     const intentHash: Fr = await hashUniswapIntent(params, deadline);
     const { proofHex, pubHex } = await buildAdaptorWithdraw({

@@ -11,7 +11,6 @@ import {
   userSpendScalar,
   newSeededTree,
   genesisLeaf,
-  noteToInput,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
 import {
@@ -122,15 +121,15 @@ async function buildMultisigNote(
 
 /** Run a full FROST 2-round session: `signerIds` (a t-of-n quorum) jointly sign `m` under `gpk`. */
 async function frostSign(
-  gpk: Point,
+  gpk: Point<bigint>,
   shares: Map<bigint, bigint>,
   signerIds: bigint[],
   m: bigint,
-): Promise<{ R: Point; z: bigint }> {
+): Promise<{ R: Point<bigint>; z: bigint }> {
   const cs = frost.bjjCiphersuite;
   const msg = frost.encodeMessage(m);
 
-  type Round1 = Awaited<ReturnType<typeof frost.commit<Point>>>;
+  type Round1 = Awaited<ReturnType<typeof frost.commit<Point<bigint>>>>;
   const nonceById = new Map<bigint, Round1["nonces"]>();
   const commitments: Round1["commitment"][] = [];
   for (const id of signerIds) {
@@ -232,7 +231,7 @@ describe("D1 real-proof e2e (STANDARD)", function () {
       recipient: addressToFr(bob.address),
       intentHash: toFr(0n),
       compliancePk: COMPLIANCE_PK,
-      oldNote: noteToInput(dep.built.note),
+      oldNote: dep.built.note,
       spendScalar: dep.spendScalar,
       oldNoteIndex: 1,
       oldNotePath: tree.getMerklePath(1),
@@ -285,7 +284,7 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     const proof = await proveTransfer({
       compliancePk: COMPLIANCE_PK,
       recipientInPub: bobInPub,
-      oldNote: noteToInput(dep.built.note),
+      oldNote: dep.built.note,
       spendScalar: dep.spendScalar,
       oldNoteIndex: 1,
       oldNotePath: tree.getMerklePath(1),
@@ -337,7 +336,7 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     );
     const proof = await proveSplit({
       compliancePk: COMPLIANCE_PK,
-      noteIn: noteToInput(dep.built.note),
+      noteIn: dep.built.note,
       spendScalar: dep.spendScalar,
       indexIn: 1,
       pathIn: tree.getMerklePath(1),
@@ -381,11 +380,11 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     );
     const proof = await proveJoin({
       compliancePk: COMPLIANCE_PK,
-      noteA: noteToInput(depA.built.note),
+      noteA: depA.built.note,
       spendScalarA: depA.spendScalar,
       indexA: 1,
       pathA: tree.getMerklePath(1),
-      noteB: noteToInput(depB.built.note),
+      noteB: depB.built.note,
       spendScalarB: depB.spendScalar,
       indexB: 2,
       pathB: tree.getMerklePath(2),

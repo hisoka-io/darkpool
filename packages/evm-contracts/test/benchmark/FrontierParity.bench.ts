@@ -5,7 +5,7 @@ import {
   MerkleTreeLibHarness__factory,
   Poseidon2,
   Poseidon2__factory,
-} from "../typechain-types";
+} from "../../typechain-types";
 import { LeanIMT, toFr } from "@hisoka/wallets";
 
 // FRONTIER=1 npx hardhat test test/benchmark/FrontierParity.bench.ts

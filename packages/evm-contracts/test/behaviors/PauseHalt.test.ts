@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
+import { BytesLike } from "ethers";
 import { deployDarkPoolFixture } from "../helpers/fixtures";
 
 // whenNotPaused guards every money entrypoint and runs before proof verification, so a paused pool must halt
@@ -13,7 +14,7 @@ describe("DarkPool: pause halts every money entrypoint", function () {
     await darkPool.connect(deployer).pause();
 
     const p = "0x";
-    const pi: bigint[] = [];
+    const pi: BytesLike[] = [];
     const proofCalls: Array<() => Promise<unknown>> = [
       () => darkPool.connect(alice).deposit(p, pi),
       () => darkPool.connect(alice).withdraw(p, pi),

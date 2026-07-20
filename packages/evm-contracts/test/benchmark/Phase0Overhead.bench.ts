@@ -1,5 +1,6 @@
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { ethers } from "hardhat";
+import { BytesLike } from "ethers";
 import {
   deployDarkPoolFixture,
   mintSelfNote,
@@ -29,7 +30,7 @@ async function firstDepositGas(useStub: boolean): Promise<bigint> {
     eph,
   });
 
-  let proofBytes: string = proof.proof;
+  let proofBytes: BytesLike = proof.proof;
   if (useStub) {
     const stub = await (
       await ethers.getContractFactory("StubVerifier")

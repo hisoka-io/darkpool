@@ -1,7 +1,8 @@
 import { expect } from "chai";
 import { ethers, upgrades } from "hardhat";
 import { AbiCoder, keccak256, toBeHex, toUtf8Bytes, ZeroHash } from "ethers";
-import type { DarkPool, DarkPool__factory } from "../../typechain-types";
+import type { DarkPool } from "../../typechain-types";
+import { DarkPool__factory } from "../../typechain-types";
 
 const abi = AbiCoder.defaultAbiCoder();
 
@@ -64,7 +65,7 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
   let pauser: string;
   let upgrader: string;
   let outsider: Awaited<ReturnType<typeof ethers.getSigners>>[number];
-  let initParams: unknown[];
+  let initParams: DarkPool.InitParamsStruct;
 
   async function deploy() {
     const signers = await ethers.getSigners();
@@ -73,11 +74,11 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
     const pos = await (await ethers.getContractFactory("Poseidon2")).deploy();
     await pos.waitForDeployment();
 
-    const DarkPool = (await ethers.getContractFactory("DarkPool", {
+    const DarkPoolFactory = await ethers.getContractFactory("DarkPool", {
       libraries: {
         "contracts/Poseidon/Poseidon2.sol:Poseidon2": await pos.getAddress(),
       },
-    })) as unknown as DarkPool__factory;
+    });
 
     const stub = await (
       await ethers.getContractFactory("StubVerifier")
@@ -88,20 +89,30 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
       { length: VERIFIER_COUNT },
       () => stubAddr,
     );
-    const params = [
-      ...verifierAddrs,
-      BASE8_X,
-      BASE8_Y,
-      172800, // initialAdminDelay (48h)
-      adminS.address,
-      pauserS.address,
-      upgraderS.address,
-    ];
+    const params: DarkPool.InitParamsStruct = {
+      depositVerifier: stubAddr,
+      withdrawVerifier: stubAddr,
+      transferVerifier: stubAddr,
+      joinVerifier: stubAddr,
+      splitVerifier: stubAddr,
+      publicClaimVerifier: stubAddr,
+      withdrawMultisigVerifier: stubAddr,
+      transferMultisigVerifier: stubAddr,
+      splitMultisigVerifier: stubAddr,
+      joinMultisigVerifier: stubAddr,
+      kageVerifier: stubAddr,
+      compliancePkX: BASE8_X,
+      compliancePkY: BASE8_Y,
+      initialAdminDelay: 172800,
+      initialAdmin: adminS.address,
+      pauser: pauserS.address,
+      upgrader: upgraderS.address,
+    };
 
     // Poseidon2 is a stateless pure linked library (no storage, no delegatecall out); external-library-linking
     // is the OZ-sanctioned acknowledgment for a manually-verified upgrade-safe library. It does not relax any
     // storage-layout safety check.
-    const proxy = await upgrades.deployProxy(DarkPool, [params], {
+    const proxy = await upgrades.deployProxy(DarkPoolFactory, [params], {
       kind: "uups",
       initializer: "initialize",
       unsafeAllow: ["external-library-linking"],
@@ -110,8 +121,8 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
     const addr = await proxy.getAddress();
 
     return {
-      darkpool: DarkPool.attach(addr),
-      factory: DarkPool,
+      darkpool: DarkPool__factory.connect(addr, adminS),
+      factory: DarkPoolFactory,
       addr,
       verifierAddrs,
       admin: adminS.address,

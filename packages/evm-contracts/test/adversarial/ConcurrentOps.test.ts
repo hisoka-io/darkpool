@@ -1,5 +1,4 @@
 import { expect } from "chai";
-import { EventLog } from "ethers";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployDarkPoolFixture,
@@ -31,9 +30,7 @@ describe("Adversarial: Concurrent Operations", function () {
 
     // Deposits land concurrently, so the on-chain insertion order need not match
     // the submission order; rebuild the local tree in actual leaf-index order.
-    const noteEvents = (await darkPool.queryFilter(
-      darkPool.filters.NewNote(),
-    )) as EventLog[];
+    const noteEvents = await darkPool.queryFilter(darkPool.filters.NewNote());
     const leafIndexOf = (commitment: Fr): number => {
       const ev = noteEvents.find((e) =>
         toFr(e.args.commitment).equals(commitment),

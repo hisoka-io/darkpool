@@ -7,12 +7,12 @@ import {
   evenYEphemeral,
   userSpendScalar,
   newSeededTree,
-  noteToInput,
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
 import { addressToFr, packParents } from "@hisoka/wallets";
 import { proveDeposit, proveSplit } from "@hisoka/prover";
 import { writeFileSync } from "fs";
+import { HonkVerifier__factory } from "../../typechain-types/factories/contracts/verifiers/DepositVerifier.sol";
 
 // PROFILE=1 npx hardhat test test/benchmark/VerifierProfile.bench.ts
 const run = process.env.PROFILE ? describe : describe.skip;
@@ -26,11 +26,8 @@ function calldataGas(hexData: string): number {
 }
 
 async function isolatedDepositVerifier() {
-  return await (
-    await ethers.getContractFactory(
-      "contracts/verifiers/DepositVerifier.sol:HonkVerifier",
-    )
-  ).deploy();
+  const [deployer] = await ethers.getSigners();
+  return new HonkVerifier__factory(deployer).deploy();
 }
 
 function report(
@@ -151,7 +148,7 @@ run("Verifier profile: verify vs overhead", function () {
       );
       const proof = await proveSplit({
         compliancePk: COMPLIANCE_PK,
-        noteIn: noteToInput(dep.built.note),
+        noteIn: dep.built.note,
         spendScalar: dep.spendScalar,
         indexIn: 1,
         pathIn: tree.getMerklePath(1),

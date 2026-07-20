@@ -50,15 +50,15 @@ export async function buildMultisigNote(
 
 /** Run a full FROST 2-round session: `signerIds` (a t-of-n quorum) jointly sign `m` under `gpk`. */
 export async function frostSign(
-  gpk: Point,
+  gpk: Point<bigint>,
   shares: Map<bigint, bigint>,
   signerIds: bigint[],
   m: bigint,
-): Promise<{ R: Point; z: bigint }> {
+): Promise<{ R: Point<bigint>; z: bigint }> {
   const cs = frost.bjjCiphersuite;
   const msg = frost.encodeMessage(m);
 
-  type Round1 = Awaited<ReturnType<typeof frost.commit<Point>>>;
+  type Round1 = Awaited<ReturnType<typeof frost.commit<Point<bigint>>>>;
   const nonceById = new Map<bigint, Round1["nonces"]>();
   const commitments: Round1["commitment"][] = [];
   for (const id of signerIds) {
