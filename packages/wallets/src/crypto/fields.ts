@@ -4,7 +4,6 @@ import { Poseidon } from "./Poseidon.js";
 
 export { Fr };
 
-/** Converts to Fr field element. */
 export function toFr(value: bigint | number | string): Fr {
   return new Fr(BigInt(value));
 }

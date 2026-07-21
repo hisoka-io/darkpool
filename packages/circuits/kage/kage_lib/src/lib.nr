@@ -50,10 +50,8 @@ pub global INTENT_PROOF_LEN: u32 = 458;
 // Public-input width swap_intent exposes (see pack_intent): 9 scalars + (leaf + eph_x + ct[7]) per note x 2.
 pub global INTENT_PI_LEN: u32 = 27;
 
-// ---------------------------------------------------------------------------------------------------------------
 // the taker's swap_intent public interface (consumed as WITNESS by the maker's recursion; never surfaced on-chain).
 // The two amount fields ARE the swap terms; the two note blocks are relayed on-chain for insertion + events.
-// ---------------------------------------------------------------------------------------------------------------
 pub struct SwapIntent {
     pub nullifier: Field, // A_in nullifier
     pub root: Field,
@@ -131,9 +129,7 @@ pub fn unpack_intent(a: [Field; INTENT_PI_LEN]) -> SwapIntent {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // the maker's settled outputs (become the kageSwap on-chain public inputs: 2 nullifiers + 4 leaves + events).
-// ---------------------------------------------------------------------------------------------------------------
 pub struct MintedOutput {
     pub leaf: Field,
     pub eph_pub: Point,
@@ -154,10 +150,8 @@ pub struct KageOutputs {
     pub maker_change: MintedOutput, // minted by the maker
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // Circuit 1, swap_intent (the taker). Spend A_in + mint her own two self-notes (change + received).
 // Client-provable.
-// ---------------------------------------------------------------------------------------------------------------
 pub fn build_intent(
     compliance_pk: Point,
     note_in: Note, // A_in (fromAsset)
@@ -211,10 +205,8 @@ pub fn build_intent(
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // Circuit 2, swap_settle (the maker), settlement logic. Called AFTER main authenticates intent via
 // std::verify_proof_with_type. the maker mints only his two self-notes; both conservations live here.
-// ---------------------------------------------------------------------------------------------------------------
 pub fn settle_swap(
     intent: SwapIntent,
     compliance_pk: Point,
@@ -303,12 +295,10 @@ pub fn settle_swap(
     }
 }
 
-// ===============================================================================================================
 // Tests, self-contained (no SDK / no live recursion). A 2-leaf tree is built in-circuit; every psi is derived
 // with the same ECDH+Poseidon2 the mint asserts, so notes are valid by construction. settle_swap runs on the REAL
 // SwapIntent from build_intent, so the two halves are proven to compose on genuine values. The only unproven
 // link is std::verify_proof_with_type (exercised in the bb.js e2e, not here).
-// ===============================================================================================================
 mod tests {
     use super::{build_intent, KageOutputs, settle_swap, SwapIntent};
     use ecdh::{bjj::BJJ, ECDHTrait, Point};
@@ -476,7 +466,6 @@ mod tests {
         assert(out.taker_change.leaf == intent.change_leaf);
     }
 
-    // ---- swap_intent (the taker) negatives ----
     #[test(should_fail_with = "value not conserved")]
     fn taker_reject_change_inflation() {
         let mut s = scenario();
@@ -514,8 +503,6 @@ mod tests {
         );
         let _ = taker_intent(s);
     }
-
-    // ---- swap_settle (the maker) negatives ----
 
     // the taker cannot inflate her OWN received note: the maker's toAsset conservation makes the swap unfillable.
     #[test(should_fail_with = "value not conserved")]

@@ -44,7 +44,7 @@ fn nullifier(note_psi: Field, leaf_index: Field) -> Field {
     Poseidon2::hash([note_psi, leaf_index], 2)
 }
 
-// ---- the inclusion-proof body with the index decomposition supplied by the caller (the injection point) ----
+// the inclusion-proof body with the index decomposition supplied by the caller (the injection point)
 //
 // Everything below `path_bits` is copied from `lean_imt_inclusion_proof` (circuits/shared/src/lib.nr:34-47);
 // `check-byte-identity.sh` fails on any drift. The ONLY deviation is that `path_bits` arrives as a parameter
@@ -70,7 +70,7 @@ fn check_binding_absent<let MAX_DEPTH: u32>(
     current
 }
 
-// ---- fixtures: a depth-32 LeanIMT membership at index 1 ----
+// fixtures: a depth-32 LeanIMT membership at index 1
 
 global LEAF: Field = 4;
 global HONEST_INDEX: Field = 1;
@@ -98,7 +98,7 @@ fn truncated_path_bits(index: Field) -> [bool; TREE_DEPTH] {
     (low as Field).to_le_bits()
 }
 
-// ================= PARITY =================
+// PARITY
 
 // The reproduced nullifier matches the committed production KAT (note_nullifier.nr:16-21), so this harness
 // attacks the protocol's nullifier and not its own arithmetic.
@@ -116,7 +116,7 @@ fn modelled_body_matches_the_real_inclusion_proof() {
     assert(real == modelled, "the modelled body must agree with production on an honest witness");
 }
 
-// ================= REJECT (production) =================
+// REJECT (production)
 
 // THE production guard, exercised against the REAL circuit function -- not a mirror. An index carrying any bit
 // above 2^32 cannot be decomposed into the 32 path bits, so the spend is rejected before a nullifier exists.
@@ -125,7 +125,7 @@ fn real_inclusion_proof_rejects_out_of_range_index() {
     let _ = lean_imt_inclusion_proof(LEAF, FORGED_INDEX, siblings());
 }
 
-// ================= DIFFERENTIAL: nothing else objects =================
+// DIFFERENTIAL: nothing else objects
 
 // `assert_parents_bound` is the other consumer of the index, and it is BLIND to the forgery: the `as u32`
 // narrowing truncates, so an output note whose parents were packed from the honest index is accepted while
@@ -190,7 +190,7 @@ fn modelled_body_still_rejects_a_right_child_at_an_empty_level() {
     let _ = check_binding_absent(LEAF, bits, siblings());
 }
 
-// ================= bb proving target =================
+// bb proving target
 
 // The double-spend under the modelled-away binding as a provable circuit: `nargo execute` + `bb prove` +
 // `bb verify` must produce a VERIFYING proof whose two public nullifiers differ while the root matches the

@@ -87,7 +87,7 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     }
   });
 
-  it("Alice deposits, splits, transfers to Bob, Bob withdraws — all via mixnet", async function () {
+  it("Alice deposits, splits, transfers to Bob, Bob withdraws - all via mixnet", async function () {
     const { darkPool, token, alice, bob } = await loadFixture(
       deployDarkPoolFixture,
     );
@@ -102,7 +102,7 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     await aliceWallet.sync();
     expect(aliceWallet.getBalance()).to.equal(DEPOSIT_AMT);
 
-    console.log("  [3] Alice splits 100 → 60 + 40 (via mixnet)...");
+    console.log("  [3] Alice splits 100 -> 60 + 40 (via mixnet)...");
     const SPLIT_A = ethers.parseEther("60");
     const SPLIT_B = ethers.parseEther("40");
 
@@ -156,7 +156,7 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     expect(bobWallet.getBalance()).to.equal(TRANSFER_AMT - WITHDRAW_AMT);
 
     console.log(
-      "\n  [OK] Basic DeFi flow complete: deposit → split → transfer → withdraw",
+      "\n  [OK] Basic DeFi flow complete: deposit -> split -> transfer -> withdraw",
     );
   });
 
@@ -177,13 +177,13 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     const notes = aliceWallet.utxoRepo.getUnspentNotes();
     expect(notes.length).to.equal(2);
 
-    console.log("  [2] Alice joins 50 + 30 → 80...");
+    console.log("  [2] Alice joins 50 + 30 -> 80...");
     const join = await aliceWallet.join();
     await aliceWallet.syncTree(join.commitment);
     await aliceWallet.sync();
 
     expect(aliceWallet.getBalance()).to.equal(ethers.parseEther("80"));
-    console.log("  [OK] Join complete: 50 + 30 → 80");
+    console.log("  [OK] Join complete: 50 + 30 -> 80");
   });
 
   it("should query chain state through the mixnet", async function () {

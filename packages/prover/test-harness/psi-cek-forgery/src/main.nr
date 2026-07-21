@@ -61,7 +61,7 @@ global TWO_POW_128: Field = 0x100000000000000000000000000000000;
 global PLO: Field = 0x2833e84879b9709143e1f593f0000001;
 global PHI: Field = 0x30644e72e131a029b85045b68181585d;
 
-// ---- unconstrained hint helpers, copied from vendored scalar_field.nr ----
+// unconstrained hint helpers, copied from vendored scalar_field.nr
 
 unconstrained fn to_le_radix_16<let N: u32>(value: Field) -> [u8; N] {
     let bytes = value.to_le_bytes::<(N + 1) / 2>();
@@ -100,7 +100,7 @@ unconstrained fn get_borrow_flag(lhs_lo: Field, rhs_lo: Field) -> bool {
     lhs_lo.lt(rhs_lo + 1)
 }
 
-// ---- the constrained region of `from`, WITH the binding (production behaviour) ----
+// the constrained region of `from`, WITH the binding (production behaviour)
 
 fn check_binding<let N: u32>(slices: [u8; N], skew: bool, x: Field) {
     if (N < 64) {
@@ -148,7 +148,7 @@ fn check_binding<let N: u32>(slices: [u8; N], skew: bool, x: Field) {
     }
 }
 
-// ---- identical, with ONLY the two binding asserts removed (the ablation) ----
+// identical, with ONLY the two binding asserts removed (the ablation)
 
 fn check_binding_ablated<let N: u32>(slices: [u8; N], skew: bool, x: Field) {
     if (N < 64) {
@@ -197,7 +197,7 @@ fn check_binding_ablated<let N: u32>(slices: [u8; N], skew: bool, x: Field) {
     }
 }
 
-// ---- the mint relation (mirrors kem::derive_cek + mint::mint_common, scalar source parametrised) ----
+// the mint relation (mirrors kem::derive_cek + mint::mint_common, scalar source parametrised)
 
 fn assert_subgroup_scalar(x: Field) {
     assert(x != 0, "scalar must be non-zero");
@@ -241,7 +241,7 @@ fn compliance_psi(c: Field, published_eph_pub: Point) -> Field {
     psi(BJJ::new(c).derive_shared_key(published_eph_pub))
 }
 
-// ---- fixtures ----
+// fixtures
 
 // A compliance keypair whose secret this harness knows, so the compliance side can be exercised in-circuit.
 global C_SECRET: Field = 0x0000000000000000000000000000000000000000000000000000000000003039;
@@ -262,7 +262,7 @@ fn fixture_compliance_pk() -> Point {
     )
 }
 
-// ================= PARITY =================
+// PARITY
 
 // The mirrored crypto path is production-identical: reproduces the committed KEM/psi KATs
 // (kem.nr:41-42 and note_nullifier.nr:16-21) exactly. Without this the rig could be attacking its own
@@ -278,7 +278,7 @@ fn mirror_reproduces_production_kem_and_psi_kats() {
     assert(nullifier(note_psi, 3) == 0x0ced8160f191dfff5c3432bc36f182188226143b294192021ea754f282075897);
 }
 
-// ================= CONTROL =================
+// CONTROL
 
 // The rig accepts an honest mint: honest hint (slices encode the true eph) under the production binding, and
 // compliance recovers exactly the psi the note commits to. This is the property the forgery destroys.
@@ -324,7 +324,7 @@ fn the_forged_note_remains_spendable_by_its_owner() {
     assert(nullifier(forged_psi, 7) == nullifier(forged_psi, 7));
 }
 
-// ================= REJECT (production) =================
+// REJECT (production)
 
 // The forged decomposition is rejected by the width-63 binding: slices encode EPH_FORGE, the binding asserts
 // they encode the true EPH. This is the guard that keeps every minted note traceable.
@@ -346,7 +346,7 @@ fn forgery_rejected_by_binding_64() {
     check_binding::<64>(slices, skew, EPH);
 }
 
-// ================= DIFFERENTIAL: nothing but the binding objects =================
+// DIFFERENTIAL: nothing but the binding objects
 
 // THE load-bearing differential. The forged witness runs through the ENTIRE mint psi relation with the binding
 // simply not present -- every other guard still executes: assert_subgroup_scalar(eph), is_on_curve,
@@ -376,7 +376,7 @@ fn ablated_binding_body_raises_no_objection_63() {
     let _ = mint_psi_binding(psi(derive_cek(EPH, c_pk, EPH_FORGE)), EPH, c_pk, EPH_FORGE);
 }
 
-// ================= NOT VACUOUS =================
+// NOT VACUOUS
 
 // The ablated rig is not simply "accept everything": an honest mint still verifies through it.
 #[test]
@@ -399,7 +399,7 @@ fn ablated_rig_still_rejects_a_mutated_psi() {
     let _ = mint_psi_binding(psi(derive_cek(EPH, c_pk, EPH)) + 1, EPH, c_pk, EPH);
 }
 
-// ================= SCOPE PIN =================
+// SCOPE PIN
 
 // Structural reason the forgery stops at traceability and is not a double-spend: psi is a committed leaf field
 // and the spend path reads it back rather than re-deriving it, so one leaf yields exactly one nullifier no
@@ -419,7 +419,7 @@ fn psi_is_merkle_bound_not_rederived() {
     assert(nullifier(psi(derive_cek(EPH, c_pk, EPH)), 7) != nf_a);
 }
 
-// ================= bb proving target =================
+// bb proving target
 
 // The ABLATED forgery as a provable circuit: `nargo execute` + `bb prove` + `bb verify` on this must produce a
 // VERIFYING proof, which is the gold-standard evidence that the forgery is real and not a test-interpreter

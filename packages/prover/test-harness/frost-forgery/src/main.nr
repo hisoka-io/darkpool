@@ -54,7 +54,7 @@ global TWO_POW_128: Field = 0x100000000000000000000000000000000;
 global PLO: Field = 0x2833e84879b9709143e1f593f0000001;
 global PHI: Field = 0x30644e72e131a029b85045b68181585d;
 
-// ---- unconstrained hint helpers, copied from vendored scalar_field.nr ----
+// unconstrained hint helpers, copied from vendored scalar_field.nr
 
 unconstrained fn to_le_radix_16<let N: u32>(value: Field) -> [u8; N] {
     let bytes = value.to_le_bytes::<(N + 1) / 2>();
@@ -93,7 +93,7 @@ unconstrained fn get_borrow_flag(lhs_lo: Field, rhs_lo: Field) -> bool {
     lhs_lo.lt(rhs_lo + 1)
 }
 
-// ---- the constrained region of `from`, WITH the binding (production behaviour) ----
+// the constrained region of `from`, WITH the binding (production behaviour)
 
 fn check_binding<let N: u32>(slices: [u8; N], skew: bool, x: Field) {
     if (N < 64) {
@@ -141,7 +141,7 @@ fn check_binding<let N: u32>(slices: [u8; N], skew: bool, x: Field) {
     }
 }
 
-// ---- identical, with ONLY the two binding asserts removed (the ablation) ----
+// identical, with ONLY the two binding asserts removed (the ablation)
 
 fn check_binding_ablated<let N: u32>(slices: [u8; N], skew: bool, x: Field) {
     if (N < 64) {
@@ -190,7 +190,7 @@ fn check_binding_ablated<let N: u32>(slices: [u8; N], skew: bool, x: Field) {
     }
 }
 
-// ---- the FROST relation (mirrors verify_frost_spend, scalar source parametrised) ----
+// the FROST relation (mirrors verify_frost_spend, scalar source parametrised)
 
 fn assert_subgroup_scalar(x: Field) {
     assert(x != 0, "scalar must be non-zero");
@@ -242,7 +242,7 @@ fn forge_r(gpk: Point, z: Field, e_forge: Field) -> Point {
     z_base_ed - gpk_ed.mul(e_scalar)
 }
 
-// ---- fixtures: a real 3-of-5 FROST signature (frost.nr:98-111) ----
+// fixtures: a real 3-of-5 FROST signature (frost.nr:98-111)
 
 fn kat_gpk() -> Point {
     Point {
@@ -262,7 +262,7 @@ global KAT_M: Field = 0x00abcdef1234567890fedcba9876543210abcdef1234567890fedcba
 // An arbitrary attacker-chosen challenge, != the honest e for any R (it is fixed before R exists).
 global E_FORGE: Field = 0x00deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbe;
 
-// ================= CONTROL =================
+// CONTROL
 
 // The rig accepts a genuine signature: honest hint (slices encode the true e) under the production binding.
 #[test]
@@ -284,7 +284,7 @@ fn control_forged_r_fails_under_the_honest_scalar() {
     verify_group_equation(gpk, r, KAT_Z, e);
 }
 
-// ================= REJECT (production) =================
+// REJECT (production)
 
 // The forged decomposition is rejected by the width-63 binding: slices encode E_FORGE, the binding asserts
 // they encode the honest e. This is the guard that stands between a forger and every multisig account.
@@ -313,7 +313,7 @@ fn forgery_rejected_by_binding_64() {
     verify_group_equation(gpk, r, KAT_Z, E_FORGE);
 }
 
-// ================= DIFFERENTIAL: nothing but the binding objects =================
+// DIFFERENTIAL: nothing but the binding objects
 
 // THE load-bearing differential. The forged witness is run through the ENTIRE relation with the binding
 // simply not present -- every other guard still executes: check_subgroup, assert_is_on_curve, both identity
@@ -347,7 +347,7 @@ fn ablated_binding_body_raises_no_objection_63() {
     verify_group_equation(gpk, r, KAT_Z, E_FORGE);
 }
 
-// ================= NOT VACUOUS =================
+// NOT VACUOUS
 
 // The ablated rig is not simply "accept everything": an honest signature still verifies through it.
 #[test]
@@ -370,7 +370,7 @@ fn ablated_rig_still_rejects_a_mutated_z() {
     verify_group_equation(kat_gpk(), kat_r(), KAT_Z + 1, e);
 }
 
-// ================= bb proving target =================
+// bb proving target
 
 // The ABLATED forgery as a provable circuit: `nargo execute` + `bb prove` + `bb verify` on this must produce a
 // VERIFYING proof, which is the gold-standard evidence that the forgery is real and not a test-interpreter
