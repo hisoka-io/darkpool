@@ -51,7 +51,7 @@ fn main(
     (nullifier_a, nullifier_b, root_a, out.leaf, out.eph_pub.x, out.ciphertext)
 }
 
-// Output guards run before verify_frost_spend, so never-reached dummy (frost_r, frost_z) suffice.
+// dummy (r,z): output guards reject before verify_frost_spend
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 global ASSET_ID: Field = 0x1234567890123456789012345678901234567890;
@@ -268,8 +268,7 @@ fn kat_multisig_join_accepts() {
     );
 }
 
-// Corrupting the SECOND signer's z exercises the join-specific double verify: the first verify_frost_spend
-// passes, the second (over the same m) rejects.
+// mutating only z_b exercises the second verify: first passes, second rejects
 #[test(should_fail_with = "FROST signature invalid")]
 fn audit_reject_mutated_signed_z_b() {
     let note_a = join_input(100, gpk_owner(), 0x01);

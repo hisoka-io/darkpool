@@ -1,8 +1,4 @@
-//! Mutation harness: from the valid KAT witness flip ONE soundness-relevant witness and require rejection with
-//! the specific guard (should_fail_with means a wrong-reason failure still fails). Public-output-bound fields
-//! (nullifier/root/leaf/eph_pub/ciphertext) are covered at the deployed-verifier layer (RealProofE2E). Guard
-//! order is load-bearing: outputs mint left-to-right, so an out_2 mint-field mutation surfaces only after out_1
-//! mints clean.
+//! Flip one witness from the valid KAT; guards asserted by message. Public-output fields covered at RealProofE2E. Outputs mint left-to-right, so out_2 mutations surface only after out_1 mints clean.
 
 use shared::mutation;
 use shared::note::Note;
@@ -17,7 +13,7 @@ global EPH2: Field = 20;
 fn note_in() -> Note {
     super::note_in()
 }
-// KAT-valid self outputs (values 40 / 60; psi bound to eph 15 / 20 against the fixture compliance key).
+// Self outputs: psi bound to eph 15 / 20 against the fixture compliance key.
 fn out1() -> Note {
     super::out_note(
         40,
@@ -169,7 +165,6 @@ fn m_out1_parents_forged() {
     run(cx, cy, note_in(), SCALAR, 0, o1, EPH1, out2(), EPH2);
 }
 
-// out_2 mint guards are reached only after out_1 mints clean.
 #[test(should_fail_with = "note owner must be non-zero")]
 fn m_out2_owner_zero() {
     let (cx, cy) = compliance();

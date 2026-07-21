@@ -1,7 +1,4 @@
-//! Mutation harness: from the valid KAT witness (1 spend -> incoming memo + self change) flip ONE
-//! soundness-relevant witness and require rejection with the specific guard (should_fail_with means a
-//! wrong-reason failure still fails). Public-output-bound fields (nullifier/roots/leaves) are covered at the
-//! deployed-verifier layer, not here.
+//! Flip one witness from the valid KAT (spend -> incoming memo + self change); guards asserted by message. Public-output fields covered at the verifier layer.
 
 use ecdh::Point;
 use shared::mutation;
@@ -56,6 +53,15 @@ fn v(r: Point, o: Note, s: Field, idx: Field, m: Note, meph: Field, ch: Note, ce
 #[test]
 fn m_valid_accepts() {
     v(rin(), old(), SCALAR, 0, memo(), MEPH, change(), CEPH);
+}
+
+// meph=6 -> odd-y eph_pub; psi rebound to eph=6's CEK so the psi check passes and the incoming even-y eph guard
+// (mint.nr) is the assert that fires. Covers the memo eph tag path distinct from the odd-y in_pub tag test.
+#[test(should_fail_with = "incoming eph tag must be even-y")]
+fn m_memo_odd_y_eph() {
+    let mut m = memo();
+    m.psi = 0x28c44d31081da1455b5f66d1dc6114bcced5e4e571e81b77a3dc9405b09145bf;
+    v(rin(), old(), SCALAR, 0, m, 6, change(), CEPH);
 }
 
 #[test(should_fail_with = "compliance key must not be the identity")]
@@ -292,7 +298,7 @@ fn m_memo_parents_forged() {
     m.parents = 1;
     v(rin(), old(), SCALAR, 0, m, MEPH, change(), CEPH);
 }
-// Odd-y recipient (co-set memo.owner so the owner pin passes and the even-y tag guard is the one that fires).
+// Odd-y recipient; memo.owner co-set so the owner pin passes and the even-y guard fires.
 #[test(should_fail_with = "incoming discovery tag must be even-y")]
 fn m_memo_odd_y_recipient() {
     let odd = Point { x: ODD_RECIPIENT_X, y: ODD_RECIPIENT_Y };

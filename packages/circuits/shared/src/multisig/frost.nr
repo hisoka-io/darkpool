@@ -15,9 +15,10 @@ pub fn verify_frost_spend(gpk: Point, r: Point, z: Field, m: Field) {
 
     assert_subgroup_scalar(z);
 
-    // FOOTGUN: challenge truncated to low 248 bits. noir-edwards v0.2.5 ScalarField::from's N==64 path leaves
-    // the wnaf slices UNCONSTRAINED (only N<64 asserts acc - skew == x), so full-width ScalarField<64> makes
-    // e_scalar a free witness (prover forges R = z*Base8 - e'*gpk); ScalarField<63> over 248 bits binds.
+    // Challenge truncated to low 248 bits so the cheap ScalarField<63> path (scalars < 2^252) decodes it; its
+    // `assert(acc - skew == x)` binds the wNAF slices (an unconstrained hint) to e. Without a binding a prover
+    // forges the challenge (R = z*Base8 - e'*gpk). Upstream noir-edwards v0.2.5 left the N==64 path unbound (#49);
+    // the vendored fork now binds N==64 too. Forged-scalar regression: the bb.js frost-forgery harness.
     let e_full = Poseidon2::hash([SCHNORR_DOMAIN, r.x, r.y, gpk.x, gpk.y, m], 6);
     let e_bytes: [u8; 32] = e_full.to_le_bytes();
     let mut e: Field = 0;
@@ -135,13 +136,11 @@ fn audit_frost_reject_zero_z() {
     verify_frost_spend(kat_gpk(), kat_r(), 0, KAT_M);
 }
 
-// Pins the 248-bit challenge truncation, one half of the noir-edwards #49/#51 soundness fix: the challenge is
-// rebuilt from the low 31 bytes before the ScalarField<63> reduction. Widening the loop (e.g. 0..32) would set
-// a high byte here and fail. The OTHER half (that <63>, not <64>, binds the wNAF decomposition against a forged
-// e_scalar) is a proving-layer under-constraint: honest witness generation computes e_scalar identically under
-// both widths, so nargo cannot reach it; a full forgery regression needs a proving-layer witness-injection
-// harness (bb.js), tracked separately. The challenge/message binding itself is covered by the multisig
-// mutation tests and RealProofE2E per-public-input mutation.
+// Pins the 248-bit challenge truncation: the challenge is rebuilt from the low 31 bytes before the ScalarField<63>
+// reduction, so widening the loop (e.g. 0..32) sets a high byte and fails. The wNAF-slice binding against a forged
+// e_scalar is a proving-layer property nargo cannot reach (honest witness generation computes e_scalar
+// identically), so the full forgery regression lives in the bb.js frost-forgery harness. The challenge/message
+// binding is covered by the multisig mutation tests and RealProofE2E per-public-input mutation.
 #[test]
 fn frost_challenge_is_truncated_to_248_bits() {
     let g = kat_gpk();

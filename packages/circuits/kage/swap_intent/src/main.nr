@@ -1,18 +1,11 @@
-//! Kage swap_intent (the taker / taker). Spends A_in (fromAsset) and mints her OWN two self-notes: the fromAsset change
-//! and the toAsset she wants to receive. Because the taker mints her received note herself, the maker cannot redirect or
-//! shortchange it. Fully client-provable (no recursion); the maker's swap_settle verifies THIS proof inside
-//! itself. The 27 public inputs are consumed by the maker's circuit as witness and never surface on-chain.
-//! Logic plus the full negative battery live in `kage_lib`.
+//! swap_intent (taker): spends A_in, mints own change + received self-notes; client-provable inner proof consumed by swap_settle's recursion. Logic + negative battery in kage_lib.
 
 use ::ecdh::Point;
 use ::kage_lib::{build_intent, INTENT_PI_LEN, pack_intent};
 use ::shared::note::Note;
 use ::shared::TREE_DEPTH;
 
-// swap_intent is an INNER proof (never submitted on-chain), so it has NO `pub` params: its ONLY public inputs are
-// the 27-wide return, which swap_settle consumes as intent_public_inputs. compliance rides in the pack (indices
-// 2,3). Making compliance a `pub` param here would inflate the real public-input vector and duplicate compliance,
-// so a real swap_intent proof would fail swap_settle's 27-wide verify.
+// Inner proof: NO `pub` params on purpose; the only public inputs are the 27-wide return. A `pub` compliance param would inflate the PI vector past 27 and break swap_settle's fixed-width verify.
 fn main(
     compliance_pubkey_x: Field,
     compliance_pubkey_y: Field,
@@ -75,9 +68,7 @@ mod kat {
         }
     }
 
-    // Spends the shared fixture note (fromAsset 100, key 789, index 0), which ties to the split/transfer golden
-    // nullifier + root, so a parity drift on the shared spend path fails here too. Pins the 27-wide scalar prefix
-    // layout (indices 0..8) so a public-input reorder breaks the recursion ABI here.
+    // Reuses the shared fixture note so a spend-path parity drift fails here; pins the 27-wide PI prefix (0..8) against a reorder.
     #[test]
     fn swap_intent_accepts() {
         let c = Point { x: FIXTURE_COMPLIANCE_X, y: FIXTURE_COMPLIANCE_Y };
@@ -98,14 +89,15 @@ mod kat {
             60,
             2000000000,
         );
-        assert(out[0] == 0x2761654f0b4e9f47ac9bafe900c723ead042a888da718a34b6ecc8036850755e); // taker_nullifier
-        assert(out[1] == 0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551); // root
-        assert(out[2] == FIXTURE_COMPLIANCE_X); // compliance_x
-        assert(out[3] == FIXTURE_COMPLIANCE_Y); // compliance_y
-        assert(out[4] == fixture_note().asset_id); // from_asset
-        assert(out[5] == TO_ASSET); // to_asset
-        assert(out[6] == 60); // from_amount
-        assert(out[7] == 50); // expected_return (== received.value)
-        assert(out[8] == 2000000000); // expiry
+        // out[0..8] = nullifier, root, C.x, C.y, from_asset, to_asset, from_amount, expected_return(==received.value), expiry
+        assert(out[0] == 0x2761654f0b4e9f47ac9bafe900c723ead042a888da718a34b6ecc8036850755e);
+        assert(out[1] == 0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551);
+        assert(out[2] == FIXTURE_COMPLIANCE_X);
+        assert(out[3] == FIXTURE_COMPLIANCE_Y);
+        assert(out[4] == fixture_note().asset_id);
+        assert(out[5] == TO_ASSET);
+        assert(out[6] == 60);
+        assert(out[7] == 50);
+        assert(out[8] == 2000000000);
     }
 }

@@ -65,8 +65,7 @@ pub fn test_lean_imt_inclusion_proof() {
     assert(root == 0x05d7e5aaddb74c086c24617065e8c97dea94b86fdae0eab7b498249e0dfee2a8);
 }
 
-// Boundary of assert_subgroup_scalar: SUBORDER-1 is the largest in-range scalar (accept); SUBORDER+1 is out
-// of range (reject). Pins the `lt` comparison against an off-by-one at the subgroup boundary.
+// Pins the `lt` boundary: SUBORDER-1 accepts, SUBORDER+1 rejects (off-by-one guard).
 #[test]
 fn test_subgroup_scalar_accepts_max() {
     assert_subgroup_scalar(SUBORDER - 1);

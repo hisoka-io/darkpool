@@ -1,6 +1,4 @@
-//! Mutation harness: from a valid witness flip ONE soundness-relevant witness and require rejection with the
-//! specific guard (should_fail_with means a wrong-reason failure still fails). Public-output-bound fields
-//! (nullifier/root) are covered at the deployed-verifier layer (RealProofE2E), not here.
+//! Flip one witness from the valid KAT; guards asserted by message. Public-output fields (nullifier/root) are covered at RealProofE2E.
 
 use shared::mutation;
 use shared::note::Note;

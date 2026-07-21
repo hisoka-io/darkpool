@@ -1,7 +1,4 @@
-//! Mutation harness: from the valid KAT witness flip ONE soundness-relevant witness and require rejection with
-//! the specific guard (should_fail_with means a wrong-reason failure still fails). public_claim binds a memo
-//! commitment (memo_id = Poseidon2 over val/asset/timelock/owner-point/salt), a maturity timelock vs
-//! current_timestamp, and the recipient's spend authority (recipient_sk -> owner point) before minting.
+//! Flip one witness from the valid KAT; guards asserted by message. public_claim binds memo_id = Poseidon2(val,asset,timelock,owner_x,owner_y,salt), a maturity timelock, and recipient spend authority before minting.
 
 use poseidon::poseidon2::Poseidon2;
 use shared::mutation;
@@ -82,7 +79,7 @@ fn m_valid_accepts() {
     valid();
 }
 
-// Boundary accept: a matured timelock (current_timestamp == timelock) with a memo that commits to it.
+// Boundary accept: current_timestamp == timelock.
 #[test]
 fn m_timelock_matured_accepts() {
     let id = memo(VAL, ASSET, 1000, OWNER_X, OWNER_Y, SALT);
@@ -103,8 +100,7 @@ fn m_timelock_matured_accepts() {
     );
 }
 
-// memo binding: memo_id = Poseidon2([val, asset, timelock, owner_x, owner_y, salt])
-// Mutating any single committed field while holding memo_id fixed breaks the FIRST guard.
+// Holding memo_id fixed while flipping any committed field fails the memo-id guard first.
 #[test(should_fail_with = "memo id mismatch")]
 fn m_memo_id_mutated() {
     run(
@@ -288,7 +284,7 @@ fn m_recipient_sk_ge_suborder() {
         EPH,
     );
 }
-// A valid-but-wrong scalar derives a different point than the committed owner.
+// Wrong (still valid) scalar -> point != committed owner.
 #[test(should_fail_with = "recipient key mismatch")]
 fn m_recipient_sk_wrong() {
     run(
@@ -308,7 +304,7 @@ fn m_recipient_sk_wrong() {
     );
 }
 
-// owner-point binding: even with a forged (matching) memo, the point must equal derive(recipient_sk)
+// Even a memo that re-commits the forged owner still fails: point must equal derive(recipient_sk).
 #[test(should_fail_with = "recipient key mismatch")]
 fn m_owner_x_rebound() {
     let id = memo(VAL, ASSET, TIMELOCK, OWNER_X + 1, OWNER_Y, SALT);
@@ -348,7 +344,7 @@ fn m_owner_y_rebound() {
     );
 }
 
-// note_out must restate the memo-committed value/asset and carry no parents.
+// note_out restates memo value/asset and carries zero parents.
 #[test(should_fail_with = "claim value mismatch")]
 fn m_claim_value_mismatch() {
     let mut n = note();

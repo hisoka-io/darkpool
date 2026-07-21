@@ -54,7 +54,7 @@ fn compliance() -> (Field, Field) {
     (FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y)
 }
 
-// KAT: byte-identical to the TS/Solidity golden vector (spend scalar 789 owns the index-0 note; change eph 8).
+// TS/Noir/Solidity parity golden
 #[test]
 fn test_withdraw_kat() {
     let (cx, cy) = compliance();

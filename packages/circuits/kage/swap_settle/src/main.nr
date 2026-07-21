@@ -1,12 +1,6 @@
-//! Kage swap_settle (the maker / solver). Verifies the taker's swap_intent proof INSIDE the circuit, then spends
-//! B_in and mints his OWN two self-notes (fromAsset received + toAsset change), enforcing both conservations
-//! (kage_lib::settle_swap). One proof to the on-chain `kageSwap` entrypoint: 2 nullifiers + 4 leaves + events, NO
-//! terms/assets/amounts. The taker's two notes are relayed unchanged (she minted them), so the maker cannot touch
-//! them.
-//!
-//! Every settlement constraint is in kage_lib and is exercised by `nargo test`. The one part not unit-testable in
-//! nargo is the recursion call below: it needs a real taker proof + VK from bb.js, so it is validated in the
-//! native-bb e2e (the prover Kage path), not here.
+//! swap_settle (maker): verifies the taker's swap_intent inside, spends B_in, mints maker's two self-notes; on-chain
+//! output = 2 nullifiers + 4 leaves + events (no terms). Constraints in kage_lib (nargo-tested); recursion call is
+//! e2e-only.
 
 use ::ecdh::Point;
 use ::kage_lib::{
@@ -37,8 +31,7 @@ Field, Field, [Field; 7], // taker_received (relayed): leaf, eph.x, ct
 Field, Field, [Field; 7], // maker_received: leaf, eph.x, ct
 Field, Field, [Field; 7] // maker_change: leaf, eph.x, ct
 ) {
-    // `verification_key` is an UNTRUSTED solver witness pinned ONLY by the hardcoded INTENT_VK_HASH constant (see kage_lib).
-    // A random VK plus a malicious-circuit proof is rejected because it will not hash to that constant.
+    // verification_key is an untrusted solver witness; pinned only by INTENT_VK_HASH (see kage_lib).
     std::verify_proof_with_type(
         verification_key,
         intent_proof,

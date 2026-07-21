@@ -57,7 +57,7 @@ global CY: Field = FIXTURE_COMPLIANCE_Y;
 global LEAF_A: Field = 0x1a6b6e47769e1f5de94e5ce9f3094b49cc9967d5ba3ef90df6af6598ca26d41b;
 global LEAF_B: Field = 0x2065744fd5ee65c5747ac8277513f27eadda10f02f9b5bb58d28131ec808b102;
 
-// KAT: byte-identical to the TS/Solidity golden vector (two-leaf tree, eph 24/26 inputs, 28 output).
+// TS/Noir/Solidity parity golden
 #[test]
 fn test_join_kat() {
     let note_a = note(

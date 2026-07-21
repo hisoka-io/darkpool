@@ -58,7 +58,6 @@ fn dem_kat_encrypt_decrypt() {
     }
 }
 
-// A wrong CEK must not recover the plaintext: the subtracted keystream differs at every position.
 #[test]
 fn audit_dem_wrong_cek_garbles() {
     let ct: [Field; DEM_FIELDS] = [

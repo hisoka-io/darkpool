@@ -61,7 +61,7 @@ fn note_out() -> Note {
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 
-// KAT: byte-identical to the TS/Solidity golden vector (recipient_sk 0x3039, memo of 6 fields, eph 31).
+// TS/Noir/Solidity parity golden
 #[test]
 fn test_public_claim_kat() {
     let (leaf, epk_x, ct) = main(

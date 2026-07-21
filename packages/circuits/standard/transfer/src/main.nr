@@ -80,7 +80,7 @@ fn recipient_in_pub() -> Point {
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 
-// KAT: byte-identical to the TS/Solidity golden vector (memo eph 0x378 to in_key_j=4, change eph 9).
+// TS/Noir/Solidity parity golden
 #[test]
 fn test_transfer_kat() {
     let (nf, root, memo_leaf, memo_x, tag, cek_wrap, memo_ct, ch_leaf, ch_x, ch_ct) = main(

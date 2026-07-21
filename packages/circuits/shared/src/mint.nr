@@ -72,9 +72,8 @@ pub fn mint_self_note(note: Note, eph: Field, compliance_pk: Point) -> SelfMint 
     SelfMint { leaf, eph_pub, ciphertext }
 }
 
-// owner == Poseidon2(gpk) pins the change to the spending account: without it a coordinator could redirect
-// change to a solo key and drain the group's residual past the quorum (theft-from-group). The FROST message
-// binds only the output leaf, so this in-circuit owner pin is the only thing that stops the redirect.
+// owner == Poseidon2(gpk) pins change to the spending account: without it a coordinator could redirect the
+// group's residual to a solo key (theft-from-group). FROST binds only the output leaf, so this pin is the sole guard.
 pub fn mint_self_note_multisig(
     note: Note,
     eph: Field,

@@ -1,22 +1,12 @@
-//! Kage private in-pool swap shared core logic for both halves.
+//! Kage private in-pool swap: FOUR self-notes, two minted by each party, so output-owner binding is STRUCTURAL
+//! (each mints to itself; neither can redirect or shortchange the other, nor learns the other's psi or index).
 //!
-//! A swap is FOUR self-notes, two minted by each party. The taker mints her own outputs inside her own proof, so
-//! the maker cannot redirect or shortchange them: the output-owner binding is STRUCTURAL, not a constraint.
-//! Neither party learns the other's psi (each mints to itself) or leaf index (each binds parents to only its
-//! own input).
+//! Per-asset conservation is split across the two proofs:
+//!   fromAsset:  A_in == from_amount + A_change (taker)   AND   B_received == from_amount (maker)
+//!   toAsset:    B_in == expected_return + B_change (maker, over the taker's exposed expected_return)
 //!
-//!   swap_intent       (taker): spend A_in (fromAsset); mint A_out_change (fromAsset) + A_out_received
-//!                                 (toAsset), both self-notes; expose the values the maker needs + expiry.
-//!   swap_settle (maker):   verify the taker's proof inside; spend B_in (toAsset); mint B_out_received
-//!                                 (fromAsset) + B_out_change (toAsset), both self-notes; run BOTH conservations.
-//!
-//! Per-asset conservation, split across the two proofs:
-//!   fromAsset:  A_in == from_amount + A_out_change   (the taker)   AND   B_out_received == from_amount   (the maker)
-//!   toAsset:    B_in == expected_return + B_out_change            (the maker, using the taker's exposed expected_return)
-//!
-//! Reuses the frozen shared primitives (verify_spend / mint_self_note / conservation / note), so Kage is
-//! additive to the note format. eph.x-only: every emitted ephemeral is even-y canonicalized (mint_self_note
-//! asserts it), so only eph_pub.x is surfaced and y is recovered off-chain.
+//! Additive to the note format (reuses verify_spend / mint_self_note / conservation). eph.x-only: mint_self_note
+//! asserts even-y, so only eph_pub.x is surfaced.
 
 use ecdh::Point;
 use shared::conservation;
@@ -28,32 +18,25 @@ use shared::verify_spend;
 // DEM transmitted-field count (shared/src/common/dem.nr DEM_FIELDS).
 global CT_LEN: u32 = 7;
 
-// Inner-VK binding, the single most load-bearing value in Kage. `verification_key` is a solver-supplied
-// WITNESS; the only thing stopping a solver from passing a random VK plus a proof of his own malicious circuit
-// (forging the taker's entire half) is this key_hash: verify_proof_with_type makes the backend enforce
-// hash(verification_key) == key_hash, and because it is a hardcoded CONSTANT it pins the inner circuit to the
-// canonical swap_intent. Three requirements: (1) set it to the real bb VK hash of the compiled swap_intent (`0`
-// means NOT pinned, which is a total forge); (2) keep it a compile-time CONSTANT (the stdlib asserts constants
-// for proof_type but NOT for key_hash, and a witness key_hash lets the solver pick both VK and hash); (3) the
-// stdlib does not itself constrain hash(vk) == key_hash (it is backend-defined, and barretenberg enforces it,
-// as Payy relies on in production), so it is gated by an adversarial test: wrong VK, different-circuit proof,
-// and tampered public inputs all reject.
+// Inner-VK binding: the single most load-bearing value in Kage. `verification_key` is a solver-supplied WITNESS;
+// only this hardcoded constant stops a solver proving his own circuit to forge the taker's half. `0` = not pinned
+// = total forge. Must stay a compile-time CONSTANT (the stdlib asserts constants for proof_type but NOT key_hash).
+// The stdlib does not constrain hash(vk) == key_hash; barretenberg enforces it (as Payy relies on), so an
+// adversarial test gates it: wrong VK / different-circuit proof / tampered public inputs all reject.
 pub global INTENT_VK_HASH: Field =
     0x2f282faa1ed7f0c76b2d4dfd8ef8555ad443c8fb448373936bb11a1f2678313b;
 pub global PROOF_TYPE: u32 = 6;
-// VK / proof widths are the compiled swap_intent's bb recursion values (verifierTarget noir-recursive);
-// regenerate on any swap_intent change. Tests never touch the recursion call (they drive settle_swap on real
-// swap_intent output).
+// Compiled swap_intent bb recursion widths (verifierTarget noir-recursive); regenerate on any change (kageVkParity guard).
 pub global INTENT_VK_LEN: u32 = 115;
 pub global INTENT_PROOF_LEN: u32 = 458;
 
 // Public-input width swap_intent exposes (see pack_intent): 9 scalars + (leaf + eph_x + ct[7]) per note x 2.
 pub global INTENT_PI_LEN: u32 = 27;
 
-// the taker's swap_intent public interface (consumed as WITNESS by the maker's recursion; never surfaced on-chain).
-// The two amount fields ARE the swap terms; the two note blocks are relayed on-chain for insertion + events.
+// The taker's public interface: consumed as WITNESS by the maker's recursion, never on-chain. The amount fields
+// are the swap terms; the note blocks are relayed on-chain for insertion + events.
 pub struct SwapIntent {
-    pub nullifier: Field, // A_in nullifier
+    pub nullifier: Field,
     pub root: Field,
     pub compliance_x: Field, // C the taker used (the maker binds his C to it)
     pub compliance_y: Field,
@@ -62,10 +45,10 @@ pub struct SwapIntent {
     pub from_amount: u128, // fromAsset the taker releases (the maker binds B_out_received to it)
     pub expected_return: u128, // toAsset the taker wants (== A_out_received.value; the maker's toAsset conservation)
     pub expiry: Field,
-    pub change_leaf: Field, // A_out_change (fromAsset self-note)
+    pub change_leaf: Field,
     pub change_eph_x: Field,
     pub change_ct: [Field; CT_LEN],
-    pub received_leaf: Field, // A_out_received (toAsset self-note)
+    pub received_leaf: Field,
     pub received_eph_x: Field,
     pub received_ct: [Field; CT_LEN],
 }
@@ -102,9 +85,8 @@ pub fn pack_intent(pi: SwapIntent) -> [Field; INTENT_PI_LEN] {
     ]
 }
 
-// The recursion authenticates that the taker's circuit constrained the amount fields to u128; the explicit range
-// assert keeps value integrity from leaning solely on the pin plus the `as u128` narrowing. The tested settle_swap
-// path receives the struct with genuine u128s and never casts.
+// Range-assert the amounts even though the recursion already constrains them to u128: defense-in-depth against a
+// silent `as u128` narrowing.
 pub fn unpack_intent(a: [Field; INTENT_PI_LEN]) -> SwapIntent {
     let from_amount = a[6] as u128;
     assert(from_amount as Field == a[6], "from_amount exceeds u128 range");
@@ -150,8 +132,7 @@ pub struct KageOutputs {
     pub maker_change: MintedOutput, // minted by the maker
 }
 
-// Circuit 1, swap_intent (the taker). Spend A_in + mint her own two self-notes (change + received).
-// Client-provable.
+// swap_intent (taker): spend A_in + mint her two self-notes (change + received). Client-provable.
 pub fn build_intent(
     compliance_pk: Point,
     note_in: Note, // A_in (fromAsset)
@@ -205,8 +186,8 @@ pub fn build_intent(
     }
 }
 
-// Circuit 2, swap_settle (the maker), settlement logic. Called AFTER main authenticates intent via
-// std::verify_proof_with_type. the maker mints only his two self-notes; both conservations live here.
+// swap_settle (maker): runs after main authenticates intent via std::verify_proof_with_type; mints the maker's
+// two self-notes and both conservations.
 pub fn settle_swap(
     intent: SwapIntent,
     compliance_pk: Point,
@@ -232,20 +213,17 @@ pub fn settle_swap(
     assert(intent.nullifier != maker_nullifier, "cannot swap a note with itself");
     assert(maker_note_in.asset_id == intent.to_asset, "maker input asset mismatch");
 
-    // current_timestamp is the solver witness; the contract floors it to block time (>= now - tolerance) so the maker
-    // cannot settle an expired swap against the taker's stale price. expiry is the taker-authenticated (intent.expiry,
-    // committed in swap_intent and bound by the recursion).
+    // current_timestamp is the solver witness; the contract MUST floor it to block time so the maker cannot settle
+    // an expired swap against a stale price. intent.expiry is taker-authenticated (bound by the recursion).
     assert(current_timestamp.lt(intent.expiry), "swap expired");
 
-    // B_out_received: the maker receives exactly from_amount of fromAsset. With the taker's swap_intent check
-    // (A_in == from_amount + A_out_change) this conserves fromAsset across the two proofs.
+    // B_received.value == from_amount closes fromAsset conservation across the two proofs (taker: A_in == from_amount + change).
     assert(maker_received.asset_id == intent.from_asset, "maker_received asset mismatch");
     assert(maker_received.value == intent.from_amount, "maker_received value mismatch");
     assert_parents_bound(maker_received, [maker_index, 0]);
     let breceived = mint::mint_self_note(maker_received, maker_received_eph, compliance_pk);
 
-    // B_out_change: the maker keeps the toAsset remainder. toAsset conservation binds the taker's ask
-    // (expected_return): the maker cannot settle unless he gives the taker exactly what her received note claims.
+    // toAsset: B_in == expected_return + B_change forces the maker to deliver the taker's asked amount.
     assert(maker_change.asset_id == intent.to_asset, "maker_change asset mismatch");
     conservation::assert_conserved(
         [maker_note_in.value],
@@ -295,10 +273,9 @@ pub fn settle_swap(
     }
 }
 
-// Tests, self-contained (no SDK / no live recursion). A 2-leaf tree is built in-circuit; every psi is derived
-// with the same ECDH+Poseidon2 the mint asserts, so notes are valid by construction. settle_swap runs on the REAL
-// SwapIntent from build_intent, so the two halves are proven to compose on genuine values. The only unproven
-// link is std::verify_proof_with_type (exercised in the bb.js e2e, not here).
+// Self-contained tests (no SDK / no recursion): a 2-leaf tree built in-circuit, every psi derived the way the mint
+// asserts, and settle_swap run on the REAL build_intent output. The only unproven link is
+// std::verify_proof_with_type (covered in the bb.js e2e).
 mod tests {
     use super::{build_intent, KageOutputs, settle_swap, SwapIntent};
     use ecdh::{bjj::BJJ, ECDHTrait, Point};
@@ -405,7 +382,7 @@ mod tests {
         }
     }
 
-    // A_in 100 fromAsset -> release 60, keep 40 change; the taker wants 50 toAsset. B_in 100 toAsset -> the maker keeps 50.
+    // A_in 100 -> release 60, keep 40; taker wants 50 toAsset. B_in 100 -> maker keeps 50.
     fn scenario() -> Scenario {
         let c = compliance();
         build(
@@ -504,7 +481,7 @@ mod tests {
         let _ = taker_intent(s);
     }
 
-    // the taker cannot inflate her OWN received note: the maker's toAsset conservation makes the swap unfillable.
+    // taker over-asks -> the maker's toAsset conservation makes it unfillable.
     #[test(should_fail_with = "value not conserved")]
     fn maker_reject_taker_received_inflation() {
         let c = compliance();
@@ -524,7 +501,6 @@ mod tests {
         let _ = settle(s, intent);
     }
 
-    // the maker keeps too much toAsset.
     #[test(should_fail_with = "value not conserved")]
     fn maker_reject_toasset_inflation() {
         let s = scenario();
@@ -534,7 +510,6 @@ mod tests {
         let _ = settle(s2, intent);
     }
 
-    // the maker credits himself more fromAsset than the taker released.
     #[test(should_fail_with = "maker_received value mismatch")]
     fn maker_reject_fromasset_inflation() {
         let s = scenario();
@@ -549,7 +524,6 @@ mod tests {
         let _ = settle(s2, intent);
     }
 
-    // the maker settles against a different root than the taker proved.
     #[test(should_fail_with = "inputs must share a root")]
     fn maker_reject_root_mismatch() {
         let s = scenario();
@@ -559,7 +533,6 @@ mod tests {
         let _ = settle(s2, intent);
     }
 
-    // settle after the deadline.
     #[test(should_fail_with = "swap expired")]
     fn maker_reject_expired() {
         let s = scenario();
@@ -569,7 +542,6 @@ mod tests {
         let _ = settle(s2, intent);
     }
 
-    // the maker forges the backward-trace parentage on a produced note.
     #[test(should_fail_with = "output parents not bound to consumed inputs")]
     fn maker_reject_forged_parents() {
         let s = scenario();
@@ -579,7 +551,6 @@ mod tests {
         let _ = settle(s2, intent);
     }
 
-    // Compliance parity: the taker used one C, the maker settles under a different (still valid) key.
     #[test(should_fail_with = "compliance key mismatch between halves")]
     fn maker_reject_compliance_mismatch() {
         let s = scenario();
@@ -599,8 +570,7 @@ mod tests {
         );
     }
 
-    // the maker's input is not the toAsset the taker wants (tree built around the wrong-asset B_in so the root check passes
-    // and the asset guard is what fires).
+    // wrong-asset B_in placed in the tree so the root check passes and the asset guard is what fires.
     #[test(should_fail_with = "maker input asset mismatch")]
     fn maker_reject_wrong_input_asset() {
         let c = compliance();
@@ -620,8 +590,7 @@ mod tests {
         let _ = settle(s, intent);
     }
 
-    // the maker reuses b_received's ephemeral for b_change: a shared eph gives a shared CEK, a two-time-pad on the
-    // stream DEM. settle_swap asserts all four output ephemerals are pairwise distinct.
+    // reuse b_received's eph for b_change -> shared CEK -> caught by the pairwise-distinct assert.
     #[test(should_fail_with = "output ephemerals must be distinct")]
     fn maker_reject_duplicate_ephemeral() {
         let s = scenario();

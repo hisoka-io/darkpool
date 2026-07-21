@@ -1,6 +1,4 @@
-//! Mutation harness: prove the real 3-of-5 FROST KAT then mutate one soundness-relevant witness / signed
-//! public input and require rejection with the specific guard. Adds the FROST surface (gpk / R / z / m) on top
-//! of the shared spend+mint+conservation surface.
+//! Mutation harness: prove the FROST KAT, mutate one witness/signed input, assert the specific rejection.
 
 use shared::mutation;
 use shared::note::Note;
@@ -137,7 +135,7 @@ fn m_gpk_non_subgroup() {
         super::KAT_CHANGE_EPH,
     );
 }
-// a valid subgroup point that is NOT the account gpk -> the in-circuit owner pin rejects before FROST
+// valid non-gpk point: owner pin rejects before FROST
 #[test(should_fail_with = "spender does not own this multisig note")]
 fn m_gpk_wrong_valid() {
     v(
@@ -222,7 +220,7 @@ fn m_frost_z_mutated() {
         super::KAT_CHANGE_EPH,
     );
 }
-// m binds recipient + intent (no earlier guard on either) -> the challenge recomputes -> equation fails
+// recipient+intent have no earlier guard; only the FROST equation binds them
 #[test(should_fail_with = "FROST signature invalid")]
 fn m_signed_recipient() {
     run(

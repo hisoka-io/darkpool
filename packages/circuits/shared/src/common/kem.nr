@@ -53,8 +53,6 @@ fn kat_kem_roundtrip() {
     assert(recovered == cek);
 }
 
-// Recipient isolation: unwrapping with a different in_key must NOT recover the CEK. A wrong recipient key
-// derives a different ECDH pad, so the subtracted pad no longer cancels.
 #[test]
 fn audit_kem_wrong_recipient_isolation() {
     let eph_pub = Point::new(

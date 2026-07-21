@@ -52,7 +52,7 @@ fn main(
     )
 }
 
-// Output guards run before verify_frost_spend, so a never-reached dummy (frost_r, frost_z) suffices.
+// dummy (r,z): output guards reject before verify_frost_spend
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 global ASSET_ID: Field = 0x1234567890123456789012345678901234567890;
@@ -238,8 +238,7 @@ fn kat_multisig_transfer_accepts() {
     );
 }
 
-// Shifting a FROST-signed output value moves the memo/change leaves, so the recomputed m no longer matches the
-// signature; conservation still holds (41 + 59 == 100) so control reaches verify_frost_spend, which rejects.
+// value swap keeps conservation (41+59==100) but shifts the signed leaves -> FROST rejects
 #[test(should_fail_with = "FROST signature invalid")]
 fn audit_reject_mutated_signed_value() {
     let _ = main(

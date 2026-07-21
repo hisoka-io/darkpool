@@ -58,7 +58,7 @@ fn out_note(value: u128, psi: Field) -> Note {
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 
-// KAT: byte-identical to the TS/Solidity golden vector (eph 15, 20).
+// TS/Noir/Solidity parity golden
 #[test]
 fn test_split_kat() {
     let out1 = out_note(

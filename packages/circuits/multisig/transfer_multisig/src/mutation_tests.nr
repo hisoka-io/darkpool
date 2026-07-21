@@ -1,7 +1,4 @@
-//! Mutation harness: prove the real 3-of-5 FROST KAT then mutate one soundness-relevant witness / signed field
-//! and require rejection with the specific guard. Adds the FROST surface (gpk / R / z / m) on top of the shared
-//! open+mint+conservation surface, plus the transfer-only INCOMING memo (mint_incoming_note) and recipient-key
-//! checks.
+//! Mutation harness: prove the FROST KAT, mutate one witness/signed field, assert the specific rejection; adds the incoming-memo + recipient-key surface.
 
 use shared::mutation;
 use shared::note::Note;
@@ -148,7 +145,7 @@ fn m_gpk_non_subgroup() {
         super::KAT_CHANGE_EPH,
     );
 }
-// r() is a valid subgroup point but not the account gpk -> the in-circuit owner pin rejects before FROST.
+// valid non-gpk point: owner pin rejects before FROST
 #[test(should_fail_with = "spender does not own this multisig note")]
 fn m_gpk_wrong_valid() {
     v(
@@ -273,9 +270,7 @@ fn m_frost_z_mutated() {
         super::KAT_CHANGE_EPH,
     );
 }
-// transfer's m carries no free public scalar; a value-conserving swap (41 + 59 == 100) shifts the memo/change
-// LEAVES that m binds, so control reaches verify_frost_spend and the recomputed challenge rejects. Confirms
-// the ScalarField<63> challenge binds m (the truncation FOOTGUN guard in frost.nr).
+// value swap (41+59==100) shifts the signed leaves -> recomputed m rejects; exercises the ScalarField<63> m-binding
 #[test(should_fail_with = "FROST signature invalid")]
 fn m_signed_value_swap() {
     v(

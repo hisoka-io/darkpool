@@ -1,14 +1,11 @@
-//! Mutation harness: prove the real 3-of-5 FROST KAT (one multisig note in -> two multisig-self notes out)
-//! then mutate one soundness-relevant witness / signed public input and require rejection with the specific
-//! guard. The FROST message m binds root, nullifier, out1.leaf, out2.leaf and asset, so any signed leaf
-//! changed with no earlier guard is caught last by the signature equation.
+//! Mutation harness: 1-in-2-out FROST KAT; mutate one witness/signed input, assert the specific rejection. m binds root/nullifier/out leaves/asset.
 
 use shared::mutation;
 use shared::note::Note;
 use shared::SUBORDER;
 use shared::TREE_DEPTH;
 
-// Mirror the golden KAT witness in `kat_multisig_split_accepts`: input 100 -> out1 60 (eph 4) + out2 40 (eph 5).
+// mirrors kat_multisig_split_accepts: 100 -> 60(eph4)+40(eph5)
 global IN_VALUE: u128 = 100;
 global OUT1_VALUE: u128 = 60;
 global OUT2_VALUE: u128 = 40;
@@ -31,7 +28,7 @@ fn o2() -> Note {
     super::out_note(OUT2_VALUE, 1, super::gpk_owner(), super::KAT_PSI2)
 }
 
-// Full-override entry; path is always the trivial all-zero inclusion proof (root == leaf at index 0).
+// all-zero path: root == leaf at index 0
 fn run(
     cx: Field,
     cy: Field,
@@ -145,7 +142,7 @@ fn m_gpk_non_subgroup() {
         EPH_2,
     );
 }
-// a valid subgroup point that is NOT the account gpk -> the in-circuit owner pin rejects before FROST
+// valid non-gpk point: owner pin rejects before FROST
 #[test(should_fail_with = "spender does not own this multisig note")]
 fn m_gpk_wrong_valid() {
     v(
@@ -242,8 +239,7 @@ fn m_frost_z_mutated() {
     );
 }
 
-// A value-preserving shift across the two signed outputs moves both leaves, so the recomputed m no longer
-// matches; conservation still holds (61 + 39 == 100) and psi is value-independent, so control reaches FROST.
+// value swap (61+39==100), psi value-independent -> reaches FROST, m mismatch rejects
 #[test(should_fail_with = "FROST signature invalid")]
 fn m_signed_out_value_shift() {
     let mut a1 = o1();
@@ -311,7 +307,7 @@ fn m_old_note_version() {
         EPH_2,
     );
 }
-// the input asset stays canonical (20 bytes) so it clears assert_asset_id and trips the out1 equality check
+// still a valid 20-byte asset; trips out1 equality
 #[test(should_fail_with = "out1 asset mismatch")]
 fn m_old_asset_mismatch() {
     let mut n = inp();
@@ -473,7 +469,7 @@ fn m_out1_parents_forged() {
     );
 }
 
-// out1 mints fully with its golden self psi so control reaches the out2 mint guards.
+// out1 mints fully so out2's guards are reached
 #[test(should_fail_with = "multisig change/self must be owned by the account gpk")]
 fn m_out2_owner_off_gpk() {
     let mut a2 = o2();
@@ -571,7 +567,6 @@ fn m_out2_parents_forged() {
     );
 }
 
-// A shared eph reuses the discovery tag across both outputs.
 #[test(should_fail_with = "ephemerals must be distinct")]
 fn m_eph_equal() {
     v(

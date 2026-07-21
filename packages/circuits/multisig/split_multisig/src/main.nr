@@ -50,8 +50,7 @@ fn main(
     )
 }
 
-// Output guards run before verify_frost_spend, so a never-reached dummy (frost_r, frost_z) suffices; out1
-// uses the golden self psi (eph 15) so it mints fully and control reaches out2's guard.
+// dummy (r,z): output guards reject before FROST; out1 uses a real psi so out2's guard is reached
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 global ASSET_ID: Field = 0x1234567890123456789012345678901234567890;
@@ -204,8 +203,7 @@ fn kat_multisig_split_accepts() {
     );
 }
 
-// Shifting a FROST-signed output value moves the out1/out2 leaves, so the recomputed m no longer matches the
-// signature; conservation still holds (61 + 39 == 100) so control reaches verify_frost_spend, which rejects.
+// value swap keeps conservation (61+39==100) but shifts the signed leaves -> FROST rejects
 #[test(should_fail_with = "FROST signature invalid")]
 fn audit_reject_mutated_signed_value() {
     let _ = main(

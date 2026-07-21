@@ -1,8 +1,6 @@
-//! Mutation harness: from the valid KAT witness flip ONE soundness-relevant field and require rejection with
-//! the specific guard (should_fail_with means a wrong-reason failure still fails). join consumes TWO inputs
-//! (a, b) into ONE output, so every input guard is covered on BOTH a and b, plus the three two-input binding
-//! asserts (shared root, distinct nullifier, strict index order). Public-output-bound fields (nullifiers/root)
-//! are covered at the deployed-verifier layer, not here.
+//! Flip one witness from the valid KAT; guards asserted by message. Two inputs (a,b) -> one output: input guards
+//! run on both, plus the three binding asserts (shared root, distinct nullifier, strict index order). Public-output
+//! fields covered at the verifier layer.
 
 use shared::mutation;
 use shared::note::Note;
@@ -29,7 +27,7 @@ fn note_out() -> Note {
     n
 }
 
-// Sibling wiring for the frozen two-leaf KAT tree: a at index 0 (sibling = b's leaf), b at index 1 (sibling = a's leaf).
+// Two-leaf KAT tree: a at index 0 (sibling b), b at index 1 (sibling a).
 fn kat_paths() -> ([Field; TREE_DEPTH], [Field; TREE_DEPTH]) {
     let mut pa = [0; TREE_DEPTH];
     pa[0] = super::LEAF_B;
@@ -269,8 +267,8 @@ fn m_a_version() {
         EPH,
     );
 }
-// asset is committed in the leaf, so a lone asset flip diverges the reconstructed root before the a==b asset
-// assert; the reachable guard is the shared-root bind. "input asset mismatch" is exercised in m_input_asset_mismatch.
+// asset is in the leaf, so a lone flip breaks the root bind before the a==b asset assert; input-asset mismatch
+// is exercised in m_input_asset_mismatch.
 #[test(should_fail_with = "inputs must share a root")]
 fn m_a_asset_binds_root() {
     let (pa, pb) = kat_paths();
@@ -485,7 +483,7 @@ fn m_root_mismatch() {
 }
 #[test(should_fail_with = "cannot join a note with itself")]
 fn m_self_join() {
-    // Same note at the same index in both slots: roots still agree, so the distinct-nullifier guard is the one that fires.
+    // Same note/index both slots: roots agree, so the distinct-nullifier guard fires.
     let mut pa = [0; TREE_DEPTH];
     pa[0] = super::LEAF_B;
     run(
@@ -505,7 +503,7 @@ fn m_self_join() {
 }
 #[test(should_fail_with = "join inputs must be strictly index-ordered")]
 fn m_unordered_inputs() {
-    // b at index 1 in slot A, a at index 0 in slot B: roots agree and nullifiers differ, so only the ordering assert fails.
+    // Swapped order (b@1 in slot A, a@0 in slot B): roots/nullifiers valid, so only the ordering assert fails.
     let mut pa = [0; TREE_DEPTH];
     pa[0] = super::LEAF_A;
     let mut pb = [0; TREE_DEPTH];
@@ -528,8 +526,7 @@ fn m_unordered_inputs() {
 
 #[test(should_fail_with = "input asset mismatch")]
 fn m_input_asset_mismatch() {
-    // Both inputs legitimately in the tree but carrying different assets: recompute siblings so the roots agree,
-    // which is the only way to reach the a==b asset assert past the shared-root bind.
+    // Recompute siblings so roots agree, reaching the a==b asset assert past the shared-root bind.
     let mut na = note_a();
     na.asset_id = ASSET + 1;
     let nb = note_b();
@@ -595,7 +592,7 @@ fn m_value_not_conserved() {
 }
 #[test(should_fail_with = "attempt to add with overflow")]
 fn m_value_overflow() {
-    // Both inputs near 2^127 so total_in wraps u128; recompute siblings so membership still binds to reach conservation.
+    // Inputs near 2^127 to wrap total_in (u128); siblings recomputed so membership binds first.
     let mut na = note_a();
     na.value = 0x80000000000000000000000000000000;
     let mut nb = note_b();

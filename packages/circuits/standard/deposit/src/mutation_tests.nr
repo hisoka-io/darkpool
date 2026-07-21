@@ -1,5 +1,4 @@
-//! Mutation harness: from the valid KAT witness flip ONE soundness-relevant witness and require rejection
-//! with the specific guard (should_fail_with means a wrong-reason failure still fails the test).
+//! Flip one witness from the valid KAT; each guard is asserted by exact message (should_fail_with).
 
 use shared::mutation;
 use shared::note::Note;
@@ -105,9 +104,7 @@ fn m_eph_ge_suborder() {
     );
 }
 
-// eph=6 derives an odd-y eph_pub. psi is bound to eph=6's CEK (computed via the wallets SDK) so mint_common's
-// psi check passes and the deposit even-y discovery-tag guard (mint.nr) is the assert that fires. Without this
-// an odd-y deposit tag would leave the note invisible to the wallet's even-y scan.
+// eph=6 -> odd-y eph_pub; psi rebound to eph=6's CEK so the psi check passes and the even-y guard is the one that fires.
 #[test(should_fail_with = "deposit discovery tag must be even-y")]
 fn m_odd_y_deposit_eph() {
     let mut note = note0();

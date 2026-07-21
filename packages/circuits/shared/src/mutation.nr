@@ -1,16 +1,11 @@
-//! Additive TEST-SUPPORT for the circuit mutation harness. Nothing here is used by any circuit's proving
-//! logic; it supplies property-verified BabyJubJub bad-point vectors so every curve-op entry (compliance key,
-//! ephemeral, recipient key, FROST gpk/R) can be fed off-curve / identity / small-order / non-subgroup points
-//! and the constraint system's rejection asserted. Vectors computed over a = 168700, d = 168696, the BN254 Fr
-//! prime; SUBORDER = crate::SUBORDER. The self-tests below PROVE each vector's claimed property (on-curve and
-//! subgroup membership) rather than asserting it, so a reviewer need not trust the offline computation.
+//! Test-only BabyJubJub bad-point vectors (off-curve / identity / small-order / non-subgroup) for the mutation
+//! harness. Self-tests below PROVE each vector's order/curve property. Computed over a=168700, d=168696, BN254 Fr.
 
 use crate::SUBORDER;
 use ecdh::{bjj::check_subgroup, Point};
 use edwards::{bjj::BabyJubJub, CurveTrait};
 
-/// Neutral element (order 1). It IS in the subgroup, but every curve-op entry additionally rejects it via a
-/// `!is_zero()` / "must not be the identity" guard, so it is a distinct mutation class.
+/// Neutral element (order 1). In-subgroup, but rejected by the separate `!is_zero()` identity guard.
 pub fn bad_identity() -> Point {
     Point { x: 0, y: 1 }
 }
@@ -46,8 +41,6 @@ fn as_ed(p: Point) -> BabyJubJub {
     BabyJubJub::new(p.x, p.y)
 }
 
-// self-tests: PROVE the vectors are what the comments claim
-
 #[test]
 fn vector_identity_is_the_neutral_element() {
     assert(as_ed(bad_identity()).is_zero(), "identity vector is not the neutral element");
@@ -81,6 +74,6 @@ fn vector_small_and_non_subgroup_are_outside_the_subgroup() {
 
 #[test]
 fn scalar_subgroup_boundary_is_suborder() {
-    // documents the exact scalar rejection boundary the harness probes (spend_scalar / eph / frost_z)
+    // scalar rejection boundary probed by the harness (spend_scalar / eph / frost_z)
     assert(SUBORDER != 0);
 }
