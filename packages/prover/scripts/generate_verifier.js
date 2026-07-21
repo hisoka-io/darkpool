@@ -16,6 +16,12 @@ import { CIRCUITS, KAGE_CIRCUITS } from "./circuits.js";
 // CLI-only -- bb.js hardcodes optimizedSolidityVerifier:false. Proofs are still produced by bb.js; barretenberg
 // #1649 (bb.js VK == CLI VK) makes a bb.js proof verify against this CLI verifier. The --optimized verifier is a
 // self-contained monolithic contract (no externalized ZKTranscriptLib) and fits EIP-170 on its own.
+//
+// Circuit-change runbook (after editing any .nr): run `pnpm build` in packages/prover WITH native bb 5.0 on the
+// path (BB_NATIVE_PATH or ~/.bb/bb) so this script rewrites the affected verifier .sol + vk-hashes.json; then
+// commit the regenerated verifiers + vk-hashes.json AND re-bless vk-hashes.golden.json to the new hashes. Without
+// native bb this step is skipped (committed verifiers kept) and the prover VK-parity guard fails on the drift, so
+// a circuit change must never be committed without a native-bb regen.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 

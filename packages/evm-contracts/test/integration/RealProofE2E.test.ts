@@ -41,6 +41,94 @@ import {
   NoteInput,
 } from "@hisoka/prover";
 import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
+import { statSync, readdirSync, existsSync } from "fs";
+import { resolve, join } from "path";
+
+// Freshness tripwire. This suite proves LIVE bb.js proofs from the prover's BUNDLED bytecode (prover/dist, which
+// embeds circuits/target) against the DEPLOYED verifiers. If a circuit source is edited but the prover/circuits
+// are not rebuilt, the suite would prove STALE bytecode and stay green -- a false-confidence hole in the very net
+// meant to catch soundness drift. turbo's evm-contracts#test ^build ordering rebuilds upstream first; this is the
+// belt for a direct `hardhat test` run that bypasses turbo. The bundle is written LAST in `pnpm build` (compile ->
+// generate_verifier -> tsup), so it is never older than the target of the SAME build; we compare the built
+// artifacts against the circuit SOURCES only (committed verifiers are not a sound mtime reference -- see below).
+type Stamp = { path: string; mtimeMs: number };
+
+function collectSources(dir: string, acc: string[]): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (entry.name === "target" || entry.name === "node_modules") continue;
+      collectSources(join(dir, entry.name), acc);
+    } else if (entry.name.endsWith(".nr") || entry.name === "Nargo.toml") {
+      acc.push(join(dir, entry.name));
+    }
+  }
+}
+
+function newest(files: string[]): Stamp {
+  let best: Stamp = { path: "", mtimeMs: 0 };
+  for (const f of files) {
+    const m = statSync(f).mtimeMs;
+    if (m > best.mtimeMs) best = { path: f, mtimeMs: m };
+  }
+  return best;
+}
+
+function oldest(files: string[]): Stamp {
+  let best: Stamp = { path: "", mtimeMs: Number.POSITIVE_INFINITY };
+  for (const f of files) {
+    const m = statSync(f).mtimeMs;
+    if (m < best.mtimeMs) best = { path: f, mtimeMs: m };
+  }
+  return best;
+}
+
+let freshnessChecked = false;
+
+function assertBuiltArtifactsFresh(): void {
+  if (freshnessChecked) return;
+  const evm = process.cwd(); // packages/evm-contracts
+  const circuitsRoot = resolve(evm, "../circuits");
+  const targetDir = resolve(circuitsRoot, "target");
+  const distEntry = resolve(evm, "../prover/dist/index.js");
+
+  if (!existsSync(distEntry) || !existsSync(targetDir)) {
+    throw new Error(
+      `RealProofE2E freshness tripwire -- prover bundle or circuit artifacts missing (${distEntry}). ` +
+        "Run `pnpm build` before the e2e; it proves the prover's bundled bytecode.",
+    );
+  }
+
+  const sources: string[] = [];
+  collectSources(circuitsRoot, sources);
+  const newestSource = newest(sources);
+
+  const targetJsons = readdirSync(targetDir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => join(targetDir, f));
+  const oldestTarget = oldest(targetJsons);
+  const distMtime = statSync(distEntry).mtimeMs;
+
+  const stale = (
+    label: string,
+    artifactMs: number,
+    ref: Stamp,
+  ): string | null =>
+    artifactMs < ref.mtimeMs
+      ? `${label} is stale: ${ref.path} is newer than the built artifact. Run \`pnpm build\` before the ` +
+        "e2e (a stale bundle silently proves old circuits, so this net's green would be meaningless)."
+      : null;
+
+  // Only the circuit SOURCES are a sound mtime reference: the built artifacts are gitignored (regenerated
+  // post-checkout), so they are always newer than a source. The committed verifiers are NOT a sound reference
+  // -- git checkout/restore/format rewrites their mtime without a rebuild, which would false-abort; their
+  // coupling to the bundled bytecode is content-checked by vkHashParity + RealProofE2E's real on-chain verify.
+  const problem =
+    stale("prover/dist", distMtime, newestSource) ??
+    stale("circuits/target", oldestTarget.mtimeMs, newestSource);
+
+  if (problem) throw new Error(`RealProofE2E freshness tripwire -- ${problem}`);
+  freshnessChecked = true;
+}
 
 const toBytes32 = (v: bigint): string =>
   ethers.zeroPadValue(ethers.toBeHex(v), 32);
@@ -170,6 +258,8 @@ async function frostSign(
 // and asserts the deployed verifier rejects it.
 describe("D1 real-proof e2e (STANDARD)", function () {
   this.timeout(600_000);
+
+  before(assertBuiltArtifactsFresh);
 
   it("genesis parity: TS genesis leaf equals the contract initial root", async function () {
     const { darkPool } = await loadFixture(deployDarkPoolFixture);
@@ -483,6 +573,8 @@ describe("D1 real-proof e2e (STANDARD)", function () {
 
 describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () {
   this.timeout(600_000);
+
+  before(assertBuiltArtifactsFresh);
 
   it("withdrawMultisig: a quorum authorizes the spend, pays the exact ERC20, verifier rejects a mutated recipient", async function () {
     const { darkPool, token, alice, bob } = await loadFixture(

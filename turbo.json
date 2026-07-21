@@ -25,6 +25,14 @@
     "test:fast": {
       "outputs": []
     },
+    "evm-contracts#test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "evm-contracts#test:fast": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
     "test:fork": {
       "outputs": []
     },

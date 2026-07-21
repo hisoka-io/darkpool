@@ -13,6 +13,8 @@ import { addressToFr, packParents } from "@hisoka/wallets";
 import { proveDeposit, proveSplit } from "@hisoka/prover";
 import { writeFileSync } from "fs";
 import { HonkVerifier__factory } from "../../typechain-types/factories/contracts/verifiers/DepositVerifier.sol";
+import { HonkVerifier__factory as KageVerifier__factory } from "../../typechain-types/factories/contracts/verifiers/KageVerifier.sol";
+import { KAGE_PROOF, KAGE_PUBLIC_INPUTS } from "../integration/kageGolden";
 
 // PROFILE=1 npx hardhat test test/benchmark/VerifierProfile.bench.ts
 const run = process.env.PROFILE ? describe : describe.skip;
@@ -171,5 +173,38 @@ run("Verifier profile: verify vs overhead", function () {
         "  (split has 2 inserts vs deposit's 1: full(split) - full(deposit) ~= 1 extra insert + 1 extra mint)",
       );
     }
+  });
+
+  // Isolated verify() gas of the deployed optimized 5.0.0 KageVerifier against the real native-bb swap_settle
+  // golden proof. Measurement only (no assertion): re-measures the recorded Kage verify figure after the 5.0.0
+  // --optimized regen. verifyInternal strips intrinsic + calldata so it is comparable across verifiers.
+  it("kage swap_settle verify gas (optimized 5.0.0 KageVerifier)", async function () {
+    const [deployer] = await ethers.getSigners();
+    const verifier = await new KageVerifier__factory(deployer).deploy();
+    const verifyEst = await verifier.verify.estimateGas(
+      KAGE_PROOF,
+      KAGE_PUBLIC_INPUTS,
+    );
+    const cdV = calldataGas(
+      (
+        await verifier.verify.populateTransaction(
+          KAGE_PROOF,
+          KAGE_PUBLIC_INPUTS,
+        )
+      ).data!,
+    );
+    const INTRINSIC = 21000;
+    const verifyInternal = Number(verifyEst) - INTRINSIC - cdV;
+    console.log(`\n=== kage swap_settle verify gas (optimized 5.0.0) ===`);
+    console.log(
+      `proof=${(KAGE_PROOF.length - 2) / 2}B, publicInputs=${KAGE_PUBLIC_INPUTS.length}`,
+    );
+    console.log(
+      `  verify estimateGas ${Number(verifyEst).toString().padStart(9)}`,
+    );
+    console.log(`  calldata           ${cdV.toString().padStart(9)}`);
+    console.log(
+      `  VERIFY internal    ${verifyInternal.toString().padStart(9)}`,
+    );
   });
 });
