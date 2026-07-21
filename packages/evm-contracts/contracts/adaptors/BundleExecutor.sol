@@ -161,9 +161,8 @@ contract BundleExecutor is ReentrancyGuard {
         );
     }
 
-    /// @dev Reverts ResidualBalance if `asset` holds a nonzero balance here; skips the zero address and
-    ///      assets already checked, so the withdrawn-asset / approve-token / assetsToClear union is verified
-    ///      once each. `checked` accumulates the distinct assets seen; the new count is returned.
+    /// @dev Reverts ResidualBalance on a nonzero balance; skips address(0) and already-seen assets (dedups the
+    ///      withdrawn-asset / approve-token / assetsToClear union). Returns the updated distinct-asset count.
     function _assertZeroResidual(
         address asset,
         address[] memory checked,

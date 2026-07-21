@@ -197,7 +197,6 @@ contract UniswapAdaptor is ReentrancyGuard {
         if (tokenIn != withdrawnAsset) revert AssetMismatch();
         if (p.amountOutMin == 0) revert ZeroSlippageBound();
 
-        // Path: TokenIn -> ... -> TokenOut
         address tokenOut = _getLastToken(p.path);
         outAsset = tokenOut;
         outPreBal = IERC20(tokenOut).balanceOf(address(this));

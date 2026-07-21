@@ -4,10 +4,9 @@ pragma solidity ^0.8.25;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-/// @notice Baseline for the storage-gate negative test: a minimal UUPS contract with one ERC-7201
-/// namespace holding two same-type fields. Exists only so StorageGate.test can prove that
-/// assertStorageUpgradeSafe rejects a namespace-internal layout change (a class the bare-sequential
-/// snapshot cannot see). Not deployed.
+/// @notice Storage-gate negative-test baseline: one ERC-7201 namespace, two same-type fields, so
+/// StorageGate.test can prove assertStorageUpgradeSafe rejects a namespace-internal reorder (a class the
+/// bare-sequential snapshot cannot see).
 contract StorageGateBaseMock is Initializable, UUPSUpgradeable {
     /// @custom:storage-location erc7201:hisoka.storagegate
     struct GateStorage {

@@ -3,9 +3,8 @@ pragma solidity ^0.8.25;
 
 import {BundleExecutor} from "../adaptors/BundleExecutor.sol";
 
-// Test-only: a bound-call target that re-enters BundleExecutor.execute. Used to prove the nonReentrant guard
-// blocks reentrancy through the executor's arbitrary-call surface (the highest-risk external-call site: execute
-// runs caller-supplied `target.call(data)` on a contract that has just pulled a shielded withdraw to itself).
+// Test-only: re-enters BundleExecutor.execute to prove the nonReentrant guard blocks reentrancy through the
+// arbitrary-call surface.
 contract ReentrantBundleAttacker {
     BundleExecutor public immutable executor;
 

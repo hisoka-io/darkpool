@@ -107,7 +107,6 @@ contract NoxRewardPool is
     error ArrayLengthMismatch();
     error ZeroAddress();
     error ZeroAmount();
-    error TransferFailed();
     error InsufficientCollected();
     error RecipientNotRegistered();
     error ExceedsRescuableBalance();

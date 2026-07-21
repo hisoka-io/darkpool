@@ -60,13 +60,10 @@ library MerkleTreeLib {
         // Counters are bounded by depth (<=32) and index < 2^depth, so the increments cannot overflow.
         for (uint256 level = 0; level < depth; ) {
             if (index & 1 == 0) {
-                // Left child, right sibling still empty: lean rule keeps the parent equal to the left child
-                // (no hash). Record it as this level's frontier for the sibling that arrives later.
+                // Left child: lean rule promotes it unchanged; record as this level's frontier.
                 self.sideNodes[level] = node;
-                // Index 0 means this level is the tree's top: `node` is the root and cannot change again, so
-                // every higher level would store this same value into a slot no insert reads before rewriting
-                // it. The write above must still happen - leaf 2^L - 1 lands here at level L, and leaf 2^L
-                // reads that slot as its left sibling.
+                // index==0: node is the final root. The frontier write above must precede the break -- leaf 2^L
+                // reads this slot as its left sibling.
                 if (index == 0) break;
             } else {
                 // Right child: the left sibling is the recorded frontier (always populated for an append-only

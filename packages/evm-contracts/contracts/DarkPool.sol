@@ -634,10 +634,8 @@ contract DarkPool is
     ) external nonReentrant whenNotPaused {
         if (_value == 0) revert ValueZero();
         if (_value > type(uint128).max) revert ValueTooLarge();
-        // The escrow destination gets the same validation the compliance key already gets. public_claim asserts
-        // the claimant's derived key equals this point, so an off-curve or identity point is unclaimable by
-        // anyone, and MemoStorage records neither depositor nor value, so nothing can be recovered afterwards:
-        // an unvalidated coordinate burns the escrow permanently.
+        // Off-curve/identity owner is unclaimable and unrecoverable (memo stores no depositor/value), so validate
+        // here or the escrow burns.
         if (!_isValidBjjPoint(_ownerX, _ownerY)) revert InvalidMemoOwnerPoint();
 
         Field.Type[] memory inputs = new Field.Type[](6);
@@ -713,8 +711,7 @@ contract DarkPool is
         bytes32 commitment = _publicInputs[leafIndex];
         uint256 insertedAt = _treeStorage().tree.insert(commitment);
 
-        // verify() gates publicInputs.length == NUMBER_OF_PUBLIC_INPUTS upstream, so the 7 ciphertext words
-        // from ctStartIndex are always in-range; copy them in one calldatacopy instead of a 7-iteration loop.
+        // Caller's length check gates the input count, so the 7 ciphertext words from ctStartIndex are in-range.
         bytes32[7] memory ct;
         assembly {
             calldatacopy(
@@ -740,8 +737,7 @@ contract DarkPool is
         bytes32 commitment = _publicInputs[leafIndex];
         uint256 insertedAt = _treeStorage().tree.insert(commitment);
 
-        // Contiguous ciphertext at leafIndex+4; verify() gates the input length upstream, so a single
-        // calldatacopy of the 7 words is in-range and replaces the 7-iteration loop.
+        // Contiguous 7-word ciphertext at leafIndex+4; caller's length check keeps it in-range.
         bytes32[7] memory ct;
         assembly {
             calldatacopy(

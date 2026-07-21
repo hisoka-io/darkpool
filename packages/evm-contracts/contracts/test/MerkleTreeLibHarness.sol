@@ -65,10 +65,9 @@ library FullWalkMerkleTree {
 }
 
 /**
- * @dev Test-only MUTANT: breaks BEFORE writing the frontier at the first `index == 0` level. That write is
- * live - leaf `2^L - 1` reaches index 0 at level L and stores the completed left-subtree root that leaf `2^L`
- * later reads as its left sibling - so this variant diverges at every power-of-two crossing. It exists to
- * prove the boundary suite actually fails when the write is skipped; nothing may depend on it.
+ * @dev Test-only MUTANT: skips the frontier write at the first index==0 level. That write is live (leaf 2^L-1
+ * stores the left-subtree root that leaf 2^L reads as its left sibling), so this diverges at every power-of-two
+ * crossing. Proves the boundary suite fails when the write is dropped; nothing may depend on it.
  */
 library BreakBeforeWriteMerkleTree {
     using Field for uint256;
@@ -148,12 +147,9 @@ abstract contract MerkleTreeHarnessBase {
         return tree.sideNodes[level];
     }
 
-    /// @dev Reproduces the storage SHAPE of a tree already holding `leafIndex` leaves without paying for 2^20
-    ///      real inserts: `filledLevels` frontier slots are seeded non-zero, the rest left zero. Used for
-    ///      mature-tree gas (only the zero/non-zero pattern prices an SSTORE, so the gas is exact) and for the
-    ///      upgraded-proxy shape (all 32 levels non-zero). The injected nodes are not real subtree roots, so a
-    ///      warped tree may only be compared against another walk over the SAME warped state, never trusted as
-    ///      a standalone root. Full-history correctness is proven by real inserts.
+    /// @dev Fakes the storage shape of a tree holding `leafIndex` leaves (seeds `filledLevels` frontier slots)
+    ///      so mature-tree/upgraded-proxy gas is exact. Invariant: injected nodes are not real subtree roots, so
+    ///      a warped tree is only valid against another walk over the SAME warped state, never as a standalone root.
     function warpTo(uint256 leafIndex, uint256 filledLevels) public {
         tree.nextLeafIndex = leafIndex;
         for (uint256 level = 0; level < filledLevels; ++level) {
