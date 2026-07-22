@@ -14,7 +14,7 @@ describe("Uniswap Adaptor Logic", () => {
 
       const encoded = encodePath([tokenA, tokenB], [fee]);
       expect(encoded).toMatch(/^0x[0-9a-fA-F]+$/);
-      // 20 bytes (40 chars) + 3 bytes (6 chars) + 20 bytes (40 chars) + "0x" (2 chars) = 88 chars
+      // 0x + 20-byte addr + 3-byte fee + 20-byte addr = 88 hex chars
       expect(encoded.length).toBe(88);
     });
 
@@ -24,50 +24,7 @@ describe("Uniswap Adaptor Logic", () => {
   });
 
   describe("hashUniswapIntent", () => {
-    it("should produce a deterministic hash for ExactInputSingle", async () => {
-      const params: UniswapSwapParams = {
-        type: SwapType.ExactInputSingle,
-        assetIn: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-        assetOut: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-        fee: 500,
-        recipient: { ownerX: 123n, ownerY: 456n },
-        amountOutMin: 1000n,
-        salt: 789n,
-      };
-
-      const hash1 = await hashUniswapIntent(params, TEST_DEADLINE);
-      const hash2 = await hashUniswapIntent(params, TEST_DEADLINE);
-
-      expect(hash1.toString()).toBe(hash2.toString());
-      expect(hash1.isZero()).toBe(false);
-    });
-
-    it("should produce a deterministic hash for ExactInput (Multihop)", async () => {
-      const path = encodePath(
-        [
-          "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-          "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-        ],
-        [3000],
-      );
-      const params: UniswapSwapParams = {
-        type: SwapType.ExactInput,
-        path: path,
-        recipient: { ownerX: 123n, ownerY: 456n },
-        amountOutMin: 1000n,
-        salt: 789n,
-      };
-
-      const hash1 = await hashUniswapIntent(params, TEST_DEADLINE);
-      const hash2 = await hashUniswapIntent(params, TEST_DEADLINE);
-
-      expect(hash1.toString()).toBe(hash2.toString());
-    });
-
-    // Every golden below is asserted against Solidity _calculateIntentHash / _bindDeadline in evm-contracts
-    // test/behaviors/UniswapIntentParity.test.ts; a drift here strands every swap-withdraw. All four swap
-    // types are covered because each is folded by a different Solidity helper, so one type passing proves
-    // nothing about the other three.
+    // Goldens pinned to Solidity _calculateIntentHash/_bindDeadline (see UniswapIntentParity.test.ts); all 4 types differ per Solidity helper.
     const A_IN = "0x1111111111111111111111111111111111111111";
     const A_OUT = "0x2222222222222222222222222222222222222222";
     const RECIPIENT = { ownerX: 111n, ownerY: 222n };

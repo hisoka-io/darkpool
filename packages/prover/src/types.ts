@@ -36,8 +36,7 @@ export interface WithdrawInputs {
 
 export interface TransferInputs {
   compliancePk: Point<bigint>;
-  // recipientInPub is the single owner+view+discovery key; paying a MULTISIG account (owner != view) is
-  // deferred, so one key binds all three.
+  // One key = owner+view+discovery; multisig recipients (owner != view) deferred.
   recipientInPub: Point<bigint>;
 
   oldNote: NoteInput;
@@ -107,7 +106,7 @@ export interface ProofData {
   verified: boolean;
 }
 
-// Kage taker half (swap_intent, inner): spend the taker input, mint the taker's change + received self-notes.
+// Kage taker half (swap_intent, inner).
 export interface SwapIntentInputs {
   compliancePk: Point<bigint>;
 
@@ -137,8 +136,7 @@ export interface SwapIntentProof {
   verified: boolean;
 }
 
-// Kage maker half (swap_settle, outer): verify the taker's proof inside, spend the maker input, mint the maker's
-// received + change self-notes.
+// Kage maker half (swap_settle, outer): verifies the taker proof, spends the maker input.
 export interface SwapSettleInputs {
   compliancePk: Point<bigint>;
   currentTimestamp: Fr;

@@ -10,7 +10,7 @@ import {
 } from "@hisoka/wallets";
 import * as frost from "@hisoka/wallets/frost";
 import { frostAccountDkg } from "@hisoka/wallets/unsafe-sim";
-import { proveWithdrawMultisig } from "../provers/withdrawMultisig.js";
+import { proveWithdrawMultisig } from "../provers/multisig/withdrawMultisig.js";
 import { NoteInput } from "../types.js";
 
 /** A uniform BabyJubJub subgroup scalar (test randomness for ephemerals and nonces). */
@@ -22,8 +22,7 @@ function randSubgroupScalar(): bigint {
   return s === 0n ? 1n : s;
 }
 
-// Subgroup-valid, non-identity compliance key (reused from the deposit parity fixture); every note is
-// ECDH-encrypted to it and the circuit range-checks it in the prime-order subgroup.
+// Subgroup-valid compliance key (deposit parity fixture); circuit range-checks it in the prime-order subgroup.
 const COMPLIANCE_PK: Point<bigint> = [
   0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111n,
   0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8n,
@@ -92,7 +91,6 @@ async function frostSign(
 
 describe("proveWithdrawMultisig (FROST sign -> witness -> proof -> verify)", () => {
   it("a 3-of-5 quorum authorizes a multisig withdraw and the proof verifies", async () => {
-    // (a) FROST account: gpk (t-of-n signing key), per-member shares, owner = Poseidon2(gpk).
     const account = await frostAccountDkg(5, 3, 0x484f574cn);
     const gpk = account.gpk;
     const owner = account.owner;
@@ -193,7 +191,7 @@ describe("proveWithdrawMultisig (FROST sign -> witness -> proof -> verify)", () 
     });
 
     expect(verified).toBe(true);
-    // Public outputs begin (nullifier, computed_root, asset, change_leaf, ...) after the public inputs.
+    // Outputs: nullifier, root, asset, change_leaf, ... after the pub inputs.
     const outs = publicInputs.map((p) => BigInt(p));
     expect(outs).toContain(nullifier.toBigInt());
     expect(outs).toContain(root.toBigInt());

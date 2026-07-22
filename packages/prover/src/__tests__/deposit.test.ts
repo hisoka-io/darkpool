@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
-import { proveDeposit } from "./deposit.js";
+import { proveDeposit } from "../provers/standard/deposit.js";
 import { DepositInputs } from "../types.js";
 
-// Fixture from the wallets parity vectors; proving against the DepositVerifier VK exercises circuit -> verifier -> prover end to end.
+// Fixture from wallets parity vectors; round-trips circuit -> verifier -> prover.
 const COMPLIANCE_PK: Point<bigint> = [
   0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111n,
   0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8n,

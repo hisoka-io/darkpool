@@ -2,13 +2,15 @@ import { describe, it, expect } from "vitest";
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
 import { deriveCek, computePsi, leaf } from "@hisoka/wallets";
-import { proveSwapIntent } from "../provers/swapIntent.js";
-import { proveSwapSettle, nativeBbAvailable } from "../provers/swapSettle.js";
+import { proveSwapIntent } from "../provers/kage/swapIntent.js";
+import {
+  proveSwapSettle,
+  nativeBbAvailable,
+} from "../provers/kage/swapSettle.js";
 import { SwapIntentInputs, SwapSettleInputs, NoteInput } from "../types.js";
 
-// The VK-pin adversarial gate: swap_settle accepts ONLY the pinned swap_intent VK. Native-bb only (the outer
-// recursion is excluded from bb.js), so it is opt-in via `pnpm test:native` and skips with a clear log otherwise --
-// it never silently passes. Happy path ACCEPTS; a tampered VK / proof / public inputs each REJECT.
+// VK-pin adversarial gate: swap_settle accepts only the pinned swap_intent VK. Native-bb only, opt-in via
+// `pnpm test:native`; skips loudly, never silently passes. Happy accepts; tampered VK/proof/PI reject.
 const OPT_IN = process.env.KAGE_NATIVE === "1";
 const runnable = OPT_IN && nativeBbAvailable();
 if (OPT_IN && !runnable) {

@@ -1,16 +1,18 @@
 import { UltraHonkBackend } from "@aztec/bb.js";
 import { CompiledCircuit, InputMap, Noir } from "@noir-lang/noir_js";
 import { Buffer } from "node:buffer";
-import { circuit } from "../generated/swap_intent_circuit.js";
-import { SwapIntentInputs, SwapIntentProof } from "../types.js";
-import { marshalNote, marshalU128, pointHex } from "../marshal.js";
-import { ProofError } from "../errors.js";
-import { ensureBBInitialized } from "../prover-base.js";
-import { INTENT_PI_LEN, INTENT_PROOF_LEN, INTENT_VK_LEN } from "../config.js";
+import { circuit } from "../../generated/swap_intent_circuit.js";
+import { SwapIntentInputs, SwapIntentProof } from "../../types.js";
+import { marshalNote, marshalU128, pointHex } from "../../marshal.js";
+import { ProofError } from "../../errors.js";
+import { ensureBBInitialized } from "../../prover-base.js";
+import {
+  INTENT_PI_LEN,
+  INTENT_PROOF_LEN,
+  INTENT_VK_LEN,
+} from "../../config.js";
 
-// The taker proves swap_intent client-side on bb.js. verifierTarget 'noir-recursive' emits a proof + VK the outer
-// swap_settle circuit consumes via std::verify_proof_with_type; generateRecursiveProofArtifacts splits the VK into
-// field elements and returns its hash (the value pinned by INTENT_VK_HASH).
+// noir-recursive target emits proof + VK for swap_settle's std::verify_proof_with_type; vkHash is pinned by INTENT_VK_HASH.
 const RECURSIVE = { verifierTarget: "noir-recursive" } as const;
 
 export async function proveSwapIntent(
@@ -64,8 +66,7 @@ export async function proveSwapIntent(
       );
     }
 
-    // The recursion ABI freezes these widths (swap_settle declares [Field; N] params); a drift means the outer
-    // circuit can no longer consume this proof.
+    // Recursion ABI freezes these widths; a drift means swap_settle can no longer consume this proof.
     if (
       art.vkAsFields.length !== INTENT_VK_LEN ||
       proofAsFields.length !== INTENT_PROOF_LEN ||

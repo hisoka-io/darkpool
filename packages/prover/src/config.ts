@@ -1,8 +1,7 @@
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-// Kage OUTER (swap_settle) proving + verifier-gen run on native bb; the recursion is excluded from the bb.js WASM
-// build. Base circuits + the Kage INNER (swap_intent) proof stay on bb.js.
+// swap_settle (outer) proving/verifier-gen need native bb: recursion is excluded from the bb.js WASM build.
 export const BB_NATIVE_PATH: string =
   process.env.BB_NATIVE_PATH ?? resolve(homedir(), ".bb", "bb");
 export const BB_NATIVE_VERSION = "5.0.0";
@@ -11,9 +10,7 @@ export const BB_NATIVE_VERSION = "5.0.0";
 // rejects).
 export const KAGE_PROOF_TYPE = 6;
 
-// swap_intent recursion artifact widths + the pinned inner vkHash (== kage_lib INTENT_VK_HASH). The golden the
-// vkHash-parity gate enforces: swap_intent's compiled recursion vkHash MUST equal this, or the recursion pin is
-// stale and swap_settle would reject every real proof.
+// Pinned inner vkHash (== kage_lib INTENT_VK_HASH); the vkHash-parity gate fails if swap_intent's compiled vkHash drifts, else swap_settle rejects every real proof.
 export const INTENT_VK_HASH =
   "0x2f282faa1ed7f0c76b2d4dfd8ef8555ad443c8fb448373936bb11a1f2678313b";
 export const INTENT_VK_LEN = 115;

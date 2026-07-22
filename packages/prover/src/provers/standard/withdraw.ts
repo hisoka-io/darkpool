@@ -1,7 +1,7 @@
-import { generateProof } from "../prover-base.js";
-import { circuit } from "../generated/withdraw_circuit.js";
-import { WithdrawInputs, ProofData } from "../types.js";
-import { marshalNote, marshalU128, pointHex } from "../marshal.js";
+import { generateProof } from "../../prover-base.js";
+import { circuit } from "../../generated/withdraw_circuit.js";
+import { WithdrawInputs, ProofData } from "../../types.js";
+import { marshalNote, marshalU128, pointHex } from "../../marshal.js";
 
 export async function proveWithdraw(
   inputs: WithdrawInputs,

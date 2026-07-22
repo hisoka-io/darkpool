@@ -5,9 +5,8 @@ import { ProofInputError } from "../errors.js";
 
 const U128_MAX = (1n << 128n) - 1n;
 
-// withdraw_value and from_amount are u128 in-circuit but were marshaled with a bare .toString(), so an
-// out-of-range value surfaced as an opaque witness-generation abort instead of a named input error. The
-// circuit is what enforces the bound; this is the boundary that says which field was wrong.
+// u128 fields (withdraw_value, from_amount): the circuit enforces the bound; this maps an over-range value
+// to a named field error instead of an opaque witness abort.
 describe("marshalU128", () => {
   it("accepts the u128 boundary", () => {
     expect(marshalU128("withdraw", "withdraw_value", new Fr(U128_MAX))).toBe(

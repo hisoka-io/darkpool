@@ -1,7 +1,7 @@
-import { generateProof } from "../prover-base.js";
-import { circuit } from "../generated/join_circuit.js";
-import { JoinInputs, ProofData } from "../types.js";
-import { marshalNote, pointHex } from "../marshal.js";
+import { generateProof } from "../../prover-base.js";
+import { circuit } from "../../generated/join_circuit.js";
+import { JoinInputs, ProofData } from "../../types.js";
+import { marshalNote, pointHex } from "../../marshal.js";
 
 export async function proveJoin(inputs: JoinInputs): Promise<ProofData> {
   const c = pointHex(inputs.compliancePk);

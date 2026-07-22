@@ -17,15 +17,9 @@ import { circuit as split_multisig } from "../generated/split_multisig_circuit.j
 import { circuit as join_multisig } from "../generated/join_multisig_circuit.js";
 import { circuit as swap_settle } from "../generated/swap_settle_circuit.js";
 
-// Deterministic prover<->verifier coupling. RealProofE2E proves against the DEPLOYED verifiers using the prover's
-// BUNDLED circuit bytecode (src/generated/*_circuit); its green is only meaningful if that bytecode still matches
-// the committed verifiers. This guard closes the drift where a circuit edit regenerates the prover bytecode but
-// NOT the committed .sol verifiers (generate_verifier.js skips when native bb is absent -- CI, bb.js-only dev).
-// For each of the 11 deployed circuits it re-derives the on-chain VK_HASH from the SAME bundled bytecode the
-// provers ship, via the bb.js UltraHonk path prover-base uses, and asserts it equals contracts/verifiers/
-// vk-hashes.json. bb.js VK == native-bb CLI VK (barretenberg #1649), so the bb.js-derived VK_HASH equals the
-// committed --optimized CLI hash even though bb.js emits only the non-optimized verifier. bb.js-only -> runs in
-// ordinary CI with no native bb, catching prover<->committed drift regardless of build ordering or bb presence.
+// Prover<->verifier drift guard: re-derives each deployed circuit's VK_HASH from the BUNDLED bytecode via bb.js
+// and asserts it equals contracts/verifiers/vk-hashes.json, catching a circuit edit that regenerated the prover
+// bytecode but not the committed .sol verifiers. bb.js VK == native-bb CLI VK (barretenberg #1649), so CI-safe.
 const VK_HASH_RE = /uint256 constant VK_HASH = (0x[0-9a-fA-F]{64});/;
 const EVM = { verifierTarget: "evm" } as const;
 
@@ -34,8 +28,7 @@ const MANIFEST_PATH = resolve(
   "../../../evm-contracts/contracts/verifiers/vk-hashes.json",
 );
 
-// Every circuit that DarkPool deploys an on-chain verifier for: the 10 bb.js base/multisig circuits plus the
-// native-generated Kage swap_settle. swap_intent is inner-only (no on-chain verifier) and is excluded.
+// The 11 deployed verifiers (10 base/multisig + swap_settle); swap_intent is inner-only, excluded.
 const DEPLOYED_CIRCUITS: Record<string, CompiledCircuit> = {
   deposit,
   withdraw,

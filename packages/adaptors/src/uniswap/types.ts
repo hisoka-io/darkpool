@@ -56,8 +56,7 @@ export type UniswapSwapParams =
 
 type Unsalted<T> = Omit<T, "salt"> & { salt?: bigint };
 
-// buildSwapIntent input. Omitting `salt` draws a fresh one: the salt must be unpredictable or a griefer can
-// precompute the memo id a pending swap settles to and front-run it, so it is not safe to leave to the caller.
+// Omitting salt draws a fresh unpredictable one; a caller-chosen salt is front-runnable.
 export type UniswapSwapParamsInput =
   | Unsalted<ExactInputSingleParams>
   | Unsalted<ExactInputParams>

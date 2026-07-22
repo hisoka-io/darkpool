@@ -1,6 +1,7 @@
 import { Poseidon, addressToFr, toFr, Fr } from "@hisoka/wallets";
 import { UniswapSwapParams, SwapType } from "./types.js";
 import { keccak256 } from "ethers";
+import { AdaptorError } from "../errors.js";
 
 function hashBytesToField(data: string): Fr {
   const hashHex = keccak256(data);
@@ -57,7 +58,9 @@ async function hashSwapParams(params: UniswapSwapParams): Promise<Fr> {
       ]);
 
     default:
-      throw new Error(`Unknown SwapType: ${(params as { type: number }).type}`);
+      throw new AdaptorError(
+        `Unknown SwapType: ${(params as { type: number }).type}`,
+      );
   }
 }
 

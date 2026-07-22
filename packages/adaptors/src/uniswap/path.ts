@@ -1,8 +1,11 @@
 import { solidityPacked } from "ethers";
+import { AdaptorError } from "../errors.js";
 
 export function encodePath(tokens: string[], fees: number[]): string {
   if (tokens.length !== fees.length + 1) {
-    throw new Error("Invalid path: tokens length must be fees length + 1");
+    throw new AdaptorError(
+      "Invalid path: tokens length must be fees length + 1",
+    );
   }
 
   const types: string[] = [];

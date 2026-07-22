@@ -31,20 +31,17 @@ import {
   DecryptNote,
 } from "@hisoka/wallets/threshold";
 import { runDkg, frostAccountDkg } from "@hisoka/wallets/unsafe-sim";
-import { proveDeposit } from "../provers/deposit.js";
-import { proveTransfer } from "../provers/transfer.js";
-import { proveTransferMultisig } from "../provers/transferMultisig.js";
-import { proveWithdrawMultisig } from "../provers/withdrawMultisig.js";
-import { proveSplitMultisig } from "../provers/splitMultisig.js";
-import { proveJoinMultisig } from "../provers/joinMultisig.js";
+import { proveDeposit } from "../provers/standard/deposit.js";
+import { proveTransfer } from "../provers/standard/transfer.js";
+import { proveTransferMultisig } from "../provers/multisig/transferMultisig.js";
+import { proveWithdrawMultisig } from "../provers/multisig/withdrawMultisig.js";
+import { proveSplitMultisig } from "../provers/multisig/splitMultisig.js";
+import { proveJoinMultisig } from "../provers/multisig/joinMultisig.js";
 import { NoteInput } from "../types.js";
 
-// Full-chain threshold-compliance test over REAL circuit-produced notes. A (t,n) committee (DKG, never
-// reconstructs c) reproduces every spend nullifier from ONLY on-chain data (eph_pub + leaf_index) and its
-// c-shares, cross-checked against the nullifier each real proof emits -- so a divergence between the circuits
-// and the wallet mirrors (KEM / psi / nullifier / parents packing) fails the test rather than passing a
-// self-encoded surrogate. The chain spans standard + multisig notes and incoming + self flavours, including a
-// MULTISIG -> STANDARD conversion (a transfer_multisig whose memo pays a standard address in_pub_j).
+// Full-chain threshold-compliance over REAL proofs: a (t,n) committee (never reconstructs c) reproduces every
+// nullifier from on-chain eph_pub+leaf_index and cross-checks it against each proof, so a circuit<->wallet
+// divergence (KEM/psi/nullifier/parents) fails here. Spans standard+multisig and a multisig->standard convert.
 
 const ASSET_ID = new Fr(0x1234567890123456789012345678901234567890n);
 const NOTE_VERSION = new Fr(1n);
@@ -173,8 +170,7 @@ function noteLeaf(n: NoteInput): Promise<Fr> {
   return leaf(toNote(n));
 }
 
-// A produced note landing on-chain: its emitted leaf, eph_pub and ciphertext read from the proof at the
-// circuit's layout indices, plus the tree index it occupies.
+// An emitted output note read from a proof at its layout indices, plus its tree index.
 interface Landed {
   index: number;
   ephPub: Point<bigint>;
@@ -638,10 +634,8 @@ describe("thresholdChain: committee reproduces the spend graph over real proofs"
     expect(chMParents[0].leafIndex).toBe(tm.index);
     expect(chMParents[1].leafIndex).toBe(0);
 
-    // The transfer memo MB hides its backward link (parents == PARENTS_HIDDEN) so the recipient never learns
-    // the sender's leaf index, yet compliance still recovers MB's source: MB and the MULTISIG change TM are the
-    // two outputs of the same spend (nfDM), and TM's real parents point to the spent input dm, so dm is MB's
-    // source too. A backward trace from MB terminates (no direct edge).
+    // MB hides parents (PARENTS_HIDDEN) so the recipient can't see the sender's leaf, yet compliance recovers
+    // MB's source via its co-output TM (same spend nfDM), whose parents point to dm. Backward from MB terminates.
     const mbParentsField = (await committeeDecrypt(mb.ephPub, mb.ciphertext))
       .fields[DEM_FIELDS - 1];
     expect(mbParentsField.toBigInt()).toBe(PARENTS_HIDDEN.toBigInt());

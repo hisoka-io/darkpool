@@ -1,6 +1,7 @@
 import { Fr } from "@hisoka/wallets";
 import { AbiCoder, randomBytes, toBigInt } from "ethers";
 import { hashUniswapIntent } from "./intent.js";
+import { AdaptorError } from "../errors.js";
 import {
   UniswapSwapParams,
   UniswapSwapParamsInput,
@@ -12,13 +13,11 @@ export interface SwapIntent {
   intentHash: Fr;
   encodedParams: string;
   deadline: bigint;
-  // The salt actually used. Returned because the caller needs it to reconstruct the memo id, and
-  // buildSwapIntent may have drawn it rather than received it.
+  // Salt actually used (may be freshly drawn); caller needs it to rebuild the memo id.
   salt: bigint;
 }
 
-// Fresh return-note salt bound into the swap intent hash: unpredictable, so a griefer cannot pre-post the
-// colliding public memo, and proof-bound, so a relayer cannot alter it. Nonzero and canonical (< field order).
+// Unpredictable + proof-bound salt so a griefer cannot pre-post the colliding memo. Nonzero, < field order.
 export function randomSalt(): bigint {
   const s = toBigInt(randomBytes(32)) % Fr.MODULUS;
   return s === 0n ? 1n : s;
@@ -98,18 +97,18 @@ function encodeSwapParams(params: UniswapSwapParams): string {
       );
 
     default:
-      throw new Error(`Unknown SwapType: ${(params as { type: number }).type}`);
+      throw new AdaptorError(
+        `Unknown SwapType: ${(params as { type: number }).type}`,
+      );
   }
 }
 
-// `deadline` is a unix timestamp bound into intentHash and re-checked on-chain, so a captured proof cannot be
-// executed at an attacker-chosen block. It must be within MAX_INTENT_LIFETIME of execution or the swap reverts.
+// deadline is bound into intentHash and re-checked on-chain, capping a captured proof's lifetime.
 export async function buildSwapIntent(
   params: UniswapSwapParamsInput,
   deadline: bigint,
 ): Promise<SwapIntent> {
-  // Adding `salt: bigint` to any Unsalted<X> yields X; the cast only tells the compiler that, since a spread
-  // does not distribute over a discriminated union.
+  // Cast needed: a spread does not distribute over the discriminated union.
   const salted = {
     ...params,
     salt: params.salt ?? randomSalt(),

@@ -1,7 +1,7 @@
-import { generateProof } from "../prover-base.js";
-import { circuit } from "../generated/split_circuit.js";
-import { SplitInputs, ProofData } from "../types.js";
-import { marshalNote, pointHex } from "../marshal.js";
+import { generateProof } from "../../prover-base.js";
+import { circuit } from "../../generated/split_circuit.js";
+import { SplitInputs, ProofData } from "../../types.js";
+import { marshalNote, pointHex } from "../../marshal.js";
 
 export async function proveSplit(inputs: SplitInputs): Promise<ProofData> {
   const c = pointHex(inputs.compliancePk);

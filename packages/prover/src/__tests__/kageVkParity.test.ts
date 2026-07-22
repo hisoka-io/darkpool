@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
 import { deriveCek, computePsi } from "@hisoka/wallets";
-import { proveSwapIntent } from "../provers/swapIntent.js";
+import { proveSwapIntent } from "../provers/kage/swapIntent.js";
 import { SwapIntentInputs, NoteInput } from "../types.js";
 import {
   INTENT_VK_HASH,

@@ -1,8 +1,6 @@
 #!/usr/bin/env node
-// Manual prove-time profiler: times witness generation (noir.execute) and UltraHonk proving over a few
-// iterations per entrypoint and prints medians as a markdown table. Standard ops reuse the circuit KAT
-// fixtures; multisig ops build a real FROST-signed witness. Not wired into CI.
-// Run: `pnpm --filter @hisoka/prover benchmark` (optional out-file arg or BENCH_OUT). Env: BB_THREADS, BENCH_ITERS.
+// Manual prove-time profiler (not in CI): median witness+prove ms per entrypoint as a markdown table.
+// Run: `pnpm --filter @hisoka/prover benchmark` [out-file|BENCH_OUT]. Env: BB_THREADS, BENCH_ITERS.
 
 import { UltraHonkBackend, Barretenberg } from "@aztec/bb.js";
 import { Noir } from "@noir-lang/noir_js";

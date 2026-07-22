@@ -1,9 +1,9 @@
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
-import { generateProof } from "../prover-base.js";
-import { circuit } from "../generated/withdraw_multisig_circuit.js";
-import { NoteInput, ProofData } from "../types.js";
-import { marshalNote, marshalU128, pointHex } from "../marshal.js";
+import { generateProof } from "../../prover-base.js";
+import { circuit } from "../../generated/withdraw_multisig_circuit.js";
+import { NoteInput, ProofData } from "../../types.js";
+import { marshalNote, marshalU128, pointHex } from "../../marshal.js";
 
 export interface WithdrawMultisigInputs {
   withdrawValue: Fr;

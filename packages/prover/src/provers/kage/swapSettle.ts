@@ -4,20 +4,18 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Buffer } from "node:buffer";
-import { circuit } from "../generated/swap_settle_circuit.js";
-import { SwapSettleInputs, ProofData } from "../types.js";
-import { marshalNote, pointHex } from "../marshal.js";
-import { ProofError } from "../errors.js";
+import { circuit } from "../../generated/swap_settle_circuit.js";
+import { SwapSettleInputs, ProofData } from "../../types.js";
+import { marshalNote, pointHex } from "../../marshal.js";
+import { ProofError } from "../../errors.js";
 import {
   BB_NATIVE_PATH,
   BB_NATIVE_VERSION,
   SETTLE_PI_LEN,
   SETTLE_PROOF_FIELDS,
-} from "../config.js";
+} from "../../config.js";
 
-// The maker (a server/solver) proves swap_settle with NATIVE bb: the recursion (std::verify_proof_with_type) is
-// excluded from the bb.js WASM build. Witness generation is off bb.js/noir_js; only the prove step shells to the
-// matching native bb.
+// swap_settle proves on native bb: verify_proof_with_type is excluded from the bb.js WASM build.
 function assertNativeBb(): void {
   let version: string;
   try {
@@ -31,7 +29,7 @@ function assertNativeBb(): void {
       err,
     );
   }
-  if (!version.includes(BB_NATIVE_VERSION)) {
+  if (version !== BB_NATIVE_VERSION) {
     throw new ProofError(
       "swap_settle",
       `native bb version mismatch: got ${version} want ${BB_NATIVE_VERSION}`,
@@ -97,7 +95,7 @@ export async function proveSwapSettle(
       ],
       { stdio: "pipe" },
     );
-    // Native verify sets `verified` deterministically (exit non-zero throws).
+    // bb verify exits non-zero on failure, so reaching here means verified.
     execFileSync(
       BB_NATIVE_PATH,
       [
@@ -115,8 +113,7 @@ export async function proveSwapSettle(
     );
 
     const proof = readFileSync(join(outDir, "proof"));
-    // SETTLE_PROOF_FIELDS is a frozen recursion-ABI width; a toolchain bump that changes the outer-proof size
-    // (as bb 5.0 changed the inner proof 500 -> 458) must fail here, not silently at on-chain verify.
+    // Frozen outer-proof width; a toolchain bump that resizes it must fail here, not silently at on-chain verify.
     if (proof.length !== SETTLE_PROOF_FIELDS * 32) {
       throw new ProofError(
         "swap_settle",

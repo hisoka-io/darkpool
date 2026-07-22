@@ -1,13 +1,13 @@
-import { generateProof } from "../prover-base.js";
-import { circuit } from "../generated/public_claim_circuit.js";
-import { PublicClaimInputs, ProofData } from "../types.js";
-import { marshalNote, pointHex } from "../marshal.js";
+import { generateProof } from "../../prover-base.js";
+import { circuit } from "../../generated/public_claim_circuit.js";
+import { PublicClaimInputs, ProofData } from "../../types.js";
+import { marshalNote, pointHex } from "../../marshal.js";
 import { toBjjScalar } from "@hisoka/wallets";
 
 export async function provePublicClaim(
   inputs: PublicClaimInputs,
 ): Promise<ProofData> {
-  // recipient_sk reduced to the BJJ subgroup order; the circuit asserts a canonical scalar (k*G == (k % order)*G).
+  // reduce to BJJ subgroup order; circuit asserts a canonical scalar.
   const recipientSkReduced = toBjjScalar(inputs.recipientSk);
   const c = pointHex(inputs.compliancePk);
   return generateProof("public_claim", circuit, {

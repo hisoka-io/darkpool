@@ -203,9 +203,7 @@ describe("buildSwapIntent", () => {
   });
 });
 
-// The salt is what stops a griefer precomputing the memo id a pending swap settles to and front-running it
-// with an identical publicTransfer, which makes the victim's whole swap revert on MemoCollision. Leaving it
-// to the caller made that guarantee a documentation hope: every salt in this repo was a small literal.
+// Salt blocks a griefer front-running the pending swap's memo id (else the swap reverts on MemoCollision).
 describe("buildSwapIntent salt entropy", () => {
   const { salt: _drop, ...unsalted } = exactInputSingle;
 

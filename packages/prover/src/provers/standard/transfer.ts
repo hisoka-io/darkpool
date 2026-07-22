@@ -1,7 +1,7 @@
-import { generateProof } from "../prover-base.js";
-import { circuit } from "../generated/transfer_circuit.js";
-import { TransferInputs, ProofData } from "../types.js";
-import { marshalNote, pointHex } from "../marshal.js";
+import { generateProof } from "../../prover-base.js";
+import { circuit } from "../../generated/transfer_circuit.js";
+import { TransferInputs, ProofData } from "../../types.js";
+import { marshalNote, pointHex } from "../../marshal.js";
 
 export async function proveTransfer(
   inputs: TransferInputs,

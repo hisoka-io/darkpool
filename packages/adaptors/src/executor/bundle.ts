@@ -44,7 +44,7 @@ export function buildBundle(
   return { intentHash, boundCalls, deadline, assetsToClear, encodedBundle };
 }
 
-/** Encode a `NoxRewardPool.depositRewards(asset, amount)` bound call that pays the treasury exact-then-reset. */
+/** Bound call: NoxRewardPool.depositRewards(asset, amount) with exact approval. */
 export function treasuryDepositCall(
   treasury: string,
   feeAsset: string,
@@ -63,8 +63,7 @@ export function treasuryDepositCall(
   };
 }
 
-/** Mode 1: pay a fixed fee out of the withdrawn asset. The withdraw must land exactly `feeAmount` of
- * `feeAsset` in the Executor (the Executor asserts zero residual on the withdrawn asset). */
+/** Mode 1: fee paid from the withdrawn asset; withdraw must land exactly feeAmount (Executor asserts zero residual). */
 export function buildGasPaymentBundle(
   feeAsset: string,
   feeAmount: bigint,
@@ -80,21 +79,19 @@ export function buildGasPaymentBundle(
 
 export interface SwapFeeBundleParams {
   router: string;
-  /** Pre-encoded router calldata (e.g. exactInputSingle) that swaps `tokenIn` and lands `tokenOut` here. */
+  /** Pre-encoded router calldata that swaps tokenIn -> tokenOut into the Executor. */
   swapCalldata: string;
   tokenIn: string;
   amountIn: bigint;
   tokenOut: string;
   treasury: string;
   feeAmount: bigint;
-  /** Calls that move the remaining `tokenOut` out of the Executor (re-shield / transfer). They MUST zero it,
-   * or the residual assert reverts. */
+  /** Calls that move remaining `tokenOut` out; MUST zero it or the residual assert reverts. */
   distributionCalls?: BundleCall[];
   deadline: bigint;
 }
 
-/** Mode 2: swap the withdrawn asset, pay the fee out of the proceeds, distribute the rest. Both the swap and
- * the fee leg are `requireSuccess=true`; the caller supplies the distribution calls that clear `tokenOut`. */
+/** Mode 2: swap withdrawn asset, pay fee from proceeds (swap+fee requireSuccess), caller-supplied calls clear tokenOut. */
 export function buildSwapFeeBundle(params: SwapFeeBundleParams): BuiltBundle {
   const swapCall: BundleCall = {
     target: params.router,

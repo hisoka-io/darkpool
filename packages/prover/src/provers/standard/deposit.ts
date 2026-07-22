@@ -1,7 +1,7 @@
-import { generateProof } from "../prover-base.js";
-import { circuit } from "../generated/deposit_circuit.js";
-import { DepositInputs, ProofData } from "../types.js";
-import { marshalNote, pointHex } from "../marshal.js";
+import { generateProof } from "../../prover-base.js";
+import { circuit } from "../../generated/deposit_circuit.js";
+import { DepositInputs, ProofData } from "../../types.js";
+import { marshalNote, pointHex } from "../../marshal.js";
 
 export async function proveDeposit(inputs: DepositInputs): Promise<ProofData> {
   const c = pointHex(inputs.compliancePk);

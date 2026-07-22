@@ -12,23 +12,9 @@ import { circuit as splitMultisig } from "../generated/split_multisig_circuit.js
 import { circuit as swapIntent } from "../generated/swap_intent_circuit.js";
 import { circuit as swapSettle } from "../generated/swap_settle_circuit.js";
 
-// Per-index public-input layout freeze. FreezeSeams.test.ts pins each verifier's public-input COUNT on the
-// Solidity side; that does not catch a same-count reorder of a circuit's public inputs, which would silently
-// shift what index DarkPool's hardcoded `_publicInputs[i]` reads land on. This pins the ORDERED layout on the
-// Noir side, read from the generated circuit ABI (the same artifact the prover consumes), so a reorder,
-// insertion, or removal of any public input fails here. kageLayoutParity.test.ts additionally derives
-// swap_settle's per-index map and pins it against the DarkPool._kage reads.
-//
-// Scope, stated honestly: pub params are pinned by NAME and order; the return tuple is pinned by flattened
-// SHAPE (field vs sized array, in position). A transposition of two adjacent bare Fields inside the return is
-// therefore NOT caught here, since nothing in the ABI distinguishes them, and neither is a permutation
-// inside a [Field;7] ciphertext block. RealProofE2E does NOT close that gap by mutation (a transposed circuit
-// still yields internally consistent proofs, so every single-input bump still rejects); what covers it there
-// is the positive path plus its explicit index assertions, e.g. isNullifierSpent(publicInputs[5]).
-//
-// The public-input vector is the public parameters in declaration order, then the flattened return tuple.
-// Noir return tuples are positional, so only the return ARITY is pinned; pub params carry names. Each case
-// below records the DarkPool index reads the layout has to keep valid.
+// Freezes each circuit's ORDERED public-input layout from the Noir ABI (pub params by name+type, return by
+// flattened shape), catching a same-count reorder that FreezeSeams' COUNT check misses. Not caught: a
+// transposition of two adjacent bare return Fields, or a permutation inside a [F;7] block.
 
 type AbiType = {
   kind: string;
@@ -56,9 +42,8 @@ function flatCount(t: AbiType | undefined): number {
   return 1;
 }
 
-// A pub param's TYPE is load-bearing, not decoration: withdraw_value is `pub u128` and that range bound is
-// the ONLY ceiling on a withdrawal, since DarkPool.sol reads uint256(_publicInputs[0]) unbounded. Widening it
-// to `pub Field` leaves every name, count and index identical, so a name-only pin would accept it.
+// Pin the pub-param TYPE too: withdraw_value's `u128` bound is the only withdrawal ceiling (DarkPool reads it
+// unbounded), and widening it to Field leaves name/count/index identical.
 function typeTag(t: AbiType | undefined): string {
   if (!t) return "?";
   if (t.kind === "integer")
@@ -67,7 +52,6 @@ function typeTag(t: AbiType | undefined): string {
   return t.kind;
 }
 
-// Ordered, flattened public parameters as `name:type` (one entry per field the parameter contributes).
 function pubParamNames(abi: Abi): string[] {
   return abi.parameters
     .filter((p) => p.visibility === "public")
@@ -76,9 +60,7 @@ function pubParamNames(abi: Abi): string[] {
     );
 }
 
-// The return tuple is positional, so names do not exist to pin. Pinning the flattened SHAPE instead of a
-// bare count is what catches a reorder: moving a [field;7] ciphertext block leaves the count untouched while
-// shifting every _insertNote(_publicInputs, leaf, ephX, ct) offset DarkPool reads at.
+// Return tuple is positional (no names); pin flattened SHAPE not count, so moving a [F;7] block is caught.
 function returnShape(t: AbiType | undefined): string {
   if (!t) return "";
   if (t.kind === "array") return `[${returnShape(t.type)};${t.length}]`;

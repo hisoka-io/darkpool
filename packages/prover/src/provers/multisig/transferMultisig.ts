@@ -1,9 +1,9 @@
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
-import { generateProof } from "../prover-base.js";
-import { circuit } from "../generated/transfer_multisig_circuit.js";
-import { NoteInput, ProofData } from "../types.js";
-import { marshalNote, pointHex } from "../marshal.js";
+import { generateProof } from "../../prover-base.js";
+import { circuit } from "../../generated/transfer_multisig_circuit.js";
+import { NoteInput, ProofData } from "../../types.js";
+import { marshalNote, pointHex } from "../../marshal.js";
 
 export interface TransferMultisigInputs {
   compliancePk: Point<bigint>;
@@ -12,7 +12,7 @@ export interface TransferMultisigInputs {
   frostR: Point<bigint>;
   frostZ: Fr;
 
-  // recipientInPub is the single owner+view+discovery key; paying a MULTISIG recipient is deferred.
+  // single owner+view+discovery key; multisig recipient deferred.
   recipientInPub: Point<bigint>;
 
   oldNote: NoteInput;
