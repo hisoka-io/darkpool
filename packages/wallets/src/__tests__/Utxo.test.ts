@@ -51,8 +51,7 @@ describe("Utxo", () => {
     expect(() => new Utxo(depositNote({ owner: new Fr(0n) }))).toThrow(/owner/);
   });
 
-  // The circuit constrains asset_id to an EVM address. Only the high 12 bytes can carry a violation, so a
-  // check that inspects the low 20 bytes accepts every field and catches nothing.
+  // asset_id must fit an EVM address; the guard must inspect the high 12 bytes (checking low 20 catches nothing).
   it("rejects an assetId wider than 160 bits", () => {
     const oversized = new Fr(
       (1n << 160n) | 0x1234567890123456789012345678901234567890n,

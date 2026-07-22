@@ -115,14 +115,10 @@ export class NoteProcessor {
     const rebuilt = await computeLeaf(note);
     if (!rebuilt.equals(commitment)) return null;
 
-    // Defense-in-depth: an unspendable (owner 0), out-of-range-asset, or non-self-owned note is dropped
-    // even when its leaf matches, so a malformed on-chain commitment never enters the spendable set.
+    // Drop owner-0 / out-of-range-asset / non-self-owned notes even when the leaf matches.
     if (note.owner.toBigInt() === 0n) return null;
     if (note.assetId.toBigInt() >= ASSET_MODULUS) return null;
-    // Bind the note owner to the key that decrypted it. `spendScalar` is the self-spend key for a self note
-    // and the incoming key for a memo; both are the scalar behind `owner` (owner = pubkeyOwner(publicKey(that
-    // key))). Enforcing it on the incoming path too drops a mismatched incoming note (owner != recipient) instead
-    // of registering it as a phantom, unspendable balance (an overstatement, not theft).
+    // Bind owner to the decrypting key (owner == pubkeyOwner(publicKey(spendScalar))); drops phantom incoming notes.
     const selfOwner = await pubkeyOwner(publicKey(spendScalar));
     if (!note.owner.equals(selfOwner)) return null;
 

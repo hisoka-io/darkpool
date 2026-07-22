@@ -1,5 +1,5 @@
-// No-trusted-dealer Feldman DKG over BabyJubJub with a Schnorr PoP (rogue-key defense). c (= sum of the
-// dealers' secrets) is never assembled by any party. Ported from threshold_compliance_poc.py (dkg).
+// No-trusted-dealer Feldman DKG over BabyJubJub with a Schnorr PoP (rogue-key defense); c (= sum of the
+// dealers' secrets) is never assembled by any party.
 
 import {
   Point,

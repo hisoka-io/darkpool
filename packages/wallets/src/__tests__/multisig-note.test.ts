@@ -290,7 +290,7 @@ describe("multisig scan: read a MULTISIG note end to end (incoming + self)", () 
       packedCiphertext: selfEnc.ciphertext,
     });
 
-    // One ciphertext word is not a field element: the decode throws, and isolation MUST turn it into a skip.
+    // A non-field ciphertext word must decode-throw -> skip (event isolation), not abort the scan.
     const poisoned = incomingNoteEvent({
       leafIndex: 2n,
       commitment: incEnc.commitment,

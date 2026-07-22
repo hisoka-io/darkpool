@@ -28,7 +28,8 @@ function assertValidPoint(p: Point<bigint>): void {
   }
 }
 
-/** CEK = (eph * C).x -- the compliance-secret content-encryption key. */
+/** CEK = (eph * C).x -- the compliance-secret content-encryption key. eph MUST be unique per note: reuse to the
+ *  same C repeats the additive DEM keystream (two-time pad). The counter store / random-eph path is the enforcer. */
 export function deriveCek(eph: Fr, compliancePk: Point<bigint>): Fr {
   assertSubgroupScalar(eph);
   assertValidPoint(compliancePk);

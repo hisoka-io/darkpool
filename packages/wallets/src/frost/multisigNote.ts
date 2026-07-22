@@ -1,6 +1,6 @@
-// Multisig note VIEW layer. Owner (Poseidon2(gpk), spend) is DECOUPLED from the shared view key V = v*Base8.
-// Self/change eph folds the SECRET v (member-partitioned by (v, member_id, j)) so it is not publicly derivable
-// and per-member sub-sequences never collide. Discovery tags are point.x, so V and every eph_pub are even-y.
+// Multisig note VIEW layer. Owner=Poseidon2(gpk) (spend) is DECOUPLED from view key V=v*Base8. Self eph folds
+// SECRET v partitioned by (v, member_id, j) so it is not publicly derivable and per-member sequences never collide.
+// Discovery tags are point.x, so V and every eph_pub must be even-y.
 
 import { Fr } from "@aztec/foundation/fields";
 import { Point, scalarBaseMul, randScalar } from "../tss/bjj.js";

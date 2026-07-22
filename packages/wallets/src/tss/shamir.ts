@@ -1,5 +1,4 @@
-// Shamir sharing, ALL mod SUBORDER (a mod-BN254-Fr variant is silently catastrophic). Ported from
-// threshold_compliance_poc.py (poly_eval / lagrange0).
+// Shamir sharing, ALL mod SUBORDER (a mod-BN254-Fr variant is silently catastrophic).
 
 import { modSub, invSub, SUBORDER } from "./bjj.js";
 

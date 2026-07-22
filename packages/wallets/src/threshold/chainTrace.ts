@@ -144,9 +144,8 @@ export async function backwardTrace(
     }
     const packed = fields[PARENTS_FIELD_INDEX];
     if (packed.toBigInt() === 0n) return [];
-    // A counterparty memo hides its source (parents == PARENTS_HIDDEN). The backward link is not encoded in
-    // parents; compliance recovers the source via the atomic tx (tx-grouping + global nullifier map), so the
-    // parents-based backward trace terminates here rather than unpacking the sentinel as a real index pack.
+    // parents == PARENTS_HIDDEN: source not encoded here; compliance recovers it via tx-grouping, so the
+    // parents-based backward trace terminates rather than unpacking the sentinel as a real index pack.
     if (packed.toBigInt() === PARENTS_HIDDEN.toBigInt()) return [];
     const expansions: Expansion[] = [];
     for (const parent of consumedLeaves(packed)) {

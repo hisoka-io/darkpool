@@ -2,10 +2,6 @@ import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
 import { CanonicalAddress } from "./note/keys.js";
 
-export interface IKeyDeriver {
-  derive(purpose: string, master: Fr, nonce?: Fr): Promise<Fr>;
-}
-
 export interface IUTXO {
   getNullifierHash(psi: Fr, leafIndex: number | bigint): Promise<Fr>;
 }

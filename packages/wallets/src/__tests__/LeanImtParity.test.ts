@@ -2,10 +2,7 @@ import { describe, it, expect } from "vitest";
 import { LeanIMT } from "../merkle/LeanIMT.js";
 import { toFr } from "../crypto/fields.js";
 
-// Noir<->TS LeanIMT parity at deep indices. The circuit's lean_imt_inclusion_proof
-// (packages/circuits/shared/src/lib.nr, kat_leanimt_tri_parity) asserts these exact roots; this test proves the
-// TS LeanIMT reference reproduces them, so a drift in the "right-zero-sibling -> parent = left child" lean
-// semantics on either side fails CI. A historical mismatch of this kind silently failed all proofs (CLAUDE.md).
+// LeanIMT parity vs circuit lib.nr kat_leanimt_tri_parity (same roots). The 'right-zero-sibling -> parent=left child' lean rule must match both sides; a past mismatch silently failed all proofs.
 // Depth 32 (frozen); leaves are 1..n, matching sandbox/gen_leanimt_parity.ts.
 const DEPTH = 32;
 

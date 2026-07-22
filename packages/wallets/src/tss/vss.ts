@@ -1,4 +1,4 @@
-// Feldman VSS. Ported from threshold_compliance_poc.py.
+// Feldman VSS over BabyJubJub.
 
 import {
   Point,

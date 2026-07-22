@@ -11,9 +11,3 @@ export interface WalletNote {
   derivationIndex: number | bigint;
   spent: boolean;
 }
-
-export interface KeyPair {
-  index: number;
-  privateKey: Fr;
-  publicKey: { x: bigint; y: bigint };
-}

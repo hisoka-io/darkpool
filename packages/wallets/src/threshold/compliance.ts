@@ -1,6 +1,5 @@
-// Threshold-compliance decryption: a (t,n) committee recovers CEK = (c*eph_pub).x WITHOUT forming the secret
-// c (Lagrange-in-exponent over DLEQ-checked partials). Ported from threshold_compliance_poc.py. The format
-// wraps to the RECIPIENT, so compliance decrypts uniformly (CEK = S.x) for self and incoming.
+// Threshold-compliance decryption: a (t,n) committee recovers CEK = (c*eph_pub).x WITHOUT forming c
+// (Lagrange-in-exponent over DLEQ-checked partials). Wraps to the RECIPIENT, so CEK = S.x uniformly.
 
 import { Fr } from "@aztec/foundation/fields";
 import {
@@ -72,7 +71,7 @@ export async function thresholdCek(
   return new Fr(S[0]);
 }
 
-/** Keep the first `t` partials that verify; attribute (exclude) the rest without failing the decrypt. */
+/** Keep the first t valid partials; list the invalid ones in `excluded` without failing the decrypt. */
 export async function thresholdCekRobust(
   ephPub: Point,
   allPartials: Partial[],

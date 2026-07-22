@@ -1,6 +1,4 @@
-// Certifies the generic FROST protocol (frost.ts) against the official RFC 9591 KAT via the FROST(ristretto255,
-// SHA-512) ciphersuite (Section 6.2). The single official vector is VENDORED under vectors/ (provenance: RFC
-// 9591 Section 6.2) and read relative to this file, so certification runs in a clean clone.
+// FROST(ristretto255,SHA-512) certified against RFC 9591 Section 6.2 KAT (vendored vectors/frost-ristretto255-sha512.json).
 
 import { describe, it, expect, beforeAll } from "vitest";
 import { readFileSync } from "node:fs";

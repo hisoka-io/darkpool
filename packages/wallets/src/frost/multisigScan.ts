@@ -119,7 +119,6 @@ export class MultisigScanner {
     const { tag, cekWrap, ephemeralX } = event.args;
     if (tag === undefined || cekWrap === undefined) return null;
     if (tagKey(tag) !== this.#incomingTag) return null;
-    // Recover the even-y point from x before the member ECDH.
     const ephPub: Point = recoverEvenY(ephemeralX);
     const cek = await memberReadIncoming(new Fr(cekWrap), this.#v, ephPub);
     return this.#recover(event, cek, true, undefined, undefined);

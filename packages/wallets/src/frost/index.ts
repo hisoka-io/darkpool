@@ -1,4 +1,4 @@
-// FROST signing toolkit. The test-only ristretto255 ciphersuite and unsafe-sim are NOT re-exported here.
+// FROST signing toolkit; the test-only ristretto255 ciphersuite is not re-exported.
 
 export * from "./ciphersuite.js";
 export * from "./frost.js";

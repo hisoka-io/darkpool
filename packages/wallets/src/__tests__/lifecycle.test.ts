@@ -25,8 +25,7 @@ const COMPLIANCE_PK: Point<bigint> = [
   0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8n,
 ];
 
-// A NoteProcessor-only key source that resolves the fixture discovery tags to their fixture scalars,
-// so the decrypt lifecycle runs against gen_v2_fixtures.ts values rather than re-derived wallet keys.
+// Fixture key source: maps discovery tags to gen_v2_fixtures scalars so decrypt runs on fixed vectors.
 class FixtureKeyRepo implements IKeyRepository {
   readonly selfScanIndex = 0;
   readonly incomingScanIndex = 0;

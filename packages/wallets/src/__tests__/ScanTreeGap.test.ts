@@ -36,8 +36,7 @@ type FakeLog = {
 };
 
 interface FakeState {
-  // Un-indexed NewNote query returns `mainNotes` (a truncating RPC omits leaves it drops); the indexed
-  // repair query resolves each requested leafIndex from `indexedNotes`. `nulls` is mutable across syncs.
+  // mainNotes = truncating un-indexed feed; indexedNotes = per-leafIndex repair feed; nulls mutable across syncs.
   mainNotes: FakeLog[];
   indexedNotes: Map<number, FakeLog>;
   nulls: FakeLog[];

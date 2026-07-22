@@ -3,9 +3,7 @@ import { Fr } from "@aztec/foundation/fields";
 import { subOrder } from "@zk-kit/baby-jubjub";
 import { toBjjScalar } from "../crypto/index.js";
 
-// The circuit's assert_subgroup_scalar REJECTS any scalar >= the BabyJubJub subgroup order, so every scalar
-// that feeds an in-circuit / ECDH mul MUST be reduced mod subOrder on the TS side first. toBjjScalar is that
-// reduction; a drift here yields a scalar the circuit rejects (unspendable note) or an aliased key/tag.
+// Parity with circuit assert_subgroup_scalar: scalars feeding an ECDH/in-circuit mul must be reduced mod subOrder first, or the note is unspendable / the key aliases.
 describe("toBjjScalar (BabyJubJub subgroup reduction)", () => {
   it("reduces an over-suborder scalar mod the subgroup order", () => {
     const reduced = toBjjScalar(new Fr(subOrder + 12345n));

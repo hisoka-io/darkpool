@@ -2,12 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Fr } from "@aztec/foundation/fields";
 import { calculatePublicMemoId } from "../crypto/index";
 
-// Third leg of the public-memo-id parity triangle. The same fixture and the same golden are asserted by:
-//   Noir     - standard/public_claim/src/main.nr test_public_claim_kat (the circuit asserts
-//              computed_id == memo_id internally, so a field-order drift fails there)
-//   Solidity - evm-contracts/test/poseidon-parity.test.ts "memoId matches the public_claim fixture"
-// Without this case the TS leg was unpinned: an SDK consumer computing a memo id to locate or claim their
-// own public memo would compute the wrong id and silently fail to find their funds, with nothing failing CI.
+// TS leg of the memo-id parity triangle (Noir public_claim test_public_claim_kat + evm poseidon-parity.test.ts). Unpinned, an SDK consumer computes the wrong id and cannot find its own memo.
 const VAL = new Fr(100n);
 const ASSET = new Fr(0x1234567890123456789012345678901234567890n);
 const TIMELOCK = new Fr(0n);

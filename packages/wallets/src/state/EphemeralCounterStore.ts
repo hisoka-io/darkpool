@@ -1,15 +1,11 @@
-// Durable, single-writer self-ephemeral index reservation. A reused self-eph index reuses the
-// CEK, hence the additive Poseidon2 DEM keystream, which is a two-time-pad on the note plaintext (and collides
-// psi/tag). The security barrier is reserve(): it durably raises the high-water BEFORE any index is handed out,
-// so a crash after reserve() can never reissue. Skipping indices is harmless; reusing one is catastrophic, so
-// every uncertain path burns forward and never rewinds below a subsequent writer's base.
+// Durable single-writer index reservation. A reused index reuses the CEK => two-time-pad on the DEM keystream.
+// reserve() raises the high-water before handing out an index, so a crash skips (safe) but never reissues.
 
 export interface EphemeralReservation {
   // First index of the durably-reserved span. [base, base+span) is persisted the moment this object exists.
   readonly base: number;
   readonly span: number;
-  // Finalize: reclaim the unused tail down to usedThrough+1 (keeps indices dense) IF no later reserve advanced
-  // past this span. usedThrough must lie in [base, base+span). Never rewinds below base.
+  // Reclaim the unused tail to usedThrough+1 iff still top of high-water. usedThrough in [base, base+span).
   commit(usedThrough: number): Promise<void>;
   // Abandon the whole span without using it (reclaim to base) IF still the top of the high-water.
   release(): Promise<void>;
@@ -26,11 +22,8 @@ export interface EphemeralCounterStore {
 
 export type CounterSnapshot = Record<string, number>;
 
-// Reference in-memory store for tests and the default SDK backend. NOT durable across a process restart on its
-// own: a browser IndexedDB or node-file backend implements the same contract for real persistence (the SDK stays
-// storage-agnostic). The single writer is the promise-chain lock; reserve() advances the high-water
-// synchronously (write-ahead) before resolving, so a snapshot() taken after any resolved reserve() already
-// reflects every handed-out index, which is what makes the crash test pass.
+// In-memory reference store: not durable across restart on its own; a real backend implements the same contract.
+// reserve() advances the high-water before resolving, so a post-reserve snapshot() reflects every handed-out index.
 export class InMemoryEphemeralCounterStore implements EphemeralCounterStore {
   readonly #highWater: Map<string, number>;
   #lock: Promise<unknown> = Promise.resolve();
@@ -117,10 +110,7 @@ export class InMemoryEphemeralCounterStore implements EphemeralCounterStore {
   }
 }
 
-// Fail-closed default for a KeyRepository with no configured counter: refuse to hand out an index rather than
-// silently reuse self-eph indices from a non-durable counter (the two-time-pad hazard). Production passes a
-// durable backend; tests pass an explicit InMemoryEphemeralCounterStore. reserve() rejects, so nextSelfEphemeral
-// throws instead of minting.
+// Fail-closed default: reserve() rejects so minting refuses without a durable counter (two-time-pad hazard).
 export class SealedEphemeralCounterStore implements EphemeralCounterStore {
   reserve(): Promise<EphemeralReservation> {
     return Promise.reject(

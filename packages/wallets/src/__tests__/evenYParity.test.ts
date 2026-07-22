@@ -27,9 +27,7 @@ const NOIR_FIXTURE: Point<bigint> = [
   0x132a0f65758b4775374cfc0a98d7f8a186e1cad626e4e4cd37b73532d7e50101n,
 ];
 
-// Ground-truth verdicts produced by even_y.nr's is_even_y run as a nargo #[test] over each Point{x:0,y};
-// the `even` column is the circuit's actual output, not a TS restatement of its byte-0-LSB rule. A future
-// even_y.nr change that diverges from TS isEvenY makes one of these pairs fail.
+// `even` column = actual even_y.nr is_even_y output (nargo #[test]), not a TS restatement; a divergence fails a pair.
 const NOIR_SPREAD: ReadonlyArray<readonly [bigint, boolean]> = [
   [0n, true],
   [1n, false],

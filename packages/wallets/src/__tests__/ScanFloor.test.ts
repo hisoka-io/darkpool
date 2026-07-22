@@ -54,9 +54,7 @@ async function engineWith(
 }
 
 describe("ScanEngine block floor", () => {
-  // A resync from a cursor above the pool's first block used to floor only the nullifier query, so notes and
-  // memos below the cursor were never fetched: the caller's own earlier notes vanished and the balance was
-  // understated while spend-state still looked correct.
+  // Regression: a resync above deployment must floor note+memo queries too, not just nullifiers (else earlier notes vanish, balance understated).
   it("floors note and memo queries to the deployment block, not the caller's cursor", async () => {
     const queries: Query[] = [];
     const { engine } = await engineWith(queries);

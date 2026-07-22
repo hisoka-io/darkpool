@@ -128,8 +128,7 @@ export class DarkAccount implements IDarkAccount {
     return new DarkAccount(skRoot);
   }
 
-  /// Sign-to-derive: the signing message and signer MUST be deterministic, or a different
-  /// signature derives a different account.
+  // Sign-to-derive: signature IS the root secret -- MUST be deterministic AND never exposed/reused (its disclosure recovers sk_root).
   public static async fromSignature(signature: string): Promise<DarkAccount> {
     const sig = Signature.from(signature);
     const rHex = sig.r.slice(2);

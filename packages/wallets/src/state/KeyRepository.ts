@@ -21,8 +21,7 @@ const MAX_INDEX_ROLL = 256;
 const MAX_KEY_INDEX = 1_000_000;
 
 const SELF_EPH_SCOPE = "self";
-// Pre-persist the whole even-y roll in one durable reserve; a crash then skips at most this many indices, which
-// the scan lookahead absorbs. Reusing an index is catastrophic (two-time-pad); skipping is free.
+// Reserve the whole roll durably up front; a crash skips (harmless) but can never reuse (two-time-pad).
 const SELF_EPH_ROLL_MARGIN = MAX_INDEX_ROLL;
 
 function clampIndex(value: number, floor: number): number {
@@ -44,9 +43,7 @@ export class KeyRepository implements IKeyRepository {
   // Serializes the durable counters so two concurrent mints/issues can never reserve the same index.
   #lock: Promise<unknown> = Promise.resolve();
 
-  // counter defaults to a fail-closed sealed store: minting refuses unless a durable EphemeralCounterStore (or an
-  // explicit InMemoryEphemeralCounterStore for tests) is provided, so a self-eph index can never be silently
-  // reused from a non-durable counter.
+  // Default counter is fail-closed (SealedEphemeralCounterStore): minting refuses without a durable backend.
   constructor(
     private readonly account: DarkAccount,
     private readonly counter: EphemeralCounterStore = new SealedEphemeralCounterStore(),
@@ -68,8 +65,7 @@ export class KeyRepository implements IKeyRepository {
 
   public nextSelfEphemeral(): Promise<SelfEphemeral> {
     return this.#withLock(async () => {
-      // The durable reserve is the persist-before-use barrier: the index range is flushed before any eph is
-      // derived, so a crash mid-mint can never reissue an index (worst case it skips the unused roll tail).
+      // reserve() is the persist-before-use barrier: a crash mid-mint skips the tail, never reissues.
       const res = await this.counter.reserve(
         SELF_EPH_SCOPE,
         SELF_EPH_ROLL_MARGIN,
@@ -176,8 +172,7 @@ export class KeyRepository implements IKeyRepository {
       this.#selfMintCounter,
       clampIndex(state.selfMintCounter, 0),
     );
-    // Reconcile the durable counter up to the restored high-water so a reserve() can never hand out an index
-    // below an already-issued one (the store is the authority; a snapshot only advances it, never rewinds).
+    // Advance the durable counter to the restored high-water so reserve() never re-hands an already-issued index.
     const selfHighWater = await this.counter.highWater(SELF_EPH_SCOPE);
     if (selfHighWater < this.#selfMintCounter) {
       await this.counter.reserve(

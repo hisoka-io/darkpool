@@ -42,8 +42,7 @@ export class ScanEngine {
     await this.scanPasses(fromBlock, this.lookaheadWindow);
   }
 
-  // Widen the lookahead by `extraWindow` to cross a self-note index gap up to that wide; returns
-  // whether the wider scan found notes the standard window missed.
+  // Widen lookahead by extraWindow to cross a gap; returns whether the wider scan found new notes.
   public async probe(
     fromBlock: number,
     extraWindow: number = DEFAULT_PROBE_EXTRA_WINDOW,
@@ -53,9 +52,7 @@ export class ScanEngine {
     return this.utxoRepo.getAllNotes().length > before;
   }
 
-  // Every log query floors to deploymentBlock. UtxoRepository has no persistence, so a sync rebuilds
-  // state from scratch; starting a note/memo query above the pool's first block drops the caller's own
-  // earlier notes and understates the balance while spend-state still looks correct.
+  // Floor to deploymentBlock: repo has no persistence, so a higher start would silently drop earlier notes.
   private scanFloor(fromBlock: number): number {
     return Math.min(fromBlock, this.deploymentBlock);
   }
@@ -64,9 +61,7 @@ export class ScanEngine {
     await this.keyRepo.ensureSelfLookahead(window);
     await this.keyRepo.ensureIncomingLookahead(window);
 
-    // Fetched once for the whole loop: passes differ only in how far the key lookahead has been
-    // extended, not in which logs are in range, so re-querying per pass repeats identical RPC range
-    // queries up to maxPasses times.
+    // Fetch logs once: passes only extend the key lookahead, not the log range.
     const { leafLogs, nullLogs } = await this.fetchScanLogs(fromBlock);
 
     const maxPasses = 64;

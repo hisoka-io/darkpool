@@ -9,12 +9,14 @@ import {
   PARENTS_HIDDEN,
   isEvenY,
   publicKey,
+} from "@hisoka/wallets";
+import {
   KeyRepository,
   InMemoryEphemeralCounterStore,
   UtxoRepository,
   ScanEngine,
   WalletNote,
-} from "@hisoka/wallets";
+} from "@hisoka/wallets/reference";
 import {
   proveDeposit,
   proveWithdraw,

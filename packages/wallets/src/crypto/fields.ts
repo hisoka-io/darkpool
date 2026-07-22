@@ -27,7 +27,7 @@ export async function stringToFr(text: string): Promise<Fr> {
   return await Poseidon.hash([fieldFromBytes]);
 }
 
-/** Converts to Fr with modular reduction. */
+/** Wide-reduce mod BN254 Fr; use for >32-byte inputs (seed, signature) that would otherwise throw. */
 export function toReducedFr(value: bigint | number | string): Fr {
   return new Fr(BigInt(value) % Fr.MODULUS);
 }

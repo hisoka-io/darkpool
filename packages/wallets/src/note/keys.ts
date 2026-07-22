@@ -123,6 +123,7 @@ function sqrtP(n: bigint): bigint {
 
 // Recover the even-y BabyJubJub point from its x coordinate. Emitters canonicalize eph_pub to even-y, so y is
 // uniquely recoverable from x alone (exactly one of y, p-y is even). Mirrors the Noir `even_y::is_even_y` rule.
+// Returns an on-curve point but does NOT subgroup-check: a caller MUST assertValidPoint before any scalar-mul.
 export function recoverEvenY(x: bigint): Point<bigint> {
   const x2 = modP(x * x);
   const num = modP(1n - modP(BJJ_A * x2));

@@ -1,7 +1,5 @@
-// GJKR anti-bias DKG over BabyJubJub (Gennaro-Jarecki-Krawczyk-Rabin, "Secure Distributed Key Generation for
-// Discrete-Log Based Cryptosystems", J. Cryptology 2007). A two-phase commit closes the last-dealer bias in
-// the plain Feldman DKG (dkg.ts): phase 1 FIXES QUAL from perfectly-hiding Pedersen commitments alone, so no
-// dealer learns anything about C while QUAL is decided; phase 2 reveals Feldman and sets C. Drop-in output.
+// GJKR anti-bias DKG over BabyJubJub (Gennaro-Jarecki-Krawczyk-Rabin, J. Cryptology 2007). Two-phase: phase 1
+// fixes QUAL from perfectly-hiding Pedersen commitments alone (no dealer learns C); phase 2 reveals Feldman, sets C.
 
 import { unpackPoint } from "@zk-kit/baby-jubjub";
 import {

@@ -16,9 +16,7 @@ export class Utxo implements IUTXO {
       throw new Error("Note owner (spend-key commitment) must be non-zero.");
     }
 
-    // The circuit constrains asset_id to an EVM address, so the only failure this can see is a field
-    // wider than 160 bits. Validating the low 20 bytes cannot detect that (every 20-byte string is a
-    // well-formed address); the high 12 bytes are what carries the invariant.
+    // Circuit constrains asset_id to an EVM address; only the high 12 bytes can carry an over-160-bit violation.
     const high = note.assetId.toBuffer().subarray(0, FR_TO_ADDRESS_OFFSET);
     if (high.some((b) => b !== 0)) {
       throw new Error(

@@ -27,6 +27,11 @@
       "types": "./dist/unsafe-sim/index.d.ts",
       "import": "./dist/unsafe-sim/index.js",
       "require": "./dist/unsafe-sim/index.cjs"
+    },
+    "./reference": {
+      "types": "./dist/reference.d.ts",
+      "import": "./dist/reference.js",
+      "require": "./dist/reference.cjs"
     }
   },
   "scripts": {

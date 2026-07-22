@@ -1,5 +1,4 @@
-// Chaum-Pedersen DLEQ (log_Base8(V) == log_epk(D)). Ported from threshold_compliance_poc.py; secret shares
-// are never logged.
+// Chaum-Pedersen DLEQ (log_Base8(V) == log_epk(D)); secret shares are never logged.
 
 import {
   Point,
