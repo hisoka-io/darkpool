@@ -14,12 +14,9 @@ import { Fr } from "@hisoka/wallets";
 import { hashUniswapIntent, SwapType } from "@hisoka/adaptors";
 import { publicKey } from "@hisoka/wallets";
 
-// Within MAX_INTENT_LIFETIME (1h) of the current block, so executeSwap accepts it.
 const swapDeadline = async () =>
   BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 600n;
 
-// publicTransfer validates the escrow destination is on-curve. A placeholder point would be
-// unclaimable in production, so these fixtures use real derived keys.
 const OWNER = publicKey(new Fr(0xc33cn));
 
 describe("Uniswap Adaptor: Single Hop Integration", function () {
@@ -35,7 +32,7 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
   it("should execute ExactOutputSingle and REFUND excess input", async function () {
     const data = await loadFixture(deployUniswapFixture);
     const { uniswapAdaptor, darkPool, alice } = data;
-    const setup = await setupAdaptorNote(data, "10"); // 10 WETH
+    const setup = await setupAdaptorNote(data, "10");
 
     const TARGET_USDC = ethers.parseUnits("2000", 6);
 
@@ -90,7 +87,6 @@ describe("Uniswap Adaptor: Single Hop Integration", function () {
       );
     const receipt = await tx.wait();
 
-    // Expect two NewPublicMemo events: target output + refund.
     const logs = receipt!.logs
       .map((l) => {
         try {

@@ -21,8 +21,7 @@ import {
 } from "@hisoka/wallets";
 import { proveDeposit, proveWithdraw, NoteInput } from "@hisoka/prover";
 
-// A STANDARD note MUST have note_type == 0 and conditions_hash == 0; the mint circuit rejects
-// anything else. These tests pin that invariant.
+// A STANDARD note MUST have note_type == 0 and conditions_hash == 0; the mint circuit rejects anything else.
 describe("Integration: Note-type invariants (STANDARD notes)", function () {
   async function nonStandardNote(
     assetFr: Fr,
@@ -96,9 +95,8 @@ describe("Integration: Note-type invariants (STANDARD notes)", function () {
 
     const dep = await makeDeposit(darkPool, token, alice, 100n);
     const tree = await newSeededTree();
-    await tree.insert(dep.commitment); // index 1
+    await tree.insert(dep.commitment);
 
-    // Withdraw 0: spend the deposit into a fresh self change note (lands at index 2).
     const reNote = await mintSelfNote(
       evenYEphemeral(999n),
       100n,
@@ -121,9 +119,8 @@ describe("Integration: Note-type invariants (STANDARD notes)", function () {
     await darkPool
       .connect(alice)
       .withdraw(lockProof.proof, lockProof.publicInputs);
-    await tree.insert(reNote.commitment); // index 2
+    await tree.insert(reNote.commitment);
 
-    // Spend the re-noted note (index 2) fully to Alice.
     const change = await mintSelfNote(
       evenYEphemeral(1234n),
       0n,

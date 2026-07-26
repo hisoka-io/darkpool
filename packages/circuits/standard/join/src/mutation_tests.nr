@@ -1,7 +1,3 @@
-//! Flip one witness from the valid KAT; guards asserted by message. Two inputs (a,b) -> one output: input guards
-//! run on both, plus the three binding asserts (shared root, distinct nullifier, strict index order). Public-output
-//! fields covered at the verifier layer.
-
 use shared::mutation;
 use shared::note::Note;
 use shared::SUBORDER;
@@ -27,7 +23,6 @@ fn note_out() -> Note {
     n
 }
 
-// Two-leaf KAT tree: a at index 0 (sibling b), b at index 1 (sibling a).
 fn kat_paths() -> ([Field; TREE_DEPTH], [Field; TREE_DEPTH]) {
     let mut pa = [0; TREE_DEPTH];
     pa[0] = super::LEAF_B;
@@ -267,8 +262,6 @@ fn m_a_version() {
         EPH,
     );
 }
-// asset is in the leaf, so a lone flip breaks the root bind before the a==b asset assert; input-asset mismatch
-// is exercised in m_input_asset_mismatch.
 #[test(should_fail_with = "inputs must share a root")]
 fn m_a_asset_binds_root() {
     let (pa, pb) = kat_paths();
@@ -483,7 +476,6 @@ fn m_root_mismatch() {
 }
 #[test(should_fail_with = "cannot join a note with itself")]
 fn m_self_join() {
-    // Same note/index both slots: roots agree, so the distinct-nullifier guard fires.
     let mut pa = [0; TREE_DEPTH];
     pa[0] = super::LEAF_B;
     run(
@@ -503,7 +495,6 @@ fn m_self_join() {
 }
 #[test(should_fail_with = "join inputs must be strictly index-ordered")]
 fn m_unordered_inputs() {
-    // Swapped order (b@1 in slot A, a@0 in slot B): roots/nullifiers valid, so only the ordering assert fails.
     let mut pa = [0; TREE_DEPTH];
     pa[0] = super::LEAF_A;
     let mut pb = [0; TREE_DEPTH];
@@ -526,7 +517,6 @@ fn m_unordered_inputs() {
 
 #[test(should_fail_with = "input asset mismatch")]
 fn m_input_asset_mismatch() {
-    // Recompute siblings so roots agree, reaching the a==b asset assert past the shared-root bind.
     let mut na = note_a();
     na.asset_id = ASSET + 1;
     let nb = note_b();
@@ -592,7 +582,7 @@ fn m_value_not_conserved() {
 }
 #[test(should_fail_with = "attempt to add with overflow")]
 fn m_value_overflow() {
-    // Inputs near 2^127 to wrap total_in (u128); siblings recomputed so membership binds first.
+    // 2^127 each, so total_in wraps u128.
     let mut na = note_a();
     na.value = 0x80000000000000000000000000000000;
     let mut nb = note_b();

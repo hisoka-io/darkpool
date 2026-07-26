@@ -1,5 +1,4 @@
-//! Mutation harness: 2-in-1-out same-account FROST KAT; mutate one witness/signed input, assert the specific
-//! rejection. Both spends + both verifies are probed (b-side isolates the second verify).
+//! Mutation harness: 2-in-1-out same-account FROST KAT; mutate one witness/signed input, assert the specific rejection.
 
 use shared::mutation;
 use shared::note::Note;
@@ -25,7 +24,7 @@ fn out_v() -> Note {
     super::kat_out_note()
 }
 
-// paths rebuilt from the (mutated) leaves as a 2-leaf tree so mutations reach their intended guard, not shared-root
+// Paths are rebuilt from the (mutated) leaves so a mutation reaches its intended guard, not the shared-root check.
 fn run(
     cx: Field,
     cy: Field,
@@ -203,7 +202,6 @@ fn m_gpk_a_non_subgroup() {
         EPH,
     );
 }
-// valid non-gpk point: owner pin rejects before FROST
 #[test(should_fail_with = "spender does not own this multisig note")]
 fn m_gpk_a_wrong_valid() {
     run(
@@ -224,7 +222,6 @@ fn m_gpk_a_wrong_valid() {
     );
 }
 
-// A valid so B's open is what rejects
 #[test(should_fail_with = "gpk must not be the identity")]
 fn m_gpk_b_identity() {
     run(
@@ -404,7 +401,6 @@ fn m_note_a_noncanonical_index() {
     );
 }
 
-// A valid so note_b membership rejects
 #[test(should_fail_with = "spender does not own this multisig note")]
 fn m_note_b_owner() {
     let mut nb = note_b_v();
@@ -495,7 +491,7 @@ fn m_inputs_share_root() {
     let mut pa = [0; TREE_DEPTH];
     pa[0] = nb.leaf();
     let mut pb = [0; TREE_DEPTH];
-    pb[0] = na.leaf() + 1; // wrong sibling -> note_b reconstructs a different root
+    pb[0] = na.leaf() + 1;
     let _ = super::main(
         super::CX,
         super::CY,
@@ -517,7 +513,6 @@ fn m_inputs_share_root() {
 }
 #[test(should_fail_with = "cannot join a note with itself")]
 fn m_join_with_itself() {
-    // same note+index both sides: roots match, identical nullifier trips the self-join guard before conservation
     let note = note_a_v();
     let empty = [0; TREE_DEPTH];
     let _ = super::main(
@@ -541,7 +536,6 @@ fn m_join_with_itself() {
 }
 #[test(should_fail_with = "join inputs must be strictly index-ordered")]
 fn m_index_not_ordered() {
-    // a@1,b@0: valid shared tree, so the index-order guard (not membership) rejects
     run(
         super::CX,
         super::CY,
@@ -561,7 +555,6 @@ fn m_index_not_ordered() {
 }
 #[test(should_fail_with = "join inputs must share one account gpk")]
 fn m_cross_account_gpk() {
-    // distinct-gpk notes pass their owner pins; only the cross-account guard stops the merge
     let b = super::gpk_b();
     let owner_b = poseidon::poseidon2::Poseidon2::hash([b.x, b.y], 2);
     let nb = super::join_input(50, owner_b, 0x02);
@@ -835,7 +828,6 @@ fn m_eph_ge_suborder() {
     );
 }
 
-// Only R carries the on-curve + non-identity check; the equation catches the rest.
 #[test(should_fail_with = "R must not be the identity")]
 fn m_frost_r_a_identity() {
     run(
@@ -1046,7 +1038,6 @@ fn m_frost_z_a_mutated() {
         EPH,
     );
 }
-// b-side scalars: verify(a) passes, verify(b) rejects
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_frost_z_b_zero() {
     run(
@@ -1105,7 +1096,7 @@ fn m_frost_z_b_mutated() {
     );
 }
 
-// psi has no pre-FROST guard; it flows into the nullifier in m, so mutating it invalidates the signature
+// psi is bound only by the FROST equation: it has no pre-FROST guard and flows into the nullifier in m.
 #[test(should_fail_with = "FROST signature invalid")]
 fn m_signed_nullifier_a() {
     let mut na = note_a_v();

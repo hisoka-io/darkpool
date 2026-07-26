@@ -12,7 +12,7 @@ import {
   INTENT_VK_LEN,
 } from "../../config.js";
 
-// noir-recursive target emits proof + VK for swap_settle's std::verify_proof_with_type; vkHash is pinned by INTENT_VK_HASH.
+// noir-recursive emits the proof + VK that swap_settle's std::verify_proof_with_type consumes.
 const RECURSIVE = { verifierTarget: "noir-recursive" } as const;
 
 export async function proveSwapIntent(
@@ -66,7 +66,6 @@ export async function proveSwapIntent(
       );
     }
 
-    // Recursion ABI freezes these widths; a drift means swap_settle can no longer consume this proof.
     if (
       art.vkAsFields.length !== INTENT_VK_LEN ||
       proofAsFields.length !== INTENT_PROOF_LEN ||

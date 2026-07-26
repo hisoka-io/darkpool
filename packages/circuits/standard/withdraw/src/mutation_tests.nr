@@ -1,5 +1,3 @@
-//! Flip one witness from the valid KAT; guards asserted by message. Public-output fields (nullifier/root) are covered at RealProofE2E.
-
 use shared::mutation;
 use shared::note::Note;
 use shared::SUBORDER;

@@ -6,11 +6,8 @@ import {Field} from "../Poseidon/Field.sol";
 
 /**
  * @title MerkleTreeLib
- * @author Hisoka Protocol
- * @notice Append-only Lean Incremental Merkle Tree (Poseidon2). Stores only the O(depth) frontier - the left
- * node awaiting its right sibling at each level - rather than the full node set, so per-insert cost and state
- * growth are bounded by the depth, not the leaf count. The produced root is byte-identical to a full-tree lean
- * IMT. Operates on a storage struct owned by the calling contract.
+ * @notice Append-only Lean Incremental Merkle Tree (Poseidon2) storing only the O(depth) frontier. The root
+ * is byte-identical to a full-tree lean IMT. Operates on a storage struct owned by the calling contract.
  */
 library MerkleTreeLib {
     using Field for uint256;
@@ -29,8 +26,7 @@ library MerkleTreeLib {
 
     /// @dev `sideNodes[level]` holds the frontier: the left node waiting for its right sibling at `level`.
     ///      Every inserted root is retained forever in `isKnownRoot` (never cleared); the nullifier set, not
-    ///      root recency, is the double-spend guard, so a proof against any historical root stays valid. Full
-    ///      sibling paths are not held on-chain; light clients rebuild them from `LeafInserted` events.
+    ///      root recency, is the double-spend guard, so a proof against any historical root stays valid.
     struct Tree {
         uint256 TREE_DEPTH;
         mapping(uint256 => bytes32) sideNodes;
@@ -60,14 +56,11 @@ library MerkleTreeLib {
         // Counters are bounded by depth (<=32) and index < 2^depth, so the increments cannot overflow.
         for (uint256 level = 0; level < depth; ) {
             if (index & 1 == 0) {
-                // Left child: lean rule promotes it unchanged; record as this level's frontier.
                 self.sideNodes[level] = node;
-                // index==0: node is the final root. The frontier write above must precede the break -- leaf 2^L
-                // reads this slot as its left sibling.
+                // The frontier write must precede this break -- leaf 2^L reads the slot as its left sibling.
                 if (index == 0) break;
             } else {
-                // Right child: the left sibling is the recorded frontier (always populated for an append-only
-                // tree at an odd position), so hash left||right.
+                // Odd position: the frontier is the left sibling, so hash left||right.
                 node = bytes32(
                     Field.Type.unwrap(
                         Poseidon2.hash_2(

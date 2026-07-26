@@ -2,17 +2,8 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 
-// TS<->Solidity parity goldens for the Uniswap intent hash. The adaptor recomputes this on-chain and binds it
-// to the proof's intentHash, so a silent Poseidon2 drift between hashUniswapIntent (TS) and
-// _calculateIntentHash (Solidity) would strand every swap-withdraw. The same goldens are asserted by the TS
-// side in packages/adaptors/src/uniswap/intent.test.ts; both must agree.
-//
-// All four swap types are pinned. The per-variant field orders are built by separate Solidity helpers
-// (_hash6/_hash5/_hash8/_hashExactOutputHelper), so covering only one type would leave three field orders
-// unpinned outside the fork-only suite.
-//
-// BASE is _calculateIntentHash (the params fold). BOUND is the deadline-bound hash executeSwap actually
-// writes into publicInputs[2], at DEADLINE below.
+// TS<->Solidity parity goldens for the Uniswap intent hash, mirrored by packages/adaptors intent.test.ts.
+// BASE is _calculateIntentHash; BOUND is the deadline-bound hash written to publicInputs[2].
 const DEADLINE = 1800000000n;
 const A_IN = "0x1111111111111111111111111111111111111111";
 const A_OUT = "0x2222222222222222222222222222222222222222";
@@ -21,9 +12,6 @@ const SALT = 42n;
 
 const coder = ethers.AbiCoder.defaultAbiCoder();
 
-// ExactInput swaps the path forward (tokenIn -> tokenOut); ExactOutput reverses it. Both are hashed as raw
-// bytes, so the direction only matters for router acceptance, not parity: they are distinct fixtures here so
-// a path-field mixup between the two variants cannot pass.
 const PATH_IN = ethers.solidityPacked(
   ["address", "uint24", "address"],
   [A_IN, 3000, A_OUT],
@@ -92,8 +80,7 @@ const CASES: Case[] = [
   },
 ];
 
-// Deploy inside a fixture so the linked Poseidon2 library is captured in the loadFixture snapshot and is not
-// wiped by another test's snapshot restore during the parallel suite.
+// Deploy inside a fixture so the linked Poseidon2 survives another test's snapshot restore in parallel runs.
 async function deployHarness() {
   const poseidon2 = await (
     await ethers.getContractFactory("Poseidon2")
@@ -124,9 +111,6 @@ describe("UniswapAdaptor intent-hash parity (Solidity golden)", function () {
     });
   }
 
-  // A swap type that reused another's field order would still pass its own golden. Computed from the
-  // CONTRACT, not from the committed literals: comparing the literals to each other only detects a
-  // copy-paste between two cases and says nothing about what the Solidity helpers actually produce.
   it("every swap type produces a distinct hash", async function () {
     const { harness } = await loadFixture(deployHarness);
 

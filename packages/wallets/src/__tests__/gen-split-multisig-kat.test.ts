@@ -22,7 +22,6 @@ import { isEvenY } from "../note/keys.js";
 import { deriveCek } from "../crypto/kem.js";
 import type { Point } from "../tss/index.js";
 
-// Deterministic split_multisig witness + real 3-of-5 FROST (R,z) for split_multisig/src/main.nr.
 const ASSET_ID = 0x1234567890123456789012345678901234567890n;
 const COMPLIANCE_PK: Point = [
   0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111n,

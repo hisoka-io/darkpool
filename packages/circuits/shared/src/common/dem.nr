@@ -1,5 +1,4 @@
-// Poseidon2 field-wise stream cipher. The field order k=0..6 and the encrypt-adds / decrypt-subtracts sign
-// MUST match the TS mirror packages/wallets/src/crypto/dem.ts or notes are undecryptable.
+// Field order k=0..6 and the encrypt-adds / decrypt-subtracts sign MUST match wallets/src/crypto/dem.ts.
 use crate::domains::ENC_DOMAIN;
 use poseidon::poseidon2::Poseidon2;
 

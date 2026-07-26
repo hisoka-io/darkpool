@@ -22,9 +22,9 @@ interface IHonkVerifierV1 {
 
 /**
  * @title DarkPoolV1 (frozen storage baseline)
- * @notice Pinned storage reference for the upgrade-safety gate: validateUpgrade(DarkPoolV1, DarkPool) fails on
- *         any storage-incompatible change to the live DarkPool. Only STORAGE is load-bearing (same ERC-7201
- *         namespaces + ordered members); entrypoints need not track DarkPool. Verified by regen-darkpoolv1.ts.
+ * @notice Pinned storage reference for the upgrade-safety gate: validateUpgrade(DarkPoolV1, DarkPool) fails
+ *         on any storage-incompatible change to DarkPool. Only STORAGE is load-bearing (same ERC-7201
+ *         namespaces + ordered members); entrypoints need not track DarkPool. Checked by regen-darkpoolv1.ts.
  */
 contract DarkPoolV1 is
     Initializable,
@@ -160,7 +160,7 @@ contract DarkPoolV1 is
         uint256 status;
     }
 
-    // ERC-7201: keccak256(abi.encode(uint256(keccak256(id)) - 1)) & ~bytes32(uint256(0xff)); MUST match DarkPool.
+    // Namespaces MUST match DarkPool.
     // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.tree")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant TREE_LOCATION =
         0xbdd00c81e71bd165e3ff2099ca204334ffd58a8d7225a33b4761542b7a86e200;

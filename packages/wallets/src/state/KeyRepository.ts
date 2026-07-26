@@ -14,8 +14,7 @@ import {
 } from "./EphemeralCounterStore.js";
 
 const DEFAULT_LOOKAHEAD_WINDOW = 20;
-// Tags are injective only for even-y points, so mint/issue roll to the next even-y index; this bound
-// only guards a non-terminating loop.
+// Only guards a non-terminating even-y roll; each index is even-y with prob ~1/2.
 const MAX_INDEX_ROLL = 256;
 // A corrupt persisted counter must never force an unbounded key-registration loop on restore.
 const MAX_KEY_INDEX = 1_000_000;
@@ -40,10 +39,8 @@ export class KeyRepository implements IKeyRepository {
   #selfMap = new Map<string, { eph: Fr; index: number }>();
   #incomingMap = new Map<string, { inKey: Fr; index: number }>();
 
-  // Serializes the durable counters so two concurrent mints/issues can never reserve the same index.
   #lock: Promise<unknown> = Promise.resolve();
 
-  // Default counter is fail-closed (SealedEphemeralCounterStore): minting refuses without a durable backend.
   constructor(
     private readonly account: DarkAccount,
     private readonly counter: EphemeralCounterStore = new SealedEphemeralCounterStore(),
@@ -65,7 +62,6 @@ export class KeyRepository implements IKeyRepository {
 
   public nextSelfEphemeral(): Promise<SelfEphemeral> {
     return this.#withLock(async () => {
-      // reserve() is the persist-before-use barrier: a crash mid-mint skips the tail, never reissues.
       const res = await this.counter.reserve(
         SELF_EPH_SCOPE,
         SELF_EPH_ROLL_MARGIN,
@@ -172,7 +168,6 @@ export class KeyRepository implements IKeyRepository {
       this.#selfMintCounter,
       clampIndex(state.selfMintCounter, 0),
     );
-    // Advance the durable counter to the restored high-water so reserve() never re-hands an already-issued index.
     const selfHighWater = await this.counter.highWater(SELF_EPH_SCOPE);
     if (selfHighWater < this.#selfMintCounter) {
       await this.counter.reserve(

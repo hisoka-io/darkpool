@@ -3,7 +3,6 @@ import { Point } from "@zk-kit/baby-jubjub";
 import { WalletNote } from "./state/types.js";
 
 export interface KeyRepoState {
-  // Persist before mint: a reused self-eph index is a two-time-pad on the DEM keystream.
   selfMintCounter: number;
   selfScanIndex: number;
   incomingIssueCounter: number;

@@ -25,8 +25,6 @@ const EXTRA_WINDOW = 20;
 
 const hex = (f: Fr): string => "0x" + f.toBuffer().toString("hex");
 
-// Only even-y self indices produce an on-chain discovery tag (eph_pub.x), so the wallet only ever
-// registers even-y indices; a gap test must place the note at an even-y index past the window.
 async function firstEvenYSelfIndex(
   account: DarkAccount,
   lo: number,

@@ -10,30 +10,14 @@ import {
   type MerkleHarness,
 } from "../helpers/merkleTree";
 
-// The frontier walk in MerkleTreeLib.insert stops once the running index reaches 0. Every level above that is a
-// rewrite of an unchanged node, and every such write except the first is overwritten by a later insert before it
-// is ever read. This suite proves the stop changes no observable state: it differentially compares the shipped
-// library against FullWalkMerkleTree (the unconditional 32-level walk it replaced) on roots AND on the frontier
-// itself, and it pins the one mutation that would silently corrupt the tree - breaking BEFORE the write at the
-// `index == 0` level, which drops the completed left-subtree root that leaf 2^L reads as its left sibling.
-//
-// MERKLE_DEEP=1 widens the fuzz and walks all 31 crossings; the always-on core keeps the same properties on a
-// smaller sample so the single-process fast suite stays inside its memory budget.
+// MerkleTreeLib.insert stops the frontier walk once the running index reaches 0; every write above that is
+// dead. The mutation that corrupts the tree is breaking BEFORE the write at the `index == 0` level.
 
 const ZERO32 = ethers.ZeroHash;
 const DEEP = !!process.env.MERKLE_DEEP;
 const SEQUENCES = Number(process.env.FUZZ_SEQUENCES ?? (DEEP ? 700 : 6));
 
-/**
- * The frontier - not the root - is the state that carries into the next insert, so equality of roots for N
- * inserts says nothing about insert N+1. At or below the tree top the two walks must agree slot for slot;
- * above it the shipped library must have written nothing at all while the reference wrote the root into every
- * remaining level. Asserting the second half is what proves the skipped writes were the dead ones.
- *
- * Only valid for a tree built entirely by the shipped library. An upgraded proxy carries stale non-zero dead
- * writes above the top from the old library, so the zero-above-top half is FALSE there - see the live-proxy
- * upgrade case below, which asserts root parity only.
- */
+/** Root equality for N inserts says nothing about insert N+1: the frontier is the state that carries. False on an upgraded proxy (stale writes). */
 async function expectFrontierEquivalent(
   patched: MerkleHarness,
   reference: MerkleHarness,
@@ -78,7 +62,6 @@ describe("MerkleTreeLib: frontier differential vs the full 32-level walk", funct
   this.timeout(600_000);
 
   describe("differential fuzz: root + frontier equivalence", function () {
-    // Depth 32 is production; the small depths force the tree top to be crossed many times per sequence.
     for (const depth of [4, 8, 32]) {
       it(`depth ${depth}: ${SEQUENCES} random sequences agree on every root and on the frontier`, async function () {
         const rng = makeRng(BigInt(0xda7a5eed + depth));
@@ -100,13 +83,7 @@ describe("MerkleTreeLib: frontier differential vs the full 32-level walk", funct
   });
 
   describe("power-of-two boundaries: the write at the index==0 level is live", function () {
-    // Leaf 2^k - 1 reaches index 0 at level k and stores the completed left-subtree root; leaf 2^k shifts to
-    // index 1 at level k and reads that exact slot as its left sibling. Skipping the write corrupts the tree
-    // here and nowhere earlier, which is why every crossing is walked one leaf at a time.
-    // A genuine full history (no warping) across every crossing the tree can hold. Each insert runs Poseidon2
-    // under hardhat's tracing EVM, which is what drives this suite's memory, so the always-on tree is depth 6
-    // (64 leaves) and MERKLE_DEEP widens it to depth 8. The deep crossings are covered exhaustively - and at
-    // production depth 32 - by the warped case below, so nothing is lost by keeping this one small.
+    // Leaf 2^k - 1 lands on index 0 at level k and stores the left-subtree root leaf 2^k reads as its sibling.
     const REAL_DEPTH = DEEP ? 8 : 6;
 
     it(`depth ${REAL_DEPTH}: every 2^k - 1 / 2^k crossing of a real ${2 ** REAL_DEPTH}-leaf history matches the full walk`, async function () {
@@ -132,11 +109,7 @@ describe("MerkleTreeLib: frontier differential vs the full 32-level walk", funct
       }
     });
 
-    // Reaching leafIndex 2^20 by inserting is infeasible, but the crossing only depends on the frontier at
-    // levels 0..k-1 and on leafIndex - never on how the tree got there. So both trees are warped to an
-    // IDENTICAL frontier at leafIndex 2^k - 1 and then driven across the boundary one leaf at a time. Leaf
-    // 2^k - 1 hashes up k times and lands on index 0 at level k; leaf 2^k shifts to index 1 at level k and
-    // reads that slot back. Levels above k are never read by either leaf, so seeding them is unnecessary.
+    // The crossing depends only on the frontier at levels 0..k-1 and leafIndex, so both trees are warped there.
     const CROSSINGS = DEEP
       ? Array.from({ length: 31 }, (_, k) => k)
       : [0, 1, 2, 7, 15, 20, 30];
@@ -171,7 +144,6 @@ describe("MerkleTreeLib: frontier differential vs the full 32-level walk", funct
           `the live frontier write at level ${k} did not happen`,
         ).to.equal(await reference.sideNode(k));
 
-        // Same inputs, break moved above the write: the crossing leaf must now read a zero left sibling.
         expect(
           await mutant.sideNode(k),
           `mutant unexpectedly wrote level ${k}`,
@@ -185,10 +157,7 @@ describe("MerkleTreeLib: frontier differential vs the full 32-level walk", funct
   });
 
   describe("live-proxy upgrade: the new walk on old-library storage", function () {
-    // A pool upgraded to this library keeps the frontier the OLD library left behind: every level above the
-    // tree top holds a stale non-zero dead write, not a zero. That shape is unreachable by building a tree
-    // with the new code, so nothing else in this suite covers it. Root parity is the property that matters;
-    // frontier-is-zero-above-top is deliberately NOT asserted here because it is false in this shape.
+    // An upgraded pool keeps the OLD library's stale non-zero writes above the top: only root parity holds.
     it("stale non-zero dead writes above the top do not change the root across a 2^k crossing", async function () {
       const depth = 32;
 
@@ -197,7 +166,6 @@ describe("MerkleTreeLib: frontier differential vs the full 32-level walk", funct
         const start = 2 ** k - 1;
         const leaves = randomLeaves(makeRng(0x0dd5107n + BigInt(k)), 2);
 
-        // filledLevels = 32 is the pre-upgrade shape: the old walk wrote every level on every insert.
         for (const h of [patched, reference]) {
           await h.warpTo(start, depth);
           await h.insertMany(leaves);
@@ -222,8 +190,6 @@ describe("MerkleTreeLib: frontier differential vs the full 32-level walk", funct
   });
 
   describe("mutation: breaking BEFORE the write must corrupt the tree", function () {
-    // A gate that cannot fail is not a gate. BreakBeforeWriteMerkleTree is the shipped loop with the break
-    // moved above the frontier write; it must diverge the first time the tree crosses a power of two.
     it("break-before-write diverges from the full walk at the first 2^k crossing", async function () {
       const depth = 8;
       const { reference, mutant } = await deployTrio(depth);

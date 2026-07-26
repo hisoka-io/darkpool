@@ -8,9 +8,7 @@ pub global NOTE_TYPE_STANDARD: Field = 0;
 pub global NOTE_TYPE_MULTISIG: Field = 1;
 pub global NOTE_TYPE_CONDITIONAL: Field = 2;
 
-// Counterparty-memo parents sentinel = BN254_Fr - 1. It is >= 2^64, so `unpack_parents` provably rejects it as a
-// real (u32, u32) index pack; a transfer memo binds parents to this instead of the sender's leaf index, hiding
-// the sender's tree position (compliance recovers the true source from the atomic tx).
+// Transfer-memo parents sentinel = BN254_Fr - 1; being >= 2^64 it hides the sender's leaf index.
 pub global PARENTS_HIDDEN: Field =
     0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000;
 
@@ -30,7 +28,7 @@ pub struct Parent {
     pub leaf_index: u32,
 }
 
-// Ordered stable-first so a spend hashing both consumed and created leaves shares the sponge prefix.
+// FROZEN field order: this tuple IS the leaf preimage, so any reordering changes every commitment ever minted.
 pub struct Note {
     pub note_version: Field,
     pub asset_id: Field,
@@ -43,7 +41,7 @@ pub struct Note {
 }
 
 impl Note {
-    // Plaintext-commit leaf over all 8 fields; byte-identical to the TS `leaf`.
+    // Byte-identical to the TS `leaf`.
     pub fn leaf(self) -> Field {
         Poseidon2::hash(
             [
@@ -137,7 +135,6 @@ fn kat_max_u32_boundary() {
     assert(unpacked[1].leaf_index == 0xffffffff);
 }
 
-// A packed value with any bit above 2^64 (here byte 8 set) is not two u32 leaf indices and must be rejected.
 #[test(should_fail_with = "packed parents exceeds 2^64")]
 fn audit_unpack_parents_overflow() {
     let _ = unpack_parents(0x10000000000000000);

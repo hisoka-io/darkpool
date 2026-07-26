@@ -33,9 +33,8 @@ describe("DarkPool Behavior: Private Transfer", function () {
 
     const dep = await makeDeposit(darkPool, token, alice, 100n);
     const tree = await newSeededTree();
-    await tree.insert(dep.commitment); // index 1
+    await tree.insert(dep.commitment);
 
-    // Bob publishes an even-y incoming address; Alice encrypts the memo to it.
     const bobInKey = evenYEphemeral(555n);
     const bobInPub = publicKey(bobInKey);
 
@@ -78,7 +77,6 @@ describe("DarkPool Behavior: Private Transfer", function () {
       .and.to.emit(darkPool, "NewNote")
       .and.to.emit(darkPool, "NullifierSpent");
 
-    // Nullifier is public input [2] in the transfer layout.
     const nullifierHash = proof.publicInputs[2];
     expect(await darkPool.isNullifierSpent(nullifierHash)).to.equal(true);
   });
@@ -88,7 +86,7 @@ describe("DarkPool Behavior: Private Transfer", function () {
     const assetFr = addressToFr(await token.getAddress());
     const dep = await makeDeposit(darkPool, token, alice, 100n);
     const tree = await newSeededTree();
-    await tree.insert(dep.commitment); // index 1
+    await tree.insert(dep.commitment);
 
     const bobInKey = evenYEphemeral(123n);
     const bobInPub = publicKey(bobInKey);
@@ -137,8 +135,7 @@ describe("DarkPool Behavior: Private Transfer", function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
     const assetFr = addressToFr(await token.getAddress());
 
-    // Unlinkability requires the recipient to rotate incoming addresses: each payment targets a distinct
-    // even-y in_pub_j, so the on-chain tag (= in_pub_j.x) differs across payments.
+    // Unlinkability requires rotating in_pub_j: the on-chain tag is in_pub_j.x, so a reused address links.
     async function transferToBob(
       inKeySeed: bigint,
       memoEph: bigint,
@@ -161,8 +158,6 @@ describe("DarkPool Behavior: Private Transfer", function () {
         dep.spendScalar,
         assetFr,
       );
-      // This proof is never submitted, so an index-0/zero-path membership is self-consistent (parents = 0);
-      // the test asserts only on the proof's public inputs, not against the on-chain tree.
       const inputs: TransferInputs = {
         compliancePk: COMPLIANCE_PK,
         recipientInPub: bobInPub,
@@ -185,8 +180,7 @@ describe("DarkPool Behavior: Private Transfer", function () {
     expect(p1.length).to.equal(24);
     expect(p2.length).to.equal(24);
 
-    // Past the protocol-public prefix [0,1] (compliance x/y), nullifier [2] and root [3], no value repeats
-    // across the two payments: memo/change leaves, ephemerals, tag, cek_wrap, ciphertexts are all fresh.
+    // Past the protocol-public prefix (compliance x/y, nullifier, root), no value repeats across payments.
     const tail1 = new Set(p1.slice(4).map(norm));
     const shared = p2
       .slice(4)
@@ -194,8 +188,6 @@ describe("DarkPool Behavior: Private Transfer", function () {
       .filter((v) => tail1.has(v));
     expect(shared).to.deep.equal([]);
 
-    // Compliance decrypts each memo structurally: CEK = (complianceSk * memo_eph_pub).x. The memo ephemeral
-    // rides on-chain as x at [5] (even-y), recovered off-chain; ciphertext at [8..14].
     for (const pub of [p1, p2]) {
       const fr = pub.map((s) => toFr(s));
       const ephPub: Point<bigint> = recoverEvenY(fr[5].toBigInt());

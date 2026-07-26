@@ -1,7 +1,4 @@
-// Reference wallet infrastructure: local scan-based discovery, in-memory key/UTXO repositories, and the
-// ephemeral counter. NOT production -- Raven serves single-shot discovery and PSS serves encrypted state; this is
-// the reference implementation (and cross-package test surface) the production wallet replaces. A separate entry
-// point so it never bloats the base `@hisoka/wallets` crypto import.
+// Reference discovery/state layer, NOT production: Raven replaces discovery, PSS replaces encrypted state.
 export * from "./repositories.js";
 export * from "./utxo/Utxo.js";
 export * from "./state/types.js";

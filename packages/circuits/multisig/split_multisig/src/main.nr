@@ -50,7 +50,6 @@ fn main(
     )
 }
 
-// dummy (r,z): output guards reject before FROST; out1 uses a real psi so out2's guard is reached
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 global ASSET_ID: Field = 0x1234567890123456789012345678901234567890;
@@ -79,7 +78,7 @@ fn ms_input(value: u128) -> Note {
     Note {
         note_version: 1,
         asset_id: ASSET_ID,
-        note_type: 1, // MULTISIG
+        note_type: 1,
         conditions_hash: 0,
         value,
         owner: gpk_owner(),

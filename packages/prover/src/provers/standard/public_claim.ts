@@ -7,7 +7,7 @@ import { toBjjScalar } from "@hisoka/wallets";
 export async function provePublicClaim(
   inputs: PublicClaimInputs,
 ): Promise<ProofData> {
-  // reduce to BJJ subgroup order; circuit asserts a canonical scalar.
+  // The circuit asserts a canonical BabyJubJub subgroup scalar.
   const recipientSkReduced = toBjjScalar(inputs.recipientSk);
   const c = pointHex(inputs.compliancePk);
   return generateProof("public_claim", circuit, {

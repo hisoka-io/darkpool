@@ -2,8 +2,7 @@ import { Fr } from "@hisoka/wallets";
 import { AbiCoder, Interface, keccak256 } from "ethers";
 import { BundleCall, BuiltBundle } from "./types.js";
 
-/** ABI tuple for `BundleExecutor.BundleCall`. Field order MUST match the Solidity struct, or the intent
- * hash diverges and the withdraw proof rejects. */
+/** Field order MUST match the Solidity `BundleExecutor.BundleCall` struct, or the intent hash diverges. */
 const BUNDLE_CALL_TUPLE =
   "tuple(address target, bytes data, uint256 value, bool requireSuccess, address approveToken, uint256 approveAmount)[]";
 
@@ -33,7 +32,6 @@ function encodeBundle(
   );
 }
 
-/** Encode a bundle and derive its intent hash, byte-identical to `BundleExecutor.intentHashOf`. */
 export function buildBundle(
   boundCalls: BundleCall[],
   deadline: bigint,
@@ -44,7 +42,6 @@ export function buildBundle(
   return { intentHash, boundCalls, deadline, assetsToClear, encodedBundle };
 }
 
-/** Bound call: NoxRewardPool.depositRewards(asset, amount) with exact approval. */
 export function treasuryDepositCall(
   treasury: string,
   feeAsset: string,
@@ -63,7 +60,6 @@ export function treasuryDepositCall(
   };
 }
 
-/** Mode 1: fee paid from the withdrawn asset; withdraw must land exactly feeAmount (Executor asserts zero residual). */
 export function buildGasPaymentBundle(
   feeAsset: string,
   feeAmount: bigint,
@@ -79,19 +75,17 @@ export function buildGasPaymentBundle(
 
 export interface SwapFeeBundleParams {
   router: string;
-  /** Pre-encoded router calldata that swaps tokenIn -> tokenOut into the Executor. */
   swapCalldata: string;
   tokenIn: string;
   amountIn: bigint;
   tokenOut: string;
   treasury: string;
   feeAmount: bigint;
-  /** Calls that move remaining `tokenOut` out; MUST zero it or the residual assert reverts. */
+  /** MUST zero the remaining `tokenOut` or the residual assert reverts. */
   distributionCalls?: BundleCall[];
   deadline: bigint;
 }
 
-/** Mode 2: swap withdrawn asset, pay fee from proceeds (swap+fee requireSuccess), caller-supplied calls clear tokenOut. */
 export function buildSwapFeeBundle(params: SwapFeeBundleParams): BuiltBundle {
   const swapCall: BundleCall = {
     target: params.router,

@@ -1,5 +1,3 @@
-// Shared (t,n)-over-BabyJubJub primitives.
-
 export * from "./bjj.js";
 export * from "./domains.js";
 export * from "./hashToScalar.js";

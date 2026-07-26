@@ -70,7 +70,6 @@ run("Verifier profile: verify vs overhead", function () {
   it("deposit / withdraw / split split", async function () {
     const verifier = await isolatedDepositVerifier();
 
-    // deposit: 1 insert + ERC20 pull
     {
       const { darkPool, token, alice } = await loadFixture(
         deployDarkPoolFixture,
@@ -124,7 +123,6 @@ run("Verifier profile: verify vs overhead", function () {
       );
     }
 
-    // split: 2 inserts, no ERC20
     {
       const { darkPool, token, alice } = await loadFixture(
         deployDarkPoolFixture,
@@ -159,7 +157,7 @@ run("Verifier profile: verify vs overhead", function () {
         noteOut2: out2.note,
         eph2: out2.eph,
       });
-      // split verifier differs; reuse deposit verifier only for calldata shape (verify gas is close across circuits)
+      // The split verifier differs; the deposit verifier is reused only for calldata shape.
       const pop = await darkPool
         .connect(alice)
         .split.populateTransaction(proof.proof, proof.publicInputs);
@@ -175,9 +173,7 @@ run("Verifier profile: verify vs overhead", function () {
     }
   });
 
-  // Isolated verify() gas of the deployed optimized 5.0.0 KageVerifier against the real native-bb swap_settle
-  // golden proof. Measurement only (no assertion): re-measures the recorded Kage verify figure after the 5.0.0
-  // --optimized regen. verifyInternal strips intrinsic + calldata so it is comparable across verifiers.
+  // verifyInternal strips intrinsic + calldata cost so figures are comparable across verifiers.
   it("kage swap_settle verify gas (optimized 5.0.0 KageVerifier)", async function () {
     const [deployer] = await ethers.getSigners();
     const verifier = await new KageVerifier__factory(deployer).deploy();

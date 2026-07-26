@@ -7,7 +7,7 @@ export async function computePsi(cek: Fr): Promise<Fr> {
   return Poseidon.hash([cek, new Fr(PSI_DOMAIN)]);
 }
 
-/** Double-spend key: Poseidon2(psi, leaf_index). Byte-identical to Noir `nullifier`. */
+/** Double-spend key: nullifier = Poseidon2(psi, leaf_index). Byte-identical to Noir `nullifier`. */
 export async function computeNullifier(psi: Fr, leafIndex: Fr): Promise<Fr> {
   return Poseidon.hash([psi, leafIndex]);
 }

@@ -16,6 +16,7 @@ import {
   addressToFr,
   packParents,
   PARENTS_HIDDEN,
+  computeNullifier,
   Fr,
 } from "@hisoka/wallets";
 import {
@@ -24,17 +25,26 @@ import {
   proveSplit,
   proveJoin,
   provePublicClaim,
+  proveWithdrawMultisig,
+  proveTransferMultisig,
+  proveSplitMultisig,
+  proveJoinMultisig,
   WithdrawInputs,
   TransferInputs,
   SplitInputs,
   JoinInputs,
   PublicClaimInputs,
 } from "@hisoka/prover";
+import * as frost from "@hisoka/wallets/frost";
+import { frostAccountDkg } from "@hisoka/wallets/unsafe-sim";
+import {
+  buildMultisigNote,
+  frostSign,
+  depositMultisig,
+} from "../helpers/frostMultisig";
 import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
 
-// The Honk verifier's NUMBER_OF_PUBLIC_INPUTS counts the caller's inputs plus the appended pairing-point
-// accumulator; the contract passes only the former. A wrong split here means the layout table below is
-// mis-sized against the on-chain verifier.
+// NUMBER_OF_PUBLIC_INPUTS counts the caller's inputs plus the appended pairing-point accumulator; the contract passes only the former.
 const PAIRING_POINTS_SIZE = 8;
 const VERIFIER_NUM_PUBLIC_INPUTS: Record<string, number> = {
   deposit: 21,
@@ -43,6 +53,10 @@ const VERIFIER_NUM_PUBLIC_INPUTS: Record<string, number> = {
   join: 22,
   split: 30,
   publicClaim: 21,
+  withdrawMultisig: 25,
+  transferMultisig: 32,
+  splitMultisig: 30,
+  joinMultisig: 22,
 };
 
 function bi(x: string): bigint {
@@ -350,7 +364,318 @@ describe("Semantic public-input index trace", function () {
     assertField(pi, 5, outNote.tag.toBigInt(), "tag");
     expect(bi(pi[4]!)).to.not.equal(bi(memoId));
     await darkPool.connect(alice).publicClaim(proof.proof, proof.publicInputs);
-    // The memo at [0] is the consumed slot; spending it flips isPublicMemoSpent at exactly that id.
     expect(await darkPool.isPublicMemoSpent(pi[0]!)).to.equal(true);
+  });
+
+  // The 4 multisig twins share the standard op's layout, so a transposition inside a multisig verifier passes both the count-only FreezeSeams check and the mutation-only RealProofE2E binding.
+  it("withdrawMultisig: [0] value, [1] recipient, [5] nullifier, [6] root, [7] asset, [8] change leaf, [9] tag", async function () {
+    const { darkPool, token, alice, bob } = await loadFixture(
+      deployDarkPoolFixture,
+    );
+    const asset = addressToFr(await token.getAddress());
+    const account = await frostAccountDkg(5, 3, 0x54524331n);
+    const quorum = account.qual.slice(0, 3);
+
+    const ms = await depositMultisig(
+      darkPool,
+      token,
+      alice,
+      100n,
+      account.owner,
+      asset,
+      0x9101n,
+    );
+    const tree = await newSeededTree();
+    await tree.insert(ms.commitment);
+    const root = tree.getRoot();
+    const nullifier = await computeNullifier(ms.psi, toFr(1n));
+
+    const changeEph = evenYEphemeral(0x9201n);
+    const change = await buildMultisigNote(
+      changeEph,
+      60n,
+      account.owner,
+      asset,
+      packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
+    );
+    const m = await frost.msgWithdraw({
+      root: root.toBigInt(),
+      nullifier: nullifier.toBigInt(),
+      changeLeaf: change.commitment.toBigInt(),
+      publicOut: 40n,
+      asset: asset.toBigInt(),
+      recipient: addressToFr(bob.address).toBigInt(),
+      intentHash: 0n,
+    });
+    const { R, z } = await frostSign(account.gpk, account.shares, quorum, m);
+
+    const proof = await proveWithdrawMultisig({
+      withdrawValue: toFr(40n),
+      recipient: addressToFr(bob.address),
+      intentHash: toFr(0n),
+      compliancePk: COMPLIANCE_PK,
+      gpk: account.gpk,
+      frostR: R,
+      frostZ: toFr(z),
+      oldNote: ms.noteInput,
+      oldNoteIndex: 1,
+      oldNotePath: tree.getMerklePath(1),
+      changeNote: change.noteInput,
+      changeEph,
+    });
+    const pi = proof.publicInputs;
+
+    expect(pi.length).to.equal(
+      VERIFIER_NUM_PUBLIC_INPUTS.withdrawMultisig - PAIRING_POINTS_SIZE,
+    );
+    assertField(pi, 0, 40n, "value");
+    assertField(pi, 1, addressToFr(bob.address).toBigInt(), "recipient");
+    assertField(pi, 5, nullifier.toBigInt(), "nullifier");
+    assertField(pi, 6, root.toBigInt(), "root");
+    assertField(pi, 7, asset.toBigInt(), "asset");
+    assertField(pi, 8, change.commitment.toBigInt(), "change leaf");
+    assertField(pi, 9, change.tag.toBigInt(), "change tag");
+    await darkPool
+      .connect(alice)
+      .withdrawMultisig(proof.proof, proof.publicInputs);
+    expect(await darkPool.isNullifierSpent(pi[5]!)).to.equal(true);
+  });
+
+  it("transferMultisig: [2] nullifier, [3] root, [4] memo leaf, [6] tag, [15] change leaf", async function () {
+    const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
+    const asset = addressToFr(await token.getAddress());
+    const account = await frostAccountDkg(5, 3, 0x54524332n);
+    const quorum = account.qual.slice(0, 3);
+
+    const ms = await depositMultisig(
+      darkPool,
+      token,
+      alice,
+      100n,
+      account.owner,
+      asset,
+      0x9102n,
+    );
+    const tree = await newSeededTree();
+    await tree.insert(ms.commitment);
+    const root = tree.getRoot();
+    const nullifier = await computeNullifier(ms.psi, toFr(1n));
+
+    const recipientInKey = evenYEphemeral(0x556n);
+    const recipientInPub = mulPointEscalar(Base8, recipientInKey.toBigInt());
+    const memoEph = evenYEphemeral(0x9911n);
+    const memo = await mintIncomingNote(
+      memoEph,
+      40n,
+      recipientInPub,
+      toFr(0n),
+      asset,
+      PARENTS_HIDDEN,
+    );
+
+    const changeEph = evenYEphemeral(0x9202n);
+    const change = await buildMultisigNote(
+      changeEph,
+      60n,
+      account.owner,
+      asset,
+      packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
+    );
+    const m = await frost.msgTransfer({
+      root: root.toBigInt(),
+      nullifier: nullifier.toBigInt(),
+      memoLeaf: memo.commitment.toBigInt(),
+      memoTag: recipientInPub[0],
+      changeLeaf: change.commitment.toBigInt(),
+      asset: asset.toBigInt(),
+    });
+    const { R, z } = await frostSign(account.gpk, account.shares, quorum, m);
+
+    const proof = await proveTransferMultisig({
+      compliancePk: COMPLIANCE_PK,
+      gpk: account.gpk,
+      frostR: R,
+      frostZ: toFr(z),
+      recipientInPub,
+      oldNote: ms.noteInput,
+      oldNoteIndex: 1,
+      oldNotePath: tree.getMerklePath(1),
+      memoNote: memo.note,
+      memoEph: memo.eph,
+      changeNote: change.noteInput,
+      changeEph,
+    });
+    const pi = proof.publicInputs;
+
+    expect(pi.length).to.equal(
+      VERIFIER_NUM_PUBLIC_INPUTS.transferMultisig - PAIRING_POINTS_SIZE,
+    );
+    assertField(pi, 2, nullifier.toBigInt(), "nullifier");
+    assertField(pi, 3, root.toBigInt(), "root");
+    assertField(pi, 4, memo.commitment.toBigInt(), "memo leaf");
+    assertField(pi, 6, memo.tag.toBigInt(), "tag");
+    assertField(pi, 15, change.commitment.toBigInt(), "change leaf");
+    await darkPool
+      .connect(alice)
+      .transferMultisig(proof.proof, proof.publicInputs);
+    expect(await darkPool.isNullifierSpent(pi[2]!)).to.equal(true);
+  });
+
+  it("splitMultisig: [2] nullifier, [3] root, [4] out1 leaf, [5] out1 tag, [13] out2 leaf, [14] out2 tag", async function () {
+    const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
+    const asset = addressToFr(await token.getAddress());
+    const account = await frostAccountDkg(5, 3, 0x54524333n);
+    const quorum = account.qual.slice(0, 3);
+
+    const ms = await depositMultisig(
+      darkPool,
+      token,
+      alice,
+      100n,
+      account.owner,
+      asset,
+      0x9103n,
+    );
+    const tree = await newSeededTree();
+    await tree.insert(ms.commitment);
+    const root = tree.getRoot();
+    const nullifier = await computeNullifier(ms.psi, toFr(1n));
+
+    const outParents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
+    const eph1 = evenYEphemeral(0x9301n);
+    // Well separated from eph1: adjacent seeds can round to the same even-y point, which the circuit rejects.
+    const eph2 = evenYEphemeral(0x9391n);
+    const out1 = await buildMultisigNote(
+      eph1,
+      40n,
+      account.owner,
+      asset,
+      outParents,
+    );
+    const out2 = await buildMultisigNote(
+      eph2,
+      60n,
+      account.owner,
+      asset,
+      outParents,
+    );
+    const m = await frost.msgSplit({
+      root: root.toBigInt(),
+      nullifier: nullifier.toBigInt(),
+      out1Leaf: out1.commitment.toBigInt(),
+      out2Leaf: out2.commitment.toBigInt(),
+      asset: asset.toBigInt(),
+    });
+    const { R, z } = await frostSign(account.gpk, account.shares, quorum, m);
+
+    const proof = await proveSplitMultisig({
+      compliancePk: COMPLIANCE_PK,
+      gpk: account.gpk,
+      frostR: R,
+      frostZ: toFr(z),
+      noteIn: ms.noteInput,
+      indexIn: 1,
+      pathIn: tree.getMerklePath(1),
+      noteOut1: out1.noteInput,
+      eph1,
+      noteOut2: out2.noteInput,
+      eph2,
+    });
+    const pi = proof.publicInputs;
+
+    expect(pi.length).to.equal(
+      VERIFIER_NUM_PUBLIC_INPUTS.splitMultisig - PAIRING_POINTS_SIZE,
+    );
+    assertField(pi, 2, nullifier.toBigInt(), "nullifier");
+    assertField(pi, 3, root.toBigInt(), "root");
+    assertField(pi, 4, out1.commitment.toBigInt(), "out1 leaf");
+    assertField(pi, 5, out1.tag.toBigInt(), "out1 tag");
+    assertField(pi, 13, out2.commitment.toBigInt(), "out2 leaf");
+    assertField(pi, 14, out2.tag.toBigInt(), "out2 tag");
+    await darkPool
+      .connect(alice)
+      .splitMultisig(proof.proof, proof.publicInputs);
+    expect(await darkPool.isNullifierSpent(pi[2]!)).to.equal(true);
+  });
+
+  it("joinMultisig: [2] nullifier_a, [3] nullifier_b, [4] root, [5] out leaf, [6] out tag", async function () {
+    const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
+    const asset = addressToFr(await token.getAddress());
+    const account = await frostAccountDkg(5, 3, 0x54524334n);
+    const quorum = account.qual.slice(0, 3);
+
+    const msA = await depositMultisig(
+      darkPool,
+      token,
+      alice,
+      100n,
+      account.owner,
+      asset,
+      0x9104n,
+    );
+    const msB = await depositMultisig(
+      darkPool,
+      token,
+      alice,
+      50n,
+      account.owner,
+      asset,
+      0x9105n,
+    );
+    const tree = await newSeededTree();
+    await tree.insert(msA.commitment);
+    await tree.insert(msB.commitment);
+    const root = tree.getRoot();
+    const nfA = await computeNullifier(msA.psi, toFr(1n));
+    const nfB = await computeNullifier(msB.psi, toFr(2n));
+
+    const outEph = evenYEphemeral(0x9401n);
+    const out = await buildMultisigNote(
+      outEph,
+      150n,
+      account.owner,
+      asset,
+      packParents([{ leafIndex: 1 }, { leafIndex: 2 }]),
+    );
+    const m = await frost.msgJoin({
+      root: root.toBigInt(),
+      nullifierA: nfA.toBigInt(),
+      nullifierB: nfB.toBigInt(),
+      outLeaf: out.commitment.toBigInt(),
+      asset: asset.toBigInt(),
+    });
+    const sigA = await frostSign(account.gpk, account.shares, quorum, m);
+    const sigB = await frostSign(account.gpk, account.shares, quorum, m);
+
+    const proof = await proveJoinMultisig({
+      compliancePk: COMPLIANCE_PK,
+      gpkA: account.gpk,
+      frostRA: sigA.R,
+      frostZA: toFr(sigA.z),
+      noteA: msA.noteInput,
+      indexA: 1,
+      pathA: tree.getMerklePath(1),
+      gpkB: account.gpk,
+      frostRB: sigB.R,
+      frostZB: toFr(sigB.z),
+      noteB: msB.noteInput,
+      indexB: 2,
+      pathB: tree.getMerklePath(2),
+      noteOut: out.noteInput,
+      ephOut: outEph,
+    });
+    const pi = proof.publicInputs;
+
+    expect(pi.length).to.equal(
+      VERIFIER_NUM_PUBLIC_INPUTS.joinMultisig - PAIRING_POINTS_SIZE,
+    );
+    assertField(pi, 2, nfA.toBigInt(), "nullifier_a");
+    assertField(pi, 3, nfB.toBigInt(), "nullifier_b");
+    assertField(pi, 4, root.toBigInt(), "root");
+    assertField(pi, 5, out.commitment.toBigInt(), "out leaf");
+    assertField(pi, 6, out.tag.toBigInt(), "out tag");
+    await darkPool.connect(alice).joinMultisig(proof.proof, proof.publicInputs);
+    expect(await darkPool.isNullifierSpent(pi[2]!)).to.equal(true);
+    expect(await darkPool.isNullifierSpent(pi[3]!)).to.equal(true);
   });
 });

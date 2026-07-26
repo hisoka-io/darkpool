@@ -1,29 +1,22 @@
-// Durable single-writer index reservation. A reused index reuses the CEK => two-time-pad on the DEM keystream.
-// reserve() raises the high-water before handing out an index, so a crash skips (safe) but never reissues.
+// A reused index reuses the CEK => two-time-pad on the DEM keystream, so reserve() raises the durable
+// high-water before handing out an index: a crash skips indices but never reissues one.
 
 export interface EphemeralReservation {
-  // First index of the durably-reserved span. [base, base+span) is persisted the moment this object exists.
   readonly base: number;
   readonly span: number;
-  // Reclaim the unused tail to usedThrough+1 iff still top of high-water. usedThrough in [base, base+span).
   commit(usedThrough: number): Promise<void>;
-  // Abandon the whole span without using it (reclaim to base) IF still the top of the high-water.
   release(): Promise<void>;
 }
 
 export interface EphemeralCounterStore {
-  // Durably advance the scope's high-water by span (single-writer, flush-before-resolve) and return the old
-  // high-water as base. REJECTS (so the caller refuses to mint) if the durable write fails. Distinct scopes
-  // namespace independent monotonic counters over one backend (e.g. "self" and "ms:<memberId>").
+  // Advances the scope high-water by span, returning the old high-water as base; REJECTS if the durable write fails.
   reserve(scope: string, span: number): Promise<EphemeralReservation>;
-  // The next never-reserved index for a scope; drives scan lookahead + restore reconciliation.
   highWater(scope: string): Promise<number>;
 }
 
 export type CounterSnapshot = Record<string, number>;
 
-// In-memory reference store: not durable across restart on its own; a real backend implements the same contract.
-// reserve() advances the high-water before resolving, so a post-reserve snapshot() reflects every handed-out index.
+// Reference store, NOT durable across restart; a real backend implements the same contract.
 export class InMemoryEphemeralCounterStore implements EphemeralCounterStore {
   readonly #highWater: Map<string, number>;
   #lock: Promise<unknown> = Promise.resolve();
@@ -56,12 +49,10 @@ export class InMemoryEphemeralCounterStore implements EphemeralCounterStore {
     return this.#withLock(async () => this.#highWater.get(scope) ?? 0);
   }
 
-  // Durable image; a real backend persists this. Reconstructing a store from a snapshot models a crash/restart.
   snapshot(): CounterSnapshot {
     return Object.fromEntries(this.#highWater);
   }
 
-  // Test hook: force the next reserve() to reject, modelling disk-full / quota / txn abort (mint must refuse).
   failNextWrite(): void {
     this.#failNextWrite = true;
   }
@@ -94,7 +85,6 @@ export class InMemoryEphemeralCounterStore implements EphemeralCounterStore {
 
   #trim(scope: string, base: number, span: number, to: number): Promise<void> {
     return this.#withLock(async () => {
-      // Only reclaim if no later reserve advanced past this reservation; never rewind below a subsequent base.
       if (this.#highWater.get(scope) === base + span)
         this.#highWater.set(scope, to);
     });

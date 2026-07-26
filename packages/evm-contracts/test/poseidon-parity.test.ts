@@ -8,7 +8,6 @@ import {
   Poseidon2Harness__factory,
 } from "../typechain-types";
 
-// parity between TS `@aztec/foundation/crypto` and the Solidity Yul sponge.
 const KNOWN_HASH_2_1_2 =
   "0x038682aa1cb5ae4e0a3f13da432a95c77c5c111f6f030faf9cad641ce1ed7383";
 
@@ -96,8 +95,7 @@ describe("Poseidon2 parity (Yul-backed) vs TypeScript reference", () => {
     expect(fixed).to.not.equal(variable);
   });
 
-  // Golden KAT: the public-memo id is Poseidon2 over 6 fields (value, asset, timelock, ownerX, ownerY,
-  // salt), byte-identical to DarkPool.publicTransfer and the public_claim circuit.
+  // Golden KAT: memoId = Poseidon2(value, asset, timelock, ownerX, ownerY, salt), byte-identical to DarkPool.publicTransfer and the public_claim circuit.
   it("memoId matches the public_claim fixture (6-field Poseidon2)", async () => {
     const value = 100n;
     const asset = 0x1234567890123456789012345678901234567890n;

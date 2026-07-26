@@ -47,7 +47,6 @@ fn main(
     (nullifier, computed_root, old_note.asset_id, change.leaf, change.eph_pub.x, change.ciphertext)
 }
 
-// dummy (r,z): output guards reject before verify_frost_spend
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 global ASSET_ID: Field = 0x1234567890123456789012345678901234567890;
@@ -75,7 +74,7 @@ fn ms_input(value: u128) -> Note {
     Note {
         note_version: 1,
         asset_id: ASSET_ID,
-        note_type: 1, // MULTISIG
+        note_type: 1,
         conditions_hash: 0,
         value,
         owner: gpk_owner(),
@@ -190,7 +189,6 @@ fn kat_multisig_withdraw_accepts() {
     );
 }
 
-// recipient has no earlier guard; only the FROST equation binds it
 #[test(should_fail_with = "FROST signature invalid")]
 fn audit_reject_mutated_signed_recipient() {
     let _ = main(

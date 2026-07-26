@@ -3,9 +3,6 @@ import { InMemoryEphemeralCounterStore } from "../state/EphemeralCounterStore.js
 import { DarkAccount } from "../keys/DarkAccount.js";
 import { KeyRepository } from "../state/KeyRepository.js";
 
-// A reused self-eph index reuses the CEK -> the additive Poseidon2 DEM keystream = two-time-pad.
-// The store's job is to make that structurally impossible: reserve() durably advances the high-water before any
-// index is handed out.
 describe("EphemeralCounterStore (WC-1)", () => {
   it("monotonic: sequential reserves have strictly increasing base", async () => {
     const s = new InMemoryEphemeralCounterStore();
@@ -90,7 +87,6 @@ describe("KeyRepository self-eph durability (WC-1)", () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
     const store = new InMemoryEphemeralCounterStore();
     const m1 = await new KeyRepository(account, store).nextSelfEphemeral();
-    // "Crash": the durable store already persisted the reserve; restart from the same durable image.
     const restarted = new InMemoryEphemeralCounterStore(store.snapshot());
     const m2 = await new KeyRepository(account, restarted).nextSelfEphemeral();
     expect(m2.index).toBeGreaterThan(m1.index);
@@ -99,7 +95,7 @@ describe("KeyRepository self-eph durability (WC-1)", () => {
 
   it("fail-closed: a repo with no configured counter refuses to mint", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
-    const repo = new KeyRepository(account); // sealed default
+    const repo = new KeyRepository(account);
     await expect(repo.nextSelfEphemeral()).rejects.toThrow(
       /no durable ephemeral counter configured/,
     );

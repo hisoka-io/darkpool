@@ -165,7 +165,6 @@ fn audit_reject_out_asset_mismatch() {
     );
 }
 
-// Reusing one eph across outputs reuses the CEK (two-time pad).
 #[test(should_fail_with = "ephemerals must be distinct")]
 fn audit_reject_reused_ephemeral() {
     let _ = main(

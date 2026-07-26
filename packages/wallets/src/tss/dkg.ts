@@ -1,5 +1,4 @@
-// No-trusted-dealer Feldman DKG over BabyJubJub with a Schnorr PoP (rogue-key defense); c (= sum of the
-// dealers' secrets) is never assembled by any party.
+// No-trusted-dealer Feldman DKG over BabyJubJub with a Schnorr PoP (rogue-key defense); c is never assembled by any party.
 
 import {
   Point,
@@ -16,7 +15,6 @@ import { feldmanCommit, feldmanVerifyShare } from "./vss.js";
 import { hashToScalar } from "./hashToScalar.js";
 import { FROST_POP_DOMAIN } from "./domains.js";
 
-/** Bound to the prover id + a context field so a rogue dealer cannot replay another party's PoP. */
 export interface SchnorrPoP {
   R: Point;
   z: bigint;
@@ -106,7 +104,6 @@ export async function verifyContribution(
 
 export interface DkgResult {
   C: Point;
-  /** Per-member aggregate share c_i; NEVER logged. */
   shares: Map<bigint, bigint>;
   V: Map<bigint, Point>;
   qual: bigint[];

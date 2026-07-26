@@ -15,7 +15,6 @@ describe("DarkPool Behavior: Public Interop", function () {
     const bobWallet = await TestWallet.create(bob, darkPool, token);
     const AMOUNT = ethers.parseEther("50");
 
-    // Bob's claim key: a subgroup scalar he controls; its public key is the memo owner (ownerX/ownerY).
     const bobClaimSk = await bobWallet.account.getIncomingKey(0n);
     const bobClaimPub = publicKey(bobClaimSk);
 

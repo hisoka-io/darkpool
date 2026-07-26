@@ -135,7 +135,6 @@ fn m_gpk_non_subgroup() {
         super::KAT_CHANGE_EPH,
     );
 }
-// valid non-gpk point: owner pin rejects before FROST
 #[test(should_fail_with = "spender does not own this multisig note")]
 fn m_gpk_wrong_valid() {
     v(
@@ -175,7 +174,6 @@ fn m_frost_r_off_curve() {
 }
 #[test(should_fail_with = "FROST signature invalid")]
 fn m_frost_r_non_subgroup() {
-    // R carries only an on-curve + non-identity check; a non-subgroup R must still fail the signature equation
     v(
         gpk(),
         mutation::bad_non_subgroup(),
@@ -199,7 +197,6 @@ fn m_frost_r_mutated() {
     );
 }
 
-// ScalarField<63> challenge is derived from m, not a free witness.
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_frost_z_zero() {
     v(gpk(), r(), 0, inp(), 0, out(), super::KAT_CHANGE_EPH);

@@ -3,8 +3,8 @@ pragma solidity ^0.8.25;
 
 import {UniswapAdaptor} from "../adaptors/uniswap/UniswapAdaptor.sol";
 
-// Test-only: exposes the internal pure intent hash so a golden vector can lock TS/Solidity parity in test:fast
-// (the production path only compares it, and only in the fork suite).
+// Test-only: exposes the internal intent hash so a golden vector can lock TS/Solidity parity outside the
+// fork suite.
 contract UniswapIntentHarness is UniswapAdaptor {
     constructor(
         address darkPool,
@@ -18,8 +18,8 @@ contract UniswapIntentHarness is UniswapAdaptor {
         return _calculateIntentHash(sType, encoded);
     }
 
-    // The deadline-bound hash executeSwap actually writes into publicInputs[2]. Parity-covered separately from
-    // the base hash so a drift in either the params fold or the deadline fold is caught.
+    // The deadline-bound hash executeSwap writes into publicInputs[2]. Covered separately from the base hash
+    // so a drift in either fold is caught.
     function calcBoundIntentHash(
         SwapType sType,
         bytes calldata encoded,

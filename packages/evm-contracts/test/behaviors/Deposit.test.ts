@@ -64,7 +64,7 @@ describe("DarkPool Behavior: Deposit", function () {
 
     const { proof } = await makeDeposit(darkPool, token, alice, 100n);
     const tamperedInputs = [...proof.publicInputs];
-    tamperedInputs[0] = ethers.ZeroHash; // index 0 = compliance X
+    tamperedInputs[0] = ethers.ZeroHash;
 
     await expect(
       darkPool.connect(alice).deposit(proof.proof, tamperedInputs),

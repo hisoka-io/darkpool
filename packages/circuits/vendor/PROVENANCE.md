@@ -27,11 +27,24 @@ the transitive ecdh to edwards edge. No vendored `.nr` source is modified.
 invoked as `Type::msm(`, never `.msm(`. Fixed upstream in PR #54 (fork tag `v0.2.5-hisoka.2`), not in this
 vendored snapshot; the build guard is the mitigation.
 
-**`ScalarField<64>` N==64 wNAF underconstraint (noir-edwards #49) is FIXED in this vendored snapshot.** The N==64
-branch binds the slices via `assert(hi * 2^128 + lo == x)` plus lo/hi range bounds (`scalar_field.nr`), so a
-prover cannot supply a forged decomposition. Our money paths use only `<63>` regardless, and
-`scripts/circuit-guards.sh` guards 1 and 9 fail the build on a live `<64>`. The `frost-forgery` harness executably
-proves both `<63>` and `<64>` reject a forged FROST challenge.
+**`ScalarField<64>` (noir-edwards #49): the N==64 wNAF slices are BOUND, with a narrow non-canonical residual
+that is unreachable here.** The N==64 branch binds the slices to the input via `assert(hi * 2^128 + lo == x)`
+plus the lo/hi range bounds (`scalar_field.nr:138`, `:106-132`), closing the #49 free-witness underconstraint:
+a forged decomposition encoding a different challenge is rejected. The `frost-forgery` harness proves exactly
+this at both widths (`forgery_rejected_by_binding_63` and `forgery_rejected_by_binding_64`, both `should_fail`).
+RESIDUAL (incomplete-#49): the branch asserts the field equality but never `hi >= 0`, so a non-canonical
+`V = x - p` (negative, `== x mod p`) still satisfies every assert, and a native-bb proof of that witness
+verifies; `mul` would then multiply by `(x - p) mod l != x`. This is UNREACHABLE: no shipped circuit
+instantiates `<64>`; every live `ScalarField` is `<63>` (`shared/src/multisig/frost.nr:30`,
+`vendor/ecdh/src/bjj.nr:47,57`), and `scripts/circuit-guards.sh` fails the build on any live `<64>` (the
+`scalarfield64` guard) and pins the whole `ScalarField` surface at 2 sites (the `scalarfield-sites` guard). The
+`hi >= 0` completion lands upstream in noir-edwards PR #53 (consolidating and superseding the earlier narrow
+PR #50); it is not yet re-vendored. Issue #51 is a separate `dbl_internal` bug, unrelated to this slice binding.
+
+The stale upstream `// TODO` at `scalar_field.nr:95` predates the `:138` binding that landed below it; it is
+superseded by that assert and is intentionally NOT removed, because every vendored `*.nr` is byte-frozen by the
+vendor-hash guard (`VENDOR-HASHES.sha256`). It is recorded here so a future reader neither edits the vendored
+file to drop it nor mistakes it for an in-house hard-rule TODO.
 
 ## Verification (byte-identity)
 

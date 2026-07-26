@@ -3,9 +3,7 @@ import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { BytesLike } from "ethers";
 import { deployDarkPoolFixture } from "../helpers/fixtures";
 
-// whenNotPaused guards every money entrypoint and runs before proof verification, so a paused pool must halt
-// each path regardless of the proof bytes. Without this, dropping the modifier from any single entrypoint would
-// silently defeat the emergency halt on that path and no other test would notice.
+// whenNotPaused runs before proof verification, so dropping it from one entrypoint silently defeats the halt there.
 describe("DarkPool: pause halts every money entrypoint", function () {
   it("reverts EnforcedPause on all spend/claim paths while paused", async function () {
     const { darkPool, deployer, alice } = await loadFixture(

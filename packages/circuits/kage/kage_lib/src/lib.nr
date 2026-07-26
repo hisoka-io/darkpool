@@ -4,10 +4,6 @@
 //! Per-asset conservation is split across the two proofs:
 //!   fromAsset:  A_in == from_amount + A_change (taker)   AND   B_received == from_amount (maker)
 //!   toAsset:    B_in == expected_return + B_change (maker, over the taker's exposed expected_return)
-//!
-//! Additive to the note format (reuses verify_spend / mint_self_note / conservation). eph.x-only: mint_self_note
-//! asserts even-y, so only eph_pub.x is surfaced.
-
 use ecdh::Point;
 use shared::conservation;
 use shared::mint;
@@ -18,19 +14,16 @@ use shared::verify_spend;
 // DEM transmitted-field count (shared/src/common/dem.nr DEM_FIELDS).
 global CT_LEN: u32 = 7;
 
-// Inner-VK binding: the single most load-bearing value in Kage. `verification_key` is a solver-supplied WITNESS;
-// only this hardcoded constant stops a solver proving his own circuit to forge the taker's half. `0` = not pinned
-// = total forge. Must stay a compile-time CONSTANT (the stdlib asserts constants for proof_type but NOT key_hash).
-// The stdlib does not constrain hash(vk) == key_hash; barretenberg enforces it (as Payy relies on), so an
-// adversarial test gates it: wrong VK / different-circuit proof / tampered public inputs all reject.
+// `verification_key` is a solver-supplied WITNESS; this pinned constant is all that stops a solver proving his
+// own circuit to forge the taker's half (`0` = not pinned = total forgery). hash(vk) == key_hash is enforced by
+// barretenberg, not the stdlib, so this must stay a compile-time constant.
 pub global INTENT_VK_HASH: Field =
-    0x2f282faa1ed7f0c76b2d4dfd8ef8555ad443c8fb448373936bb11a1f2678313b;
+    0x0acd44e1ec48394f150038558d8ee52c0e29412d03c35d9d198fd30914e585f3;
 pub global PROOF_TYPE: u32 = 6;
-// Compiled swap_intent bb recursion widths (verifierTarget noir-recursive); regenerate on any change (kageVkParity guard).
+// Compiled swap_intent recursion widths; regenerate with INTENT_VK_HASH on any swap_intent change.
 pub global INTENT_VK_LEN: u32 = 115;
 pub global INTENT_PROOF_LEN: u32 = 458;
 
-// Public-input width swap_intent exposes (see pack_intent): 9 scalars + (leaf + eph_x + ct[7]) per note x 2.
 pub global INTENT_PI_LEN: u32 = 27;
 
 // The taker's public interface: consumed as WITNESS by the maker's recursion, never on-chain. The amount fields
@@ -85,8 +78,8 @@ pub fn pack_intent(pi: SwapIntent) -> [Field; INTENT_PI_LEN] {
     ]
 }
 
-// Range-assert the amounts even though the recursion already constrains them to u128: defense-in-depth against a
-// silent `as u128` narrowing.
+// Range-assert the amounts even though the recursion constrains them to u128: guards against a silent `as u128`
+// narrowing.
 pub fn unpack_intent(a: [Field; INTENT_PI_LEN]) -> SwapIntent {
     let from_amount = a[6] as u128;
     assert(from_amount as Field == a[6], "from_amount exceeds u128 range");
@@ -111,7 +104,6 @@ pub fn unpack_intent(a: [Field; INTENT_PI_LEN]) -> SwapIntent {
     }
 }
 
-// the maker's settled outputs (become the kageSwap on-chain public inputs: 2 nullifiers + 4 leaves + events).
 pub struct MintedOutput {
     pub leaf: Field,
     pub eph_pub: Point,
@@ -233,8 +225,8 @@ pub fn settle_swap(
     assert_parents_bound(maker_change, [maker_index, 0]);
     let bchange = mint::mint_self_note(maker_change, maker_change_eph, compliance_pk);
 
-    // All 4 output ephemerals distinct: a shared eph gives a shared CEK, which is a two-time-pad on the stream
-    // DEM. Comparing eph_pub.x is exact on the prime-order subgroup (same x implies same point).
+    // All 4 output ephemerals distinct: a shared eph gives a shared CEK, a two-time pad on the stream DEM.
+    // Comparing eph_pub.x is exact on the prime-order subgroup (same x implies same point).
     let e0 = intent.change_eph_x;
     let e1 = intent.received_eph_x;
     let e2 = breceived.eph_pub.x;

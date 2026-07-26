@@ -12,10 +12,6 @@ import { circuit as splitMultisig } from "../generated/split_multisig_circuit.js
 import { circuit as swapIntent } from "../generated/swap_intent_circuit.js";
 import { circuit as swapSettle } from "../generated/swap_settle_circuit.js";
 
-// Freezes each circuit's ORDERED public-input layout from the Noir ABI (pub params by name+type, return by
-// flattened shape), catching a same-count reorder that FreezeSeams' COUNT check misses. Not caught: a
-// transposition of two adjacent bare return Fields, or a permutation inside a [F;7] block.
-
 type AbiType = {
   kind: string;
   length?: number;
@@ -42,8 +38,7 @@ function flatCount(t: AbiType | undefined): number {
   return 1;
 }
 
-// Pin the pub-param TYPE too: withdraw_value's `u128` bound is the only withdrawal ceiling (DarkPool reads it
-// unbounded), and widening it to Field leaves name/count/index identical.
+// withdraw_value's u128 bound is the only withdrawal ceiling; widening it to Field would not move any index.
 function typeTag(t: AbiType | undefined): string {
   if (!t) return "?";
   if (t.kind === "integer")
@@ -60,7 +55,6 @@ function pubParamNames(abi: Abi): string[] {
     );
 }
 
-// Return tuple is positional (no names); pin flattened SHAPE not count, so moving a [F;7] block is caught.
 function returnShape(t: AbiType | undefined): string {
   if (!t) return "";
   if (t.kind === "array") return `[${returnShape(t.type)};${t.length}]`;
@@ -94,8 +88,6 @@ function layout(c: { abi: Abi }): {
 const COMPLIANCE = ["compliance_pubkey_x:F", "compliance_pubkey_y:F"];
 
 describe("public-input layout freeze (Noir ABI order)", () => {
-  // DarkPool.deposit: [0,1]=compliance, [4]=value, [5]=asset.
-  // Return (leaf, eph.x, value, asset_id, ciphertext[7]) occupies [2..12].
   it("deposit: compliance + 11-field return = 13", () => {
     expect(layout(deposit as { abi: Abi })).toEqual({
       pub: COMPLIANCE,
@@ -105,7 +97,6 @@ describe("public-input layout freeze (Noir ABI order)", () => {
     });
   });
 
-  // DarkPool._transfer: [0,1]=compliance, [2]=nullifier, [3]=root.
   it("transfer: compliance + 22-field return = 24", () => {
     expect(layout(transfer as { abi: Abi })).toEqual({
       pub: COMPLIANCE,
@@ -115,8 +106,6 @@ describe("public-input layout freeze (Noir ABI order)", () => {
     });
   });
 
-  // DarkPool._withdraw: [0]=withdraw_value, [1]=recipient, [3,4]=compliance, [5]=nullifier, [6]=root,
-  // [7]=asset. The named pub-param prefix maps one-to-one onto those index reads.
   it("withdraw: named pub-param prefix matches the DarkPool index reads, + 12-field return = 17", () => {
     expect(layout(withdraw as { abi: Abi })).toEqual({
       pub: [
@@ -131,7 +120,6 @@ describe("public-input layout freeze (Noir ABI order)", () => {
     });
   });
 
-  // DarkPool._join: [0,1]=compliance, [2]=nullifier_a, [3]=nullifier_b, [4]=root.
   it("join: compliance + 12-field return = 14", () => {
     expect(layout(join as { abi: Abi })).toEqual({
       pub: COMPLIANCE,
@@ -141,7 +129,6 @@ describe("public-input layout freeze (Noir ABI order)", () => {
     });
   });
 
-  // DarkPool._split: [0,1]=compliance, [2]=nullifier, [3]=root.
   it("split: compliance + 20-field return = 22", () => {
     expect(layout(split as { abi: Abi })).toEqual({
       pub: COMPLIANCE,
@@ -151,8 +138,6 @@ describe("public-input layout freeze (Noir ABI order)", () => {
     });
   });
 
-  // DarkPool.publicClaim: [0]=memo_id, [1,2]=compliance, [3]=current_timestamp.
-  // memo_id leads here, unlike every other circuit, so the ordering is load-bearing.
   it("public_claim: memo_id leads the pub params, + 9-field return = 13", () => {
     expect(layout(publicClaim as { abi: Abi })).toEqual({
       pub: ["memo_id:F", ...COMPLIANCE, "current_timestamp:F"],
@@ -171,8 +156,6 @@ describe("public-input layout freeze (Noir ABI order)", () => {
     });
   });
 
-  // Twin of withdraw, but the pub params are named without the leading underscore. The DarkPool index
-  // reads are shared, so the ARITY and ORDER must stay identical even though the names differ.
   it("withdraw_multisig: shares the withdraw layout (twin) = 17", () => {
     expect(layout(withdrawMultisig as { abi: Abi })).toEqual({
       pub: [
@@ -205,8 +188,6 @@ describe("public-input layout freeze (Noir ABI order)", () => {
     });
   });
 
-  // Kage inner. Nothing is a pub PARAMETER: the whole vector is the returned [Field; INTENT_PI_LEN], which
-  // swap_settle consumes positionally as `intent_public_inputs`. A change to this arity breaks that seam.
   it("swap_intent: no pub params, 27-field return = 27", () => {
     expect(layout(swapIntent as { abi: Abi })).toEqual({
       pub: [],
@@ -216,9 +197,6 @@ describe("public-input layout freeze (Noir ABI order)", () => {
     });
   });
 
-  // Kage outer, the widest return in the set. DarkPool._kage: [0,1]=compliance, [2]=current_timestamp,
-  // [3,4]=nullifiers, [5]=root, then four (leaf, eph.x, ciphertext[7]) blocks at leaf offsets 6, 15, 24, 33.
-  // The four blocks are what the shape has to hold in place: moving one shifts every _insertNote offset.
   it("swap_settle: compliance + timestamp, 39-field return = 42", () => {
     expect(layout(swapSettle as { abi: Abi })).toEqual({
       pub: [...COMPLIANCE, "current_timestamp:F"],
@@ -228,8 +206,6 @@ describe("public-input layout freeze (Noir ABI order)", () => {
     });
   });
 
-  // The standard/multisig twins share DarkPool's index reads, so a change to one alone is a parity break
-  // that the per-circuit cases above would each still accept.
   it("standard and multisig twins have identical layouts", () => {
     const pairs: [string, { abi: Abi }, { abi: Abi }][] = [
       ["transfer", transfer as { abi: Abi }, transferMultisig as { abi: Abi }],
@@ -241,7 +217,6 @@ describe("public-input layout freeze (Noir ABI order)", () => {
         layout(std),
       );
     }
-    // withdraw's twin renames the pub params, so only arity and order are comparable.
     const w = layout(withdraw as { abi: Abi });
     const wm = layout(withdrawMultisig as { abi: Abi });
     expect([wm.pub.length, wm.ret, wm.total]).toEqual([

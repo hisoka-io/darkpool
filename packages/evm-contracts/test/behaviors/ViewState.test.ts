@@ -11,7 +11,7 @@ import { LeanIMT, toFr } from "@hisoka/wallets";
 describe("ViewState: frontier tree parity + nextLeafIndex", function () {
   let harness: MerkleTreeLibHarness;
   let poseidon2Lib: Poseidon2;
-  const TREE_DEPTH = 32; // Full tree depth for production parity
+  const TREE_DEPTH = 32;
 
   function toBytes32(value: bigint): string {
     return ethers.zeroPadValue(ethers.toBeHex(value), 32);

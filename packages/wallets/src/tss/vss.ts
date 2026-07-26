@@ -1,5 +1,3 @@
-// Feldman VSS over BabyJubJub.
-
 import {
   Point,
   IDENTITY,

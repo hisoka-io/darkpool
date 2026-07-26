@@ -1,6 +1,3 @@
-// note_type=MULTISIG note reader. Self-contained: a MULTISIG note has no single spend scalar (spend is a
-// FROST quorum), so it does not fit the WalletNote record.
-
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "../tss/bjj.js";
 import { toFr } from "../crypto/fields.js";
@@ -36,7 +33,6 @@ export interface MultisigNoteView {
 }
 
 export interface MultisigScanConfig {
-  /** Shared viewing scalar (secret; never log). */
   v: Fr;
   gpk: Point;
   compliancePk: Point;
@@ -50,7 +46,6 @@ interface SelfSource {
   eph: Fr;
 }
 
-/** Build via `create` (the tag precompute is async). */
 export class MultisigScanner {
   readonly #v: Fr;
   readonly #compliancePk: Point;
@@ -94,7 +89,7 @@ export class MultisigScanner {
     );
   }
 
-  /** A malformed event is SKIPPED (null), not thrown; a skip logs only a trace id, never a key/cek/plaintext. */
+  /** A malformed event is SKIPPED (null), not thrown; a skip logs only a trace id, never key/cek/plaintext. */
   async readNote(event: UnprocessedEvent): Promise<MultisigNoteView | null> {
     try {
       if (event.type === "NEW_MEMO") return await this.#readIncoming(event);

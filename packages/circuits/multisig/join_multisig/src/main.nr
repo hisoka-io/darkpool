@@ -31,10 +31,10 @@ fn main(
     let (nullifier_b, root_b) = open_multisig_note(note_b, gpk_b, index_b, path_b);
     assert(root_a == root_b, "inputs must share a root");
     assert(nullifier_a != nullifier_b, "cannot join a note with itself");
-    assert(index_a.lt(index_b), "join inputs must be strictly index-ordered");
+    // verify_spend's to_le_bits::<TREE_DEPTH> already range-bound both indexes, so the u32 compare is exact.
+    assert((index_a as u32) < (index_b as u32), "join inputs must be strictly index-ordered");
 
-    // Same-account only: a cross-account join with an unbound output owner would let either signer redirect
-    // the merged value out of the other's reach (deferred feature).
+    // Cross-account join is barred: with an unbound output owner either signer could redirect the merged value.
     assert((gpk_a.x == gpk_b.x) & (gpk_a.y == gpk_b.y), "join inputs must share one account gpk");
 
     assert(note_a.asset_id == note_b.asset_id, "input asset mismatch");
@@ -51,7 +51,6 @@ fn main(
     (nullifier_a, nullifier_b, root_a, out.leaf, out.eph_pub.x, out.ciphertext)
 }
 
-// dummy (r,z): output guards reject before verify_frost_spend
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 global ASSET_ID: Field = 0x1234567890123456789012345678901234567890;
@@ -79,7 +78,7 @@ fn join_input(value: u128, owner: Field, psi: Field) -> Note {
     Note {
         note_version: 1,
         asset_id: ASSET_ID,
-        note_type: 1, // MULTISIG
+        note_type: 1,
         conditions_hash: 0,
         value,
         owner,
@@ -215,8 +214,7 @@ fn audit_reject_cross_account_gpk() {
     );
 }
 
-// Real 3-of-5 FROST witness from the TS signer (gen-join-multisig-kat); accept parity. Both inputs share one
-// account gpk, so a single (R,z) verifies for gpk_a and gpk_b over the same m.
+// Real 3-of-5 FROST witness from the TS signer (gen-join-multisig-kat); accept parity.
 global KAT_PSI_OUT: Field = 0x2aaee0e06ff8b0e8cf78d66b27f27fe9d0e82cc687724cee2eb92b0d8a90c2c2;
 global KAT_FROST_Z: Field = 0x0413fd66ff083810c4ed2b5983fe1bb590b1f504f72cf71f463c5e2af0665969;
 
@@ -268,7 +266,6 @@ fn kat_multisig_join_accepts() {
     );
 }
 
-// mutating only z_b exercises the second verify: first passes, second rejects
 #[test(should_fail_with = "FROST signature invalid")]
 fn audit_reject_mutated_signed_z_b() {
     let note_a = join_input(100, gpk_owner(), 0x01);

@@ -2,9 +2,6 @@ import { describe, it, expect } from "vitest";
 import { circuit } from "../generated/swap_settle_circuit.js";
 import { SETTLE_PI_LEN } from "../config.js";
 
-// Derives swap_settle's per-index layout from the ABI and pins it against DarkPool._kage's index reads;
-// SETTLE_PI_LEN follows from the ABI, never the source. Not caught: a swap of two whole (identical) note blocks.
-
 const DARKPOOL_KAGE = {
   inputsLength: 42,
   complianceX: 0,
@@ -101,7 +98,6 @@ describe("Kage Noir<->Sol layout parity", () => {
   });
 
   it("every note block is (leaf, eph.x, ciphertext[7]) at the _insertNote offsets", () => {
-    // Each ciphertext array is preceded by two bare fields (leaf, eph.x) so _insertNote's triple is contiguous.
     expect(ctElements.map((i) => [elemWidth[i - 2], elemWidth[i - 1]])).toEqual(
       [
         [1, 1],

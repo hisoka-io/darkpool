@@ -1,5 +1,4 @@
-// Circuit roster shared by compile_circuit.js + generate_verifier.js; keep in step with
-// circuits/Nargo.toml members and the CIRCUIT_* ids in DarkPool.sol.
+// Keep in step with circuits/Nargo.toml members and the CIRCUIT_* ids in DarkPool.sol.
 export const CIRCUITS = [
   { name: "deposit", verifier: "DepositVerifier.sol" },
   { name: "withdraw", verifier: "WithdrawVerifier.sol" },
@@ -13,8 +12,7 @@ export const CIRCUITS = [
   { name: "join_multisig", verifier: "JoinMultisigVerifier.sol" },
 ];
 
-// Kage swap circuits (native-bb only): swap_intent is an inner proof (no on-chain verifier);
-// swap_settle's verifier needs native bb -- bb.js WASM cannot verify-gen a recursion circuit.
+// swap_intent is inner-only; swap_settle's verifier needs native bb (bb.js WASM excludes recursion).
 export const KAGE_CIRCUITS = [
   { name: "swap_intent", verifier: null },
   { name: "swap_settle", verifier: "KageVerifier.sol" },

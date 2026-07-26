@@ -17,17 +17,14 @@ import { hashUniswapIntent, SwapType, encodePath } from "@hisoka/adaptors";
 import { assert } from "console";
 import { publicKey } from "@hisoka/wallets";
 
-// Within MAX_INTENT_LIFETIME (1h) of the current block, so executeSwap accepts it.
 const swapDeadline = async () =>
   BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 600n;
 
-// publicTransfer validates the escrow destination is on-curve. A placeholder point would be
-// unclaimable in production, so these fixtures use real derived keys.
 const OWNER_0 = publicKey(new Fr(0xa11an));
 const OWNER_1 = publicKey(new Fr(0xb22bn));
 
 describe("Uniswap Adaptor: Multi-Hop Integration", function () {
-  this.timeout(0); // Mainnet Forking
+  this.timeout(0);
 
   let ethUsd: number;
   let btcUsd: number;
@@ -41,7 +38,7 @@ describe("Uniswap Adaptor: Multi-Hop Integration", function () {
   it("should swap WETH -> USDC -> DAI (Exact Input)", async function () {
     const data = await loadFixture(deployUniswapFixture);
     const { uniswapAdaptor, darkPool, alice } = data;
-    const setup = await setupAdaptorNote(data, "1.0"); // 1 WETH
+    const setup = await setupAdaptorNote(data, "1.0");
 
     const path = encodePath(
       [WETH_ADDRESS, USDC_ADDRESS, DAI_ADDRESS],

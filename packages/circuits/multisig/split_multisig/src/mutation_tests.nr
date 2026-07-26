@@ -1,11 +1,10 @@
-//! Mutation harness: 1-in-2-out FROST KAT; mutate one witness/signed input, assert the specific rejection. m binds root/nullifier/out leaves/asset.
+//! Mutation harness: 1-in-2-out FROST KAT; mutate one witness/signed input, assert the specific rejection.
 
 use shared::mutation;
 use shared::note::Note;
 use shared::SUBORDER;
 use shared::TREE_DEPTH;
 
-// mirrors kat_multisig_split_accepts: 100 -> 60(eph4)+40(eph5)
 global IN_VALUE: u128 = 100;
 global OUT1_VALUE: u128 = 60;
 global OUT2_VALUE: u128 = 40;
@@ -142,7 +141,6 @@ fn m_gpk_non_subgroup() {
         EPH_2,
     );
 }
-// valid non-gpk point: owner pin rejects before FROST
 #[test(should_fail_with = "spender does not own this multisig note")]
 fn m_gpk_wrong_valid() {
     v(
@@ -158,7 +156,6 @@ fn m_gpk_wrong_valid() {
     );
 }
 
-// R carries only on-curve + non-identity; the equation binds the rest, checked last.
 #[test(should_fail_with = "R must not be the identity")]
 fn m_frost_r_identity() {
     v(
@@ -239,7 +236,6 @@ fn m_frost_z_mutated() {
     );
 }
 
-// value swap (61+39==100), psi value-independent -> reaches FROST, m mismatch rejects
 #[test(should_fail_with = "FROST signature invalid")]
 fn m_signed_out_value_shift() {
     let mut a1 = o1();
@@ -307,7 +303,6 @@ fn m_old_note_version() {
         EPH_2,
     );
 }
-// still a valid 20-byte asset; trips out1 equality
 #[test(should_fail_with = "out1 asset mismatch")]
 fn m_old_asset_mismatch() {
     let mut n = inp();
@@ -342,7 +337,7 @@ fn m_noncanonical_leaf_index() {
 #[test(should_fail_with = "value not conserved")]
 fn m_value_not_conserved() {
     let mut a1 = o1();
-    a1.value = 61; // 61 + 40 = 101 != 100
+    a1.value = 61;
     v(
         gpk(),
         r(),
@@ -358,7 +353,7 @@ fn m_value_not_conserved() {
 #[test(should_fail_with = "attempt to add with overflow")]
 fn m_value_output_overflow() {
     let mut a1 = o1();
-    a1.value = 0xffffffffffffffffffffffffffffffff; // u128 max; max + out2 overflows the output sum
+    a1.value = 0xffffffffffffffffffffffffffffffff;
     v(
         gpk(),
         r(),
@@ -469,7 +464,6 @@ fn m_out1_parents_forged() {
     );
 }
 
-// out1 mints fully so out2's guards are reached
 #[test(should_fail_with = "multisig change/self must be owned by the account gpk")]
 fn m_out2_owner_off_gpk() {
     let mut a2 = o2();

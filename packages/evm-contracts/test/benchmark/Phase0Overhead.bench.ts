@@ -12,8 +12,8 @@ import { addressToFr } from "@hisoka/wallets";
 import { proveDeposit } from "@hisoka/prover";
 
 // PHASE0=1 npx hardhat test test/benchmark/Phase0Overhead.bench.ts
-// Nails the verify-vs-overhead split: run the FIRST deposit into a fresh tree twice - once with the real
-// verifier (full action), once with the no-op StubVerifier (pure overhead). Same tree state => clean delta.
+// Verify-vs-overhead gas split: the first deposit into a fresh tree, run once against the real verifier and once
+// against the no-op StubVerifier, so identical tree state gives a clean delta.
 const run = process.env.PHASE0 ? describe : describe.skip;
 
 async function firstDepositGas(useStub: boolean): Promise<bigint> {
@@ -37,7 +37,7 @@ async function firstDepositGas(useStub: boolean): Promise<bigint> {
     ).deploy();
     // CIRCUIT_DEPOSIT = 0; deployer holds UPGRADER_ROLE from initialize.
     await darkPool.connect(deployer).setVerifier(0, await stub.getAddress());
-    proofBytes = "0x"; // stub ignores the proof
+    proofBytes = "0x";
   }
 
   await token.connect(alice).approve(await darkPool.getAddress(), 100n);

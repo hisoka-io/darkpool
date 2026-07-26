@@ -61,7 +61,8 @@ fn check_binding_absent<let MAX_DEPTH: u32>(
         if sibling != 0 {
             let path_bit = path_bits[i] as Field;
             let left = current + path_bit * (sibling - current);
-            let right = sibling + path_bit * (current - sibling);
+            // right is whichever of the pair left is not; the sum is invariant, so one conditional suffices.
+            let right = current + sibling - left;
             current = Poseidon2::hash([left, right], 2);
         } else {
             assert(!path_bits[i], "non-canonical leaf index: right child at empty level");

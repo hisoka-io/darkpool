@@ -17,9 +17,7 @@ import { circuit as split_multisig } from "../generated/split_multisig_circuit.j
 import { circuit as join_multisig } from "../generated/join_multisig_circuit.js";
 import { circuit as swap_settle } from "../generated/swap_settle_circuit.js";
 
-// Prover<->verifier drift guard: re-derives each deployed circuit's VK_HASH from the BUNDLED bytecode via bb.js
-// and asserts it equals contracts/verifiers/vk-hashes.json, catching a circuit edit that regenerated the prover
-// bytecode but not the committed .sol verifiers. bb.js VK == native-bb CLI VK (barretenberg #1649), so CI-safe.
+// bb.js VK == native-bb CLI VK (barretenberg #1649), so this runs in CI without native bb.
 const VK_HASH_RE = /uint256 constant VK_HASH = (0x[0-9a-fA-F]{64});/;
 const EVM = { verifierTarget: "evm" } as const;
 
@@ -28,7 +26,6 @@ const MANIFEST_PATH = resolve(
   "../../../evm-contracts/contracts/verifiers/vk-hashes.json",
 );
 
-// The 11 deployed verifiers (10 base/multisig + swap_settle); swap_intent is inner-only, excluded.
 const DEPLOYED_CIRCUITS: Record<string, CompiledCircuit> = {
   deposit,
   withdraw,

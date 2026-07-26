@@ -6,12 +6,9 @@ import { resolve } from "path";
 import { deployDarkPoolFixture } from "../helpers/fixtures";
 import { BN254_FR } from "../helpers/merkleTree";
 
-// Each KAT fails if its frozen value changes.
 const VERIFIERS_DIR = resolve(process.cwd(), "contracts/verifiers");
 
-// The 10-circuit public-input layout is bound into each verifier's VK; a change forces a verifier+VK regen and a
-// replacement MUST accept all pre-existing notes, so the layout is frozen for the note set. The standard and
-// FROST-multisig twins MUST share one layout (one verify+effects helper routed by circuitId).
+// The public-input layout is bound into each verifier's VK and a replacement MUST accept all pre-existing notes, so it is frozen; the multisig twins share it.
 const PUBLIC_INPUTS: Record<string, number> = {
   DepositVerifier: 21,
   WithdrawVerifier: 25,
@@ -30,8 +27,24 @@ const TWINS: [string, string][] = [
   ["SplitVerifier", "SplitMultisigVerifier"],
   ["JoinVerifier", "JoinMultisigVerifier"],
 ];
-// bb 5.0 --optimized verifiers name the total public-input count NUMBER_PUBLIC_INPUTS (4.x was
-// NUMBER_OF_PUBLIC_INPUTS); the frozen totals are unchanged (contract passes N - 8 pairing-point limbs).
+// bb 5.0 --optimized verifiers name the total NUMBER_PUBLIC_INPUTS (4.x was NUMBER_OF_PUBLIC_INPUTS); the contract passes N - 8 pairing-point limbs.
+// A circuit past its 2^k ceiling silently regenerates at the next LOG_N, so the pair is pinned in both directions.
+const CIRCUIT_DIMS: Record<string, { size: number; logN: number }> = {
+  DepositVerifier: { size: 16384, logN: 14 },
+  PublicClaimVerifier: { size: 16384, logN: 14 },
+  WithdrawVerifier: { size: 32768, logN: 15 },
+  WithdrawMultisigVerifier: { size: 32768, logN: 15 },
+  TransferVerifier: { size: 32768, logN: 15 },
+  JoinVerifier: { size: 32768, logN: 15 },
+  SplitVerifier: { size: 32768, logN: 15 },
+  SplitMultisigVerifier: { size: 32768, logN: 15 },
+  TransferMultisigVerifier: { size: 32768, logN: 15 },
+  JoinMultisigVerifier: { size: 32768, logN: 15 },
+  KageVerifier: { size: 1048576, logN: 20 },
+};
+const SIZE_RE = /constant CIRCUIT_SIZE = (\d+)/;
+const LOGN_RE = /constant LOG_N = (\d+)/;
+
 const N_RE = /constant NUMBER_PUBLIC_INPUTS = (\d+)/;
 const readN = (n: string): number =>
   Number(
@@ -55,6 +68,31 @@ describe("Freeze seams", function () {
     it("standard and FROST-multisig twins share one layout", function () {
       for (const [std, ms] of TWINS)
         expect(readN(std), `${std} vs ${ms}`).to.equal(readN(ms));
+    });
+  });
+
+  describe("circuit-size boundary tripwire", function () {
+    for (const [name, dims] of Object.entries(CIRCUIT_DIMS)) {
+      it(`${name}: CIRCUIT_SIZE == ${dims.size}, LOG_N == ${dims.logN}`, function () {
+        const src = readFileSync(resolve(VERIFIERS_DIR, `${name}.sol`), "utf8");
+        const size = src.match(SIZE_RE);
+        const logN = src.match(LOGN_RE);
+        expect(size, `CIRCUIT_SIZE not found in ${name}`).to.not.equal(null);
+        expect(logN, `LOG_N not found in ${name}`).to.not.equal(null);
+        expect(
+          Number(size![1]),
+          `${name} crossed a 2^k boundary: the circuit no longer fits its pinned size. ` +
+            "Re-measure gates, confirm the change is intended, then re-baseline this table.",
+        ).to.equal(dims.size);
+        expect(Number(logN![1]), `${name} LOG_N moved`).to.equal(dims.logN);
+      });
+    }
+    it("every CIRCUIT_SIZE is a power of two equal to 2^LOG_N", function () {
+      for (const [name, dims] of Object.entries(CIRCUIT_DIMS)) {
+        expect(2 ** dims.logN, `${name} size/LOG_N disagree`).to.equal(
+          dims.size,
+        );
+      }
     });
   });
 

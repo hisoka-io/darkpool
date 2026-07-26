@@ -1,11 +1,36 @@
-//! Discovery-tag = point.x, which aliases (x, +/-y), so an injective tag REQUIRES even y (the wallet rolls
-//! until even). even == LE byte-0 LSB == 0. Ref: intmax2 utils/key.rs even-y address canonicalization.
+//! Tag = point.x aliases (x, +/-y), so an injective tag REQUIRES even y. Ref: intmax2 utils/key.rs.
 
 use ecdh::Point;
 
+// (BN254_Fr + 1) / 2, which is also 2^-1 mod BN254_Fr.
+global HALF_MODULUS: Field = 0x183227397098d014dc2822db40c0ac2e9419f4243cdcb848a1f0fac9f8000001;
+
+// Halving decides parity: even y maps to y/2 < HALF_MODULUS, odd y to (y + p)/2 >= HALF_MODULUS.
 pub fn is_even_y(p: Point) -> bool {
-    let y_le: [u8; 32] = p.y.to_le_bytes();
-    (y_le[0] & 1) == 0
+    (p.y * HALF_MODULUS).lt(HALF_MODULUS)
+}
+
+#[test]
+fn is_even_y_matches_byte_reference() {
+    let reference = |y: Field| -> bool {
+        let y_le: [u8; 32] = y.to_le_bytes();
+        (y_le[0] & 1) == 0
+    };
+    for i in 0..256 {
+        let y = i as Field;
+        assert(is_even_y(Point { x: 0, y }) == reference(y), "small-value parity mismatch");
+    }
+    // Field edges: p-1 (even), p-2 (odd), and both halves of the modulus.
+    let edges = [
+        0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000,
+        0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593efffffff,
+        HALF_MODULUS,
+        HALF_MODULUS - 1,
+    ];
+    for i in 0..4 {
+        let y = edges[i];
+        assert(is_even_y(Point { x: 0, y }) == reference(y), "edge parity mismatch");
+    }
 }
 
 #[test]

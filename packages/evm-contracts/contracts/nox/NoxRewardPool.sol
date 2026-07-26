@@ -15,12 +15,9 @@ interface INoxRegistry {
 
 /**
  * @title NoxRewardPool
- * @author Hisoka Protocol
- * @notice The centralized treasury for the NOX Relayer Network.
- * @dev Escrow that collects ERC20 gas fees and distributes them to relayers; the split is
- *      computed off-chain by the Distributor. UUPS proxy: all mutable state lives in an ERC-7201
- *      namespace; the registry link is set in initialize (never zero under the proxy). Upgrades
- *      gated by UPGRADER_ROLE.
+ * @notice Treasury for the NOX Relayer Network: collects ERC20 gas fees and pays them out to relayers.
+ * @dev The split is computed off-chain by the Distributor. UUPS proxy over an ERC-7201 namespace; the
+ *      registry link is set in initialize, so it is never zero under the proxy.
  */
 contract NoxRewardPool is
     Initializable,
@@ -47,8 +44,7 @@ contract NoxRewardPool is
         mapping(address => uint256) totalDistributed;
     }
 
-    /// @dev Inlined upgradeable reentrancy guard against OZ's canonical namespace; contracts-upgradeable
-    /// 5.6.1 dropped ReentrancyGuardUpgradeable once the base became stateless.
+    /// @dev Inlined on OZ's canonical namespace; contracts-upgradeable 5.6.1 dropped ReentrancyGuardUpgradeable.
     /// @custom:storage-location erc7201:openzeppelin.storage.ReentrancyGuard
     struct ReentrancyStorage {
         uint256 status;
@@ -127,10 +123,7 @@ contract NoxRewardPool is
         _disableInitializers();
     }
 
-    /**
-     * @notice One-time proxy initialization. Grants roles to the passed-in governance addresses
-     *         (never msg.sender) and links the relayer registry. Callable exactly once.
-     */
+    /// @notice One-time proxy init. Roles go to the passed-in governance addresses, never msg.sender.
     function initialize(InitParams calldata p) external initializer {
         if (p.initialAdmin == address(0)) revert ZeroAddress();
         if (p.noxRegistry == address(0)) revert ZeroAddress();
@@ -158,12 +151,7 @@ contract NoxRewardPool is
     ) internal override onlyRole(UPGRADER_ROLE) {}
     // solhint-enable no-empty-blocks
 
-    /**
-     * @notice Toggle support for a gas token (e.g., USDC, WETH).
-     * @dev Only ERC20s allowed. No raw ETH.
-     * @param _asset The ERC20 token address.
-     * @param _status True to enable, False to disable.
-     */
+    /// @notice Toggle support for a gas token. ERC20 only, no raw ETH.
     function setAssetStatus(
         address _asset,
         bool _status
@@ -173,25 +161,19 @@ contract NoxRewardPool is
         emit AssetStatusChanged(_asset, _status);
     }
 
-    /**
-     * @notice Emergency pause for distributions/deposits.
-     */
+    /// @notice Emergency pause for deposits and distributions.
     function pause() external onlyRole(ADMIN_ROLE) {
         _pause();
     }
 
-    /**
-     * @notice Unpause operations.
-     */
+    /// @notice Resume deposits and distributions.
     function unpause() external onlyRole(ADMIN_ROLE) {
         _unpause();
     }
 
-    /**
-     * @notice Accepts gas payments from DarkPool or Users.
-     * @param _asset The ERC20 token address.
-     * @param _amount The amount to deposit.
-     */
+    /// @notice Accept gas payments from the DarkPool or from users.
+    /// @param _asset Whitelisted ERC20 to deposit; fee-on-transfer tokens are rejected.
+    /// @param _amount Amount to pull from the caller.
     function depositRewards(
         address _asset,
         uint256 _amount
@@ -210,14 +192,8 @@ contract NoxRewardPool is
         emit RewardsDeposited(_asset, msg.sender, _amount);
     }
 
-    /**
-     * @notice Distributes accumulated fees to a list of relayers.
-     * @dev Recipients must be registered relayers. Checks-effects-interactions: solvency is verified and
-     *      accounting updated before any transfer.
-     * @param _asset The ERC20 token to distribute (must be whitelisted).
-     * @param _recipients Array of relayer addresses.
-     * @param _amounts Array of amounts to send.
-     */
+    /// @notice Distribute accumulated fees to registered relayers.
+    /// @dev Checks-effects-interactions: solvency is verified and accounting updated before any transfer.
     function distributeRewards(
         address _asset,
         address[] calldata _recipients,
@@ -250,8 +226,8 @@ contract NoxRewardPool is
         emit RewardsDistributed(_asset, batchTotal, _recipients.length);
     }
 
-    /// @notice Rescue tokens that are not owed to relayers. Committed rewards (collected minus
-    ///         distributed) are never rescuable regardless of the whitelist flag; only the free surplus is.
+    /// @notice Rescue only the free surplus. Committed rewards (collected minus distributed) are never
+    ///         rescuable, regardless of the whitelist flag.
     function rescueFunds(
         address _asset,
         address _to,
@@ -281,10 +257,12 @@ contract NoxRewardPool is
         return _rewardPool().isSupportedAsset[_asset];
     }
 
+    /// @notice Lifetime deposits of an asset; minus totalDistributed this is the committed reward balance.
     function totalCollected(address _asset) external view returns (uint256) {
         return _rewardPool().totalCollected[_asset];
     }
 
+    /// @notice Lifetime payouts of an asset to relayers.
     function totalDistributed(address _asset) external view returns (uint256) {
         return _rewardPool().totalDistributed[_asset];
     }

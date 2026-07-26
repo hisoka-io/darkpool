@@ -16,7 +16,6 @@ const DEPLOYMENT_BLOCK = 500;
 
 type Query = { name: string; fromBlock: number };
 
-// Records the fromBlock each event query is issued with; returns no logs, so a scan is pure query behaviour.
 function recordingContract(log: Query[]): Contract {
   const filterFor = (name: string) => () => ({ name });
   return {
@@ -54,7 +53,6 @@ async function engineWith(
 }
 
 describe("ScanEngine block floor", () => {
-  // Regression: a resync above deployment must floor note+memo queries too, not just nullifiers (else earlier notes vanish, balance understated).
   it("floors note and memo queries to the deployment block, not the caller's cursor", async () => {
     const queries: Query[] = [];
     const { engine } = await engineWith(queries);
@@ -83,8 +81,6 @@ describe("ScanEngine block floor", () => {
     for (const q of queries) expect(q.fromBlock).toBe(1);
   });
 
-  // The pass loop re-runs only to widen the key lookahead; the log range is identical every pass, so the
-  // three range queries must be issued once per sync rather than once per pass.
   it("issues each range query once per sync regardless of pass count", async () => {
     const queries: Query[] = [];
     const { engine, keyRepo } = await engineWith(queries);

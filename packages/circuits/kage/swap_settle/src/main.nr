@@ -1,6 +1,4 @@
-//! swap_settle (maker): verifies the taker's swap_intent inside, spends B_in, mints maker's two self-notes; on-chain
-//! output = 2 nullifiers + 4 leaves + events (no terms). Constraints in kage_lib (nargo-tested); recursion call is
-//! e2e-only.
+//! swap_settle (maker): verifies the taker's swap_intent inside, spends B_in, mints the maker's two self-notes.
 
 use ::ecdh::Point;
 use ::kage_lib::{
@@ -31,7 +29,7 @@ Field, Field, [Field; 7], // taker_received (relayed): leaf, eph.x, ct
 Field, Field, [Field; 7], // maker_received: leaf, eph.x, ct
 Field, Field, [Field; 7] // maker_change: leaf, eph.x, ct
 ) {
-    // verification_key is an untrusted solver witness; pinned only by INTENT_VK_HASH (see kage_lib).
+    // verification_key is an untrusted solver witness; pinned only by INTENT_VK_HASH.
     std::verify_proof_with_type(
         verification_key,
         intent_proof,

@@ -24,7 +24,6 @@ describe("Uniswap Adaptor Logic", () => {
   });
 
   describe("hashUniswapIntent", () => {
-    // Goldens pinned to Solidity _calculateIntentHash/_bindDeadline (see UniswapIntentParity.test.ts); all 4 types differ per Solidity helper.
     const A_IN = "0x1111111111111111111111111111111111111111";
     const A_OUT = "0x2222222222222222222222222222222222222222";
     const RECIPIENT = { ownerX: 111n, ownerY: 222n };

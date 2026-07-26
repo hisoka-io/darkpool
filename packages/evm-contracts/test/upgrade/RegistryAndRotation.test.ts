@@ -31,8 +31,7 @@ import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
 
 const CIRCUIT_WITHDRAW = 1;
 
-/** Build a self note whose psi wraps to an ARBITRARY compliance key (the fixtures helper hardcodes the
- * deployment key; rotation tests need notes under a rotated key). Mirrors fixtures.finishNote. */
+/** Self note whose psi wraps to an ARBITRARY compliance key; the fixtures helper hardcodes the deployment one. */
 async function buildSelfNoteWithPk(
   eph: Fr,
   value: bigint,
@@ -77,7 +76,7 @@ describe("Verifier backward-compat + compliance rotation", function () {
 
       const dep = await makeDeposit(darkPool, token, alice, 100n);
       const tree = await newSeededTree();
-      await tree.insert(dep.commitment); // index 1
+      await tree.insert(dep.commitment);
 
       const oldVerifier = await darkPool.verifier(CIRCUIT_WITHDRAW);
       const fresh = await (
@@ -114,7 +113,6 @@ describe("Verifier backward-compat + compliance rotation", function () {
       };
       const proof = await proveWithdraw(inputs);
 
-      // The redeployed verifier (identical VK) accepts the pre-existing note: it spends.
       await darkPool.connect(alice).withdraw(proof.proof, proof.publicInputs);
       expect(await darkPool.isNullifierSpent(proof.publicInputs[5])).to.equal(
         true,
@@ -132,20 +130,17 @@ describe("Verifier backward-compat + compliance rotation", function () {
       const assetFr = addressToFr(await token.getAddress());
       const spendScalar = await userSpendScalar(alice.address);
 
-      // Note minted under the OLD key, before rotation.
       const depOld = await makeDeposit(darkPool, token, alice, 100n);
       const tree = await newSeededTree();
-      await tree.insert(depOld.commitment); // leaf 1
+      await tree.insert(depOld.commitment);
 
       await darkPool.rotateComplianceKey(NEW_PK[0], NEW_PK[1]);
 
-      // (d) getter reflects the new key at version 2.
       const [x, y, version] = await darkPool.complianceKey();
       expect(x).to.equal(NEW_PK[0]);
       expect(y).to.equal(NEW_PK[1]);
       expect(version).to.equal(2n);
 
-      // (a) a proof pinning the OLD key is now stale.
       const staleEph = evenYEphemeral(2001n);
       const staleNote = await buildSelfNoteWithPk(
         staleEph,
@@ -164,8 +159,7 @@ describe("Verifier backward-compat + compliance rotation", function () {
         .to.be.revertedWithCustomError(darkPool, "ComplianceKeyStale")
         .withArgs(2n, NEW_PK[0], NEW_PK[1]);
 
-      // (c) the OLD note (encrypted to the old key) still spends after rotation; its change note is
-      // re-encrypted to the CURRENT (new) key so the on-chain compliance check passes.
+      // The OLD note still spends after rotation, and its change note is re-encrypted to the CURRENT key.
       const changeEph = evenYEphemeral(3003n);
       const change = await buildSelfNoteWithPk(
         changeEph,
@@ -192,9 +186,8 @@ describe("Verifier backward-compat + compliance rotation", function () {
       expect(await darkPool.isNullifierSpent(wProof.publicInputs[5])).to.equal(
         true,
       );
-      await tree.insert(change.commitment); // leaf 2
+      await tree.insert(change.commitment);
 
-      // (b) a fresh proof pinning the NEW key is accepted.
       const newEph = evenYEphemeral(4004n);
       const newNote = await buildSelfNoteWithPk(
         newEph,

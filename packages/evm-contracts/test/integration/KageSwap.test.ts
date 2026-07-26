@@ -2,10 +2,7 @@ import { expect } from "chai";
 import { ethers, upgrades } from "hardhat";
 import { DarkPool } from "../../typechain-types";
 
-// Effects + guards for the kageSwap entrypoint. A StubVerifier stands in for the recursive Honk verifier (whose
-// soundness is proven separately by the native-bb VK-pin gate), so this suite exercises exactly what the contract
-// owns and the circuit deliberately cannot: the isKnownRoot / compliance / timestamp-FLOOR guards, the
-// 2-nullifier / 4-insert / 4-event additive effects, and that a swap moves no ERC20.
+// A StubVerifier stands in for the recursive Honk verifier: this covers only the isKnownRoot / compliance / timestamp-FLOOR guards and the 2-nullifier / 4-insert effects.
 
 // Canonical BabyJubJub Base8 (on-curve; initialize accepts it), used here as the registered compliance key.
 const BASE8_X =
@@ -78,8 +75,8 @@ async function kagePublicInputs(
   pi[5] = over.root ?? (await darkPool.getCurrentRoot());
   const leaves = [6, 15, 24, 33];
   leaves.forEach((idx, i) => {
-    pi[idx] = b32(0xa10n + BigInt(i)); // distinct nonzero leaves
-    pi[idx + 1] = b32(0xe10n + BigInt(i)); // eph_pub.x
+    pi[idx] = b32(0xa10n + BigInt(i));
+    pi[idx + 1] = b32(0xe10n + BigInt(i));
   });
   return pi;
 }
@@ -109,7 +106,6 @@ describe("kageSwap (effects + guards)", function () {
       }
     });
     expect(newNotes.length).to.equal(4);
-    // No ERC20 path exists in kageSwap (no token param, no transfer): a swap is purely internal.
     expect(
       await ethers.provider.getBalance(await darkPool.getAddress()),
     ).to.equal(0n);
@@ -155,7 +151,6 @@ describe("kageSwap (effects + guards)", function () {
   it("reverts NullifierAlreadySpent on nullifier reuse across swaps", async function () {
     const pi1 = await kagePublicInputs(darkPool, { nullifierA: 0x7777n });
     await darkPool.kageSwap("0x", pi1);
-    // A second swap reusing nullifier_a (as its nullifier_b) must revert.
     const pi2 = await kagePublicInputs(darkPool, {
       nullifierA: 0x8888n,
       nullifierB: 0x7777n,

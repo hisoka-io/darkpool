@@ -203,7 +203,6 @@ describe("buildSwapIntent", () => {
   });
 });
 
-// Salt blocks a griefer front-running the pending swap's memo id (else the swap reverts on MemoCollision).
 describe("buildSwapIntent salt entropy", () => {
   const { salt: _drop, ...unsalted } = exactInputSingle;
 

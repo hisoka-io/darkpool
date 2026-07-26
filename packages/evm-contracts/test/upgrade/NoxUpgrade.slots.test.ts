@@ -26,8 +26,7 @@ async function slotValue(addr: string, slot: string): Promise<bigint> {
   return BigInt(await ethers.provider.getStorage(addr, slot));
 }
 
-// The *_LOCATION constants hardcoded in the Nox contracts; the ERC-7201 formula must reproduce them, and a
-// raw-storage read must find init values at them (catching a typo that the plugin's source-string scan misses).
+// The *_LOCATION constants hardcoded in the Nox contracts: the ERC-7201 formula must reproduce them and a raw read must find init values there.
 const REGISTRY_LOCATION =
   "0xe2348d1bc3620e4f532594e661dc0600650faeb9b23105efb1d75c3e0e027400";
 const REWARDPOOL_LOCATION =
@@ -35,8 +34,7 @@ const REWARDPOOL_LOCATION =
 const REENTRANCY_LOCATION =
   "0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00";
 
-// Every OZ base whose storage these proxies inherit. A Nox namespace colliding with one silently corrupts
-// roles/pause/init state; the reentrancy guard intentionally REUSES the ReentrancyGuard namespace.
+// A colliding Nox namespace silently corrupts roles/pause state; the reentrancy guard intentionally REUSES the ReentrancyGuard namespace.
 const OZ_NAMESPACES = [
   "openzeppelin.storage.AccessControl",
   "openzeppelin.storage.Pausable",
@@ -88,7 +86,6 @@ describe("Nox UUPS: ERC-7201 slots + proxy init + upgrade auth", function () {
           REGISTRY_LOCATION,
         );
       }
-      // The reentrancy guard deliberately reuses OZ's canonical namespace, not a Nox-specific one.
       expect(erc7201("openzeppelin.storage.ReentrancyGuard")).to.equal(
         REENTRANCY_LOCATION,
       );

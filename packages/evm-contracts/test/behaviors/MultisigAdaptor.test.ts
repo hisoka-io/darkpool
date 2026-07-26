@@ -54,7 +54,7 @@ describe("Behavior: MockMultisigAdaptor (FROST withdraw -> public-transfer)", fu
       0x9a01n,
     );
     const tree = await newSeededTree();
-    await tree.insert(ms.commitment); // index 1
+    await tree.insert(ms.commitment);
     const nullifier = await computeNullifier(ms.psi, toFr(1n));
 
     const changeEph = evenYEphemeral(0x9a02n);
@@ -93,7 +93,6 @@ describe("Behavior: MockMultisigAdaptor (FROST withdraw -> public-transfer)", fu
       changeEph,
     });
 
-    // Re-shield the withdrawn public funds as a memo claimable by the group (owner == gpk).
     const salt = 0x515n;
     const ownerX = account.gpk[0];
     const ownerY = account.gpk[1];
@@ -119,16 +118,15 @@ describe("Behavior: MockMultisigAdaptor (FROST withdraw -> public-transfer)", fu
     expect(await token.balanceOf(adaptorAddr)).to.equal(0n);
     expect(await token.allowance(adaptorAddr, poolAddr)).to.equal(0n);
 
-    // Net pool ERC20 is conserved (40 out on withdraw, 40 back on publicTransfer); the change note lands.
     expect(await token.balanceOf(poolAddr)).to.equal(poolBefore);
-    await tree.insert(change.commitment); // index 2
+    await tree.insert(change.commitment);
     expect(await darkPool.getCurrentRoot()).to.equal(tree.getRoot().toString());
   });
 
   it("rejects a withdraw whose recipient is not the adaptor before touching the pool", async function () {
     const { adaptor, bob } = await loadFixture(deployAdaptorFixture);
     const inputs = Array(17).fill(ethers.ZeroHash);
-    inputs[1] = ethers.zeroPadValue(bob.address, 32); // recipient != adaptor
+    inputs[1] = ethers.zeroPadValue(bob.address, 32);
     await expect(
       adaptor.pullAndForward("0x", inputs, 1n, 2n, 0n),
     ).to.be.revertedWithCustomError(adaptor, "RecipientNotAdaptor");

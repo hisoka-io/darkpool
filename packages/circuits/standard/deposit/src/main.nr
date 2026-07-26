@@ -65,3 +65,10 @@ fn audit_reject_note_type_2() {
     note.note_type = 2;
     let _ = main(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note, 5);
 }
+
+#[test]
+fn audit_accept_note_type_1_multisig() {
+    let mut note = fixture_note();
+    note.note_type = 1;
+    let _ = main(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note, 5);
+}

@@ -28,7 +28,6 @@ import { proveTransfer, TransferInputs } from "@hisoka/prover";
 import { Point } from "@zk-kit/baby-jubjub";
 import { DarkPool } from "../../typechain-types";
 
-// Compliance reads every note structurally: CEK = (complianceSk * eph_pub).x, psi -> nullifier follows.
 class ComplianceTool {
   public observedNotes: Map<string, { note: Note; type: "NOTE" | "MEMO" }> =
     new Map();
@@ -103,7 +102,7 @@ describe("Integration: Compliance God View", function () {
 
     const dep = await makeDeposit(darkPool, token, alice, 100n);
     const tree = await newSeededTree();
-    await tree.insert(dep.commitment); // index 1
+    await tree.insert(dep.commitment);
 
     const bobInKey = evenYEphemeral(555n);
     const bobInPub = publicKey(bobInKey);
@@ -146,7 +145,7 @@ describe("Integration: Compliance God View", function () {
     await tool.sync();
     const report = tool.report();
 
-    expect(report.length).to.equal(3); // Deposit, Memo, Change
+    expect(report.length).to.equal(3);
 
     const depEntry = report.find((r) => r.amount === 100n);
     expect(depEntry).to.not.equal(undefined);

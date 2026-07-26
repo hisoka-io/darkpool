@@ -13,16 +13,13 @@ import { hashUniswapIntent, SwapType, encodePath } from "@hisoka/adaptors";
 import { RelayerMulticall__factory } from "../../../../typechain-types";
 import { publicKey } from "@hisoka/wallets";
 
-// Within MAX_INTENT_LIFETIME (1h) of the current block, so executeSwap accepts it.
 const swapDeadline = async () =>
   BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 600n;
 
-// publicTransfer validates the escrow destination is on-curve. A placeholder point would be
-// unclaimable in production, so these fixtures use real derived keys.
 const OWNER = publicKey(new Fr(0xd44dn));
 
 describe("Relayer Safe Settlement: Integration", function () {
-  this.timeout(0); // Mainnet Forking
+  this.timeout(0);
 
   it("should process Payment but shield Relayer from failed Swap", async function () {
     const data = await loadFixture(deployUniswapFixture);

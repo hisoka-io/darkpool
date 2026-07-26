@@ -5,9 +5,8 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /**
  * @title ComplianceRegistry
- * @notice Event-log audit trail for the threshold-compliance committee: a registered member broadcasts each
- *         action (requested / evaluated / signed / decrypted) as an event. No on-chain proof or signature
- *         check -- this is an attestation log, not a cryptographic gate; the committee key lives off-chain.
+ * @notice Event-log audit trail for the threshold-compliance committee. Nothing is verified on-chain: this
+ *         is an attestation log, not a cryptographic gate, and the committee key lives off-chain.
  */
 contract ComplianceRegistry is AccessControl {
     bytes32 public constant COMMITTEE_ADMIN_ROLE =
@@ -57,6 +56,7 @@ contract ComplianceRegistry is AccessControl {
         _grantRole(COMMITTEE_ADMIN_ROLE, admin);
     }
 
+    /// @notice Admit an address to the compliance committee and grant it MEMBER_ROLE.
     function registerMember(
         address member,
         string calldata metadata
@@ -69,6 +69,7 @@ contract ComplianceRegistry is AccessControl {
         emit MemberRegistered(member, metadata);
     }
 
+    /// @notice Remove a committee member and revoke MEMBER_ROLE; past attestations stay in the log.
     function deregisterMember(
         address member
     ) external onlyRole(COMMITTEE_ADMIN_ROLE) {

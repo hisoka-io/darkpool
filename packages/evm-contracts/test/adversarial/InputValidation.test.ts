@@ -21,7 +21,6 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
     it("should reject Deposit with invalid input length", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
 
-      // Expected: 13 inputs
       const tooShort = Array(12).fill(randomBytes32());
       const tooLong = Array(14).fill(randomBytes32());
 
@@ -37,7 +36,6 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
     it("should reject Withdraw with invalid input length", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
 
-      // Expected: 17 inputs
       const tooShort = Array(16).fill(randomBytes32());
 
       await expect(
@@ -48,7 +46,6 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
     it("should reject Private Transfer with invalid input length", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
 
-      // Expected: 24 inputs
       const tooShort = Array(23).fill(randomBytes32());
 
       await expect(
@@ -58,7 +55,6 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
 
     it("should reject Join with invalid input length", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
-      // Expected: 14
       await expect(
         darkPool.connect(alice).join(DUMMY_PROOF, []),
       ).to.be.revertedWithCustomError(darkPool, "InvalidInputsLength");
@@ -66,7 +62,6 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
 
     it("should reject Split with invalid input length", async function () {
       const { darkPool, alice } = await loadFixture(fixture);
-      // Expected: 22
       await expect(
         darkPool.connect(alice).split(DUMMY_PROOF, []),
       ).to.be.revertedWithCustomError(darkPool, "InvalidInputsLength");
@@ -78,7 +73,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
       const { darkPool, alice } = await loadFixture(fixture);
       const inputs = Array(13).fill(randomBytes32());
 
-      inputs[0] = ethers.ZeroHash; // index 0 = compliance X
+      inputs[0] = ethers.ZeroHash;
 
       await expect(
         darkPool.connect(alice).deposit(DUMMY_PROOF, inputs),
@@ -89,9 +84,8 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
       const { darkPool, alice } = await loadFixture(fixture);
       const inputs = Array(17).fill(randomBytes32());
 
-      inputs[6] = await darkPool.getCurrentRoot(); // root at [6]
+      inputs[6] = await darkPool.getCurrentRoot();
 
-      // Withdraw compliance key at [3,4]: valid X, invalid Y
       inputs[3] = ethers.zeroPadValue(ethers.toBeHex(COMPLIANCE_PK[0]), 32);
       inputs[4] = ethers.ZeroHash;
 
@@ -104,10 +98,9 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
       const { darkPool, alice } = await loadFixture(fixture);
       const inputs = Array(24).fill(randomBytes32());
 
-      inputs[3] = await darkPool.getCurrentRoot(); // pass root check (root at [3])
+      inputs[3] = await darkPool.getCurrentRoot();
 
-      // Transfer compliance key at [0,1]
-      inputs[0] = ethers.ZeroHash; // invalid X
+      inputs[0] = ethers.ZeroHash;
 
       await expect(
         darkPool.connect(alice).privateTransfer(DUMMY_PROOF, inputs),
@@ -120,7 +113,7 @@ describe("Adversarial: Input Validation & Pre-checks", function () {
       const { darkPool, alice } = await loadFixture(fixture);
 
       const inputs = Array(17).fill(randomBytes32());
-      inputs[6] = ethers.hexlify(ethers.randomBytes(32)); // unknown root at index 6
+      inputs[6] = ethers.hexlify(ethers.randomBytes(32));
 
       await expect(
         darkPool.connect(alice).withdraw(DUMMY_PROOF, inputs),

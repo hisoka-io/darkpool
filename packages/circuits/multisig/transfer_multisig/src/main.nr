@@ -12,7 +12,8 @@ fn main(
     gpk: Point,
     frost_r: Point,
     frost_z: Field,
-    recipient_in_pub: Point,
+    recipient_spend_pub: Point,
+    recipient_view_pub: Point,
     old_note: Note,
     old_note_index: Field,
     old_note_path: [Field; TREE_DEPTH],
@@ -34,13 +35,20 @@ fn main(
     assert(memo_note.parents == PARENTS_HIDDEN, "memo parents must be hidden sentinel");
     assert_parents_bound(change_note, [old_note_index, 0]);
 
-    let memo = mint::mint_incoming_note(memo_note, memo_eph, compliance_pk, recipient_in_pub);
+    let memo = mint::mint_incoming_note(
+        memo_note,
+        memo_eph,
+        compliance_pk,
+        recipient_spend_pub,
+        recipient_view_pub,
+    );
     let change = mint::mint_self_note_multisig(change_note, change_eph, compliance_pk, gpk);
 
     let m = msg_transfer(
         computed_root,
         nullifier,
         memo.leaf,
+        memo.tag,
         change.leaf,
         old_note.asset_id,
     );
@@ -52,7 +60,6 @@ fn main(
     )
 }
 
-// dummy (r,z): output guards reject before verify_frost_spend
 global CX: Field = FIXTURE_COMPLIANCE_X;
 global CY: Field = FIXTURE_COMPLIANCE_Y;
 global ASSET_ID: Field = 0x1234567890123456789012345678901234567890;
@@ -80,7 +87,7 @@ fn ms_input(value: u128) -> Note {
     Note {
         note_version: 1,
         asset_id: ASSET_ID,
-        note_type: 1, // MULTISIG
+        note_type: 1,
         conditions_hash: 0,
         value,
         owner: gpk_owner(),
@@ -131,6 +138,7 @@ fn audit_reject_off_gpk_change_owner() {
         dummy_r(),
         1,
         recipient_in_pub(),
+        recipient_in_pub(),
         ms_input(100),
         0,
         [0; TREE_DEPTH],
@@ -141,7 +149,7 @@ fn audit_reject_off_gpk_change_owner() {
     );
 }
 
-#[test(should_fail_with = "incoming memo must be STANDARD")]
+#[test(should_fail_with = "incoming memo note_type must be STANDARD or MULTISIG")]
 fn audit_reject_out_note_type_2() {
     let _ = main(
         CX,
@@ -149,6 +157,7 @@ fn audit_reject_out_note_type_2() {
         kat_gpk(),
         dummy_r(),
         1,
+        recipient_in_pub(),
         recipient_in_pub(),
         ms_input(100),
         0,
@@ -169,6 +178,7 @@ fn audit_reject_out_note_type_standard() {
         dummy_r(),
         1,
         recipient_in_pub(),
+        recipient_in_pub(),
         ms_input(100),
         0,
         [0; TREE_DEPTH],
@@ -184,12 +194,12 @@ global KAT_MEMO_EPH: Field = 4;
 global KAT_CHANGE_EPH: Field = 5;
 global KAT_MEMO_PSI: Field = 0x2aaee0e06ff8b0e8cf78d66b27f27fe9d0e82cc687724cee2eb92b0d8a90c2c2;
 global KAT_CHANGE_PSI: Field = 0x0981a88f9e119b057498a4ab99ed5379a1ea91c642454fc0c07aacc1f5cd5731;
-global KAT_FROST_Z: Field = 0x0424497705eaf7f6ba5f214139a68360f95452f59e3ad516d5ecae9add7394c3;
+global KAT_FROST_Z: Field = 0x013d2838221a088234fe1ccb592fd8e183d30bf5bf125609529bb4653c03b2f9;
 
 fn kat_frost_r() -> Point {
     Point {
-        x: 0x008babeca5f9585000f81e056618f155be2465d91cb96fe6816033427124216e,
-        y: 0x08ec1033e38655b06fee2209b3e635117d9df86e34340901e3c14c3d24f90848,
+        x: 0x2a26ace777b964e49e85bdade00b33a4de33d88309c339ef953079d629820fcf,
+        y: 0x2c1868ba569fd5a63e3a69a6522ea4e6021eb6c53ed05df3421e909d4825d0fc,
     }
 }
 
@@ -228,10 +238,62 @@ fn kat_multisig_transfer_accepts() {
         kat_frost_r(),
         KAT_FROST_Z,
         recipient_in_pub(),
+        recipient_in_pub(),
         ms_input(100),
         0,
         [0; TREE_DEPTH],
         kat_memo_note(40),
+        KAT_MEMO_EPH,
+        kat_change_note(60),
+        KAT_CHANGE_EPH,
+    );
+}
+
+// Second 3-of-5 witness, re-signed over the MULTISIG-memo leaf; recipient spend and view keys are decoupled.
+global KAT_MS_MEMO_FROST_Z: Field =
+    0x05a5d3971432945a0a5d5a7f12243a0f9630269f1c94315c7c9d8e47e3fe9140;
+
+fn kat_ms_memo_frost_r() -> Point {
+    Point {
+        x: 0x20f10bd787c4bd0b062ce1dbd6a76fd864cc8a9dba7e72f5aa99c2edf7542479,
+        y: 0x2259763860b177a905d7ae7d2e94901eb4dcfadd960fc44d7f3b80dcb563ab52,
+    }
+}
+
+fn recipient_spend_pub() -> Point {
+    Point {
+        x: 0x2c6bfc7fe056ed38e26ec136ec8aec5f63ecc4b52c44afba967649cf1e6e2311,
+        y: 0x1ac7675df6265f6e12d1c79a2b3b6658a0d46a320fba497ad0b817f9b19e0f21,
+    }
+}
+
+fn kat_ms_memo_note() -> Note {
+    Note {
+        note_version: 1,
+        asset_id: ASSET_ID,
+        note_type: 1,
+        conditions_hash: 0,
+        value: 40,
+        owner: 0x07dc9f016dede5a174d347724b643ecd7f4f34dd928715592162bd4f5814a685,
+        psi: KAT_MEMO_PSI,
+        parents: 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000,
+    }
+}
+
+#[test]
+fn kat_multisig_memo_transfer_accepts() {
+    let _ = main(
+        CX,
+        CY,
+        kat_gpk(),
+        kat_ms_memo_frost_r(),
+        KAT_MS_MEMO_FROST_Z,
+        recipient_spend_pub(),
+        recipient_in_pub(),
+        ms_input(100),
+        0,
+        [0; TREE_DEPTH],
+        kat_ms_memo_note(),
         KAT_MEMO_EPH,
         kat_change_note(60),
         KAT_CHANGE_EPH,
@@ -247,6 +309,7 @@ fn audit_reject_mutated_signed_value() {
         kat_gpk(),
         kat_frost_r(),
         KAT_FROST_Z,
+        recipient_in_pub(),
         recipient_in_pub(),
         ms_input(100),
         0,

@@ -102,6 +102,38 @@ task(
   await hre.run("test", { testFiles });
 });
 
+// runs=1 optimizes for deploy size; the hot path wants the opposite. Anything below is runtime-tuned.
+const RUNTIME_TUNED_RUNS = 1_000_000;
+const solc = (runs: number) => ({
+  version: "0.8.28",
+  settings: {
+    optimizer: { enabled: true, runs },
+    evmVersion: "cancun" as const,
+  },
+});
+
+// The generated Honk verifiers are the hottest code in the protocol: every action calls one. At bb 5.0's
+// `--optimized` output they are ~16KB with ~8.4KB of EIP-170 headroom, so the runtime tuning that would have
+// overflowed the pre-5.0 non-optimized verifiers now fits comfortably. Sizes are pinned by BytecodeBudget.
+const VERIFIER_OVERRIDES = Object.fromEntries(
+  [
+    "DepositVerifier",
+    "WithdrawVerifier",
+    "TransferVerifier",
+    "JoinVerifier",
+    "SplitVerifier",
+    "PublicClaimVerifier",
+    "WithdrawMultisigVerifier",
+    "TransferMultisigVerifier",
+    "SplitMultisigVerifier",
+    "JoinMultisigVerifier",
+    "KageVerifier",
+  ].map((name) => [
+    `contracts/verifiers/${name}.sol`,
+    solc(RUNTIME_TUNED_RUNS),
+  ]),
+);
+
 const config: HardhatUserConfig = {
   solidity: {
     compilers: [
@@ -113,12 +145,12 @@ const config: HardhatUserConfig = {
         },
       },
     ],
-    // Poseidon2 is a delegatecalled public library, so recompiling it at high runs shrinks the
-    // permutation gas without touching DarkPool or the Honk verifiers (their bytecode and VK hashes are
-    // unchanged, keeping them under the EIP-170 limit that a global runs bump would breach). All four
-    // Poseidon sources need the override: an internal library inherits its consumer's settings, so the
-    // public Poseidon2 artifact only recompiles hot when its inlined helpers do too.
+    // Poseidon2 is a delegatecalled public library, so recompiling it at high runs shrinks the permutation gas.
+    // All four Poseidon sources need the override: an internal library inherits its consumer's settings, so the
+    // public Poseidon2 artifact only recompiles hot when its inlined helpers do too. Poseidon2 is also the
+    // tightest contract in the repo against EIP-170, so its size is pinned by BytecodeBudget.
     overrides: {
+      ...VERIFIER_OVERRIDES,
       // DarkPool is the hot-path action contract; it inherits the deploy-size-tuned runs=1 by default. It has
       // ~8.3KB of EIP-170 headroom, so a runtime-tuned override trims per-action gas without a size risk.
       "contracts/DarkPool.sol": {

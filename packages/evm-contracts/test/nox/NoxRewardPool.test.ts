@@ -209,7 +209,6 @@ describe("NoxRewardPool (Treasury)", function () {
     it("should revert distributing to a non-registered recipient", async function () {
       const { pool, token, user, distributor } =
         await loadFixture(deployFixture);
-      // `user` is not marked active in the mock registry.
       await expect(
         pool
           .connect(distributor)
@@ -279,13 +278,11 @@ describe("NoxRewardPool (Treasury)", function () {
         .approve(await pool.getAddress(), ethers.MaxUint256);
       await pool.connect(user).depositRewards(asset, 1000);
 
-      // A relayer registered on the real registry is eligible.
       await expect(
         pool.connect(admin).distributeRewards(asset, [relayer1.address], [500]),
       ).to.emit(pool, "RewardsDistributed");
       expect(await token.balanceOf(relayer1.address)).to.equal(500n);
 
-      // A non-registered address is rejected by the real registry gate.
       await expect(
         pool.connect(admin).distributeRewards(asset, [user.address], [100]),
       ).to.be.revertedWithCustomError(pool, "RecipientNotRegistered");
@@ -312,20 +309,17 @@ describe("NoxRewardPool (Treasury)", function () {
         await loadFixture(deployFixture);
       const asset = await token.getAddress();
 
-      // Deposit rewards -> a committed float that must never be rescuable.
       await pool.connect(user).depositRewards(asset, 1000);
       await expect(
         pool.connect(admin).rescueFunds(asset, admin.address, 1000),
       ).to.be.revertedWithCustomError(pool, "ExceedsRescuableBalance");
 
-      // De-whitelisting the reward asset does NOT unlock the committed float; the accounting invariant,
-      // not the whitelist flag, protects it.
+      // De-whitelisting the reward asset does NOT unlock the committed float: the accounting invariant protects it, not the whitelist flag.
       await pool.connect(admin).setAssetStatus(asset, false);
       await expect(
         pool.connect(admin).rescueFunds(asset, admin.address, 1000),
       ).to.be.revertedWithCustomError(pool, "ExceedsRescuableBalance");
 
-      // Foreign tokens sent here by mistake are fully rescuable.
       await unsupportedToken.mint(await pool.getAddress(), 1000);
       await expect(
         pool
@@ -343,8 +337,8 @@ describe("NoxRewardPool (Treasury)", function () {
     it("rescues exactly the free surplus above the committed float", async function () {
       const { pool, token, admin, user } = await loadFixture(deployFixture);
       const asset = await token.getAddress();
-      await pool.connect(user).depositRewards(asset, 600); // committed float
-      await token.mint(await pool.getAddress(), 400); // free surplus, balance 1000
+      await pool.connect(user).depositRewards(asset, 600);
+      await token.mint(await pool.getAddress(), 400);
 
       await expect(
         pool.connect(admin).rescueFunds(asset, admin.address, 401),

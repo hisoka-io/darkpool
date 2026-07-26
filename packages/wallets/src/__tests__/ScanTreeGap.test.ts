@@ -36,7 +36,6 @@ type FakeLog = {
 };
 
 interface FakeState {
-  // mainNotes = truncating un-indexed feed; indexedNotes = per-leafIndex repair feed; nulls mutable across syncs.
   mainNotes: FakeLog[];
   indexedNotes: Map<number, FakeLog>;
   nulls: FakeLog[];
@@ -73,7 +72,6 @@ function fakeContract(state: FakeState): Contract {
   } as unknown as Contract;
 }
 
-// Only even-y self indices produce an on-chain discovery tag, so an owned note must derive from one.
 async function evenYSelfIndices(
   account: DarkAccount,
   count: number,
@@ -152,7 +150,6 @@ function foreignNoteLog(leafIndex: number, commitment: string): FakeLog {
     args: {
       leafIndex: BigInt(leafIndex),
       commitment,
-      // An ephemeral tag no self index owns, so this leaf is inserted but never decrypted as ours.
       ephemeralPK_x: 1n,
       ephemeralPK_y: 2n,
       packedCiphertext: ["0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0"],
@@ -194,8 +191,6 @@ describe("ScanEngine tree-gap repair (repairTreeGap / fetchLeafEvents)", () => {
     const { keyRepo, utxoRepo } = freshRepos(account);
     const [dA, dB, dC] = await evenYSelfIndices(account, 3, STANDARD_WINDOW);
 
-    // Owned notes land at leaves 0, 2, 3; leaf 1 is foreign. The un-indexed feed truncates to {0, 3}
-    // so the jump from 0 -> 3 forces repairTreeGap to fetch [1, 2] via the indexed filter.
     const n0 = await selfNoteLog(account, dA!, 0, 100n);
     const foreign1 = foreignNoteLog(1, FOREIGN_COMMITMENT);
     const n2 = await selfNoteLog(account, dB!, 2, 50n);
@@ -250,7 +245,6 @@ describe("ScanEngine tree-gap repair (repairTreeGap / fetchLeafEvents)", () => {
     const foreign1 = foreignNoteLog(1, FOREIGN_COMMITMENT);
     const n3 = await selfNoteLog(account, dC!, 3, 25n);
 
-    // Indexed feed is missing leaf 2, so repairTreeGap can never close the 1 -> 2 gap and gives up.
     const state: FakeState = {
       mainNotes: [n0.log, n3.log],
       indexedNotes: new Map<number, FakeLog>([[1, foreign1]]),
@@ -317,7 +311,6 @@ describe("ScanEngine NoteProcessor rejects (owner==0, assetId out of range)", ()
     const { keyRepo, utxoRepo } = freshRepos(account);
     const [d] = await evenYSelfIndices(account, 1, STANDARD_WINDOW);
 
-    // Real leaf/tag/CEK so decryption and the leaf-match pass; the owner==0 guard is what drops it.
     const note = await selfNoteLog(account, d!, 0, 100n, { owner: new Fr(0n) });
     const state: FakeState = {
       mainNotes: [note.log],
@@ -343,7 +336,6 @@ describe("ScanEngine NoteProcessor rejects (owner==0, assetId out of range)", ()
     const { keyRepo, utxoRepo } = freshRepos(account);
     const [d] = await evenYSelfIndices(account, 1, STANDARD_WINDOW);
 
-    // owner is the real self owner (so the owner check would pass); only the asset-range guard drops it.
     const note = await selfNoteLog(account, d!, 0, 100n, {
       assetId: new Fr(ASSET_MODULUS),
     });

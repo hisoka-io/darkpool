@@ -25,7 +25,6 @@ const COMPLIANCE_PK: Point<bigint> = [
   0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8n,
 ];
 
-// Fixture key source: maps discovery tags to gen_v2_fixtures scalars so decrypt runs on fixed vectors.
 class FixtureKeyRepo implements IKeyRepository {
   readonly selfScanIndex = 0;
   readonly incomingScanIndex = 0;
@@ -211,9 +210,6 @@ describe("incoming-memo lifecycle (transfer memo fixture round-trip)", () => {
   });
 });
 
-// An incoming memo whose leaf/CEK/tag all match but whose `owner` is NOT the recipient's must be
-// DROPPED (a phantom, unspendable note = balance overstatement), not registered.
-// A valid memo (owner == recipient) still registers.
 describe("WN-1: incoming note owner binding (phantom-note guard)", () => {
   const EPH = new Fr(8n);
   const IN_KEY = new Fr(4n);

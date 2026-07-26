@@ -24,6 +24,12 @@ import {
 } from "../tss/index.js";
 
 describe("tss: BabyJubJub curve + scalar field", () => {
+  it("SUBORDER is pinned to the BabyJubJub prime-subgroup order literal (parity with shared/lib.nr)", () => {
+    expect(SUBORDER).toBe(
+      2736030358979909402780800718157159386076813972158567259200215660948447373041n,
+    );
+  });
+
   it("Base8 is on-curve and has prime order SUBORDER", () => {
     expect(inCurve(BASE8)).toBe(true);
     expect(pointEq(scalarMul(SUBORDER, BASE8), IDENTITY)).toBe(true);
@@ -34,7 +40,7 @@ describe("tss: BabyJubJub curve + scalar field", () => {
     expect(inSubgroupNonId(BASE8)).toBe(true);
     expect(inSubgroupNonId(IDENTITY)).toBe(false);
     expect(inSubgroup(IDENTITY)).toBe(true);
-    expect(inSubgroupNonId([1n, 1n])).toBe(false); // (1,1) is off-curve
+    expect(inSubgroupNonId([1n, 1n])).toBe(false);
   });
 
   it("invSub is the multiplicative inverse mod SUBORDER", () => {
@@ -60,7 +66,7 @@ describe("tss: Shamir + Lagrange mod SUBORDER", () => {
   it("a mod-BN254 Lagrange variant would break reconstruction (guards T7)", () => {
     const BN254 =
       21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-    // Fixed inputs (not random): a random poly makes a BN254-Lagrange variant accidentally match ~6.5% of runs; SUBORDER/10 forces a structural miss (lands on secret+2*SUBORDER).
+    // Fixed inputs, not random: a random poly lets a BN254-Lagrange variant match ~6.5% of runs; SUBORDER/10 forces a structural miss.
     const secret = SUBORDER / 10n;
     const coeffs = [secret, SUBORDER / 10n, SUBORDER / 10n];
     // Quorum {2,4,5} has non-integer Lagrange coeffs, so the modular inverse differs between SUBORDER and BN254.

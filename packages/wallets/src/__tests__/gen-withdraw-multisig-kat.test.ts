@@ -22,8 +22,6 @@ import { isEvenY } from "../note/keys.js";
 import { deriveCek } from "../crypto/kem.js";
 import type { Point } from "../tss/index.js";
 
-// Emits a deterministic withdraw_multisig witness + real 3-of-5 FROST (R,z) for the Noir main-level KAT
-// (withdraw_multisig/src/main.nr).
 const ASSET_ID = 0x1234567890123456789012345678901234567890n;
 // FIXTURE_COMPLIANCE (shared/src/test_fixtures.nr).
 const COMPLIANCE_PK: Point = [
@@ -71,7 +69,6 @@ describe("gen withdraw_multisig KAT", () => {
       psi: new Fr(OLD_PSI),
       parents: new Fr(0n),
     };
-    // Single-leaf tree at index 0: root is the leaf itself.
     const root = await leaf(oldNote);
     const nullifier = await computeNullifier(new Fr(OLD_PSI), new Fr(0n));
 

@@ -5,12 +5,8 @@ import { COMPLIANCE_PK } from "../helpers/fixtures";
 import { bitLength, leafAt, deployMerkleHarness } from "../helpers/merkleTree";
 
 // MERKLE_GAS=1 npx hardhat test test/benchmark/MerkleDeadWrite.bench.ts
-// Measures the frontier walk end to end. Run once against the unconditional 32-level walk and once against the
-// index==0 stop; the delta is the dead-write saving. Every action runs behind StubVerifier so the number is the
-// tree, not the verifier.
 const run = process.env.MERKLE_GAS ? describe : describe.skip;
 
-/** DarkPool behind 10 StubVerifiers: isolates tree cost from proof verification. */
 async function deployStubbedDarkPool() {
   const [deployer, alice] = await ethers.getSigners();
 
@@ -123,10 +119,6 @@ run("MerkleTreeLib: dead-write gas", function () {
   });
 
   it("reference sanity: the full walk pays the dead writes the index==0 stop skips", async function () {
-    // The mature-tree rows below compare two DIFFERENT contracts, so the reference carries a small fixed
-    // overhead the shipped library does not (virtual dispatch through the harness base, inlined _saveRoot). It
-    // is a stand-in for the walk, not a gas-exact replica, so this asserts the ORDER of magnitude that matters:
-    // on a fresh tree the full walk must pay for all 32 cold frontier slots while the stop pays for one.
     const full = await deployMerkleHarness("FullWalkMerkleTreeHarness", 32);
     const stop = await deployMerkleHarness("MerkleTreeLibHarness", 32);
 
@@ -140,11 +132,7 @@ run("MerkleTreeLib: dead-write gas", function () {
   });
 
   it("library: mature-tree inserts (warped storage shape)", async function () {
-    // Each variant is warped to the frontier shape its OWN history would leave: the index==0 stop has only ever
-    // touched levels 0..bitLength(leafIndex-1), the full walk has touched all 32. Only that zero/non-zero
-    // pattern drives SSTORE pricing, so the measured gas is what a real tree of this size would pay.
-    // leafIndex exactly 2^k is the pessimistic case: it first-touches a brand new level and pays a cold
-    // 0 -> non-zero write there (22,100) where the full walk pays a warm rewrite (5,000).
+    // Warped to the frontier shape each variant's own history would leave: only that zero/non-zero pattern drives SSTORE pricing.
     const cases: [string, number][] = [
       ["2^20 (first-touch of level 21)", 2 ** 20],
       ["2^20 + 12345 (typical)", 2 ** 20 + 12345],
@@ -172,7 +160,6 @@ run("MerkleTreeLib: dead-write gas", function () {
     const asset = await token.getAddress();
     report("DarkPool proxy deploy + initialize", initGas);
 
-    // Empty tree: genesis at leafIndex 0, so this deposit lands at leafIndex 1.
     const dep1 = await (
       await darkPool
         .connect(alice)
@@ -196,7 +183,6 @@ run("MerkleTreeLib: dead-write gas", function () {
     ).wait();
     report("split @ empty tree (leafIndex 2,3)", split1!.gasUsed);
 
-    // Pre-fill to a mid-depth tree, then re-measure at a deeper leafIndex.
     const PREFILL = 500;
     for (let i = 0; i < PREFILL; i++) {
       await darkPool

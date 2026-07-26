@@ -78,7 +78,6 @@ describe("gjkr: full (3,5) DKG", () => {
     const { C, shares, V, qual } = await runGjkrDkg(5, 3, CONTEXT);
     expect(qual.length).toBe(5);
 
-    // TEST-ONLY reconstruction; the committee never runs this on c.
     const c = interpolateAtZero(shares, [1n, 2n, 3n]);
     expect(pointEq(scalarBaseMul(c), C)).toBe(true);
     expect(interpolateAtZero(shares, [2n, 4n, 5n])).toBe(c);
@@ -109,7 +108,7 @@ describe("gjkr: threshold-compliance parity", () => {
 
     const eph = randScalar();
     const ephPub = scalarMul(eph, BASE8);
-    const encryptorCek = scalarMul(eph, C)[0]; // (e*C).x == (c*eph).x
+    const encryptorCek = scalarMul(eph, C)[0];
 
     for (const quorum of [
       [1n, 2n, 3n],

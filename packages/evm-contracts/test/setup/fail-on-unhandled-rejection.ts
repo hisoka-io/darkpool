@@ -1,6 +1,4 @@
-// Strictness guard loaded before the test suite: a promise rejection or exception that escapes a test
-// otherwise lets mocha finish green. Here it prints the error and exits nonzero so CI turns red.
-// Idempotent: mocha may load this file more than once (serial file list + parallel worker require).
+// A rejection escaping a test otherwise lets mocha finish green; exit nonzero. Idempotent: mocha may load this file more than once.
 
 const GUARD_FLAG = "__hisoka_fail_on_unhandled_rejection__";
 const globalWithFlag = globalThis as unknown as Record<string, boolean>;

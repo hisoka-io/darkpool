@@ -4,7 +4,7 @@ import { Point } from "@zk-kit/baby-jubjub";
 import { proveDeposit } from "../provers/standard/deposit.js";
 import { DepositInputs } from "../types.js";
 
-// Fixture from wallets parity vectors; round-trips circuit -> verifier -> prover.
+// Fixture from the wallets parity vectors.
 const COMPLIANCE_PK: Point<bigint> = [
   0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111n,
   0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8n,
@@ -36,7 +36,6 @@ describe("proveDeposit (v2 note format, round-trip)", () => {
   it("proves and self-verifies, exposing the leaf/value/asset at the layout indices", async () => {
     const { verified, publicInputs } = await proveDeposit(inputs);
     expect(verified).toBe(true);
-    // Layout: [0,1] compliance, [2] leaf, [3] eph_pub.x, [4] value, [5] asset, [6..12] ciphertext.
     expect(BigInt(publicInputs[2])).toBe(EXPECTED_LEAF);
     expect(BigInt(publicInputs[4])).toBe(100n);
     expect(BigInt(publicInputs[5])).toBe(

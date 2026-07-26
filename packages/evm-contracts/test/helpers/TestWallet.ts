@@ -49,7 +49,6 @@ export interface WithdrawOptions {
   intentHash?: Fr;
 }
 
-/** The static receive handle a recipient hands a sender: the sender encrypts the memo to `inPub`. */
 export interface ReceiveAddress {
   inKey: Fr;
   inPub: Point<bigint>;
@@ -138,7 +137,6 @@ export class TestWallet {
     return note;
   }
 
-  /** Issue the next incoming receive address (rolls to even-y, registers the discovery tag). */
   async getReceiveAddress(): Promise<ReceiveAddress> {
     const addr = await this.keyRepo.nextIncomingAddress();
     return { inKey: addr.inKey, inPub: addr.inPub, index: addr.index };

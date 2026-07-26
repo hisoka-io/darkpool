@@ -6,6 +6,7 @@ import {
   makeDeposit,
   mintSelfNote,
   mintIncomingNote,
+  mintIncomingMultisigNote,
   evenYEphemeral,
   subgroupScalar,
   userSpendScalar,
@@ -14,16 +15,16 @@ import {
   COMPLIANCE_PK,
 } from "../helpers/fixtures";
 import {
-  Fr,
   toFr,
   addressToFr,
   packParents,
   PARENTS_HIDDEN,
   publicKey,
-  deriveCek,
-  computePsi,
   computeNullifier,
-  leaf,
+  recoverEvenY,
+  unwrapCek,
+  demDecrypt,
+  deriveCek,
 } from "@hisoka/wallets";
 import * as frost from "@hisoka/wallets/frost";
 import { frostAccountDkg } from "@hisoka/wallets/unsafe-sim";
@@ -38,19 +39,17 @@ import {
   proveTransferMultisig,
   proveSplitMultisig,
   proveJoinMultisig,
-  NoteInput,
 } from "@hisoka/prover";
-import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
+import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
+import {
+  buildMultisigNote,
+  frostSign,
+  depositMultisig,
+} from "../helpers/frostMultisig";
 import { statSync, readdirSync, existsSync } from "fs";
 import { resolve, join } from "path";
 
-// Freshness tripwire. This suite proves LIVE bb.js proofs from the prover's BUNDLED bytecode (prover/dist, which
-// embeds circuits/target) against the DEPLOYED verifiers. If a circuit source is edited but the prover/circuits
-// are not rebuilt, the suite would prove STALE bytecode and stay green -- a false-confidence hole in the very net
-// meant to catch soundness drift. turbo's evm-contracts#test ^build ordering rebuilds upstream first; this is the
-// belt for a direct `hardhat test` run that bypasses turbo. The bundle is written LAST in `pnpm build` (compile ->
-// generate_verifier -> tsup), so it is never older than the target of the SAME build; we compare the built
-// artifacts against the circuit SOURCES only (committed verifiers are not a sound mtime reference -- see below).
+// Freshness tripwire: proofs come from the prover's BUNDLED bytecode, so a circuit edited without a rebuild would prove STALE bytecode and pass.
 type Stamp = { path: string; mtimeMs: number };
 
 function collectSources(dir: string, acc: string[]): void {
@@ -86,7 +85,7 @@ let freshnessChecked = false;
 
 function assertBuiltArtifactsFresh(): void {
   if (freshnessChecked) return;
-  const evm = process.cwd(); // packages/evm-contracts
+  const evm = process.cwd();
   const circuitsRoot = resolve(evm, "../circuits");
   const targetDir = resolve(circuitsRoot, "target");
   const distEntry = resolve(evm, "../prover/dist/index.js");
@@ -118,10 +117,7 @@ function assertBuiltArtifactsFresh(): void {
         "e2e (a stale bundle silently proves old circuits, so this net's green would be meaningless)."
       : null;
 
-  // Only the circuit SOURCES are a sound mtime reference: the built artifacts are gitignored (regenerated
-  // post-checkout), so they are always newer than a source. The committed verifiers are NOT a sound reference
-  // -- git checkout/restore/format rewrites their mtime without a rebuild, which would false-abort; their
-  // coupling to the bundled bytecode is content-checked by vkHashParity + RealProofE2E's real on-chain verify.
+  // Only the circuit SOURCES are a sound mtime reference: artifacts are gitignored (always newer) and a committed verifier's mtime is rewritten by git checkout.
   const problem =
     stale("prover/dist", distMtime, newestSource) ??
     stale("circuits/target", oldestTarget.mtimeMs, newestSource);
@@ -133,27 +129,20 @@ function assertBuiltArtifactsFresh(): void {
 const toBytes32 = (v: bigint): string =>
   ethers.zeroPadValue(ethers.toBeHex(v), 32);
 
-/** Flip one public input to a distinct value so the real verifier must reject the mutated proof. */
 function mutate(publicInputs: string[], idx: number): string[] {
   const copy = [...publicInputs];
   copy[idx] = toBytes32(BigInt(publicInputs[idx]) + 1n);
   return copy;
 }
 
-/** Corrupt a single byte of the proof (a field-element byte) so the deployed verifier must reject it.
- *  getBytesCopy (not getBytes) is required: getBytes aliases a Uint8Array input, so an in-place flip would
- *  corrupt the caller's pristine proof and make its later valid submission fail. */
+/** Corrupt one proof byte. getBytesCopy, not getBytes, which aliases its input and would corrupt the caller's pristine proof. */
 function corruptProof(proof: Uint8Array): string {
   const bytes = ethers.getBytesCopy(proof);
   bytes[32] ^= 0x01;
   return ethers.hexlify(bytes);
 }
 
-/** Exhaustive deployed-verifier binding check: from ONE real proof, assert the on-chain verifier rejects (a) a
- *  one-byte-corrupted proof and (b) a mutation of EVERY public input in turn -- i.e. every public input is
- *  bound to the proof and no field is a free rider the verifier ignores. `.reverted` matches any revert
- *  (Honk internal revert, InvalidRoot / InvalidNullifier prechecks) so no per-index special-casing is needed.
- *  Only EVM calls (no new proofs), so exhaustiveness is near-free over the single proof each op already builds. */
+/** From ONE real proof, assert the verifier rejects a corrupted proof and a mutation of EVERY public input in turn, so no field is a free rider. */
 async function assertEveryInputAndProofBound(
   submit: (
     proof: Uint8Array | string,
@@ -173,89 +162,6 @@ async function assertEveryInputAndProofBound(
   }
 }
 
-/** A MULTISIG note (note_type == 1) owned by a FROST account (owner == Poseidon2(gpk)), ECDH-encrypted to
- *  the compliance key. Returns both the leaf commitment and the prover NoteInput view. */
-async function buildMultisigNote(
-  eph: Fr,
-  value: bigint,
-  owner: Fr,
-  assetFr: Fr,
-  parents: Fr,
-): Promise<{ commitment: Fr; noteInput: NoteInput; psi: Fr }> {
-  const cek = deriveCek(eph, COMPLIANCE_PK);
-  const psi = await computePsi(cek);
-  const commitment = await leaf({
-    noteVersion: toFr(1n),
-    assetId: assetFr,
-    noteType: toFr(1n),
-    conditionsHash: toFr(0n),
-    value,
-    owner,
-    psi,
-    parents,
-  });
-  const noteInput: NoteInput = {
-    noteVersion: toFr(1n),
-    assetId: assetFr,
-    noteType: toFr(1n),
-    conditionsHash: toFr(0n),
-    value: toFr(value),
-    owner,
-    psi,
-    parents,
-  };
-  return { commitment, noteInput, psi };
-}
-
-/** Run a full FROST 2-round session: `signerIds` (a t-of-n quorum) jointly sign `m` under `gpk`. */
-async function frostSign(
-  gpk: Point<bigint>,
-  shares: Map<bigint, bigint>,
-  signerIds: bigint[],
-  m: bigint,
-): Promise<{ R: Point<bigint>; z: bigint }> {
-  const cs = frost.bjjCiphersuite;
-  const msg = frost.encodeMessage(m);
-
-  type Round1 = Awaited<ReturnType<typeof frost.commit<Point<bigint>>>>;
-  const nonceById = new Map<bigint, Round1["nonces"]>();
-  const commitments: Round1["commitment"][] = [];
-  for (const id of signerIds) {
-    const secret = shares.get(id);
-    if (secret === undefined) throw new Error(`missing share for signer ${id}`);
-    const { nonces, commitment } = await frost.commit(
-      cs,
-      id,
-      secret,
-      crypto.getRandomValues(new Uint8Array(32)),
-      crypto.getRandomValues(new Uint8Array(32)),
-    );
-    nonceById.set(id, nonces);
-    commitments.push(commitment);
-  }
-
-  const rhos = await frost.bindingFactors(cs, gpk, msg, commitments);
-  const R = frost.groupCommitment(cs, commitments, rhos);
-
-  const zShares: bigint[] = [];
-  for (const id of signerIds) {
-    const nonces = nonceById.get(id)!;
-    const secret = shares.get(id)!;
-    zShares.push(
-      await frost.signShare(cs, id, nonces, secret, gpk, msg, commitments),
-    );
-  }
-
-  const sig = frost.aggregate(cs, R, zShares);
-  expect(await frost.verify(cs, gpk, msg, sig)).to.equal(true);
-  return { R: sig.R, z: sig.z };
-}
-
-// Each op proves a REAL circuit, registers the actual generated verifier (deployed in the fixture), submits
-// on-chain, and asserts the effects. Output-leaf ordering is cross-checked by rebuilding the LeanIMT (genesis
-// at index 0, real notes from index 1) and asserting its root equals the contract's -- a drain-critical check
-// that each leaf lands at the public-input index the layout pins. One negative per op mutates a single input
-// and asserts the deployed verifier rejects it.
 describe("D1 real-proof e2e (STANDARD)", function () {
   this.timeout(600_000);
 
@@ -282,7 +188,6 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     });
 
     await token.connect(alice).approve(await darkPool.getAddress(), 100n);
-    // Negative (exhaustive): the deployed verifier rejects every single-input mutation + a corrupted proof.
     await assertEveryInputAndProofBound(
       (p, pi) => darkPool.connect(alice).deposit(p, pi),
       proof,
@@ -295,7 +200,7 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     ).to.equal(100n);
 
     const tree = await newSeededTree();
-    await tree.insert(built.commitment); // index 1
+    await tree.insert(built.commitment);
     expect(await darkPool.getCurrentRoot()).to.equal(tree.getRoot().toString());
     expect(await darkPool.getNextLeafIndex()).to.equal(2n);
   });
@@ -307,7 +212,7 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     const assetFr = addressToFr(await token.getAddress());
     const dep = await makeDeposit(darkPool, token, alice, 100n);
     const tree = await newSeededTree();
-    await tree.insert(dep.commitment); // index 1
+    await tree.insert(dep.commitment);
 
     const change = await mintSelfNote(
       evenYEphemeral(4242n),
@@ -329,7 +234,6 @@ describe("D1 real-proof e2e (STANDARD)", function () {
       changeEph: change.eph,
     });
 
-    // Negative (exhaustive): every public input + the proof are bound -> the verifier rejects any mutation.
     await assertEveryInputAndProofBound(
       (p, pi) => darkPool.connect(alice).withdraw(p, pi),
       proof,
@@ -342,7 +246,7 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     expect(await darkPool.isNullifierSpent(proof.publicInputs[5])).to.equal(
       true,
     );
-    await tree.insert(change.commitment); // index 2
+    await tree.insert(change.commitment);
     expect(await darkPool.getCurrentRoot()).to.equal(tree.getRoot().toString());
   });
 
@@ -351,7 +255,7 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     const assetFr = addressToFr(await token.getAddress());
     const dep = await makeDeposit(darkPool, token, alice, 100n);
     const tree = await newSeededTree();
-    await tree.insert(dep.commitment); // index 1
+    await tree.insert(dep.commitment);
 
     const bobInKey = evenYEphemeral(555n);
     const bobInPub = publicKey(bobInKey);
@@ -384,7 +288,6 @@ describe("D1 real-proof e2e (STANDARD)", function () {
       changeEph: change.eph,
     });
 
-    // Negative (exhaustive): every public input + the proof are bound -> the verifier rejects any mutation.
     await assertEveryInputAndProofBound(
       (p, pi) => darkPool.connect(alice).privateTransfer(p, pi),
       proof,
@@ -397,9 +300,135 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     expect(await darkPool.isNullifierSpent(proof.publicInputs[2])).to.equal(
       true,
     );
-    await tree.insert(memo.commitment); // index 2
-    await tree.insert(change.commitment); // index 3
+    await tree.insert(memo.commitment);
+    await tree.insert(change.commitment);
     expect(await darkPool.getCurrentRoot()).to.equal(tree.getRoot().toString());
+  });
+
+  it("privateTransfer to a MULTISIG account: memo is owned by gpk but discoverable/readable via V", async function () {
+    const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
+    const assetFr = addressToFr(await token.getAddress());
+    const dep = await makeDeposit(darkPool, token, alice, 100n);
+    const tree = await newSeededTree();
+    await tree.insert(dep.commitment);
+
+    const account = await frostAccountDkg(5, 3, 0x484f574c20n);
+    const v = subgroupScalar(0x1e4n);
+    const parents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
+    const memo = await mintIncomingMultisigNote(
+      evenYEphemeral(24680n),
+      40n,
+      account.gpk,
+      v,
+      assetFr,
+      PARENTS_HIDDEN,
+    );
+    const change = await mintSelfNote(
+      evenYEphemeral(13579n),
+      60n,
+      dep.spendScalar,
+      assetFr,
+      parents,
+    );
+
+    const proof = await proveTransfer({
+      compliancePk: COMPLIANCE_PK,
+      recipientMultisig: { gpk: account.gpk, viewPub: publicKey(v) },
+      oldNote: dep.built.note,
+      spendScalar: dep.spendScalar,
+      oldNoteIndex: 1,
+      oldNotePath: tree.getMerklePath(1),
+      memoNote: memo.note,
+      memoEph: memo.eph,
+      changeNote: change.note,
+      changeEph: change.eph,
+    });
+
+    await assertEveryInputAndProofBound(
+      (p, pi) => darkPool.connect(alice).privateTransfer(p, pi),
+      proof,
+    );
+    await darkPool
+      .connect(alice)
+      .privateTransfer(proof.proof, proof.publicInputs);
+
+    // The discovery tag is V.x, not gpk.x: that is what makes the note findable by members who cannot ECDH.
+    expect(memo.note.owner.toBigInt()).to.equal(account.owner.toBigInt());
+    expect(proof.publicInputs[6]).to.equal(toBytes32(publicKey(v)[0]));
+    await tree.insert(memo.commitment);
+    await tree.insert(change.commitment);
+    expect(await darkPool.getCurrentRoot()).to.equal(tree.getRoot().toString());
+
+    const recoveredEphPub = recoverEvenY(BigInt(proof.publicInputs[5]));
+    const memberCek = await unwrapCek(
+      toFr(BigInt(proof.publicInputs[7])),
+      v,
+      recoveredEphPub,
+    );
+    expect(memberCek.toBigInt(), "member recovers the CEK via V").to.equal(
+      memo.cek.toBigInt(),
+    );
+
+    const plaintext = await demDecrypt(
+      memberCek,
+      proof.publicInputs.slice(8, 15).map((h: string) => toFr(BigInt(h))),
+    );
+    expect(plaintext[2].toBigInt(), "note_type MULTISIG").to.equal(1n);
+    expect(plaintext[4].toBigInt(), "value").to.equal(40n);
+    expect(plaintext[5].toBigInt(), "owner == Poseidon2(gpk)").to.equal(
+      account.owner.toBigInt(),
+    );
+
+    expect(deriveCek(memo.eph, COMPLIANCE_PK).toBigInt()).to.equal(
+      memo.cek.toBigInt(),
+    );
+
+    const quorum = account.qual.slice(0, 3);
+    const nullifier = await computeNullifier(memo.psi, toFr(2n));
+    const msChangeEph = evenYEphemeral(2468n);
+    const msChange = await buildMultisigNote(
+      msChangeEph,
+      15n,
+      account.owner,
+      assetFr,
+      packParents([{ leafIndex: 2 }, { leafIndex: 0 }]),
+    );
+    const m = await frost.msgWithdraw({
+      root: tree.getRoot().toBigInt(),
+      nullifier: nullifier.toBigInt(),
+      changeLeaf: msChange.commitment.toBigInt(),
+      publicOut: 25n,
+      asset: assetFr.toBigInt(),
+      recipient: addressToFr(alice.address).toBigInt(),
+      intentHash: 0n,
+    });
+    const { R, z } = await frostSign(account.gpk, account.shares, quorum, m);
+    const spendProof = await proveWithdrawMultisig({
+      withdrawValue: toFr(25n),
+      recipient: addressToFr(alice.address),
+      intentHash: toFr(0n),
+      compliancePk: COMPLIANCE_PK,
+      gpk: account.gpk,
+      frostR: R,
+      frostZ: toFr(z),
+      oldNote: memo.note,
+      oldNoteIndex: 2,
+      oldNotePath: tree.getMerklePath(2),
+      changeNote: msChange.noteInput,
+      changeEph: msChangeEph,
+    });
+
+    const before = await token.balanceOf(alice.address);
+    await darkPool
+      .connect(alice)
+      .withdrawMultisig(spendProof.proof, spendProof.publicInputs);
+    expect(
+      (await token.balanceOf(alice.address)) - before,
+      "the received multisig note must be spendable by its quorum",
+    ).to.equal(25n);
+    expect(
+      await darkPool.isNullifierSpent(spendProof.publicInputs[5]),
+    ).to.equal(true);
   });
 
   it("split: inserts out1 then out2, spends the nullifier, verifier rejects a mutated out1 leaf", async function () {
@@ -407,7 +436,7 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     const assetFr = addressToFr(await token.getAddress());
     const dep = await makeDeposit(darkPool, token, alice, 100n);
     const tree = await newSeededTree();
-    await tree.insert(dep.commitment); // index 1
+    await tree.insert(dep.commitment);
 
     const outParents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
     const out1 = await mintSelfNote(
@@ -436,7 +465,6 @@ describe("D1 real-proof e2e (STANDARD)", function () {
       eph2: out2.eph,
     });
 
-    // Negative (exhaustive): every public input + the proof are bound -> the verifier rejects any mutation.
     await assertEveryInputAndProofBound(
       (p, pi) => darkPool.connect(alice).split(p, pi),
       proof,
@@ -447,8 +475,8 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     expect(await darkPool.isNullifierSpent(proof.publicInputs[2])).to.equal(
       true,
     );
-    await tree.insert(out1.commitment); // index 2
-    await tree.insert(out2.commitment); // index 3
+    await tree.insert(out1.commitment);
+    await tree.insert(out2.commitment);
     expect(await darkPool.getCurrentRoot()).to.equal(tree.getRoot().toString());
   });
 
@@ -458,8 +486,8 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     const depA = await makeDeposit(darkPool, token, alice, 100n);
     const depB = await makeDeposit(darkPool, token, alice, 50n);
     const tree = await newSeededTree();
-    await tree.insert(depA.commitment); // index 1
-    await tree.insert(depB.commitment); // index 2
+    await tree.insert(depA.commitment);
+    await tree.insert(depB.commitment);
 
     const out = await mintSelfNote(
       evenYEphemeral(9091n),
@@ -482,7 +510,6 @@ describe("D1 real-proof e2e (STANDARD)", function () {
       ephOut: out.eph,
     });
 
-    // Negative (exhaustive): every public input + the proof are bound -> the verifier rejects any mutation.
     await assertEveryInputAndProofBound(
       (p, pi) => darkPool.connect(alice).join(p, pi),
       proof,
@@ -496,7 +523,7 @@ describe("D1 real-proof e2e (STANDARD)", function () {
     expect(await darkPool.isNullifierSpent(proof.publicInputs[3])).to.equal(
       true,
     );
-    await tree.insert(out.commitment); // index 3
+    await tree.insert(out.commitment);
     expect(await darkPool.getCurrentRoot()).to.equal(tree.getRoot().toString());
   });
 
@@ -555,7 +582,6 @@ describe("D1 real-proof e2e (STANDARD)", function () {
       eph: outNote.eph,
     });
 
-    // Negative (exhaustive): every public input + the proof are bound -> the verifier rejects any mutation.
     await assertEveryInputAndProofBound(
       (p, pi) => darkPool.connect(alice).publicClaim(p, pi),
       proof,
@@ -565,7 +591,7 @@ describe("D1 real-proof e2e (STANDARD)", function () {
 
     expect(await darkPool.isPublicMemoSpent(memoId)).to.equal(true);
     const tree = await newSeededTree();
-    await tree.insert(outNote.commitment); // index 1
+    await tree.insert(outNote.commitment);
     expect(await darkPool.getCurrentRoot()).to.equal(tree.getRoot().toString());
     expect(await darkPool.getNextLeafIndex()).to.equal(2n);
   });
@@ -594,7 +620,7 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
       11n,
     );
     const tree = await newSeededTree();
-    await tree.insert(ms.commitment); // index 1
+    await tree.insert(ms.commitment);
     const nullifier = await computeNullifier(ms.psi, toFr(1n));
 
     const changeEph = evenYEphemeral(2201n);
@@ -637,7 +663,6 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
         .connect(alice)
         .withdrawMultisig(proof.proof, mutate(proof.publicInputs, 6)),
     ).to.be.revertedWithCustomError(darkPool, "InvalidRoot");
-    // Negative (exhaustive): every public input + the proof are bound -> the verifier/contract rejects any mutation.
     await assertEveryInputAndProofBound(
       (p, pi) => darkPool.connect(alice).withdrawMultisig(p, pi),
       proof,
@@ -652,13 +677,11 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
     expect(await darkPool.isNullifierSpent(proof.publicInputs[5])).to.equal(
       true,
     );
-    await tree.insert(change.commitment); // index 2
+    await tree.insert(change.commitment);
     expect(await darkPool.getCurrentRoot()).to.equal(tree.getRoot().toString());
   });
 
-  // At the proof layer, a multisig spend cannot mint its change to an owner off the account gpk. Every
-  // field is valid (including a real quorum signature) except the change owner, so the prover throws at
-  // witness generation on mint_self_note_multisig's owner pin -- no proof of the theft can be produced.
+  // The prover throws at witness generation on mint_self_note_multisig's owner pin, so no proof of an off-gpk change owner exists.
   it("withdrawMultisig prover rejects an off-gpk change owner", async function () {
     const { token, bob } = await loadFixture(deployDarkPoolFixture);
     const assetFr = addressToFr(await token.getAddress());
@@ -673,10 +696,9 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
       toFr(0n),
     );
     const tree = await newSeededTree();
-    await tree.insert(ms.commitment); // index 1
+    await tree.insert(ms.commitment);
     const nullifier = await computeNullifier(ms.psi, toFr(1n));
 
-    // The change is owned OFF the account gpk (owner != Poseidon2(gpk)).
     const offGpkOwner = toFr(account.owner.toBigInt() + 1n);
     const changeEph = evenYEphemeral(3102n);
     const change = await buildMultisigNote(
@@ -738,7 +760,7 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
       12n,
     );
     const tree = await newSeededTree();
-    await tree.insert(ms.commitment); // index 1
+    await tree.insert(ms.commitment);
     const nullifier = await computeNullifier(ms.psi, toFr(1n));
 
     const bobInKey = evenYEphemeral(556n);
@@ -764,6 +786,7 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
       root: tree.getRoot().toBigInt(),
       nullifier: nullifier.toBigInt(),
       memoLeaf: memo.commitment.toBigInt(),
+      memoTag: bobInPub[0],
       changeLeaf: change.commitment.toBigInt(),
       asset: assetFr.toBigInt(),
     });
@@ -784,13 +807,11 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
       changeEph,
     });
 
-    // Root [3] is a contract precheck (isKnownRoot) that runs before the verifier: a specific InvalidRoot.
     await expect(
       darkPool
         .connect(alice)
         .transferMultisig(proof.proof, mutate(proof.publicInputs, 3)),
     ).to.be.revertedWithCustomError(darkPool, "InvalidRoot");
-    // Negative (exhaustive): every public input + the proof are bound -> the verifier/contract rejects any mutation.
     await assertEveryInputAndProofBound(
       (p, pi) => darkPool.connect(alice).transferMultisig(p, pi),
       proof,
@@ -803,8 +824,8 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
     expect(await darkPool.isNullifierSpent(proof.publicInputs[2])).to.equal(
       true,
     );
-    await tree.insert(memo.commitment); // index 2
-    await tree.insert(change.commitment); // index 3
+    await tree.insert(memo.commitment);
+    await tree.insert(change.commitment);
     expect(await darkPool.getCurrentRoot()).to.equal(tree.getRoot().toString());
   });
 
@@ -824,7 +845,7 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
       13n,
     );
     const tree = await newSeededTree();
-    await tree.insert(ms.commitment); // index 1
+    await tree.insert(ms.commitment);
     const nullifier = await computeNullifier(ms.psi, toFr(1n));
 
     const outParents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
@@ -867,13 +888,11 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
       eph2,
     });
 
-    // Root [3] is a contract precheck (isKnownRoot) that runs before the verifier: a specific InvalidRoot.
     await expect(
       darkPool
         .connect(alice)
         .splitMultisig(proof.proof, mutate(proof.publicInputs, 3)),
     ).to.be.revertedWithCustomError(darkPool, "InvalidRoot");
-    // Negative (exhaustive): every public input + the proof are bound -> the verifier/contract rejects any mutation.
     await assertEveryInputAndProofBound(
       (p, pi) => darkPool.connect(alice).splitMultisig(p, pi),
       proof,
@@ -886,8 +905,8 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
     expect(await darkPool.isNullifierSpent(proof.publicInputs[2])).to.equal(
       true,
     );
-    await tree.insert(out1.commitment); // index 2
-    await tree.insert(out2.commitment); // index 3
+    await tree.insert(out1.commitment);
+    await tree.insert(out2.commitment);
     expect(await darkPool.getCurrentRoot()).to.equal(tree.getRoot().toString());
   });
 
@@ -916,8 +935,8 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
       15n,
     );
     const tree = await newSeededTree();
-    await tree.insert(msA.commitment); // index 1
-    await tree.insert(msB.commitment); // index 2
+    await tree.insert(msA.commitment);
+    await tree.insert(msB.commitment);
     const nfA = await computeNullifier(msA.psi, toFr(1n));
     const nfB = await computeNullifier(msB.psi, toFr(2n));
 
@@ -956,13 +975,11 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
       ephOut: evenYEphemeral(2401n),
     });
 
-    // Root [4] is a contract precheck (isKnownRoot) that runs before the verifier: a specific InvalidRoot.
     await expect(
       darkPool
         .connect(alice)
         .joinMultisig(proof.proof, mutate(proof.publicInputs, 4)),
     ).to.be.revertedWithCustomError(darkPool, "InvalidRoot");
-    // Negative (exhaustive): every public input + the proof are bound -> the verifier/contract rejects any mutation.
     await assertEveryInputAndProofBound(
       (p, pi) => darkPool.connect(alice).joinMultisig(p, pi),
       proof,
@@ -976,29 +993,7 @@ describe("D1 real-proof e2e (MULTISIG, real 3-of-5 FROST account)", function () 
     expect(await darkPool.isNullifierSpent(proof.publicInputs[3])).to.equal(
       true,
     );
-    await tree.insert(out.commitment); // index 3
+    await tree.insert(out.commitment);
     expect(await darkPool.getCurrentRoot()).to.equal(tree.getRoot().toString());
   });
 });
-
-/** Deposit a MULTISIG note (owner == Poseidon2(gpk)) for `user` so the account holds a spendable note. */
-async function depositMultisig(
-  darkPool: Awaited<ReturnType<typeof deployDarkPoolFixture>>["darkPool"],
-  token: Awaited<ReturnType<typeof deployDarkPoolFixture>>["token"],
-  user: Awaited<ReturnType<typeof deployDarkPoolFixture>>["alice"],
-  value: bigint,
-  owner: Fr,
-  assetFr: Fr,
-  ephSeed: bigint,
-): Promise<{ commitment: Fr; noteInput: NoteInput; psi: Fr }> {
-  const eph = evenYEphemeral(ephSeed);
-  const ms = await buildMultisigNote(eph, value, owner, assetFr, toFr(0n));
-  const proof = await proveDeposit({
-    compliancePk: COMPLIANCE_PK,
-    note: ms.noteInput,
-    eph,
-  });
-  await token.connect(user).approve(await darkPool.getAddress(), value);
-  await darkPool.connect(user).deposit(proof.proof, proof.publicInputs);
-  return ms;
-}

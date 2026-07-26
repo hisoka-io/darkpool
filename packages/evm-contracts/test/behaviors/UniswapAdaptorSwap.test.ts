@@ -13,14 +13,9 @@ import { toFr, addressToFr, packParents, publicKey, Fr } from "@hisoka/wallets";
 import { proveWithdraw, WithdrawInputs } from "@hisoka/prover";
 import { hashUniswapIntent, SwapType } from "@hisoka/adaptors";
 
-// Within MAX_INTENT_LIFETIME (1h) of the current block, so executeSwap accepts it.
 const swapDeadline = async () =>
   BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 600n;
 
-// Runs the UniswapAdaptor swap-withdraw money path in CI (test:fast) against a deterministic mock router, so a
-// regression in the intent binding / asset checks / return path ships red instead of green (the real-router
-// suite is fork-only and never runs in CI). All contracts deploy inside the fixture so the linked Poseidon2 is
-// captured in the loadFixture snapshot.
 async function deploySwapFixture() {
   const base = await deployDarkPoolFixture();
   const tokenOut = await (
@@ -51,8 +46,6 @@ describe("UniswapAdaptor swap-withdraw (mock router, no fork)", function () {
     const assetIn = await token.getAddress();
     const assetOut = await tokenOut.getAddress();
     const amountIn = 40n;
-    // publicTransfer validates the escrow destination is on-curve, so the swap recipient must be a
-    // real key. A placeholder point would be unclaimable in production anyway.
     const SWAP_OWNER = publicKey(new Fr(0x5678n));
     const ownerX = SWAP_OWNER[0];
     const ownerY = SWAP_OWNER[1];
@@ -118,7 +111,6 @@ describe("UniswapAdaptor swap-withdraw (mock router, no fork)", function () {
       ),
     ).to.emit(darkPool, "NewPublicMemo");
 
-    // 1:1 mock rate: amountOut == amountIn, re-shielded into the pool as a public memo.
     expect((await tokenOut.balanceOf(darkPoolAddr)) - before).to.equal(
       amountIn,
     );
@@ -126,10 +118,7 @@ describe("UniswapAdaptor swap-withdraw (mock router, no fork)", function () {
     expect(await tokenOut.balanceOf(adaptorAddr)).to.equal(0n);
   });
 
-  // amountOutMin == 0 is an unbounded-slippage order: the router would accept any output, so a sandwich can
-  // take the entire trade. The guard lives inside _handleExactInputSingle, downstream of a real DarkPool
-  // withdraw, so reaching it needs the full money path rather than the dummy-proof harness the deadline
-  // guards use. Reverting here (not earlier) is what proves the guard is reachable on the live path.
+  // The unbounded-slippage guard sits downstream of a real withdraw, so reverting here proves it is live.
   it("ExactInputSingle: rejects an unbounded slippage order (amountOutMin == 0)", async function () {
     const ctx = await loadFixture(deploySwapFixture);
     const { darkPool, token, alice, tokenOut, adaptor } = ctx;
@@ -138,8 +127,6 @@ describe("UniswapAdaptor swap-withdraw (mock router, no fork)", function () {
     const assetIn = await token.getAddress();
     const assetOut = await tokenOut.getAddress();
     const amountIn = 40n;
-    // publicTransfer validates the escrow destination is on-curve, so the swap recipient must be a
-    // real key. A placeholder point would be unclaimable in production anyway.
     const SWAP_OWNER = publicKey(new Fr(0x5678n));
     const ownerX = SWAP_OWNER[0];
     const ownerY = SWAP_OWNER[1];
@@ -186,8 +173,7 @@ describe("UniswapAdaptor swap-withdraw (mock router, no fork)", function () {
     };
     const proof = await proveWithdraw(inputs);
 
-    // The intent hash commits to amountOutMin, so the zero bound cannot be swapped in after proving: the
-    // encoded params must carry the same 0 the proof was built against.
+    // The intent hash commits to amountOutMin, so the encoded params must carry the same 0 it was built on.
     const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
       [
         "tuple(address assetIn,address assetOut,uint24 fee,tuple(uint256 ownerX,uint256 ownerY) recipient,uint256 amountOutMin,uint256 salt)",
@@ -205,7 +191,6 @@ describe("UniswapAdaptor swap-withdraw (mock router, no fork)", function () {
       ),
     ).to.be.revertedWithCustomError(adaptor, "ZeroSlippageBound");
 
-    // The whole tx reverted, so nothing settled and the note is still spendable.
     expect(await tokenOut.balanceOf(adaptorAddr)).to.equal(0n);
   });
 });

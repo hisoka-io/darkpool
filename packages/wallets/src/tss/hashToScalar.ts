@@ -1,6 +1,5 @@
-// Poseidon2 Fiat-Shamir hashing. The FROST challenge is the LOW 248 BITS of challengeScalar, truncated
-// IDENTICALLY off-chain and in-circuit (frost.nr verify_frost_spend); a full-width challenge is unsound.
-// hashToScalar is a wide reduction mod SUBORDER for off-chain-only scalars the circuit never recomputes.
+// The FROST challenge is the LOW 248 BITS of challengeScalar, matching in-circuit frost.nr verify_frost_spend;
+// hashToScalar is off-chain only.
 
 import { Fr } from "@aztec/foundation/fields";
 import { Poseidon } from "../crypto/Poseidon.js";

@@ -1,5 +1,4 @@
-// FROST(ristretto255, SHA-512) ciphersuite, RFC 9591 Section 6.2 (encodings per RFC 9496). Test-only; it
-// certifies frost.ts against the official RFC 9591 KAT. bjj.ts is production.
+// FROST(ristretto255, SHA-512), RFC 9591 Section 6.2 (encodings per RFC 9496). Test-only KAT ciphersuite; bjj.ts is production.
 
 import { ed25519, RistrettoPoint } from "@noble/curves/ed25519";
 import {

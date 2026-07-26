@@ -12,10 +12,8 @@ import { tmpdir, homedir } from "os";
 import { fileURLToPath } from "url";
 import { CIRCUITS, KAGE_CIRCUITS } from "./circuits.js";
 
-// --optimized verifiers are CLI-only (bb.js hardcodes optimizedSolidityVerifier:false); bb.js proofs still verify
-// against them via barretenberg#1649 (bb.js VK == CLI VK). After any .nr change, rerun `pnpm build` with native bb
-// on PATH to regenerate the .sol + vk-hashes.json (and re-bless vk-hashes.golden.json); the VK-parity guard fails
-// on drift if you skip it.
+// --optimized verifiers are CLI-only; bb.js proofs still verify against them (barretenberg#1649). After any
+// .nr change rerun `pnpm build` with native bb on PATH, then re-bless vk-hashes.golden.json.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 

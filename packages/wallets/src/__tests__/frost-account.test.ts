@@ -37,7 +37,6 @@ describe("FROST account: DKG establishes gpk + shared viewing key + owner", () =
 
     expect(pointEq(acct.viewPub, scalarBaseMul(acct.viewKey))).toBe(true);
 
-    // Even-y V regression: a fixed commit-reveal sum cannot be rolled to even-y after the fact.
     expect(isEvenY(acct.viewPub)).toBe(true);
     const address = await multisigAddress(acct.gpk, new Fr(acct.viewKey));
     expect(address.ownerCommitment.toBigInt()).toBe(acct.owner.toBigInt());

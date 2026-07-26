@@ -3,7 +3,6 @@ import { Fr } from "@aztec/foundation/fields";
 import { Utxo } from "../utxo/Utxo";
 import { Note } from "../note/note";
 
-// Deposit-fixture anchors (gen_v2_fixtures.ts): a self note of value 100 to owner_self.
 const ASSET = new Fr(0x1234567890123456789012345678901234567890n);
 const OWNER_SELF = new Fr(
   0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785n,
@@ -51,7 +50,6 @@ describe("Utxo", () => {
     expect(() => new Utxo(depositNote({ owner: new Fr(0n) }))).toThrow(/owner/);
   });
 
-  // asset_id must fit an EVM address; the guard must inspect the high 12 bytes (checking low 20 catches nothing).
   it("rejects an assetId wider than 160 bits", () => {
     const oversized = new Fr(
       (1n << 160n) | 0x1234567890123456789012345678901234567890n,

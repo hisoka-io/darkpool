@@ -5,12 +5,8 @@ import "../libraries/MerkleTreeLib.sol";
 import {Poseidon2} from "../Poseidon/Poseidon2.sol";
 import {Field} from "../Poseidon/Field.sol";
 
-/**
- * @dev Test-only frontier walk that runs every level unconditionally: the differential reference for
- * MerkleTreeLib.insert. Above the tree top the running index is 0, so each remaining level rewrites
- * sideNodes[level] with an unchanged `node`. Operates on MerkleTreeLib.Tree so the frontier of a
- * reference tree and a production tree are slot-for-slot comparable.
- */
+/// @dev Test-only frontier walk that runs every level unconditionally: the differential reference for
+/// MerkleTreeLib.insert. Shares MerkleTreeLib.Tree so the two frontiers are slot-for-slot comparable.
 library FullWalkMerkleTree {
     using Field for uint256;
 
@@ -64,11 +60,8 @@ library FullWalkMerkleTree {
     }
 }
 
-/**
- * @dev Test-only MUTANT: skips the frontier write at the first index==0 level. That write is live (leaf 2^L-1
- * stores the left-subtree root that leaf 2^L reads as its left sibling), so this diverges at every power-of-two
- * crossing. Proves the boundary suite fails when the write is dropped; nothing may depend on it.
- */
+/// @dev Test-only MUTANT: skips the frontier write at the first index==0 level, so it diverges at every
+/// power-of-two crossing. Proves the boundary suite fails when that write is dropped; depend on nothing here.
 library BreakBeforeWriteMerkleTree {
     using Field for uint256;
 
@@ -122,7 +115,6 @@ library BreakBeforeWriteMerkleTree {
     }
 }
 
-/// @dev Shared surface so the three insert variants are compared through an identical ABI.
 abstract contract MerkleTreeHarnessBase {
     using MerkleTreeLib for MerkleTreeLib.Tree;
 
@@ -135,7 +127,6 @@ abstract contract MerkleTreeHarnessBase {
         _doInsert(leaf);
     }
 
-    /// @dev One tx per sequence: records the root after every insert so a fuzz run can compare each step.
     function insertMany(bytes32[] calldata leaves) public {
         for (uint256 i = 0; i < leaves.length; ++i) {
             _doInsert(leaves[i]);
@@ -147,13 +138,12 @@ abstract contract MerkleTreeHarnessBase {
         return tree.sideNodes[level];
     }
 
-    /// @dev Fakes the storage shape of a tree holding `leafIndex` leaves (seeds `filledLevels` frontier slots)
-    ///      so mature-tree/upgraded-proxy gas is exact. Invariant: injected nodes are not real subtree roots, so
-    ///      a warped tree is only valid against another walk over the SAME warped state, never as a standalone root.
+    /// @dev Fakes the storage shape of a tree holding `leafIndex` leaves so mature-tree gas is exact. The
+    ///      injected nodes are not real subtree roots: only ever compare two walks over the SAME warped state.
     function warpTo(uint256 leafIndex, uint256 filledLevels) public {
         tree.nextLeafIndex = leafIndex;
         for (uint256 level = 0; level < filledLevels; ++level) {
-            // Non-zero and in-field: the walk feeds a frontier node straight into Poseidon2 on the odd branch.
+            // Must be non-zero and in-field: the walk feeds a frontier node straight into Poseidon2.
             uint256 v = (uint256(keccak256(abi.encode("warp", level))) %
                 (Field.PRIME - 1)) + 1;
             tree.sideNodes[level] = bytes32(v);

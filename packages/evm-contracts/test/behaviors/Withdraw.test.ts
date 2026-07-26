@@ -80,7 +80,6 @@ describe("DarkPool Behavior: Withdraw", function () {
     const { darkPool, alice, attacker } = ctx;
     const { proof } = await prepareWithdraw(ctx, 100n, alice.address);
 
-    // Recipient is public input [1]; rebinding it must break the proof.
     const tamperedInputs = [...proof.publicInputs];
     tamperedInputs[1] = ethers.zeroPadValue(attacker.address, 32);
 

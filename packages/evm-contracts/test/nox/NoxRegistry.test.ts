@@ -6,7 +6,7 @@ import { NoxRegistry, MockERC20 } from "../../typechain-types";
 describe("NoxRegistry (Identity & Staking)", function () {
   const MIN_STAKE = ethers.parseEther("1000");
   const MIN_STAKE_FLOOR = ethers.parseEther("1");
-  const UNSTAKE_DELAY = 7 * 24 * 60 * 60; // 7 Days
+  const UNSTAKE_DELAY = 7 * 24 * 60 * 60;
 
   async function deployFixture() {
     const [admin, slasher, relayer, relayer2, relayer3, attacker] =
@@ -62,7 +62,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
     };
   }
 
-  // Off-chain keccak256(abi.encodePacked(address))
   function computeAddressHash(address: string): bigint {
     return BigInt(
       ethers.keccak256(ethers.solidityPacked(["address"], [address])),
@@ -591,7 +590,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
         .to.emit(registry, "Slashed")
         .withArgs(relayer.address, slashAmount, slasher.address);
 
-      // Remaining (1500) is still >= minStake, so the node stays registered and collateralized.
       const profile = await registry.relayers(relayer.address);
       expect(profile.stakedAmount).to.equal(MIN_STAKE * 2n - slashAmount);
 
@@ -883,7 +881,7 @@ describe("NoxRegistry (Identity & Staking)", function () {
       const { registry, admin } = await loadFixture(deployFixture);
 
       const newMinStake = ethers.parseEther("2000");
-      const newDelay = 14 * 24 * 60 * 60; // 14 days
+      const newDelay = 14 * 24 * 60 * 60;
 
       await expect(registry.connect(admin).updateConfig(newMinStake, newDelay))
         .to.emit(registry, "ConfigUpdated")
@@ -1050,7 +1048,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
         balBefore + MIN_STAKE,
       );
 
-      // A trusted zero-stake node is not removable this way.
       await expect(
         registry.connect(relayer).removeUnderCollateralized(relayer2.address),
       ).to.be.revertedWithCustomError(registry, "NotUnderCollateralized");
@@ -1062,7 +1059,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
       await registry
         .connect(relayer)
         .register(key(), "/ip4/1.1.1.1/tcp/1", "", "", MIN_STAKE, ROLE_FULL);
-      // Raise the floor so the node is under-collateralized, then freeze it pending investigation.
       await registry.connect(admin).updateConfig(MIN_STAKE * 2n, UNSTAKE_DELAY);
       await registry.connect(slasher).freeze(relayer.address);
 
@@ -1070,7 +1066,6 @@ describe("NoxRegistry (Identity & Staking)", function () {
         registry.connect(relayer).removeUnderCollateralized(relayer.address),
       ).to.be.revertedWithCustomError(registry, "NodeFrozen");
 
-      // Once the slasher lifts the freeze, cleanup proceeds.
       await registry.connect(slasher).unfreeze(relayer.address);
       await expect(
         registry.connect(relayer).removeUnderCollateralized(relayer.address),

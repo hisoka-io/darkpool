@@ -36,8 +36,7 @@ export const COMPLIANCE_PK: Point<bigint> = mulPointEscalar(
 // Hardhat's in-process network chain id; the DarkPool binds its tree genesis leaf to block.chainid.
 export const HARDHAT_CHAIN_ID = 31337n;
 
-/** Byte-identical to DarkPool._genesisLeaf(): Poseidon2(keccak256("hisoka.darkpool.genesis") reduced mod the
- *  BN254 scalar field, chainId). Seeds a test tree's reserved index-0 sentinel so its roots match the pool. */
+/** Byte-identical to DarkPool._genesisLeaf(): Poseidon2(keccak256("hisoka.darkpool.genesis") reduced mod the BN254 scalar field, chainId). */
 export async function genesisLeaf(
   chainId: bigint = HARDHAT_CHAIN_ID,
 ): Promise<Fr> {
@@ -45,8 +44,7 @@ export async function genesisLeaf(
   return Poseidon.hash([toReducedFr(domainTag), toFr(chainId)]);
 }
 
-/** A LeanIMT seeded with the chain-specific genesis leaf at index 0, mirroring the contract. Real notes begin
- *  at index 1, so a deposit's on-chain leaf index equals its index in this tree. */
+/** A LeanIMT seeded with the genesis leaf at index 0, mirroring the contract: real notes start at index 1. */
 export async function newSeededTree(
   chainId: bigint = HARDHAT_CHAIN_ID,
 ): Promise<LeanIMT> {
@@ -57,9 +55,9 @@ export async function newSeededTree(
 
 const NOTE_VERSION = toFr(1n);
 const NOTE_TYPE_STANDARD = toFr(0n);
+const NOTE_TYPE_MULTISIG = toFr(1n);
 const ZERO = toFr(0n);
 
-/** A note plus every field a test needs to submit it and later spend it. */
 export interface BuiltNote {
   note: NoteInput;
   commitment: Fr;
@@ -73,8 +71,7 @@ export interface BuiltNote {
   cekWrap?: Fr;
 }
 
-/** Next even-y BabyJubJub subgroup scalar at or after `seed`: a self note's discovery tag is eph_pub.x,
- * which is only injective when y is even (matches the in-circuit even-y assertion). */
+/** Next even-y BabyJubJub subgroup scalar at or after `seed`: the tag eph_pub.x is only injective when y is even. */
 export function evenYEphemeral(seed: bigint): Fr {
   let s = ((seed % subOrder) + subOrder) % subOrder;
   if (s === 0n) s = 1n;
@@ -86,8 +83,6 @@ export function evenYEphemeral(seed: bigint): Fr {
   throw new Error("no even-y scalar in subgroup");
 }
 
-/** A subgroup scalar with no even-y constraint (memo ephemerals need not be even-y; the memo tag is
- * the recipient's in_pub_j.x, not the ephemeral's). */
 export function subgroupScalar(seed: bigint): Fr {
   let s = ((seed % subOrder) + subOrder) % subOrder;
   if (s === 0n) s = 1n;
@@ -145,8 +140,6 @@ async function finishNote(
   };
 }
 
-/** Mint a self note (deposit / change / split-out / join-out / gas-change / claim-out): owner binds to
- * `spendScalar`, discovery tag is the even-y eph_pub.x. */
 export async function mintSelfNote(
   eph: Fr,
   value: bigint,
@@ -158,8 +151,6 @@ export async function mintSelfNote(
   return finishNote(eph, value, owner, assetFr, spendScalar, parents);
 }
 
-/** Mint an incoming memo note to a recipient: owner binds to in_pub_j, cek_wrap wraps the content key to
- * the recipient, discovery tag is in_pub_j.x. `inKey` is only meaningful to the recipient (spend scalar). */
 export async function mintIncomingNote(
   eph: Fr,
   value: bigint,
@@ -176,7 +167,54 @@ export async function mintIncomingNote(
   return built;
 }
 
-/** Prover NoteInput view of a stored Note (value bigint -> Fr). */
+/** A MULTISIG memo: owner binds the account gpk (spend authority) while discovery and decryption bind the view key V, which gpk's t-of-n scalar cannot do. */
+export async function mintIncomingMultisigNote(
+  eph: Fr,
+  value: bigint,
+  gpk: Point<bigint>,
+  v: Fr,
+  assetFr: Fr,
+  parents: Fr = ZERO,
+): Promise<BuiltNote> {
+  const viewPub = publicKey(v);
+  const owner = await pubkeyOwner(gpk);
+  const cek = deriveCek(eph, COMPLIANCE_PK);
+  const psi = await computePsi(cek);
+  const plaintextNote: Note = {
+    noteVersion: NOTE_VERSION,
+    assetId: assetFr,
+    noteType: NOTE_TYPE_MULTISIG,
+    conditionsHash: ZERO,
+    value,
+    owner,
+    psi,
+    parents,
+  };
+  const commitment = await leaf(plaintextNote);
+  const ephPub = publicKey(eph);
+  return {
+    note: {
+      noteVersion: NOTE_VERSION,
+      assetId: assetFr,
+      noteType: NOTE_TYPE_MULTISIG,
+      conditionsHash: ZERO,
+      value: toFr(value),
+      owner,
+      psi,
+      parents,
+    },
+    commitment,
+    eph,
+    ephPub,
+    cek,
+    psi,
+    spendScalar: v,
+    inPub: viewPub,
+    cekWrap: await wrapCek(cek, eph, viewPub),
+    tag: new Fr(viewPub[0]),
+  };
+}
+
 export function noteToInput(note: Note): NoteInput {
   return {
     noteVersion: note.noteVersion,
@@ -197,8 +235,7 @@ export async function deployDarkPoolFixture() {
   const Poseidon2Factory = await ethers.getContractFactory("Poseidon2");
   const poseidon2Lib = await Poseidon2Factory.deploy();
 
-  // bb 5.0 --optimized verifiers are self-contained monolithic contracts (no externalized ZKTranscriptLib) and
-  // fit EIP-170 on their own.
+  // bb 5.0 --optimized verifiers are self-contained monolithic contracts that fit EIP-170 without a linked lib.
   const deployVerifier = async (contractPath: string) => {
     const Verifier = await (
       await ethers.getContractFactory(`${contractPath}:HonkVerifier`)
@@ -320,7 +357,6 @@ export async function deployDarkPoolFixture() {
   };
 }
 
-/** Deposit `amount` of `token` for `user` and return the minted self note (spendable via built.spendScalar). */
 export async function makeDeposit(
   darkPool: DarkPool,
   token: MockERC20,

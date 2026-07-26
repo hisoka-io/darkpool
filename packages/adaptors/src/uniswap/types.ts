@@ -56,7 +56,6 @@ export type UniswapSwapParams =
 
 type Unsalted<T> = Omit<T, "salt"> & { salt?: bigint };
 
-// Omitting salt draws a fresh unpredictable one; a caller-chosen salt is front-runnable.
 export type UniswapSwapParamsInput =
   | Unsalted<ExactInputSingleParams>
   | Unsalted<ExactInputParams>

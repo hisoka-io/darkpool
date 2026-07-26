@@ -1,5 +1,6 @@
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
+import { NOTE_TYPE_MULTISIG } from "@hisoka/wallets/frost";
 import { NoteInput } from "./types.js";
 import { ProofInputError } from "./errors.js";
 
@@ -9,7 +10,50 @@ export function pointHex(p: Point<bigint>): { x: string; y: string } {
   return { x: `0x${p[0].toString(16)}`, y: `0x${p[1].toString(16)}` };
 }
 
-// Named input error for a non-note u128 param; the circuit also enforces the bound.
+// The circuit enforces the same (spend, view) <-> note_type biconditional; a mismatch builds an unspendable leaf.
+export function memoRecipientPoints(
+  circuit: string,
+  memoNoteType: Fr,
+  inPub?: Point<bigint>,
+  multisig?: { gpk: Point<bigint>; viewPub: Point<bigint> },
+): { spend: Point<bigint>; view: Point<bigint> } {
+  const wantsMultisig = memoNoteType.toBigInt() === NOTE_TYPE_MULTISIG;
+  if (multisig !== undefined) {
+    if (inPub !== undefined) {
+      throw new ProofInputError(
+        circuit,
+        "memo recipient: pass recipientInPub or recipientMultisig, never both",
+      );
+    }
+    if (!wantsMultisig) {
+      throw new ProofInputError(
+        circuit,
+        "memo recipient: recipientMultisig requires the memo note_type to be MULTISIG",
+      );
+    }
+    if (multisig.gpk[0] === multisig.viewPub[0]) {
+      throw new ProofInputError(
+        circuit,
+        "memo recipient: recipientMultisig gpk and viewPub must not share x, a MULTISIG memo decouples spend from view",
+      );
+    }
+    return { spend: multisig.gpk, view: multisig.viewPub };
+  }
+  if (inPub === undefined) {
+    throw new ProofInputError(
+      circuit,
+      "memo recipient: recipientInPub or recipientMultisig is required",
+    );
+  }
+  if (wantsMultisig) {
+    throw new ProofInputError(
+      circuit,
+      "memo recipient: a MULTISIG memo requires recipientMultisig (owner and view must decouple)",
+    );
+  }
+  return { spend: inPub, view: inPub };
+}
+
 export function marshalU128(circuit: string, field: string, value: Fr): string {
   if (value.toBigInt() > U128_MAX) {
     throw new ProofInputError(circuit, `${field} exceeds u128 range`);
@@ -17,7 +61,6 @@ export function marshalU128(circuit: string, field: string, value: Fr): string {
   return value.toString();
 }
 
-// value is u128 in-circuit; overflow aborts witness generation.
 export function marshalNote(
   circuit: string,
   note: NoteInput,

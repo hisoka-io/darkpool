@@ -1,5 +1,5 @@
 // TS mirror of the FROST spend message m; MUST match Noir shared/src/multisig/frost.nr msg_* byte-for-byte.
-// Binding the (chain-specific) root is the cross-chain-replay defense; there is no chain_id field.
+// The chain-specific root is the cross-chain-replay binding; there is no chain_id field.
 
 import { Fr } from "@aztec/foundation/fields";
 import { Poseidon } from "../crypto/Poseidon.js";
@@ -41,10 +41,12 @@ export async function msgWithdraw(args: {
   ]);
 }
 
+// memoTag is signed: without it a coordinator can re-prove a quorum signature against a substituted view key.
 export async function msgTransfer(args: {
   root: bigint;
   nullifier: bigint;
   memoLeaf: bigint;
+  memoTag: bigint;
   changeLeaf: bigint;
   asset: bigint;
 }): Promise<bigint> {
@@ -53,6 +55,7 @@ export async function msgTransfer(args: {
     args.root,
     args.nullifier,
     args.memoLeaf,
+    args.memoTag,
     args.changeLeaf,
     args.asset,
   ]);

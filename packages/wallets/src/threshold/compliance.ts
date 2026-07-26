@@ -1,5 +1,4 @@
-// Threshold-compliance decryption: a (t,n) committee recovers CEK = (c*eph_pub).x WITHOUT forming c
-// (Lagrange-in-exponent over DLEQ-checked partials). Wraps to the RECIPIENT, so CEK = S.x uniformly.
+// A (t,n) committee recovers CEK = (c*eph_pub).x WITHOUT forming c: Lagrange-in-exponent over DLEQ-checked partials.
 
 import { Fr } from "@aztec/foundation/fields";
 import {
@@ -48,7 +47,6 @@ export async function combine(
     seen.add(p.id);
     verified.push({ id: p.id, D: p.proof.D });
   }
-  // Below t distinct partials Lagrange interpolates a WRONG value: fail loudly, not silently.
   if (verified.length < threshold)
     throw new Error(
       `compliance: ${verified.length} valid partials, need >= ${threshold}`,
@@ -71,7 +69,6 @@ export async function thresholdCek(
   return new Fr(S[0]);
 }
 
-/** Keep the first t valid partials; list the invalid ones in `excluded` without failing the decrypt. */
 export async function thresholdCekRobust(
   ephPub: Point,
   allPartials: Partial[],

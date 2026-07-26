@@ -2,14 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 
-// Enforcement tests for the intent deadline. UniswapIntentParity pins the deadline-bound HASH; that proves
-// the binding is computed consistently across TS and Solidity, but proves nothing about whether the contract
-// actually rejects a stale or over-long deadline, which is the entire point of the change.
-//
-// Both guards are the first two statements of executeSwap, ahead of the intent hash, the proof-recipient
-// check and the DarkPool withdraw, so they are reachable with dummy proof bytes and need no fork.
-// ZeroSlippageBound sits inside the handlers, downstream of a real withdraw, so a dummy proof cannot reach it.
-// It is covered on the real money path in UniswapAdaptorSwap.test.ts, which also runs in test:fast.
+// Enforcement, not parity: UniswapIntentParity pins the deadline-bound HASH, not whether a stale or over-long deadline is rejected.
 const MAX_INTENT_LIFETIME = 3600;
 
 async function deployAdaptor() {
@@ -25,8 +18,6 @@ async function deployAdaptor() {
   return { adaptor };
 }
 
-// publicInputs[1] is read as the proof recipient and [7] as the asset, so the array must be wide enough for
-// the call to reach those reads at all. It never should: both deadline guards revert first.
 const DUMMY_INPUTS: string[] = Array.from(
   { length: 13 },
   () => ethers.ZeroHash,
@@ -73,7 +64,6 @@ describe("UniswapAdaptor deadline enforcement", function () {
     ).to.be.revertedWithCustomError(adaptor, "DeadlineTooFar");
   });
 
-  // Without this, a captured proof stays executable forever: it is the case the whole change exists to close.
   it("rejects a far-future deadline (the perpetual-option case)", async function () {
     const { adaptor } = await loadFixture(deployAdaptor);
     const now = await time.latest();
@@ -89,8 +79,6 @@ describe("UniswapAdaptor deadline enforcement", function () {
     ).to.be.revertedWithCustomError(adaptor, "DeadlineTooFar");
   });
 
-  // A deadline inside the window must pass BOTH guards and fail later, at the proof-recipient check. That is
-  // what proves the guards are bounds rather than a blanket reject.
   it("accepts a deadline inside the window and proceeds past both guards", async function () {
     const { adaptor } = await loadFixture(deployAdaptor);
     const now = await time.latest();

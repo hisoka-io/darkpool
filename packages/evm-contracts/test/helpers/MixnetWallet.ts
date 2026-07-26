@@ -17,8 +17,7 @@ import {
 } from "./fixtures";
 import type { DarkPool, MockERC20 } from "../../typechain-types";
 
-/** Wraps TestWallet with RelayerMulticall transport: every non-deposit action is relayed through the
- * multicall so a third party submits the transaction. */
+/** TestWallet with RelayerMulticall transport: every non-deposit action is submitted by a third party. */
 export class MixnetWallet {
   public readonly base: TestWallet;
 

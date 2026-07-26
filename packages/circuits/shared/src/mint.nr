@@ -1,5 +1,4 @@
-//! psi == Poseidon2(CEK, PSI_DOMAIN) asserted against the committed leaf field, so a mis-derived psi locks
-//! the note and breaks compliance tracing.
+//! psi == Poseidon2(CEK, PSI_DOMAIN) is asserted against the leaf; a mis-derived psi locks the note.
 
 use crate::assert_subgroup_scalar;
 use crate::dem;
@@ -72,8 +71,7 @@ pub fn mint_self_note(note: Note, eph: Field, compliance_pk: Point) -> SelfMint 
     SelfMint { leaf, eph_pub, ciphertext }
 }
 
-// owner == Poseidon2(gpk) pins change to the spending account: without it a coordinator could redirect the
-// group's residual to a solo key (theft-from-group). FROST binds only the output leaf, so this pin is the sole guard.
+// FROST binds only the output leaf, so this owner pin is the sole guard on the group's change note.
 pub fn mint_self_note_multisig(
     note: Note,
     eph: Field,
@@ -104,22 +102,38 @@ pub struct IncomingMint {
     pub ciphertext: [Field; dem::DEM_FIELDS],
 }
 
-// owner/wrap/tag all bind in_pub_j, so no owned-but-undiscoverable memo (griefing lock). Pinned STANDARD:
-// a MULTISIG memo needs owner/view decoupled (deferred feature).
 pub fn mint_incoming_note(
     note: Note,
     eph: Field,
     compliance_pk: Point,
-    in_pub: Point,
+    spend_pub: Point,
+    view_pub: Point,
 ) -> IncomingMint {
-    assert(note.note_type == NOTE_TYPE_STANDARD, "incoming memo must be STANDARD");
-    assert_valid_recipient_key(in_pub);
-    assert(note.owner == owner::pubkey_owner(in_pub), "memo owner must be the recipient owner");
+    let is_std = (note.note_type == NOTE_TYPE_STANDARD) as Field;
+    let is_ms = (note.note_type == NOTE_TYPE_MULTISIG) as Field;
+    // Sum == 1 rather than an OR so a future CONDITIONAL type fails closed here.
+    assert(is_std + is_ms == 1, "incoming memo note_type must be STANDARD or MULTISIG");
+    // y is pinned too: x-equality alone admits the y-twin (x, -y), whose owner no scalar can ever open.
+    let same_x = (spend_pub.x == view_pub.x) as Field;
+    assert(same_x == is_std, "STANDARD memo must collapse spend/view; MULTISIG must decouple them");
+    assert(
+        is_std * (spend_pub.y - view_pub.y) == 0,
+        "STANDARD memo must collapse spend/view; MULTISIG must decouple them",
+    );
+
+    // spend_pub determines owner: a cofactor-coset key mints a leaf nobody can open, burning the funds.
+    crate::subgroup::assert_in_prime_subgroup(
+        spend_pub,
+        "memo spend key not in prime-order subgroup",
+    );
+    let spend_ed = BabyJubJub::new(spend_pub.x, spend_pub.y);
+    assert(!spend_ed.is_zero(), "memo spend key must not be the identity");
+    assert_valid_recipient_key(view_pub);
+
+    assert(note.owner == owner::pubkey_owner(spend_pub), "memo owner must be the recipient owner");
     let (leaf, eph_pub, cek, ciphertext) = mint_common(note, eph, compliance_pk);
-    assert(even_y::is_even_y(in_pub), "incoming discovery tag must be even-y");
-    // The emitted eph_pub rides on-chain as x only, so it must be even-y for the recipient/compliance to
-    // recover y from x before the unwrap ECDH (mint_self and deposit pin this too).
+    assert(even_y::is_even_y(view_pub), "incoming discovery tag must be even-y");
     assert(even_y::is_even_y(eph_pub), "incoming eph tag must be even-y");
-    let cek_wrap = kem::wrap_cek(cek, eph, in_pub);
-    IncomingMint { leaf, eph_pub, tag: in_pub.x, cek_wrap, ciphertext }
+    let cek_wrap = kem::wrap_cek(cek, eph, view_pub);
+    IncomingMint { leaf, eph_pub, tag: view_pub.x, cek_wrap, ciphertext }
 }

@@ -39,8 +39,7 @@ import {
 } from "@hisoka/prover";
 import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
 
-// Standalone: never part of test:fast (its dir is outside the fast globs) and additionally env-gated so a bare
-// `hardhat test` skips it. Run once with: GAS_BENCH=1 npx hardhat test test/benchmark/Gas.bench.ts
+// Standalone and env-gated (its dir is outside the fast globs): GAS_BENCH=1 npx hardhat test test/benchmark/Gas.bench.ts
 const run = process.env.GAS_BENCH ? describe : describe.skip;
 
 const results: { op: string; gas: bigint }[] = [];
@@ -385,6 +384,7 @@ run("Benchmark: per-entrypoint gas", function () {
       root: tree.getRoot().toBigInt(),
       nullifier: nullifier.toBigInt(),
       memoLeaf: memo.commitment.toBigInt(),
+      memoTag: bobInPub[0],
       changeLeaf: change.commitment.toBigInt(),
       asset: assetFr.toBigInt(),
     });

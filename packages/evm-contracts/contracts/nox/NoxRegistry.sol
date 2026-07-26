@@ -11,12 +11,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 /**
  * @title NoxRegistry
- * @author Hisoka Protocol
- * @notice The "Phonebook" for the NOX Mixnet: staked community relayers plus an admin whitelist
- *         for bootstrap, with admin removal of bad actors.
- * @dev UUPS proxy: all mutable state lives in an ERC-7201 namespace so a config field can be appended
- *      without shifting existing slots. Config (stakingToken, minStake, unstakeDelay, minStakeFloor)
- *      is set in initialize, so under the proxy it is never zero. Upgrades gated by UPGRADER_ROLE.
+ * @notice The "Phonebook" for the NOX Mixnet: staked community relayers plus an admin bootstrap whitelist.
+ * @dev UUPS proxy over an ERC-7201 namespace. Config is set in initialize, so it is never zero under the proxy.
  */
 contract NoxRegistry is
     Initializable,
@@ -30,7 +26,6 @@ contract NoxRegistry is
     bytes32 public constant CONFIG_ROLE = keccak256("CONFIG_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
-    /// @notice Lifecycle phase of a registered node. None == not registered.
     enum RelayerStatus {
         None,
         Registered,
@@ -71,8 +66,7 @@ contract NoxRegistry is
         mapping(bytes32 => address) sphinxKeyOwner;
     }
 
-    /// @dev Inlined upgradeable reentrancy guard against OZ's canonical namespace; contracts-upgradeable
-    /// 5.6.1 dropped ReentrancyGuardUpgradeable once the base became stateless.
+    /// @dev Inlined on OZ's canonical namespace; contracts-upgradeable 5.6.1 dropped ReentrancyGuardUpgradeable.
     /// @custom:storage-location erc7201:openzeppelin.storage.ReentrancyGuard
     struct ReentrancyStorage {
         uint256 status;
@@ -187,10 +181,7 @@ contract NoxRegistry is
         _disableInitializers();
     }
 
-    /**
-     * @notice One-time proxy initialization. Grants roles to the passed-in governance addresses
-     *         (never msg.sender) and sets the staking config. Callable exactly once.
-     */
+    /// @notice One-time proxy init. Roles go to the passed-in governance addresses, never msg.sender.
     function initialize(InitParams calldata p) external initializer {
         if (p.initialAdmin == address(0)) revert ZeroAddress();
         if (p.stakingToken == address(0)) revert ZeroAddress();
@@ -218,7 +209,7 @@ contract NoxRegistry is
         $.minStakeAmount = p.minStake;
         $.unstakeDelay = p.unstakeDelay;
 
-        // XOR identity: empty set = bytes32(0). No genesis hash needed.
+        // topologyFingerprint needs no genesis value: the XOR identity is bytes32(0).
     }
 
     // solhint-disable no-empty-blocks
@@ -247,6 +238,7 @@ contract NoxRegistry is
         _xorAddressIntoFingerprint(_relayer);
     }
 
+    /// @notice Join the mixnet by staking at least minStakeAmount under a globally unique sphinx key.
     function register(
         bytes32 _sphinxKey,
         string calldata _url,
@@ -297,10 +289,7 @@ contract NoxRegistry is
         );
     }
 
-    /**
-     * @notice Bootstrap the network with trusted nodes (no stake required).
-     * @dev Zero-stake nodes cannot be financially slashed; remove them with forceUnregister().
-     */
+    /// @notice Bootstrap with trusted nodes. Zero stake means unslashable, so remove via forceUnregister().
     function registerPrivileged(
         address _relayer,
         bytes32 _sphinxKey,
@@ -344,6 +333,7 @@ contract NoxRegistry is
         );
     }
 
+    /// @notice Update the caller's routing URL.
     function updateUrl(string calldata _newUrl) external {
         RegistryStorage storage $ = _registry();
         if (!$.relayers[msg.sender].isRegistered) revert NotRegistered();
@@ -352,6 +342,7 @@ contract NoxRegistry is
         emit RelayerUpdated(msg.sender, _newUrl);
     }
 
+    /// @notice Update the caller's client-facing ingress URL; empty clears it.
     function updateIngressUrl(string calldata _newIngressUrl) external {
         RegistryStorage storage $ = _registry();
         if (!$.relayers[msg.sender].isRegistered) revert NotRegistered();
@@ -359,6 +350,7 @@ contract NoxRegistry is
         emit IngressUrlUpdated(msg.sender, _newIngressUrl);
     }
 
+    /// @notice Update the caller's off-chain metadata URL; empty clears it.
     function updateMetadataUrl(string calldata _newMetadataUrl) external {
         RegistryStorage storage $ = _registry();
         if (!$.relayers[msg.sender].isRegistered) revert NotRegistered();
@@ -366,6 +358,7 @@ contract NoxRegistry is
         emit MetadataUrlUpdated(msg.sender, _newMetadataUrl);
     }
 
+    /// @notice Change the caller's node role (1=Relay, 2=Exit, 3=Full).
     function updateRole(uint8 _newRole) external whenNotPaused {
         RegistryStorage storage $ = _registry();
         if (!$.relayers[msg.sender].isRegistered) revert NotRegistered();
@@ -374,6 +367,7 @@ contract NoxRegistry is
         emit RoleUpdated(msg.sender, _newRole);
     }
 
+    /// @notice Rotate the caller's sphinx key; the old key is freed and the new one must be unclaimed.
     function rotateKey(bytes32 _newSphinxKey) external whenNotPaused {
         RegistryStorage storage $ = _registry();
         if (!$.relayers[msg.sender].isRegistered) revert NotRegistered();
@@ -387,6 +381,7 @@ contract NoxRegistry is
         emit KeyRotated(msg.sender, _newSphinxKey);
     }
 
+    /// @notice Top up the caller's stake. Blocked once an unstake is pending.
     function addStake(uint256 _amount) external nonReentrant whenNotPaused {
         RegistryStorage storage $ = _registry();
         RelayerProfile storage profile = $.relayers[msg.sender];
@@ -400,8 +395,7 @@ contract NoxRegistry is
         emit StakeAdded(msg.sender, _amount);
     }
 
-    /// @notice Begin the unstake cooldown. The node STAYS registered and slashable until it exits;
-    ///         routing may stop off-chain, but its stake remains locked and slashable for the whole delay.
+    /// @notice Begin the unstake cooldown. The node STAYS registered and slashable until it exits.
     function requestUnstake() external whenNotPaused {
         RegistryStorage storage $ = _registry();
         RelayerProfile storage profile = $.relayers[msg.sender];
@@ -427,8 +421,7 @@ contract NoxRegistry is
         emit UnstakeCancelled(msg.sender);
     }
 
-    /// @notice Complete a matured unstake and reclaim stake. A slasher freeze blocks this so a flagged
-    ///         node cannot exit past a live investigation. Pause-exempt so honest stake is never trapped.
+    /// @notice Complete a matured unstake and reclaim stake. Pause-exempt so honest stake is never trapped.
     function executeUnstake() external nonReentrant {
         RegistryStorage storage $ = _registry();
         RelayerProfile storage profile = $.relayers[msg.sender];
@@ -446,8 +439,7 @@ contract NoxRegistry is
         emit Unstaked(msg.sender, amount);
     }
 
-    /// @notice Freeze a node: it cannot cancel its unstake or exit until the slasher resolves it.
-    /// @dev Incident-response lever; intentionally pause-exempt.
+    /// @notice Freeze a node so it cannot cancel its unstake or exit. Intentionally pause-exempt.
     function freeze(address _relayer) external onlyRole(SLASHER_ROLE) {
         RelayerProfile storage profile = _registry().relayers[_relayer];
         if (!profile.isRegistered) revert NotRegistered();
@@ -456,7 +448,7 @@ contract NoxRegistry is
         emit RelayerFrozen(_relayer, msg.sender);
     }
 
-    /// @notice Lift a freeze.
+    /// @notice Lift a freeze, restoring the node's ability to cancel or complete an unstake.
     function unfreeze(address _relayer) external onlyRole(SLASHER_ROLE) {
         RelayerProfile storage profile = _registry().relayers[_relayer];
         if (!profile.isRegistered) revert NotRegistered();
@@ -465,10 +457,7 @@ contract NoxRegistry is
         emit RelayerUnfrozen(_relayer, msg.sender);
     }
 
-    /// @notice Slash a relayer's stake. A slash that empties or drops the stake below minStakeAmount
-    ///         deregisters the node so no under-collateralized node keeps routing; any sub-floor remainder
-    ///         is returned to the node. Reverts if there is nothing to slash (e.g. a zero-stake node).
-    /// @dev Incident-response lever; intentionally pause-exempt.
+    /// @notice Dropping below minStakeAmount deregisters the node and returns the remainder. Pause-exempt.
     function slash(
         address _relayer,
         uint256 _amount
@@ -501,13 +490,11 @@ contract NoxRegistry is
         }
     }
 
-    /// @notice Permissionlessly remove a formerly-staked node stranded below the floor (e.g. after a
-    ///         minStakeAmount raise), returning its remaining stake. Trusted zero-stake nodes are exempt.
+    /// @notice Permissionless. Only for a staked node stranded below the floor, never a trusted zero-stake one.
     function removeUnderCollateralized(address _relayer) external nonReentrant {
         RegistryStorage storage $ = _registry();
         RelayerProfile storage profile = $.relayers[_relayer];
         if (!profile.isRegistered) revert NotRegistered();
-        // A frozen node must not exit any path while the slasher holds it.
         if (profile.frozen) revert NodeFrozen();
         uint256 staked = profile.stakedAmount;
         if (staked == 0 || staked >= $.minStakeAmount)
@@ -518,10 +505,7 @@ contract NoxRegistry is
         emit RelayerRemoved(_relayer, msg.sender);
     }
 
-    /**
-     * @notice Admin removal of a node; remaining stake is returned to the owner (call `slash()`
-     *         first to burn it instead).
-     */
+    /// @notice Admin removal of a node; remaining stake goes back to the owner (`slash()` first to burn it).
     function forceUnregister(
         address _relayer
     ) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
@@ -539,25 +523,28 @@ contract NoxRegistry is
         emit RelayerRemoved(_relayer, msg.sender);
     }
 
+    /// @notice Halt the staking lifecycle: register, addStake, rotateKey, updateRole, unstake request/cancel.
     function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
 
+    /// @notice Resume the staking lifecycle.
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
 
-    /// @notice Whether an address is a registered relayer (staked or trusted, active or unstaking).
+    /// @notice True for any registered relayer, including one mid-unstake.
     function isActiveRelayer(address _relayer) external view returns (bool) {
         return _registry().relayers[_relayer].isRegistered;
     }
 
-    /// @notice Node role for a registered relayer; unset (0) reads as ROLE_FULL.
+    /// @notice Unset (0) reads as ROLE_FULL.
     function getNodeRole(address _relayer) external view returns (uint8) {
         uint8 role = _registry().nodeRoles[_relayer];
         return role == 0 ? ROLE_FULL : role;
     }
 
+    /// @notice Set minStakeAmount and unstakeDelay; both are floored, and already-staked nodes keep their stake.
     function updateConfig(
         uint256 _minStake,
         uint256 _unstakeDelay
@@ -575,29 +562,32 @@ contract NoxRegistry is
         return _registry().stakingToken;
     }
 
-    /// @notice Hard lower bound on minStakeAmount; a zero or dust minStake would allow unslashable Sybils.
+    /// @notice Hard lower bound on minStakeAmount; a dust minStake would allow unslashable Sybils.
     function minStakeFloor() external view returns (uint256) {
         return _registry().minStakeFloor;
     }
 
+    /// @notice Stake a new registration must post, never below minStakeFloor.
     function minStakeAmount() external view returns (uint256) {
         return _registry().minStakeAmount;
     }
 
+    /// @notice Seconds a node must wait between requestUnstake and executeUnstake.
     function unstakeDelay() external view returns (uint256) {
         return _registry().unstakeDelay;
     }
 
+    /// @notice Number of registered nodes, staked and trusted alike.
     function relayerCount() external view returns (uint256) {
         return _registry().relayerCount;
     }
 
-    /// @notice XOR-based topology fingerprint: XOR(keccak256(addr) for each registered node); empty set
-    ///         = bytes32(0). Self-inverse, so add and remove are the same operation.
+    /// @notice XOR(keccak256(addr) for each registered node); the empty set is bytes32(0).
     function topologyFingerprint() external view returns (bytes32) {
         return _registry().topologyFingerprint;
     }
 
+    /// @notice Full profile of a node; an unregistered address reads back as the zero profile.
     function relayers(
         address _relayer
     )
@@ -629,7 +619,7 @@ contract NoxRegistry is
         );
     }
 
-    /// @notice Node role for each registered relayer (1=Relay, 2=Exit, 3=Full); unset (0) reads as Full.
+    /// @notice Raw role (1=Relay, 2=Exit, 3=Full); unset (0) is Full, see getNodeRole.
     function nodeRoles(address _relayer) external view returns (uint8) {
         return _registry().nodeRoles[_relayer];
     }

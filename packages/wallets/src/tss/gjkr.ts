@@ -1,5 +1,4 @@
-// GJKR anti-bias DKG over BabyJubJub (Gennaro-Jarecki-Krawczyk-Rabin, J. Cryptology 2007). Two-phase: phase 1
-// fixes QUAL from perfectly-hiding Pedersen commitments alone (no dealer learns C); phase 2 reveals Feldman, sets C.
+// GJKR anti-bias DKG over BabyJubJub (Gennaro-Jarecki-Krawczyk-Rabin, J. Cryptology 2007).
 
 import { unpackPoint } from "@zk-kit/baby-jubjub";
 import {
@@ -33,8 +32,7 @@ const H_SEED_DOMAIN = "hisoka.tss.pedersen.h";
 
 const H_MAX_TRIES = 256n;
 
-/** Nothing-up-my-sleeve second Pedersen generator H with discrete log wrt Base8 unknown to all parties,
- *  which is what lets the phase-1 commitments hide the secret. */
+/** Nothing-up-my-sleeve H with discrete log wrt Base8 unknown to all parties; that is what hides the secret. */
 async function deriveH(): Promise<Point> {
   const seed = (await stringToFr(H_SEED_DOMAIN)).toBigInt();
   for (let ctr = 0n; ctr < H_MAX_TRIES; ctr++) {
@@ -43,7 +41,7 @@ async function deriveH(): Promise<Point> {
     if (unpacked === null) continue;
     const h = scalarMul(COFACTOR, [unpacked[0], unpacked[1]]);
     if (isIdentity(h)) continue;
-    if (pointEq(h, BASE8)) continue; // H must be independent of the primary generator
+    if (pointEq(h, BASE8)) continue;
     assertInSubgroup(h, "H");
     return h;
   }
@@ -91,7 +89,6 @@ export async function pedersenVerifyShare(
   return pointEq(lhs, rhs);
 }
 
-// aCoeffs/bCoeffs and the dealt shares are secret; never log.
 interface PedersenDealer {
   id: bigint;
   aCoeffs: bigint[];
@@ -122,8 +119,6 @@ async function contribute(
   return { id, aCoeffs, bCoeffs, commitments, aShares, fPrimeShares };
 }
 
-/** Reference driver; a real deployment RECONSTRUCTS rather than drops a QUAL dealer that later equivocates
- *  (removing one post-QUAL re-opens the bias window). */
 export async function runGjkrDkg(
   n: number,
   t: number,
@@ -144,7 +139,6 @@ export async function runGjkrDkg(
     dealers.push(dealer);
   }
 
-  // QUAL is fixed from the dual-share check ONLY (no discrete-log data), so no dealer can bias C by aborting.
   const qual: PedersenDealer[] = [];
   for (const dealer of dealers) {
     let ok = true;
@@ -164,7 +158,6 @@ export async function runGjkrDkg(
   }
   if (qual.length === 0) throw new Error("gjkr: no qualified dealers");
 
-  // An inconsistent reveal would trigger GJKR reconstruction (never QUAL removal): an invariant violation here.
   const qualContributions: DealerContribution[] = [];
   for (const dealer of qual) {
     const commitments = feldmanCommit(dealer.aCoeffs);

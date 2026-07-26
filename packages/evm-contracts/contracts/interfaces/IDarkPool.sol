@@ -2,18 +2,13 @@
 pragma solidity ^0.8.25;
 
 interface IDarkPool {
-    /**
-     * @notice Withdraws funds from the shielded pool.
-     * Used by Adaptors to "pull" funds synchronously.
-     */
+    /// @notice Used by adaptors to "pull" funds out of the shielded pool synchronously.
     function withdraw(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external;
 
-    /**
-     * @notice Deposits funds back into the shielded pool as a Public Memo.
-     */
+    /// @notice Deposits funds back into the shielded pool as a public memo.
     function publicTransfer(
         uint256 _ownerX,
         uint256 _ownerY,

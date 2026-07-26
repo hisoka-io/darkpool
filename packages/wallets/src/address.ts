@@ -9,7 +9,6 @@ import {
 import bs58check from "bs58check";
 import { isEvenY } from "./note/keys.js";
 
-// Recipient's incoming discovery key in_pub_j plus the diversifier index j that produced it.
 export type HisokaAddress = {
   inPub: Point<bigint>;
   index: bigint;
@@ -45,7 +44,6 @@ function assertValidPoint(point: Point<bigint>): void {
   if (ox !== 0n || oy !== 1n) {
     throw new Error("Address point is not in the prime-order subgroup.");
   }
-  // The discovery tag is the point's x, which aliases (x, +/-y); only even-y is the canonical tag.
   if (!isEvenY(point)) {
     throw new Error("Address point has a non-canonical odd y.");
   }

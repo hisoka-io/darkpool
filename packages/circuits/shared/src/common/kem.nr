@@ -20,7 +20,7 @@ pub fn unwrap_cek(cek_wrap: Field, in_key: Field, eph_pub: Point) -> Field {
     cek_wrap - Poseidon2::hash([pad], 1)
 }
 
-// Byte-identical to TS packages/wallets/src/crypto/kem.ts; drift breaks cross-language note decryption.
+// Byte-identical to TS packages/wallets/src/crypto/kem.ts.
 #[test]
 fn kat_kem_roundtrip() {
     let compliance_pk = Point::new(

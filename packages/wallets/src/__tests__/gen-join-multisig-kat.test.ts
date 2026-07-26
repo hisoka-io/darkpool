@@ -23,8 +23,6 @@ import { deriveCek } from "../crypto/kem.js";
 import { Poseidon } from "../crypto/Poseidon.js";
 import type { Point } from "../tss/index.js";
 
-// Deterministic join_multisig witness + real 3-of-5 FROST (R,z) for join_multisig/src/main.nr. Two inputs
-// (same account gpk) at index 0 and 1 in a 2-leaf lean tree: root = Poseidon2(leaf_a, leaf_b).
 const ASSET_ID = 0x1234567890123456789012345678901234567890n;
 const COMPLIANCE_PK: Point = [
   0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111n,

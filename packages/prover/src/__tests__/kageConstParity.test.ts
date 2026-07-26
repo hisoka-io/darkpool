@@ -9,7 +9,6 @@ import {
   INTENT_PI_LEN,
 } from "../config.js";
 
-// Pins config.ts against kage_lib SOURCE globals (kageVkParity pins the compiled artifact; both directions matter).
 const LIB_NR = fileURLToPath(
   new URL("../../../circuits/kage/kage_lib/src/lib.nr", import.meta.url),
 );
@@ -20,7 +19,6 @@ function noirGlobals(): Map<string, string> {
   const src = raw.replace(/\/\/[^\n]*/g, "");
 
   const globals = new Map<string, string>();
-  // Column-0 globals only (indented test fixtures are not cross-language); `pub` optional so CT_LEN is caught.
   const re =
     /^(?:pub\s+)?global\s+(\w+)\s*:\s*[\w:<>\[\]; ]+?\s*=\s*([^;]+);/gm;
   for (const m of src.matchAll(re)) {
@@ -32,7 +30,6 @@ function noirGlobals(): Map<string, string> {
 describe("kage constant parity (TS config.ts <-> Noir kage_lib)", () => {
   const globals = noirGlobals();
 
-  // Exact key set = fail-closed: a new kage_lib global with no TS mirror breaks this case.
   it("parses the Noir globals it claims to check", () => {
     expect([...globals.keys()].sort()).toEqual([
       "CT_LEN",
@@ -44,7 +41,6 @@ describe("kage constant parity (TS config.ts <-> Noir kage_lib)", () => {
     ]);
   });
 
-  // CT_LEN = DEM ciphertext width; checked against the compiled deposit ABI, not a second literal.
   it("CT_LEN matches the ciphertext width in the compiled deposit ABI", async () => {
     const raw = globals.get("CT_LEN");
     expect(raw).toBeDefined();
@@ -82,7 +78,7 @@ describe("kage constant parity (TS config.ts <-> Noir kage_lib)", () => {
     expect(BigInt(raw!)).toBe(BigInt(INTENT_VK_HASH));
   });
 
-  // PROOF_TYPE 6 = HONK_ZK; 7 (HN_FINAL) is rejected by UltraBuilder -- the recursion-wall constant.
+  // 6 = HONK_ZK; 7 (HN_FINAL) is rejected by UltraBuilder.
   it("PROOF_TYPE is HONK_ZK", () => {
     expect(KAGE_PROOF_TYPE).toBe(6);
   });

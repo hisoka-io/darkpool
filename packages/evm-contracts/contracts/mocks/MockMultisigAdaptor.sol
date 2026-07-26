@@ -24,7 +24,7 @@ interface IMultisigDarkPool {
 /**
  * @title MockMultisigAdaptor
  * @notice Test adaptor: self-submits a `withdrawMultisig` naming itself as recipient (the DarkPool code-gate
- *         forces a contract recipient to pull its own withdraw), then re-shields via a `publicTransfer` memo.
+ *         forces a contract recipient to pull its own withdraw), then re-shields it as a memo.
  */
 contract MockMultisigAdaptor is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -54,7 +54,6 @@ contract MockMultisigAdaptor is ReentrancyGuard {
         DARK_POOL = _darkPool;
     }
 
-    /// @notice Pull a FROST-multisig withdraw to this contract, then re-shield the funds as a memo.
     function pullAndForward(
         bytes calldata proof,
         bytes32[] calldata publicInputs,

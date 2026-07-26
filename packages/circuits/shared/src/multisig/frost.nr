@@ -1,12 +1,12 @@
 use crate::assert_subgroup_scalar;
 use crate::domains::{ACTION_JOIN, ACTION_SPLIT, ACTION_TRANSFER, ACTION_WITHDRAW, SCHNORR_DOMAIN};
-use ecdh::{bjj::{BJJ, check_subgroup}, ECDHTrait, Point};
+use ecdh::{bjj::BJJ, ECDHTrait, Point};
 use edwards::{bjj::BabyJubJub, CurveTrait, ScalarField};
 use poseidon::poseidon2::Poseidon2;
 
 pub fn verify_frost_spend(gpk: Point, r: Point, z: Field, m: Field) {
     let gpk_ed = BabyJubJub::new(gpk.x, gpk.y);
-    assert(check_subgroup(gpk_ed), "gpk not in prime-order subgroup");
+    crate::subgroup::assert_in_prime_subgroup(gpk, "gpk not in prime-order subgroup");
     assert(!gpk_ed.is_zero(), "gpk must not be the identity");
 
     let r_ed = BabyJubJub::new(r.x, r.y);
@@ -15,10 +15,8 @@ pub fn verify_frost_spend(gpk: Point, r: Point, z: Field, m: Field) {
 
     assert_subgroup_scalar(z);
 
-    // Challenge truncated to low 248 bits so the cheap ScalarField<63> path (scalars < 2^252) decodes it; its
-    // `assert(acc - skew == x)` binds the wNAF slices (an unconstrained hint) to e. Without a binding a prover
-    // forges the challenge (R = z*Base8 - e'*gpk). Upstream noir-edwards v0.2.5 left the N==64 path unbound (#49);
-    // the vendored fork now binds N==64 too. Forged-scalar regression: the bb.js frost-forgery harness.
+    // Challenge truncated to 248 bits so the ScalarField<63> path decodes it; its `assert(acc - skew == x)`
+    // binds the wNAF hint to e. Upstream noir-edwards v0.2.5 left N==64 unbound (#49); the vendored fork binds it.
     let e_full = Poseidon2::hash([SCHNORR_DOMAIN, r.x, r.y, gpk.x, gpk.y, m], 6);
     let e_bytes: [u8; 32] = e_full.to_le_bytes();
     let mut e: Field = 0;
@@ -34,12 +32,11 @@ pub fn verify_frost_spend(gpk: Point, r: Point, z: Field, m: Field) {
 
     let rhs = r_ed + gpk_ed.mul(e_scalar);
     let diff = z_base_ed - rhs;
-    let cofactored = diff.dbl().dbl().dbl(); // x8: clear the cofactor before the subgroup identity check
+    let cofactored = diff.dbl().dbl().dbl();
     assert(cofactored.is_zero(), "FROST signature invalid");
 }
 
-// Distinct ACTION tag per op stops cross-op replay; binding root (chain-specific via genesis slot0 seeding
-// block.chainid) makes m non-replayable cross-chain. Mirrored byte-for-byte by the TS FROST signer.
+// Distinct ACTION tag per op stops cross-op replay. Mirrored byte-for-byte by the TS FROST signer.
 
 pub fn msg_withdraw(
     root: Field,
@@ -56,16 +53,18 @@ pub fn msg_withdraw(
     )
 }
 
+// Signing memo_tag stops a coordinator re-proving the quorum sig against a substituted view key.
 pub fn msg_transfer(
     root: Field,
     nullifier: Field,
     memo_leaf: Field,
+    memo_tag: Field,
     change_leaf: Field,
     asset: Field,
 ) -> Field {
     Poseidon2::hash(
-        [ACTION_TRANSFER, root, nullifier, memo_leaf, change_leaf, asset],
-        6,
+        [ACTION_TRANSFER, root, nullifier, memo_leaf, memo_tag, change_leaf, asset],
+        7,
     )
 }
 
@@ -95,7 +94,7 @@ pub fn msg_join(
     )
 }
 
-// Real 3-of-5 FROST signature from the TS signer (gen-frost-kat); byte-for-byte verify parity.
+// Real 3-of-5 FROST signature from the TS signer (gen-frost-kat).
 fn kat_gpk() -> Point {
     Point {
         x: 0x2546ab52faee9ab8ead1ad868567473b9757c6456c137274b12a5c51330d764d,
@@ -136,11 +135,7 @@ fn audit_frost_reject_zero_z() {
     verify_frost_spend(kat_gpk(), kat_r(), 0, KAT_M);
 }
 
-// Pins the 248-bit challenge truncation: the challenge is rebuilt from the low 31 bytes before the ScalarField<63>
-// reduction, so widening the loop (e.g. 0..32) sets a high byte and fails. The wNAF-slice binding against a forged
-// e_scalar is a proving-layer property nargo cannot reach (honest witness generation computes e_scalar
-// identically), so the full forgery regression lives in the bb.js frost-forgery harness. The challenge/message
-// binding is covered by the multisig mutation tests and RealProofE2E per-public-input mutation.
+// Forging e_scalar is a proving-layer attack nargo cannot reach; see the bb.js forgery harness.
 #[test]
 fn frost_challenge_is_truncated_to_248_bits() {
     let g = kat_gpk();
@@ -165,8 +160,8 @@ fn kat_msg_parity() {
             == 0x2dda2d035d6f11d7a9a21090bb7757ffdd0c57c526d7d90431d73dea4831729d,
     );
     assert(
-        msg_transfer(1, 2, 3, 4, 5)
-            == 0x18ce2613d1138a758d065683eb7ed8973fd4b875768fa5b376ac0ac89f7a85cd,
+        msg_transfer(1, 2, 3, 4, 5, 6)
+            == 0x02b5c41e66ee316b914c6ae8a665597ac441c729bb6c1c8ded80cf09f628528a,
     );
     assert(
         msg_split(1, 2, 3, 4, 5)

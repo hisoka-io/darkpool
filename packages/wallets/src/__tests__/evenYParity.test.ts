@@ -27,7 +27,7 @@ const NOIR_FIXTURE: Point<bigint> = [
   0x132a0f65758b4775374cfc0a98d7f8a186e1cad626e4e4cd37b73532d7e50101n,
 ];
 
-// `even` column = actual even_y.nr is_even_y output (nargo #[test]), not a TS restatement; a divergence fails a pair.
+// `even` column is the actual even_y.nr is_even_y output (nargo #[test]), not a TS restatement.
 const NOIR_SPREAD: ReadonlyArray<readonly [bigint, boolean]> = [
   [0n, true],
   [1n, false],

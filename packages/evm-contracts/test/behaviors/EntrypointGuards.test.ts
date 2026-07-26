@@ -3,7 +3,6 @@ import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { deployDarkPoolFixture } from "../helpers/fixtures";
 import { publicKey, Fr } from "@hisoka/wallets";
 
-// Input- and access-guards that gate money entrypoints but had no negative test (branch-coverage gaps).
 describe("DarkPool: entrypoint input + access guards", function () {
   it("publicTransfer rejects zero and over-uint128 value", async function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
@@ -16,9 +15,18 @@ describe("DarkPool: entrypoint input + access guards", function () {
     ).to.be.revertedWithCustomError(darkPool, "ValueTooLarge");
   });
 
-  // An off-curve or identity destination is unclaimable by anyone: public_claim asserts the claimant's derived
-  // key equals this point, and MemoStorage records neither depositor nor value, so the escrow is burned with no
-  // recovery. The compliance key already got this validation; the escrow destination did not.
+  it("publicTransfer rejects a timelock above uint64 max (public_claim compares as u64)", async function () {
+    const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
+    const asset = await token.getAddress();
+    // 2**64 truncates to 0 under the circuit's `as u64`, silently voiding the lock; the contract bounds it.
+    await expect(
+      darkPool
+        .connect(alice)
+        .publicTransfer(1n, 2n, asset, 100n, 2n ** 64n, 0n),
+    ).to.be.revertedWithCustomError(darkPool, "TimelockTooLarge");
+  });
+
+  // An off-curve or identity destination is unclaimable by anyone, so the escrow burns with no recovery.
   it("publicTransfer rejects an owner point that is not on the BabyJubJub curve", async function () {
     const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
     const asset = await token.getAddress();

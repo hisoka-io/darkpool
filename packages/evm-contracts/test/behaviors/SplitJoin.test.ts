@@ -23,8 +23,8 @@ describe("DarkPool Behavior: Split & Join", function () {
       const depB = await makeDeposit(darkPool, token, alice, 50n);
 
       const tree = await newSeededTree();
-      await tree.insert(depA.commitment); // index 1
-      await tree.insert(depB.commitment); // index 2
+      await tree.insert(depA.commitment);
+      await tree.insert(depB.commitment);
 
       const out = await mintSelfNote(
         evenYEphemeral(8888n),
@@ -73,7 +73,7 @@ describe("DarkPool Behavior: Split & Join", function () {
       const dep = await makeDeposit(darkPool, token, alice, 100n);
 
       const tree = await newSeededTree();
-      await tree.insert(dep.commitment); // index 1
+      await tree.insert(dep.commitment);
 
       const outParents = packParents([{ leafIndex: 1 }, { leafIndex: 0 }]);
       const out1 = await mintSelfNote(

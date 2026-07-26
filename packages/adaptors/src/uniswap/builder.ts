@@ -13,11 +13,10 @@ export interface SwapIntent {
   intentHash: Fr;
   encodedParams: string;
   deadline: bigint;
-  // Salt actually used (may be freshly drawn); caller needs it to rebuild the memo id.
   salt: bigint;
 }
 
-// Unpredictable + proof-bound salt so a griefer cannot pre-post the colliding memo. Nonzero, < field order.
+// Unpredictable so a griefer cannot pre-post the colliding memo. Nonzero, < field order.
 export function randomSalt(): bigint {
   const s = toBigInt(randomBytes(32)) % Fr.MODULUS;
   return s === 0n ? 1n : s;

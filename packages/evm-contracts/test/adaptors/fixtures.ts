@@ -25,7 +25,6 @@ export const SWAP_ROUTER = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
 export const DAI_ADDRESS = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
 export const WBTC_ADDRESS = "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599";
 
-// Uniswap V3 pools for on-chain price derivation
 const WETH_USDC_POOL = "0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8"; // 0.3% fee
 const WBTC_USDC_POOL = "0x99ac8cA7087fA4A2A1FB6357269965A2014ABc35"; // 0.3% fee
 
@@ -35,10 +34,6 @@ const UNISWAP_POOL_ABI = [
 
 const Q96 = 2n ** 96n;
 
-/**
- * Fetch live ETH/USD and BTC/USD prices from Uniswap V3 pool state on the forked chain.
- * Deterministic per fork block - no external API calls needed.
- */
 export async function fetchLivePrices(): Promise<{
   ethUsd: number;
   btcUsd: number;
@@ -83,8 +78,6 @@ export const COMPLIANCE_PK: Point<bigint> = mulPointEscalar(
   COMPLIANCE_SK,
 );
 
-/** Deposit a spendable WETH self note for `alice` and return it plus a genesis-seeded tree with the note at
- * index 1 (mirroring the contract's reserved index-0 genesis leaf). */
 export async function setupAdaptorNote(
   data: { darkPool: DarkPool; weth: IERC20; alice: { address: string } },
   amountEth: string = "10",
@@ -121,13 +114,11 @@ export async function setupAdaptorNote(
 
   const { chainId } = await ethers.provider.getNetwork();
   const tree = await newSeededTree(chainId);
-  await tree.insert(built.commitment); // index 1
+  await tree.insert(built.commitment);
 
   return { built, tree, amount, spendScalar };
 }
 
-/** Build a withdraw proof that spends `built` (index 1 in the genesis-seeded tree) fully to `recipient`,
- * bound to `intentHash`. Returns the raw proof plus the hex-encoded forms the adaptor entrypoint expects. */
 export async function buildAdaptorWithdraw(args: {
   built: BuiltNote;
   spendScalar: Fr;
@@ -199,7 +190,6 @@ export async function deployUniswapFixture() {
   const poseidon2Lib = await Poseidon2Factory.deploy(GAS_OVERRIDES);
   const poseidonAddress = await poseidon2Lib.getAddress();
 
-  // bb 5.0 --optimized verifiers are self-contained monolithic contracts (no externalized ZKTranscriptLib).
   const getVerifierFactory = async (path: string) => {
     return ethers.getContractFactory(`${path}:HonkVerifier`);
   };

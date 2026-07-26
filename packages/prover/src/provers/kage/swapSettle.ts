@@ -113,7 +113,6 @@ export async function proveSwapSettle(
     );
 
     const proof = readFileSync(join(outDir, "proof"));
-    // Frozen outer-proof width; a toolchain bump that resizes it must fail here, not silently at on-chain verify.
     if (proof.length !== SETTLE_PROOF_FIELDS * 32) {
       throw new ProofError(
         "swap_settle",

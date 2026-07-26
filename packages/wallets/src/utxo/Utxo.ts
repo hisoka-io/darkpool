@@ -16,7 +16,6 @@ export class Utxo implements IUTXO {
       throw new Error("Note owner (spend-key commitment) must be non-zero.");
     }
 
-    // Circuit constrains asset_id to an EVM address; only the high 12 bytes can carry an over-160-bit violation.
     const high = note.assetId.toBuffer().subarray(0, FR_TO_ADDRESS_OFFSET);
     if (high.some((b) => b !== 0)) {
       throw new Error(

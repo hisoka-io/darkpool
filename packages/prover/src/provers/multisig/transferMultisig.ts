@@ -2,8 +2,8 @@ import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
 import { generateProof } from "../../prover-base.js";
 import { circuit } from "../../generated/transfer_multisig_circuit.js";
-import { NoteInput, ProofData } from "../../types.js";
-import { marshalNote, pointHex } from "../../marshal.js";
+import { MultisigMemoRecipient, NoteInput, ProofData } from "../../types.js";
+import { marshalNote, memoRecipientPoints, pointHex } from "../../marshal.js";
 
 export interface TransferMultisigInputs {
   compliancePk: Point<bigint>;
@@ -12,8 +12,8 @@ export interface TransferMultisigInputs {
   frostR: Point<bigint>;
   frostZ: Fr;
 
-  // single owner+view+discovery key; multisig recipient deferred.
-  recipientInPub: Point<bigint>;
+  recipientInPub?: Point<bigint>;
+  recipientMultisig?: MultisigMemoRecipient;
 
   oldNote: NoteInput;
   oldNoteIndex: number;
@@ -30,13 +30,20 @@ export async function proveTransferMultisig(
   inputs: TransferMultisigInputs,
 ): Promise<ProofData> {
   const c = pointHex(inputs.compliancePk);
+  const recipient = memoRecipientPoints(
+    "transfer_multisig",
+    inputs.memoNote.noteType,
+    inputs.recipientInPub,
+    inputs.recipientMultisig,
+  );
   return generateProof("transfer_multisig", circuit, {
     compliance_pubkey_x: c.x,
     compliance_pubkey_y: c.y,
     gpk: pointHex(inputs.gpk),
     frost_r: pointHex(inputs.frostR),
     frost_z: inputs.frostZ.toString(),
-    recipient_in_pub: pointHex(inputs.recipientInPub),
+    recipient_spend_pub: pointHex(recipient.spend),
+    recipient_view_pub: pointHex(recipient.view),
     old_note: marshalNote("transfer_multisig", inputs.oldNote),
     old_note_index: inputs.oldNoteIndex.toString(),
     old_note_path: inputs.oldNotePath.map((p) => p.toString()),

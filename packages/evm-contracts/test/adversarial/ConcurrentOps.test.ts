@@ -25,11 +25,9 @@ describe("Adversarial: Concurrent Operations", function () {
     ]);
 
     const nextIdx = await darkPool.getNextLeafIndex();
-    // genesis leaf at index 0 + three deposits.
     expect(nextIdx).to.equal(4n);
 
-    // Deposits land concurrently, so the on-chain insertion order need not match
-    // the submission order; rebuild the local tree in actual leaf-index order.
+    // Concurrent deposits: on-chain leaf order need not match submission order.
     const noteEvents = await darkPool.queryFilter(darkPool.filters.NewNote());
     const leafIndexOf = (commitment: Fr): number => {
       const ev = noteEvents.find((e) =>
@@ -84,7 +82,6 @@ describe("Adversarial: Concurrent Operations", function () {
 
     await makeDeposit(darkPool, token, bob, 200n);
     const nextIdx = await darkPool.getNextLeafIndex();
-    // genesis + 1 original + 1 change note + 1 Bob deposit = 4
     expect(nextIdx).to.equal(4n);
 
     await expect(
@@ -101,7 +98,6 @@ describe("Adversarial: Concurrent Operations", function () {
     }
 
     const nextIdx = await darkPool.getNextLeafIndex();
-    // genesis leaf at index 0 + ten deposits.
     expect(nextIdx).to.equal(11n);
   });
 });

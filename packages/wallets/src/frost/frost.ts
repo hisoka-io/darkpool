@@ -52,8 +52,7 @@ function sortById<G>(commitments: Commitment<G>[]): Commitment<G>[] {
   );
 }
 
-/** Round 1: hedged one-time nonce pair + public commitment for signer `id` (RFC 5.1). `hidingRandom`/
- *  `bindingRandom` MUST each be 32 fresh CSPRNG bytes per call -- a deterministic nonce is a key-recovery vector. */
+/** `hidingRandom`/`bindingRandom` MUST each be 32 fresh CSPRNG bytes per call; a deterministic nonce recovers the key. */
 export async function commit<G>(
   cs: Ciphersuite<G>,
   id: bigint,

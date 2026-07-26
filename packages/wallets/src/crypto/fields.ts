@@ -8,12 +8,12 @@ export function toFr(value: bigint | number | string): Fr {
   return new Fr(BigInt(value));
 }
 
-/** Converts an Ethereum address to Fr (validates and checksums first). */
+/** Validates and checksums the address before conversion. */
 export function addressToFr(address: string): Fr {
   return toFr(getAddress(address));
 }
 
-/** Converts a string to Fr via Poseidon hash. Input must be <= 32 bytes. */
+/** Right-aligns the UTF-8 bytes in 32 and Poseidon2-hashes; input must be <= 32 bytes. */
 export async function stringToFr(text: string): Promise<Fr> {
   const bytes = toUtf8Bytes(text);
   if (bytes.length > 32) {
@@ -27,7 +27,7 @@ export async function stringToFr(text: string): Promise<Fr> {
   return await Poseidon.hash([fieldFromBytes]);
 }
 
-/** Wide-reduce mod BN254 Fr; use for >32-byte inputs (seed, signature) that would otherwise throw. */
+/** Wide-reduce mod BN254 Fr; for >32-byte inputs (seed, signature) that would otherwise throw. */
 export function toReducedFr(value: bigint | number | string): Fr {
   return new Fr(BigInt(value) % Fr.MODULUS);
 }

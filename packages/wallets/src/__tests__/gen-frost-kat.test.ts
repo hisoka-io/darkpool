@@ -14,7 +14,6 @@ import {
 } from "../frost/index.js";
 import type { Point } from "../tss/index.js";
 
-// Emits a deterministic 3-of-5 FROST (R,z) for the Noir verify_frost_spend KAT.
 describe("gen frost KAT", () => {
   it("emits a deterministic FROST (R,z)", async () => {
     const c = 12345678901234567890123456789012345678901234567890n % SUBORDER;

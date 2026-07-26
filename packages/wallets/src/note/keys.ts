@@ -10,8 +10,7 @@ const IN_KEY_LABEL = "hisoka.inKey";
 const SELF_EPH_LABEL = "hisoka.selfEph";
 const SELF_SPEND_LABEL = "hisoka.selfSpend";
 
-// even-y rejection sampling terminates in ~2 steps (each index is even-y with prob ~1/2); this bound only
-// guards a non-terminating loop and is reached with prob ~2^-MAX_INDEX_ROLL.
+// Only guards a non-terminating even-y roll; each index is even-y with prob ~1/2.
 const MAX_INDEX_ROLL = 256n;
 
 export interface CanonicalAddress {
@@ -46,13 +45,11 @@ export function publicKey(scalar: Fr): Point<bigint> {
   return mulPointEscalar(Base8, scalar.toBigInt());
 }
 
-// owner = Poseidon2(pub.x, pub.y); pass in_pub_j for an incoming note, self_spend_pub for a self note.
 export async function pubkeyOwner(pub: Point<bigint>): Promise<Fr> {
   return Poseidon.hash([new Fr(pub[0]), new Fr(pub[1])]);
 }
 
-// A discovery tag is the point's .x, which aliases (x, +/-y); it is an injective Raven key only when y is
-// even. Ref: intmax2 utils/key.rs even-y address canonicalization.
+// A discovery tag is the point's .x, which aliases (x, +/-y); injective only for even y (ref: intmax2 utils/key.rs).
 export function isEvenY(pub: Point<bigint>): boolean {
   return (pub[1] & 1n) === 0n;
 }
@@ -121,9 +118,7 @@ function sqrtP(n: bigint): bigint {
   return r;
 }
 
-// Recover the even-y BabyJubJub point from its x coordinate. Emitters canonicalize eph_pub to even-y, so y is
-// uniquely recoverable from x alone (exactly one of y, p-y is even). Mirrors the Noir `even_y::is_even_y` rule.
-// Returns an on-curve point but does NOT subgroup-check: a caller MUST assertValidPoint before any scalar-mul.
+// Mirrors Noir `even_y::is_even_y`. On-curve only, NOT subgroup-checked: caller MUST assertValidPoint before scalar-mul.
 export function recoverEvenY(x: bigint): Point<bigint> {
   const x2 = modP(x * x);
   const num = modP(1n - modP(BJJ_A * x2));

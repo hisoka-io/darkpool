@@ -22,8 +22,6 @@ import { isEvenY } from "../note/keys.js";
 import { deriveCek } from "../crypto/kem.js";
 import type { Point } from "../tss/index.js";
 
-// Emits a deterministic transfer_multisig witness + real 3-of-5 FROST (R,z) for the Noir main-level KAT
-// (transfer_multisig/src/main.nr). Same secret polynomial as gen-withdraw-multisig-kat -> shared frost.nr gpk.
 const ASSET_ID = 0x1234567890123456789012345678901234567890n;
 const COMPLIANCE_PK: Point = [
   0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111n,
@@ -116,6 +114,7 @@ describe("gen transfer_multisig KAT", () => {
       root: root.toBigInt(),
       nullifier: nullifier.toBigInt(),
       memoLeaf: memoLeaf.toBigInt(),
+      memoTag: RECIPIENT_IN_PUB[0],
       changeLeaf: changeLeaf.toBigInt(),
       asset: ASSET_ID,
     });
@@ -185,16 +184,16 @@ describe("gen transfer_multisig KAT", () => {
       "0x0d6eb6dce077a02a8ccd1eb8d2053cf89139f154c26b59a9120bd3730a81fc49",
     );
     expect(hex(sig.R[0])).toBe(
-      "0x008babeca5f9585000f81e056618f155be2465d91cb96fe6816033427124216e",
+      "0x2a26ace777b964e49e85bdade00b33a4de33d88309c339ef953079d629820fcf",
     );
     expect(hex(sig.R[1])).toBe(
-      "0x08ec1033e38655b06fee2209b3e635117d9df86e34340901e3c14c3d24f90848",
+      "0x2c1868ba569fd5a63e3a69a6522ea4e6021eb6c53ed05df3421e909d4825d0fc",
     );
     expect(hex(sig.z)).toBe(
-      "0x0424497705eaf7f6ba5f214139a68360f95452f59e3ad516d5ecae9add7394c3",
+      "0x013d2838221a088234fe1ccb592fd8e183d30bf5bf125609529bb4653c03b2f9",
     );
     expect(hex(m)).toBe(
-      "0x2bd99da50034a9638baf66ab2a38b9d6db9a7dc6f4f5b5a365b3ad815d4c5525",
+      "0x2984b6152eaaa6771f9e03d8b9073d181ba0cc8a717bc52e5b9792d7c86106ea",
     );
   });
 });

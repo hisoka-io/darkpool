@@ -60,7 +60,6 @@ export class DarkAccount implements IDarkAccount {
     this.#skRoot = skRoot;
   }
 
-  // Fail closed on JSON.stringify and redact on Node util.inspect -- the two key serialization/log paths.
   public toJSON(): never {
     throw new DerivationError("refusing to serialize key material");
   }
@@ -112,7 +111,6 @@ export class DarkAccount implements IDarkAccount {
   public static async fromMnemonic(mnemonic: string): Promise<DarkAccount> {
     let canonicalPhrase: string;
     try {
-      // Canonicalize via entropy: mixed case / whitespace variants of one mnemonic must derive one account.
       canonicalPhrase = Mnemonic.fromPhrase(mnemonic).phrase;
     } catch {
       throw new DerivationError("Invalid mnemonic");
@@ -128,7 +126,7 @@ export class DarkAccount implements IDarkAccount {
     return new DarkAccount(skRoot);
   }
 
-  // Sign-to-derive: signature IS the root secret -- MUST be deterministic AND never exposed/reused (its disclosure recovers sk_root).
+  // The signature IS the root secret: MUST be deterministic and never exposed (disclosure recovers sk_root).
   public static async fromSignature(signature: string): Promise<DarkAccount> {
     const sig = Signature.from(signature);
     const rHex = sig.r.slice(2);

@@ -3,7 +3,7 @@ use crate::{lean_imt_inclusion_proof, TREE_DEPTH};
 use crate::note::{assert_asset_id, Note, NOTE_TYPE_MULTISIG, NOTE_TYPE_STANDARD, NOTE_VERSION};
 use crate::note_nullifier;
 use crate::owner;
-use ecdh::{bjj::{BJJ, check_subgroup}, ECDHTrait, Point};
+use ecdh::{bjj::BJJ, ECDHTrait, Point};
 use edwards::{bjj::BabyJubJub, CurveTrait};
 
 fn spend_membership_nullifier(
@@ -32,8 +32,7 @@ pub fn verify_spend(
     spend_membership_nullifier(note, leaf_index, path)
 }
 
-// Does NOT authorize the spend: owner == Poseidon2(gpk) is public-computable, so the caller MUST verify a
-// FROST quorum over m via frost::verify_frost_spend (named open_ not verify_ to signal this).
+// Does NOT authorize: owner == Poseidon2(gpk) is public, so callers MUST also verify a FROST quorum.
 pub fn open_multisig_note(
     note: Note,
     gpk: Point,
@@ -41,7 +40,7 @@ pub fn open_multisig_note(
     path: [Field; TREE_DEPTH],
 ) -> (Field, Field) {
     let gpk_ed = BabyJubJub::new(gpk.x, gpk.y);
-    assert(check_subgroup(gpk_ed), "gpk not in prime-order subgroup");
+    crate::subgroup::assert_in_prime_subgroup(gpk, "gpk not in prime-order subgroup");
     assert(!gpk_ed.is_zero(), "gpk must not be the identity");
     assert(note.owner == owner::pubkey_owner(gpk), "spender does not own this multisig note");
     assert(note.note_type == NOTE_TYPE_MULTISIG, "unexpected note type");

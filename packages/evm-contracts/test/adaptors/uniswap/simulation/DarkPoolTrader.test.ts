@@ -18,7 +18,6 @@ import { Point } from "@zk-kit/baby-jubjub";
 import { DarkPool, IERC20, UniswapAdaptor } from "../../../../typechain-types";
 import { TestWallet } from "../../../helpers/TestWallet";
 
-// Within MAX_INTENT_LIFETIME (1h) of the current block, so executeSwap accepts it.
 const swapDeadline = async () =>
   BigInt((await ethers.provider.getBlock("latest"))!.timestamp) + 600n;
 
@@ -41,7 +40,6 @@ class TraderAgent {
     amountIn: bigint,
     fee: number = 3000,
   ) {
-    // The swap output is a public memo owned by a fresh claim key the trader controls.
     const recipientSk = await this.wallet.account.getIncomingKey(
       this.claimIdx++,
     );
@@ -146,7 +144,7 @@ class TraderAgent {
 }
 
 describe("Simulation: The DarkPool Trader (Multi-User DeFi)", function () {
-  this.timeout(0); // Mainnet Fork
+  this.timeout(0);
 
   it("should execute a complex economy: Swap -> Transfer -> Swap -> Withdraw", async function () {
     const {

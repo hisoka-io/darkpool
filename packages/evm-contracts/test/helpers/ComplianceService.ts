@@ -27,8 +27,7 @@ interface TransactionGraph {
   outputs: DecryptedRecord[];
 }
 
-/** Compliance decrypts every note STRUCTURALLY: the content key is (complianceSk * eph_pub).x == (eph * C).x,
- * so no per-recipient wrap or DLEQ is needed. psi (hence the nullifier) follows from the same key. */
+/** Compliance decrypts every note structurally: the content key is (complianceSk * eph_pub).x == (eph * C).x. */
 export class ComplianceService {
   private db: Map<string, DecryptedRecord> = new Map();
   private nullifierMap: Map<string, string> = new Map();

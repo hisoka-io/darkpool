@@ -1,6 +1,4 @@
-// Multisig note VIEW layer. Owner=Poseidon2(gpk) (spend) is DECOUPLED from view key V=v*Base8. Self eph folds
-// SECRET v partitioned by (v, member_id, j) so it is not publicly derivable and per-member sequences never collide.
-// Discovery tags are point.x, so V and every eph_pub must be even-y.
+// owner=Poseidon2(gpk) is DECOUPLED from the view key V=v*Base8. Discovery tags are point.x, so V and every eph_pub must be even-y.
 
 import { Fr } from "@aztec/foundation/fields";
 import { Point, scalarBaseMul, randScalar } from "../tss/bjj.js";
@@ -11,7 +9,7 @@ import { Poseidon } from "../crypto/Poseidon.js";
 import { isEvenY } from "../note/keys.js";
 import { multisigOwner } from "./message.js";
 
-/** note_type set; MUST match the circuit (STANDARD=0, MULTISIG=1; CONDITIONAL=2 reserved). */
+/** MUST match the circuit note_type (STANDARD=0, MULTISIG=1; CONDITIONAL=2 reserved). */
 export const NOTE_TYPE_STANDARD = 0n;
 export const NOTE_TYPE_MULTISIG = 1n;
 
@@ -21,7 +19,9 @@ const MAX_INDEX_ROLL = 256n;
 
 export interface MultisigAddress {
   ownerCommitment: Fr;
+  gpk: Point;
   viewPub: Point;
+  index: bigint;
 }
 
 function assertEvenYViewPub(viewPub: Point): void {
@@ -33,11 +33,12 @@ function assertEvenYViewPub(viewPub: Point): void {
 export async function multisigAddress(
   gpk: Point,
   v: Fr,
+  index: bigint = 0n,
 ): Promise<MultisigAddress> {
   const ownerCommitment = new Fr(await multisigOwner(gpk));
   const viewPub = scalarBaseMul(v.toBigInt());
   assertEvenYViewPub(viewPub);
-  return { ownerCommitment, viewPub };
+  return { ownerCommitment, gpk, viewPub, index };
 }
 
 export interface IncomingMultisigNote {

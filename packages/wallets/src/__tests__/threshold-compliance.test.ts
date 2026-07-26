@@ -34,7 +34,6 @@ describe("threshold-compliance: DKG + threshold decrypt == single-key", () => {
   it("recovers CEK = (c*eph).x uniformly across quorums, matching the single-key holder", async () => {
     const { C, shares, V } = await runDkg(5, 3, CONTEXT);
 
-    // TEST-ONLY reconstruction for the single-key baseline.
     const c = interpolateAtZero(shares, [1n, 2n, 3n]);
     expect(pointEq(scalarBaseMul(c), C)).toBe(true);
 
@@ -71,7 +70,6 @@ describe("threshold-compliance: DKG + threshold decrypt == single-key", () => {
     const ephPub = scalarMul(e, BASE8);
 
     const all = await partialsFor([1n, 2n, 3n, 4n, 5n], shares, ephPub);
-    // Member 3 malicious: random point for D_3.
     all[2] = {
       id: 3n,
       proof: { ...all[2].proof, D: scalarMul(randScalar(), ephPub) },

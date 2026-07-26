@@ -27,8 +27,6 @@ const UUPS_OPTS = {
   unsafeAllow: ["external-library-linking" as const],
 };
 
-/** Deploy a DarkPool proxy with DISTINCT admin/pauser/upgrader holders (random verifiers; this suite
- * exercises only the proxy/role machinery, never a real proof path). */
 async function deployDistinctRoles() {
   const [admin, pauser, upgrader, outsider] = await ethers.getSigners();
 
@@ -58,7 +56,7 @@ async function deployDistinctRoles() {
     kageVerifier: verifierAddrs[10],
     compliancePkX: BASE8_X,
     compliancePkY: BASE8_Y,
-    initialAdminDelay: 0, // admin holds DEFAULT_ADMIN immediately
+    initialAdminDelay: 0,
     initialAdmin: admin.address,
     pauser: pauser.address,
     upgrader: upgrader.address,

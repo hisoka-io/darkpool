@@ -1,10 +1,4 @@
-/**
- * Merkle root retention (store-all-roots).
- *
- * The tree keeps every historical root forever: `isKnownRoot` is never cleared. A proof built against
- * an old, non-current root still verifies; the nullifier set, not root recency, is the double-spend guard.
- * These are regression tests for that invariant (an earlier design evicted all but the last 100 roots).
- */
+/** Every historical root stays known forever (`isKnownRoot` is never cleared), so a proof against an old root still verifies; the nullifier set is the double-spend guard. */
 import { expect } from "chai";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
@@ -34,12 +28,10 @@ describe("Adversarial: Merkle root retention (store-all-roots)", function () {
       roots.push(tree.getRoot().toString());
     }
 
-    // No root is ever evicted: every intermediate root stays known.
     for (const root of roots) {
       expect(await darkPool.isKnownRoot(root)).to.equal(true);
     }
 
-    // getCurrentRoot tracks the latest insert.
     expect(await darkPool.getCurrentRoot()).to.equal(roots[roots.length - 1]);
   });
 
@@ -48,11 +40,10 @@ describe("Adversarial: Merkle root retention (store-all-roots)", function () {
     const { darkPool, token, alice, bob } = ctx;
     const assetFr = addressToFr(await token.getAddress());
 
-    // First leaf: the note we later spend (index 1, after the genesis leaf). Its early root becomes stale
-    // but must stay known. Capture that root and its membership path before later inserts move the siblings.
+    // Capture the root and path before later inserts move the siblings: this root goes stale but stays known.
     const first = await makeDeposit(darkPool, token, alice, 50n);
     const tree = await newSeededTree();
-    await tree.insert(first.commitment); // index 1
+    await tree.insert(first.commitment);
     const staleRoot = tree.getRoot();
     const stalePath = tree.getMerklePath(1);
 
@@ -61,11 +52,9 @@ describe("Adversarial: Merkle root retention (store-all-roots)", function () {
       await tree.insert(dep.commitment);
     }
 
-    // The early root is no longer current, but retention keeps it known.
     expect(await darkPool.getCurrentRoot()).to.not.equal(staleRoot.toString());
     expect(await darkPool.isKnownRoot(staleRoot.toString())).to.equal(true);
 
-    // Proving membership at index 1 with the captured stale path outputs the stale (non-current) root.
     const change = await mintSelfNote(
       evenYEphemeral(999n),
       0n,

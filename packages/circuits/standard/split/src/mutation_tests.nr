@@ -1,5 +1,3 @@
-//! Flip one witness from the valid KAT; guards asserted by message. Public-output fields covered at RealProofE2E. Outputs mint left-to-right, so out_2 mutations surface only after out_1 mints clean.
-
 use shared::mutation;
 use shared::note::Note;
 use shared::SUBORDER;
@@ -13,7 +11,6 @@ global EPH2: Field = 20;
 fn note_in() -> Note {
     super::note_in()
 }
-// Self outputs: psi bound to eph 15 / 20 against the fixture compliance key.
 fn out1() -> Note {
     super::out_note(
         40,
@@ -75,7 +72,6 @@ fn m_in_note_version() {
     ni.note_version = 2;
     run(cx, cy, ni, SCALAR, 0, out1(), EPH1, out2(), EPH2);
 }
-// note_in asset is pinned to the outputs; perturbing it surfaces at the out_1 asset-equality guard.
 #[test(should_fail_with = "out1 asset mismatch")]
 fn m_in_asset_mismatch() {
     let (cx, cy) = compliance();
@@ -249,7 +245,6 @@ fn m_eph2_ge_suborder() {
     let (cx, cy) = compliance();
     run(cx, cy, note_in(), SCALAR, 0, out1(), EPH1, out2(), SUBORDER);
 }
-// Reusing one eph across outputs reuses the CEK (two-time pad); the circuit pins them distinct.
 #[test(should_fail_with = "ephemerals must be distinct")]
 fn m_eph_reused() {
     let (cx, cy) = compliance();

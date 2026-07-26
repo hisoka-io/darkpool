@@ -2,7 +2,6 @@ import { Fr } from "@aztec/foundation/fields";
 import { Poseidon } from "./Poseidon.js";
 import { stringToFr } from "./fields.js";
 
-/** Domain-separated Poseidon2 key derivation. */
 export class Kdf {
   public static async derive(
     purpose: string,

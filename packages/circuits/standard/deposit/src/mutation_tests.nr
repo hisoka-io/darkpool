@@ -1,11 +1,9 @@
-//! Flip one witness from the valid KAT; each guard is asserted by exact message (should_fail_with).
-
 use shared::mutation;
 use shared::note::Note;
 use shared::SUBORDER;
 use shared::test_fixtures::{FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, fixture_note};
 
-// eph=5 is the golden KAT ephemeral (its derived eph_pub is even-y, so the discovery-tag guard passes).
+// eph=5 derives an even-y eph_pub, which the deposit discovery-tag guard requires.
 global EPH: Field = 5;
 
 fn note0() -> Note {
@@ -76,7 +74,6 @@ fn m_psi_unbound() {
     note.psi = note.psi + 1;
     run(FIXTURE_COMPLIANCE_X, FIXTURE_COMPLIANCE_Y, note, EPH);
 }
-// asset_id must fit in 20 bytes (assert_asset_id decomposes to [u8; 20]); a 21-byte value overflows.
 #[test(should_fail)]
 fn m_asset_invalid() {
     let mut note = note0();
@@ -104,7 +101,7 @@ fn m_eph_ge_suborder() {
     );
 }
 
-// eph=6 -> odd-y eph_pub; psi rebound to eph=6's CEK so the psi check passes and the even-y guard is the one that fires.
+// psi rebound to eph=6's CEK so the psi guard passes and the even-y guard is the one that fires.
 #[test(should_fail_with = "deposit discovery tag must be even-y")]
 fn m_odd_y_deposit_eph() {
     let mut note = note0();

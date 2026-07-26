@@ -25,6 +25,16 @@
     "test:fast": {
       "outputs": []
     },
+    "@hisoka/prover#build": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/circuits/**/*.nr",
+        "$TURBO_ROOT$/packages/circuits/**/Nargo.toml"
+      ],
+      "outputs": ["dist/**", "src/generated/**"],
+      "cache": false
+    },
     "evm-contracts#test": {
       "dependsOn": ["^build"],
       "outputs": []

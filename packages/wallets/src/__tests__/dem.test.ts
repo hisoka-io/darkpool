@@ -7,7 +7,6 @@ const CEK = new Fr(
   0x1fbbfa289c50b7ded032c85e5faa8b3790afc2fd059fd3d299294ff879a08bdan,
 );
 
-// order k=0..6: [note_version, asset_id, note_type, conditions_hash, value, owner, parents]
 const PLAINTEXT: Fr[] = [
   new Fr(1n),
   new Fr(0x1234567890123456789012345678901234567890n),

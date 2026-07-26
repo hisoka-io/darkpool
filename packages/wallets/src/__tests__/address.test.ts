@@ -6,7 +6,6 @@ import {
   HisokaAddress,
 } from "../address";
 
-// Transfer-memo in_pub_j (gen_v2_fixtures.ts): an even-y prime-order point usable as a payment address.
 const IN_PUB: Point<bigint> = [
   0x1b16e357953d68d73398c838aa883cc65ddae2aef75a4bc437e4232afdbe43c8n,
   0x02d7ee0be055310d2895c5ed5090a8aa1c700e73c64294f1e817ec77f46b4fdcn,

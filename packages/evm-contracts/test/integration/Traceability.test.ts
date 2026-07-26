@@ -52,7 +52,6 @@ describe("Compliance: Traceability & Auditing", function () {
     await auditor.sync();
     const graph = await auditor.traceTransactions();
 
-    // TX 1: Deposit (no spent inputs, one 100 output)
     const depositTx = graph.find(
       (tx) =>
         tx.inputs.length === 0 &&
@@ -61,7 +60,6 @@ describe("Compliance: Traceability & Auditing", function () {
     expect(depositTx).to.not.equal(undefined);
     const aliceNoteCommitment = depositTx!.outputs[0].commitment;
 
-    // TX 2: Alice -> Bob (100 -> 50 memo + 50 change)
     const txAliceToBob = graph.find((tx) =>
       tx.inputs.some((i) => i.commitment === aliceNoteCommitment),
     );
@@ -76,7 +74,6 @@ describe("Compliance: Traceability & Auditing", function () {
       "Compliance failed to identify the Transfer Note to Bob",
     ).to.not.equal(undefined);
 
-    // TX 3: Bob -> Charlie
     const txBobToCharlie = graph.find((tx) =>
       tx.inputs.some((i) => i.commitment === bobMemo!.commitment),
     );
@@ -87,7 +84,6 @@ describe("Compliance: Traceability & Auditing", function () {
     );
     expect(charlieMemo).to.not.equal(undefined);
 
-    // TX 4: Charlie -> Alice
     const txCharlieToAlice = graph.find((tx) =>
       tx.inputs.some((i) => i.commitment === charlieMemo!.commitment),
     );

@@ -77,7 +77,7 @@ describe("FROST over BabyJubJub+Poseidon2: 2-round sign", () => {
     const sig = await frostSign([1n, 2n, 3n], shares, gpk, m);
     expect(await verify(cs, gpk, encodeMessage(m), sig)).toBe(true);
 
-    // The sig's challenge is what the circuit recomputes: low 248 bits of Poseidon2, matching verify_frost_spend.
+    // The circuit recomputes this challenge: low 248 bits of Poseidon2, matching verify_frost_spend.
     const eCircuit =
       (await challengeScalar([
         SCHNORR_DOMAIN,
@@ -154,8 +154,7 @@ describe("FROST over BabyJubJub+Poseidon2: 2-round sign", () => {
       }),
     ).toBe(true);
 
-    // Reassemble R with rho_i = 1 (no per-participant binding): the honestly-bound partials no longer match,
-    // so verify rejects. The rho_i binding (RFC 9591 4.4) is what blocks ROS/Wagner parallel-session forgery.
+    // The rho_i binding (RFC 9591 4.4) is what blocks ROS/Wagner parallel-session forgery.
     const unitRhos = new Map<bigint, bigint>(quorum.map((id) => [id, 1n]));
     const unboundR = groupCommitment(cs, commitments, unitRhos);
     expect(await verify(cs, gpk, msg, { R: unboundR, z })).toBe(false);

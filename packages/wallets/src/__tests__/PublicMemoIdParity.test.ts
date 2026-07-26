@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Fr } from "@aztec/foundation/fields";
 import { calculatePublicMemoId } from "../crypto/index";
 
-// TS leg of the memo-id parity triangle (Noir public_claim test_public_claim_kat + evm poseidon-parity.test.ts). Unpinned, an SDK consumer computes the wrong id and cannot find its own memo.
+// TS leg of the memo-id parity triangle (Noir public_claim test_public_claim_kat + evm poseidon-parity.test.ts).
 const VAL = new Fr(100n);
 const ASSET = new Fr(0x1234567890123456789012345678901234567890n);
 const TIMELOCK = new Fr(0n);
@@ -32,8 +32,6 @@ describe("public memo id parity (TS leg)", () => {
     expect(memoId.equals(GOLDEN)).toBe(true);
   });
 
-  // Field order is the failure mode a golden on one fixture can miss: swapping two equal-arity fields still
-  // hashes six inputs. ownerX and ownerY are the pair most likely to be transposed.
   it("is sensitive to field order", async () => {
     const transposed = await calculatePublicMemoId(
       VAL,

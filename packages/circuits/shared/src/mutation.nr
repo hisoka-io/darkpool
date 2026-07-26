@@ -1,26 +1,25 @@
-//! Test-only BabyJubJub bad-point vectors (off-curve / identity / small-order / non-subgroup) for the mutation
-//! harness. Self-tests below PROVE each vector's order/curve property. Computed over a=168700, d=168696, BN254 Fr.
+//! Test-only BabyJubJub bad-point vectors computed over a=168700, d=168696, BN254 Fr.
 
 use crate::SUBORDER;
 use ecdh::{bjj::check_subgroup, Point};
 use edwards::{bjj::BabyJubJub, CurveTrait};
 
-/// Neutral element (order 1). In-subgroup, but rejected by the separate `!is_zero()` identity guard.
+/// Order 1, so in every subgroup; only the separate `!is_zero()` guard rejects it.
 pub fn bad_identity() -> Point {
     Point { x: 0, y: 1 }
 }
 
-/// NOT on the curve: a*x^2 + y^2 = 168701, 1 + d*x^2*y^2 = 168697. Rejected before any scalar-mul.
+/// Off-curve: a*x^2 + y^2 = 168701 != 168697 = 1 + d*x^2*y^2.
 pub fn bad_off_curve() -> Point {
     Point { x: 1, y: 1 }
 }
 
-/// Order 2: (0, -1). On-curve, NOT in the prime-order subgroup (has a cofactor-2 component).
+/// Order 2, i.e. (0, -1).
 pub fn bad_order2() -> Point {
     Point { x: 0, y: 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000 }
 }
 
-/// Order 8 (a small-order cofactor point). On-curve, NOT in the prime-order subgroup.
+/// Order 8.
 pub fn bad_small_order() -> Point {
     Point {
         x: 0x0999e47227c47e8829b0d14b251feed7582d0f5357b304b06d4014ae6ab39f1e,
@@ -28,8 +27,7 @@ pub fn bad_small_order() -> Point {
     }
 }
 
-/// Order 8*SUBORDER: on-curve, NOT in the prime-order subgroup (a full-curve generator with a cofactor
-/// component). This is the classic "valid-looking but non-subgroup" point.
+/// Order 8*SUBORDER: a full-curve generator, on-curve but outside the prime-order subgroup.
 pub fn bad_non_subgroup() -> Point {
     Point {
         x: 0x023343e3445b673d38bcba38f25645adb494b1255b1162bb40f41a59f4d4b45e,
@@ -53,7 +51,6 @@ fn vector_off_curve_fails_on_curve_assert() {
 
 #[test]
 fn vector_small_and_non_subgroup_are_on_curve() {
-    // on-curve (assert would abort the test otherwise)
     as_ed(bad_order2()).assert_is_on_curve();
     as_ed(bad_small_order()).assert_is_on_curve();
     as_ed(bad_non_subgroup()).assert_is_on_curve();
@@ -74,6 +71,8 @@ fn vector_small_and_non_subgroup_are_outside_the_subgroup() {
 
 #[test]
 fn scalar_subgroup_boundary_is_suborder() {
-    // scalar rejection boundary probed by the harness (spend_scalar / eph / frost_z)
-    assert(SUBORDER != 0);
+    assert(
+        SUBORDER == 2736030358979909402780800718157159386076813972158567259200215660948447373041,
+        "SUBORDER drifted from the BabyJubJub prime-order subgroup order",
+    );
 }

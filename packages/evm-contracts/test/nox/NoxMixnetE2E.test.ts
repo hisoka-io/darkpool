@@ -1,11 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 /**
- * NOX Mixnet E2E: wallet SDK + ZK proofs + mixnet transport + on-chain verification.
- *
- * Prerequisites:
- *   - Anvil running: anvil --port 8545 --silent
- *   - nox mesh: cargo run -p nox-sim --bin nox_mesh_server --features dev-node --release -- --nodes 5 --data-dir /tmp/nox_mesh --base-port 14000 --anvil-port 8545 --mix-delay-ms 0
- *   Or set NOX_MESH_AUTO=1 to have the test manage infra automatically.
+ * NOX Mixnet E2E. Prerequisites: `anvil --port 8545 --silent` plus a nox mesh:
+ *   cargo run -p nox-sim --bin nox_mesh_server --features dev-node --release -- --nodes 5 --data-dir /tmp/nox_mesh --base-port 14000 --anvil-port 8545 --mix-delay-ms 0
+ * Or set NOX_MESH_AUTO=1 to have the test manage infra automatically.
  */
 
 import { expect } from "chai";
@@ -30,7 +27,6 @@ interface MeshInfo {
 function readMeshInfo(): MeshInfo | null {
   try {
     const raw = JSON.parse(fs.readFileSync(MESH_INFO_PATH, "utf-8"));
-    // Derive seed_url from node 0's metrics port when not present
     const seedUrl =
       raw.seed_url ??
       (raw.nodes?.[0]
@@ -59,7 +55,7 @@ async function createNoxClient(meshInfo: MeshInfo): Promise<NoxClient> {
 }
 
 describe("NOX Mixnet: Full DeFi E2E", function () {
-  this.timeout(600_000); // 10 min -- ZK proofs + mixnet latency
+  this.timeout(600_000);
 
   let meshInfo: MeshInfo | null;
   let noxClient: any;
@@ -116,13 +112,11 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     console.log(
       `    Alice balance after split: ${ethers.formatEther(aliceWallet.getBalance())}`,
     );
-    // 60 + 40 = 100: same total across two notes
     expect(aliceWallet.getBalance()).to.equal(DEPOSIT_AMT);
 
     console.log("  [4] Alice transfers 30 to Bob (via mixnet)...");
     const TRANSFER_AMT = ethers.parseEther("30");
 
-    // Spends Alice's 60-token note from the split
     const bobRecv = await bobWallet.getReceiveAddress();
     const trf = await aliceWallet.transfer(TRANSFER_AMT, bobRecv.inPub);
 
@@ -187,9 +181,7 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
   });
 
   it("should query chain state through the mixnet", async function () {
-    // This test only works when the mesh exit nodes can reach the same chain (external Anvil).
-    // Hardhat in-memory chain is not accessible from nox exit nodes.
-    // We verify the NoxClient RPC methods work, even if exit nodes return connection errors.
+    // The nox exit nodes cannot reach hardhat's in-memory chain, so this only exercises the RPC methods.
     console.log("\n  [1] Querying chain state via mixnet...");
 
     try {
@@ -243,7 +235,7 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     const Token2Factory = await ethers.getContractFactory("MockERC20");
     const token2 = await Token2Factory.deploy("Mock USDC", "MUSDC", 6);
     const token2Addr = await token2.getAddress();
-    await token2.mint(alice.address, 1_000_000n * 10n ** 6n); // 1M USDC
+    await token2.mint(alice.address, 1_000_000n * 10n ** 6n);
 
     const aliceWallet = await TestWallet.create(alice, darkPool, token);
     const bobWallet = await TestWallet.create(bob, darkPool, token);

@@ -1,4 +1,4 @@
-//! Mutation harness: prove the FROST KAT, mutate one witness/signed field, assert the specific rejection; adds the incoming-memo + recipient-key surface.
+//! Mutation harness: prove the FROST KAT, mutate one witness/signed field, assert the specific rejection.
 
 use shared::mutation;
 use shared::note::Note;
@@ -44,6 +44,7 @@ fn run(
         g,
         fr,
         z,
+        rp,
         rp,
         o,
         idx,
@@ -145,7 +146,6 @@ fn m_gpk_non_subgroup() {
         super::KAT_CHANGE_EPH,
     );
 }
-// valid non-gpk point: owner pin rejects before FROST
 #[test(should_fail_with = "spender does not own this multisig note")]
 fn m_gpk_wrong_valid() {
     v(
@@ -192,7 +192,6 @@ fn m_frost_r_off_curve() {
         super::KAT_CHANGE_EPH,
     );
 }
-// R carries only on-curve + non-identity checks; a non-subgroup R must still fail the signature equation.
 #[test(should_fail_with = "FROST signature invalid")]
 fn m_frost_r_non_subgroup() {
     v(
@@ -224,7 +223,6 @@ fn m_frost_r_mutated() {
     );
 }
 
-// ScalarField<63> challenge is derived from m, not a free witness.
 #[test(should_fail_with = "scalar must be non-zero")]
 fn m_frost_z_zero() {
     v(
@@ -270,7 +268,6 @@ fn m_frost_z_mutated() {
         super::KAT_CHANGE_EPH,
     );
 }
-// value swap (41+59==100) shifts the signed leaves -> recomputed m rejects; exercises the ScalarField<63> m-binding
 #[test(should_fail_with = "FROST signature invalid")]
 fn m_signed_value_swap() {
     v(
@@ -338,7 +335,6 @@ fn m_old_note_version() {
         super::KAT_CHANGE_EPH,
     );
 }
-// asset_id stays a valid 20-byte value (passes assert_asset_id) but breaks old==memo before the mints.
 #[test(should_fail_with = "memo asset mismatch")]
 fn m_old_asset_mismatch() {
     let mut o = oldn();
@@ -439,7 +435,7 @@ fn m_ephemerals_equal() {
     );
 }
 
-#[test(should_fail_with = "incoming memo must be STANDARD")]
+#[test(should_fail_with = "incoming memo note_type must be STANDARD or MULTISIG")]
 fn m_memo_note_type() {
     let mut mo = memon();
     mo.note_type = 2;
@@ -541,8 +537,7 @@ fn m_memo_parents_forged() {
         super::KAT_CHANGE_EPH,
     );
 }
-// Odd-y recipient key (odd proven in even_y::test_is_even_y_kat; its owner proven in owner::kat_pubkey_owner):
-// it passes note-type / subgroup / owner / psi, so the incoming discovery-tag even-y assert is what rejects.
+// Odd-y point (proven odd in even_y::test_is_even_y_kat); it clears every earlier guard, so the even-y tag assert fires.
 #[test(should_fail_with = "incoming discovery tag must be even-y")]
 fn m_memo_incoming_odd_y() {
     let odd = ecdh::Point {
@@ -668,7 +663,40 @@ fn m_change_parents_forged() {
     );
 }
 
-#[test(should_fail_with = "recipient key must not be the identity")]
+fn ms_memo(vp: ecdh::Point) {
+    let _ = super::main(
+        super::CX,
+        super::CY,
+        gpk(),
+        super::kat_ms_memo_frost_r(),
+        super::KAT_MS_MEMO_FROST_Z,
+        super::recipient_spend_pub(),
+        vp,
+        oldn(),
+        0,
+        [0; TREE_DEPTH],
+        super::kat_ms_memo_note(),
+        super::KAT_MEMO_EPH,
+        chgn(),
+        super::KAT_CHANGE_EPH,
+    );
+}
+
+#[test]
+fn m_ms_memo_valid_accepts() {
+    ms_memo(rin());
+}
+// The quorum signs memo_tag, so swapping only the view key re-points discovery while the memo leaf and its owner stay intact.
+#[test(should_fail_with = "FROST signature invalid")]
+fn m_ms_memo_view_key_substituted() {
+    let substituted_view = ecdh::Point {
+        x: 0x0d2c8ddcfdd735e9fdd0d51538022ba533cfa83b81d2acec70b17f505c17f048,
+        y: 0x0de8d63022d65a455c438aacda47f8bc4141566562eb1cab57e5085b62a5a75e,
+    };
+    ms_memo(substituted_view);
+}
+
+#[test(should_fail_with = "memo spend key must not be the identity")]
 fn m_recipient_identity() {
     v(
         gpk(),
@@ -698,7 +726,7 @@ fn m_recipient_off_curve() {
         super::KAT_CHANGE_EPH,
     );
 }
-#[test(should_fail_with = "recipient key not in prime-order subgroup")]
+#[test(should_fail_with = "memo spend key not in prime-order subgroup")]
 fn m_recipient_small_order() {
     v(
         gpk(),
@@ -713,7 +741,7 @@ fn m_recipient_small_order() {
         super::KAT_CHANGE_EPH,
     );
 }
-#[test(should_fail_with = "recipient key not in prime-order subgroup")]
+#[test(should_fail_with = "memo spend key not in prime-order subgroup")]
 fn m_recipient_non_subgroup() {
     v(
         gpk(),

@@ -28,8 +28,7 @@ contract UniswapAdaptor is ReentrancyGuard {
     uint256 constant PRIME =
         0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001;
 
-    // Upper bound on how far ahead an intent may be dated. Without it a client could set a deadline decades out
-    // and reintroduce the perpetual-option exposure the deadline exists to close.
+    // Without a cap, a deadline decades out reintroduces the perpetual-option exposure it exists to close.
     uint256 public constant MAX_INTENT_LIFETIME = 1 hours;
 
     enum SwapType {
@@ -101,7 +100,7 @@ contract UniswapAdaptor is ReentrancyGuard {
         address proofRecipient = address(uint160(uint256(publicInputs[1])));
         if (proofRecipient != address(this)) revert InvalidProofRecipient();
 
-        // Bind swap to proof: overwrite withdraw intent_hash (index 2); a tampered swap fails verification.
+        // Binds the swap to the proof: a tampered swap yields a different hash and fails verification.
         publicInputs[2] = intentHash;
 
         IDarkPool(DARK_POOL).withdraw(proof, publicInputs);
@@ -148,8 +147,7 @@ contract UniswapAdaptor is ReentrancyGuard {
             IERC20(withdrawnAsset).balanceOf(address(this)) !=
             balPreSwap - withdrawnAmount
         ) revert AssetMismatch();
-        // Skip when output == input asset: the assetIn check above already
-        // governs that balance and a separate net-zero check would false-revert.
+        // Skipped when output == input asset: the check above governs that balance and this would false-revert.
         if (
             outAsset != withdrawnAsset &&
             IERC20(outAsset).balanceOf(address(this)) != outPreBal
@@ -262,7 +260,7 @@ contract UniswapAdaptor is ReentrancyGuard {
         ExactOutputParams memory p = abi.decode(encoded, (ExactOutputParams));
         if (amountInMax != p.amountInMaximum) revert WithdrawAmountMismatch();
 
-        // Path: TokenOut -> ... -> TokenIn (Reversed)
+        // An exactOutput path is reversed: TokenOut -> ... -> TokenIn.
         address tokenIn = _getLastToken(p.path);
         if (tokenIn != withdrawnAsset) revert AssetMismatch();
         address tokenOut = BytesLib.toAddress(p.path, 0);
@@ -314,7 +312,6 @@ contract UniswapAdaptor is ReentrancyGuard {
         if (len < 20) revert PathTooShort();
         address token;
         assembly {
-            // Last 20 bytes of path, in the word's high bytes, so shift right 96 bits.
             let ptr := add(add(path, 32), sub(len, 20))
             let loaded := mload(ptr)
             token := shr(96, loaded)
@@ -322,9 +319,8 @@ contract UniswapAdaptor is ReentrancyGuard {
         return token;
     }
 
-    // The user-chosen expiry is folded into the intent hash, which the withdraw proof commits to as public
-    // input 2. A caller who supplies a different deadline produces a different hash and the proof fails, so the
-    // expiry cannot be stripped from a captured proof. Mirrored by hashUniswapIntent in @hisoka/adaptors.
+    // Folding the expiry into the committed intent hash stops it being stripped from a captured proof.
+    // Mirrored by hashUniswapIntent in @hisoka/adaptors.
     function _bindDeadline(
         bytes32 base,
         uint256 deadline

@@ -61,13 +61,12 @@ describe("Anonymity-set continuity across upgrade (CI-6, anti-Nomad)", function 
     const { darkPool, token, alice } = ctx;
     const assetFr = addressToFr(await token.getAddress());
 
-    // Real activity: 2 deposits + 1 withdraw (via real proofs) -> populated tree, roots, nullifier.
     const depA = await makeDeposit(darkPool, token, alice, 100n);
     const depB = await makeDeposit(darkPool, token, alice, 50n);
 
     const tree = await newSeededTree();
-    await tree.insert(depA.commitment); // leaf 1
-    await tree.insert(depB.commitment); // leaf 2
+    await tree.insert(depA.commitment);
+    await tree.insert(depB.commitment);
 
     const wA = await buildWithdraw({
       oldNote: depA.built.note,
@@ -83,24 +82,19 @@ describe("Anonymity-set continuity across upgrade (CI-6, anti-Nomad)", function 
     await darkPool
       .connect(alice)
       .withdraw(wA.proof.proof, wA.proof.publicInputs);
-    await tree.insert(wA.changeCommitment); // leaf 3 (change of the withdraw)
+    await tree.insert(wA.changeCommitment);
 
     const realNullifier = wA.proof.publicInputs[5];
 
-    // Pre-upgrade snapshot of the anonymity-set observables.
     const rootBefore = await darkPool.getCurrentRoot();
     const nextIndexBefore = await darkPool.getNextLeafIndex();
     expect(await darkPool.isNullifierSpent(realNullifier)).to.equal(true);
     expect(await darkPool.isKnownRoot(rootBefore)).to.equal(true);
-    // genesis + depA + depB + wA change = 4.
     expect(nextIndexBefore).to.equal(4n);
 
-    // Upgrade to a storage-preserving V2 via the UPGRADER path (deployer holds UPGRADER_ROLE).
     const proxyAddr = await darkPool.getAddress();
 
-    // Tree-namespace raw-slot guard: validateUpgrade(DarkPoolV1 -> DarkPool) cannot see a
-    // MerkleTreeLib.Tree reshape (both import the same library and move in lockstep), so assert the live
-    // Tree members land at their expected sub-slots off TREE_LOCATION with the populated non-zero values.
+    // validateUpgrade cannot see a MerkleTreeLib.Tree reshape, so the live Tree members are asserted at their expected sub-slots off TREE_LOCATION.
     const TREE_LOCATION =
       "0xbdd00c81e71bd165e3ff2099ca204334ffd58a8d7225a33b4761542b7a86e200";
     const treeSlot = async (offset: bigint): Promise<bigint> =>
@@ -127,23 +121,18 @@ describe("Anonymity-set continuity across upgrade (CI-6, anti-Nomad)", function 
     )) as unknown as DarkPool & { version(): Promise<bigint> };
     await upgraded.waitForDeployment();
 
-    // Upgrade is observable.
     expect(await upgraded.version()).to.equal(2n);
 
-    // Byte-identical continuity.
     expect(await upgraded.getCurrentRoot()).to.equal(rootBefore);
     expect(await upgraded.getNextLeafIndex()).to.equal(nextIndexBefore);
     expect(await upgraded.isNullifierSpent(realNullifier)).to.equal(true);
-    // Tree continuity is proven by the preserved root + the raw-slot guard above (full sibling paths are
-    // rebuilt off-chain from LeafInserted events, not read on-chain).
-    expect(await treeSlot(3n)).to.equal(BigInt(rootBefore)); // latestRoot survives the upgrade
+    expect(await treeSlot(3n)).to.equal(BigInt(rootBefore));
 
     // Anti-Nomad zero-sentinel guard: an empty root and an unseen nullifier are never trusted.
     expect(await upgraded.isKnownRoot(ZeroHash)).to.equal(false);
     const unseenNullifier = ethers.keccak256(ethers.toUtf8Bytes("never-spent"));
     expect(await upgraded.isNullifierSpent(unseenNullifier)).to.equal(false);
 
-    // A note deposited PRE-upgrade still spends POST-upgrade.
     const wB = await buildWithdraw({
       oldNote: depB.built.note,
       spendScalar: depB.spendScalar,

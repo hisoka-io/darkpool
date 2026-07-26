@@ -9,9 +9,6 @@ import {
 import { LeanIMT, toFr } from "@hisoka/wallets";
 
 // FRONTIER=1 npx hardhat test test/benchmark/FrontierParity.bench.ts
-// Proves the frontier tree is byte-identical to the TS LeanIMT (the circuits' reference) at production depth 32
-// over a leaf set that exercises even/odd positions at every level, AND measures per-insert gas vs the whole-tree
-// baseline (~386k-486k/insert).
 const run = process.env.FRONTIER ? describe : describe.skip;
 
 run(
@@ -54,7 +51,6 @@ run(
         expect(await harness.getNextLeafIndex()).to.equal(BigInt(i));
       }
 
-      // deepest-carry insert (#33 crosses into the second top-level subtree) was the whole-tree worst case (486,029)
       const rows = gas
         .map(
           (g, i) =>

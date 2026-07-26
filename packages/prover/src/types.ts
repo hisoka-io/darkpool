@@ -1,7 +1,6 @@
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
 
-// Marshaled to the circuit's note::Note struct.
 export interface NoteInput {
   noteVersion: Fr;
   assetId: Fr;
@@ -34,10 +33,16 @@ export interface WithdrawInputs {
   changeEph: Fr;
 }
 
+// gpk's scalar is t-of-n shared and cannot ECDH, so viewPub carries discovery and decryption.
+export interface MultisigMemoRecipient {
+  gpk: Point<bigint>;
+  viewPub: Point<bigint>;
+}
+
 export interface TransferInputs {
   compliancePk: Point<bigint>;
-  // One key = owner+view+discovery; multisig recipients (owner != view) deferred.
-  recipientInPub: Point<bigint>;
+  recipientInPub?: Point<bigint>;
+  recipientMultisig?: MultisigMemoRecipient;
 
   oldNote: NoteInput;
   spendScalar: Fr;
@@ -106,7 +111,6 @@ export interface ProofData {
   verified: boolean;
 }
 
-// Kage taker half (swap_intent, inner).
 export interface SwapIntentInputs {
   compliancePk: Point<bigint>;
 
@@ -122,21 +126,19 @@ export interface SwapIntentInputs {
   receivedEph: Fr;
 
   toAsset: Fr;
-  fromAmount: Fr; // u128 range-checked at the marshal boundary
+  fromAmount: Fr;
   expiry: Fr;
 }
 
-// swap_intent's recursion artifacts, consumed as witness by swap_settle's std::verify_proof_with_type.
 export interface SwapIntentProof {
   proof: Uint8Array;
-  proofAsFields: string[]; // INTENT_PROOF_LEN
-  publicInputs: string[]; // INTENT_PI_LEN
-  vkAsFields: string[]; // INTENT_VK_LEN
+  proofAsFields: string[];
+  publicInputs: string[];
+  vkAsFields: string[];
   vkHash: string;
   verified: boolean;
 }
 
-// Kage maker half (swap_settle, outer): verifies the taker proof, spends the maker input.
 export interface SwapSettleInputs {
   compliancePk: Point<bigint>;
   currentTimestamp: Fr;

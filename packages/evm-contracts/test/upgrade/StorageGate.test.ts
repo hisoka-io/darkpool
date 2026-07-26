@@ -3,10 +3,7 @@ import { ethers, upgrades } from "hardhat";
 
 const UUPS = { kind: "uups" as const };
 
-// Proves the mechanism the validate:upgrades gate relies on: assertStorageUpgradeSafe rejects a
-// namespace-INTERNAL layout change (a field inserted at the front of an ERC-7201 struct), the class the
-// bare-sequential storage snapshot cannot see. If this ever stops throwing, the DarkPoolV1 -> DarkPool
-// storage gate is toothless.
+// assertStorageUpgradeSafe rejects a namespace-INTERNAL layout change a bare-sequential snapshot cannot see; if it stops throwing, the gate is toothless.
 describe("Storage-gate rejects namespace-internal reorders (HIGH-2)", function () {
   it("accepts an identical namespace layout", async function () {
     const base = await ethers.getContractFactory("StorageGateBaseMock");

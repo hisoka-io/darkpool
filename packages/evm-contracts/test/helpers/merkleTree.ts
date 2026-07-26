@@ -5,11 +5,9 @@ import type {
   BreakBeforeWriteMerkleTreeHarness,
 } from "../../typechain-types";
 
-/** BN254 scalar field modulus. Field.toField rejects anything at or above it. */
 export const BN254_FR =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
-/** Highest set bit position + 1; bitLength(0) = 0. A frontier walk reaches index 0 at exactly this level. */
 export function bitLength(n: number): number {
   let bits = 0;
   while (n > 0) {
@@ -32,7 +30,6 @@ export function makeRng(seed: bigint): () => bigint {
   };
 }
 
-/** Non-zero leaves inside the BN254 scalar field. */
 export function randomLeaves(rng: () => bigint, count: number): string[] {
   const leaves: string[] = [];
   for (let i = 0; i < count; i++) {
@@ -44,7 +41,6 @@ export function randomLeaves(rng: () => bigint, count: number): string[] {
   return leaves;
 }
 
-/** Deterministic in-field non-zero leaf. */
 export function leafAt(i: number): string {
   const v = (BigInt(i) * 0x9e3779b97f4a7c15n) % (BN254_FR - 1n);
   return ethers.zeroPadValue(ethers.toBeHex(v + 1n), 32);
@@ -55,9 +51,7 @@ export type MerkleHarness =
   | FullWalkMerkleTreeHarness
   | BreakBeforeWriteMerkleTreeHarness;
 
-// Poseidon2 is stateless and library-linked, so one deployment serves every harness in a mocha process. The fast
-// suite runs as a single mocha process (test-parallel.sh), so a per-tree deployment would otherwise pile ~70
-// library contracts plus their deploy txs into one in-memory chain and drive peak RSS well past the baseline.
+// One shared deployment: per-harness deployment piles ~70 library contracts into the single fast-suite chain and blows peak RSS.
 let poseidon2Address: string | undefined;
 
 export async function sharedPoseidon2(): Promise<string> {
@@ -78,7 +72,6 @@ export async function deployMerkleHarness(
   return (await factory.deploy(depth)) as unknown as MerkleHarness;
 }
 
-/** The shipped walk, the unconditional 32-level walk it replaced, and the break-before-write mutant. */
 export async function deployTrio(depth: number) {
   return {
     patched: (await deployMerkleHarness(

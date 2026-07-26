@@ -112,7 +112,6 @@ describe("multisig note VIEW layer (FROST accounts, decoupled owner/view, member
   });
 
   it("two spends never collide even if two members reuse the same counter index", async () => {
-    // Two members colliding on j=0 still yield distinct eph (no two-time-pad).
     const m1 = await deriveSelfEph(v, 1n, 0n);
     const m3 = await deriveSelfEph(v, 3n, 0n);
     expect(m1.eph.equals(m3.eph)).toBe(false);
@@ -163,7 +162,6 @@ describe("multisig scan: read a MULTISIG note end to end (incoming + self)", () 
     });
     const { viewPub, ownerCommitment } = await multisigAddress(gpk, v);
 
-    // The emitted memo eph must be even-y so the member recovers it from x on-chain.
     let eph = new Fr(randScalar());
     while (!isEvenY(scalarBaseMul(eph.toBigInt()))) eph = new Fr(randScalar());
     const inc = await buildIncomingMultisigNote(
@@ -260,7 +258,6 @@ describe("multisig scan: read a MULTISIG note end to end (incoming + self)", () 
     });
     const { viewPub, ownerCommitment } = await multisigAddress(gpk, v);
 
-    // The emitted memo eph must be even-y so the member recovers it from x on-chain.
     let eph = new Fr(randScalar());
     while (!isEvenY(scalarBaseMul(eph.toBigInt()))) eph = new Fr(randScalar());
     const inc = await buildIncomingMultisigNote(
@@ -290,7 +287,6 @@ describe("multisig scan: read a MULTISIG note end to end (incoming + self)", () 
       packedCiphertext: selfEnc.ciphertext,
     });
 
-    // A non-field ciphertext word must decode-throw -> skip (event isolation), not abort the scan.
     const poisoned = incomingNoteEvent({
       leafIndex: 2n,
       commitment: incEnc.commitment,

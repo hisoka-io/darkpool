@@ -9,8 +9,7 @@ import {
 } from "../provers/kage/swapSettle.js";
 import { SwapIntentInputs, SwapSettleInputs, NoteInput } from "../types.js";
 
-// VK-pin adversarial gate: swap_settle accepts only the pinned swap_intent VK. Native-bb only, opt-in via
-// `pnpm test:native`; skips loudly, never silently passes. Happy accepts; tampered VK/proof/PI reject.
+// Native-bb only, opt-in via `pnpm test:native`; skips loudly, never silently passes.
 const OPT_IN = process.env.KAGE_NATIVE === "1";
 const runnable = OPT_IN && nativeBbAvailable();
 if (OPT_IN && !runnable) {
@@ -120,7 +119,6 @@ const flip = (arr: string[], i: number): string[] => {
         makerChange: proverNote(TO_ASSET, 50n, Z, 1n),
         makerChangeEph: new Fr(28n),
       });
-      // maker self-note psi is CEK-derived from the maker's eph, matching mint_self_note.
       const mb = makerBase();
       mb.makerReceived.psi = await psiOf(20n);
       mb.makerChange.psi = await psiOf(28n);

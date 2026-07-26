@@ -5,10 +5,8 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 /**
  * @title RelayerMulticall
- * @notice Stateless, permissionless batch-call forwarder. It holds no funds at rest and
- *         grants no allowances. Anyone may call multicall, and any ETH or tokens left in
- *         this contract can be swept by the next caller. Callers MUST NOT grant this
- *         contract token or ETH approvals, and MUST NOT leave a balance here between calls.
+ * @notice Stateless, permissionless batch-call forwarder. Any ETH or tokens left here can be swept by the
+ *         next caller, so callers MUST NOT approve this contract or leave a balance between calls.
  */
 contract RelayerMulticall is ReentrancyGuard {
     error CriticalCallFailed();
@@ -25,12 +23,8 @@ contract RelayerMulticall is ReentrancyGuard {
     event CallExecuted(uint256 indexed index, bool success, bytes returnData);
     event CallFailed(uint256 indexed index, bytes reason);
 
-    /**
-     * @notice Executes a batch of calls, forwarding exactly msg.value across them.
-     * @dev Reverts unless msg.value equals the sum of calls[i].value. Residual ETH is
-     *      refunded to msg.sender. Do not approve or pre-fund this contract.
-     * @param calls The array of calls to execute.
-     */
+    /// @notice Executes a batch of calls. Reverts unless msg.value equals the sum of calls[i].value;
+    ///         residual ETH is refunded to msg.sender.
     function multicall(Call[] calldata calls) external payable nonReentrant {
         uint256 totalValue = 0;
         for (uint256 i = 0; i < calls.length; i++) {

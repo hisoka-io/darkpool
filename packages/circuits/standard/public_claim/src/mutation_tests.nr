@@ -1,11 +1,8 @@
-//! Flip one witness from the valid KAT; guards asserted by message. public_claim binds memo_id = Poseidon2(val,asset,timelock,owner_x,owner_y,salt), a maturity timelock, and recipient spend authority before minting.
-
 use poseidon::poseidon2::Poseidon2;
 use shared::mutation;
 use shared::note::Note;
 use shared::SUBORDER;
 
-// Valid KAT witness (byte-identical to the golden vector in main.nr's test_public_claim_kat).
 global MEMO_ID: Field = 0x0731300919ae74d1507ab3b22cac576da8c86deb8ddc11f24317b861f17f6f93;
 global VAL: Field = 100;
 global ASSET: Field = 0x1234567890123456789012345678901234567890;
@@ -79,7 +76,6 @@ fn m_valid_accepts() {
     valid();
 }
 
-// Boundary accept: current_timestamp == timelock.
 #[test]
 fn m_timelock_matured_accepts() {
     let id = memo(VAL, ASSET, 1000, OWNER_X, OWNER_Y, SALT);
@@ -100,7 +96,6 @@ fn m_timelock_matured_accepts() {
     );
 }
 
-// Holding memo_id fixed while flipping any committed field fails the memo-id guard first.
 #[test(should_fail_with = "memo id mismatch")]
 fn m_memo_id_mutated() {
     run(
@@ -284,7 +279,6 @@ fn m_recipient_sk_ge_suborder() {
         EPH,
     );
 }
-// Wrong (still valid) scalar -> point != committed owner.
 #[test(should_fail_with = "recipient key mismatch")]
 fn m_recipient_sk_wrong() {
     run(
@@ -304,7 +298,6 @@ fn m_recipient_sk_wrong() {
     );
 }
 
-// Even a memo that re-commits the forged owner still fails: point must equal derive(recipient_sk).
 #[test(should_fail_with = "recipient key mismatch")]
 fn m_owner_x_rebound() {
     let id = memo(VAL, ASSET, TIMELOCK, OWNER_X + 1, OWNER_Y, SALT);
@@ -344,7 +337,6 @@ fn m_owner_y_rebound() {
     );
 }
 
-// note_out restates memo value/asset and carries zero parents.
 #[test(should_fail_with = "claim value mismatch")]
 fn m_claim_value_mismatch() {
     let mut n = note();

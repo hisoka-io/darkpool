@@ -1,5 +1,4 @@
-// SIMULATED FROST multisig account ceremony: gpk (FROST signing key) + v (shared 1-of-n viewing key by
-// commit-reveal). Builds all n shares + v in ONE process: TEST/DEV ONLY, MUST NOT ship (a silent 1-of-1).
+// SIMULATED FROST multisig account ceremony. Builds all n shares + v in ONE process: TEST/DEV ONLY, MUST NOT ship.
 
 import { Fr } from "@aztec/foundation/fields";
 import { Point, scalarBaseMul, modSub, randScalar } from "../tss/bjj.js";
@@ -16,7 +15,6 @@ export interface FrostAccount {
   gpk: Point;
   shares: Map<bigint, bigint>;
   verificationKeys: Map<bigint, Point>;
-  /** Shared viewing key held by EVERY member (secret; never log). */
   viewKey: bigint;
   viewPub: Point;
   owner: Fr;

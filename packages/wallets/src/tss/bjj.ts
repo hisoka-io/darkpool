@@ -1,8 +1,5 @@
-// BabyJubJub point + scalar helpers for the (t,n) primitives. Scalars live mod SUBORDER (the prime subgroup
-// order), NEVER mod BN254 Fr -- mixing the moduli silently corrupts every Shamir/Lagrange result. Point ops
-// delegate to @zk-kit/baby-jubjub; the subgroup guard mirrors in-circuit mint::assert_valid_compliance_pk.
-// bigint arithmetic is not constant-time and cannot be zeroized: this is off-chain tooling, secrets (shares,
-// nonces, c_i, v) rely on process isolation and MUST never be logged.
+// Scalars live mod SUBORDER, NEVER mod BN254 Fr: mixing the moduli silently corrupts every Shamir/Lagrange
+// result. bigint is neither constant-time nor zeroizable, so secrets are never logged.
 
 import {
   Base8,

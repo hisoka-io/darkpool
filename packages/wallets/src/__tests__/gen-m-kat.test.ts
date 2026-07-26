@@ -26,12 +26,13 @@ describe("m-preimage TS<->Noir parity", () => {
           root: 1n,
           nullifier: 2n,
           memoLeaf: 3n,
-          changeLeaf: 4n,
-          asset: 5n,
+          memoTag: 4n,
+          changeLeaf: 5n,
+          asset: 6n,
         }),
       ),
     ).toBe(
-      "0x18ce2613d1138a758d065683eb7ed8973fd4b875768fa5b376ac0ac89f7a85cd",
+      "0x02b5c41e66ee316b914c6ae8a665597ac441c729bb6c1c8ded80cf09f628528a",
     );
     expect(
       hex(

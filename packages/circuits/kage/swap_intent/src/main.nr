@@ -1,11 +1,11 @@
-//! swap_intent (taker): spends A_in, mints own change + received self-notes; client-provable inner proof consumed by swap_settle's recursion. Logic + negative battery in kage_lib.
+//! swap_intent (taker): spends A_in, mints own change + received self-notes; inner proof consumed by swap_settle's recursion.
 
 use ::ecdh::Point;
 use ::kage_lib::{build_intent, INTENT_PI_LEN, pack_intent};
 use ::shared::note::Note;
 use ::shared::TREE_DEPTH;
 
-// Inner proof: NO `pub` params on purpose; the only public inputs are the 27-wide return. A `pub` compliance param would inflate the PI vector past 27 and break swap_settle's fixed-width verify.
+// No `pub` params: the 27-wide return is the whole PI vector; a `pub` param would break swap_settle's fixed-width verify.
 fn main(
     compliance_pubkey_x: Field,
     compliance_pubkey_y: Field,
@@ -68,7 +68,6 @@ mod kat {
         }
     }
 
-    // Reuses the shared fixture note so a spend-path parity drift fails here; pins the 27-wide PI prefix (0..8) against a reorder.
     #[test]
     fn swap_intent_accepts() {
         let c = Point { x: FIXTURE_COMPLIANCE_X, y: FIXTURE_COMPLIANCE_Y };

@@ -4,8 +4,7 @@ pragma solidity ^0.8.25;
 import {Field} from "../Poseidon/Field.sol";
 import {Poseidon2Lib} from "../Poseidon/Poseidon2Lib.sol";
 
-/// Test harness that exercises the inlined `Poseidon2Lib` API, the
-/// same path used by DarkPool.sol, MerkleTreeLib.sol, and UniswapAdaptor.sol
+/// Exercises the inlined `Poseidon2Lib` API, the same path DarkPool, MerkleTreeLib and UniswapAdaptor use.
 contract Poseidon2Harness {
     function hashArray(
         uint256[] calldata input

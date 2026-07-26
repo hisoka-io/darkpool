@@ -22,7 +22,7 @@ function fakeContract(leaves: Leaf[], head: { value: number }): Contract {
     args: {
       leafIndex: BigInt(l.leafIndex),
       commitment: l.commitment,
-      ephemeralPK_x: 1n, // never matches this wallet -> no decryption side effects
+      ephemeralPK_x: 1n,
       ephemeralPK_y: 2n,
       packedCiphertext: ["0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0"],
     },
@@ -64,14 +64,12 @@ describe("ScanEngine finality depth", () => {
       tree,
       20,
       0,
-      12, // finalityDepth
+      12,
     );
 
-    // head 100, depth 12 -> finalized <= 88: leaf 0 (block 50) enters, leaf 1 (block 100) held.
     await engine.sync(0);
     expect(tree.nextLeafIndex).toBe(1);
 
-    // Chain advances past finality for leaf 1 (block 100 <= 120 - 12).
     head.value = 120;
     await engine.sync(0);
     expect(tree.nextLeafIndex).toBe(2);

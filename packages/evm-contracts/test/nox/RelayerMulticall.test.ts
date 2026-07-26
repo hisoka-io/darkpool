@@ -182,7 +182,6 @@ describe("RelayerMulticall", function () {
       await expect(multicall.multicall(calls))
         .to.emit(multicall, "CallExecuted")
         .withArgs(0, true, (_hexString: string) => {
-          // Skip full decode (heavy); emission alone proves no revert
           return true;
         });
     });
@@ -203,7 +202,7 @@ describe("RelayerMulticall", function () {
           target: await mockTarget.getAddress(),
           data: failData,
           value: 0,
-          requireSuccess: false, // Critical: MUST be false to continue
+          requireSuccess: false,
         },
         {
           target: await mockTarget.getAddress(),
@@ -222,7 +221,6 @@ describe("RelayerMulticall", function () {
     });
 
     it("should handle calls to invalid targets (destructed or EOA)", async function () {
-      // Calling a random address (EOA) succeeds with no return data
       const randomAddr = ethers.Wallet.createRandom().address;
       const calls = [
         {

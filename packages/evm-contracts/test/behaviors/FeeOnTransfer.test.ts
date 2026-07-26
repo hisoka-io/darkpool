@@ -13,8 +13,7 @@ import { toFr, addressToFr } from "@hisoka/wallets";
 import { proveDeposit } from "@hisoka/prover";
 import { MockFeeOnTransferERC20 } from "../../typechain-types";
 
-// A real derived key: publicTransfer validates the escrow destination is on-curve, so a placeholder
-// point would revert there and mask the fee-on-transfer check this test exists to exercise.
+// A real derived key: publicTransfer rejects an off-curve escrow destination, which would mask the fee check.
 const FOT_OWNER = publicKey(new Fr(0x1234n));
 
 describe("DarkPool Behavior: fee-on-transfer rejection", function () {
@@ -44,7 +43,7 @@ describe("DarkPool Behavior: fee-on-transfer rejection", function () {
 
   it("rejects a fee-on-transfer token at deposit", async function () {
     const { darkPool, alice } = await loadFixture(deployDarkPoolFixture);
-    const fot = await deployFoT(100); // 1%
+    const fot = await deployFoT(100);
     const amount = ethers.parseEther("100");
     await fot.mint(alice.address, amount);
     const proof = await buildDepositProof(await fot.getAddress(), amount);

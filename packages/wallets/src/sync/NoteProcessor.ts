@@ -8,6 +8,7 @@ import { deriveCek, unwrapCek } from "../crypto/kem.js";
 import { computeNullifier, computePsi } from "../note/nullifier.js";
 import { leaf as computeLeaf, Note } from "../note/note.js";
 import { publicKey, pubkeyOwner, recoverEvenY } from "../note/keys.js";
+import { NOTE_TYPE_STANDARD } from "../frost/multisigNote.js";
 import { UnprocessedEvent } from "./types.js";
 
 // asset ids are ERC20 addresses; anything at or above 2^160 cannot be a real asset.
@@ -111,14 +112,14 @@ export class NoteProcessor {
       parents: plaintext[6],
     };
 
-    // A tag collision or a corrupt event only yields a matching leaf for the true owner's note.
     const rebuilt = await computeLeaf(note);
     if (!rebuilt.equals(commitment)) return null;
 
-    // Drop owner-0 / out-of-range-asset / non-self-owned notes even when the leaf matches.
+    // Allowlist, not a MULTISIG denylist: this path proves spend authority from one BJJ scalar, so any
+    // non-STANDARD type it accepted would park an unspendable phantom balance.
+    if (note.noteType.toBigInt() !== NOTE_TYPE_STANDARD) return null;
     if (note.owner.toBigInt() === 0n) return null;
     if (note.assetId.toBigInt() >= ASSET_MODULUS) return null;
-    // Bind owner to the decrypting key (owner == pubkeyOwner(publicKey(spendScalar))); drops phantom incoming notes.
     const selfOwner = await pubkeyOwner(publicKey(spendScalar));
     if (!note.owner.equals(selfOwner)) return null;
 

@@ -27,8 +27,7 @@ export class ScanEngine {
     this.processor = new NoteProcessor(keyRepo, compliancePk);
   }
 
-  // Only leaves at or below this block enter the committed tree / spend tracker, so a reorg
-  // shallower than finalityDepth never rewrites a Merkle path. finalityDepth 0 == optimistic.
+  // A reorg shallower than finalityDepth never rewrites a Merkle path. finalityDepth 0 == optimistic.
   private async finalizedBlock(): Promise<number> {
     if (this.finalityDepth <= 0) return Number.MAX_SAFE_INTEGER;
     const provider = this.contract.runner?.provider;
@@ -37,12 +36,10 @@ export class ScanEngine {
     return head - this.finalityDepth;
   }
 
-  // Gap-limit: a full `lookaheadWindow` of consecutive skipped self-note indices needs `probe` to cross.
   public async sync(fromBlock: number): Promise<void> {
     await this.scanPasses(fromBlock, this.lookaheadWindow);
   }
 
-  // Widen lookahead by extraWindow to cross a gap; returns whether the wider scan found new notes.
   public async probe(
     fromBlock: number,
     extraWindow: number = DEFAULT_PROBE_EXTRA_WINDOW,
@@ -61,7 +58,6 @@ export class ScanEngine {
     await this.keyRepo.ensureSelfLookahead(window);
     await this.keyRepo.ensureIncomingLookahead(window);
 
-    // Fetch logs once: passes only extend the key lookahead, not the log range.
     const { leafLogs, nullLogs } = await this.fetchScanLogs(fromBlock);
 
     const maxPasses = 64;

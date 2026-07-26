@@ -6,4 +6,5 @@ pub mod kem;
 pub mod note;
 pub mod note_nullifier;
 pub mod owner;
+pub mod subgroup;
 pub mod test_fixtures;

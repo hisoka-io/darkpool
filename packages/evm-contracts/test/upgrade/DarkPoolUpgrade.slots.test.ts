@@ -109,9 +109,7 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
       upgrader: upgraderS.address,
     };
 
-    // Poseidon2 is a stateless pure linked library (no storage, no delegatecall out); external-library-linking
-    // is the OZ-sanctioned acknowledgment for a manually-verified upgrade-safe library. It does not relax any
-    // storage-layout safety check.
+    // External-library-linking is the OZ-sanctioned acknowledgment for a manually verified library; it relaxes no storage-layout check.
     const proxy = await upgrades.deployProxy(DarkPoolFactory, [params], {
       kind: "uups",
       initializer: "initialize",
@@ -153,7 +151,6 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
   });
 
   it("lands each namespace at its computed slot (raw storage on the proxy)", async function () {
-    // tree.TREE_DEPTH == 32 at tree base slot
     expect(await slotValue(proxyAddr, EXPECTED.tree)).to.equal(32n);
 
     // compliance {pkX, pkY, version} at base+0/+1/+2
@@ -171,7 +168,6 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
       BigInt(verifiers[0]),
     );
 
-    // reentrancy guard initialized to NOT_ENTERED at OZ's canonical namespace
     expect(await slotValue(proxyAddr, REENTRANCY_LOCATION)).to.equal(1n);
   });
 

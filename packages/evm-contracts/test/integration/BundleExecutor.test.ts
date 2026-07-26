@@ -39,9 +39,6 @@ async function deployExecutorFixture() {
   return { ...base, executor, mockTarget };
 }
 
-/** Deposit `depositAmount` for alice (genesis-seeded tree, note at index 1) and prove a withdraw of
- * `withdrawAmount` to the executor, bound to `intentHash`. The change (`depositAmount - withdrawAmount`)
- * re-shields to alice. */
 async function proveWithdrawToExecutor(
   ctx: Awaited<ReturnType<typeof deployExecutorFixture>>,
   depositAmount: bigint,
@@ -278,8 +275,7 @@ describe("Integration: BundleExecutor", function () {
     const strandAmount = 1000n;
     const deadline = BigInt((await time.latest()) + 3600);
 
-    // tokenB sits in the executor like a swap output, is a bound call's approveToken, yet is neither the
-    // withdrawn asset nor in assetsToClear; only the approve-token union clears this stranded residual.
+    // tokenB is neither the withdrawn asset nor in assetsToClear; only the approve-token union clears it.
     await tokenB.mint(executorAddr, strandAmount);
 
     const strandCall: BundleCall = {
@@ -369,7 +365,6 @@ describe("Integration: BundleExecutor", function () {
 
     const { proof } = await proveWithdrawToExecutor(ctx, 100n, 40n, intentHash);
 
-    // The bound call re-enters execute; nonReentrant reverts at entry and (requireSuccess) propagates it.
     await expect(
       executor.execute(
         proof.proof,

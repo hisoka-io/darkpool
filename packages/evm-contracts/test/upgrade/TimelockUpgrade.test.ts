@@ -22,8 +22,6 @@ const UUPS_OPTS = {
   unsafeAllow: ["external-library-linking" as const],
 };
 
-/** DarkPool proxy whose DEFAULT_ADMIN + UPGRADER are a real 48h OZ TimelockController (proposer/executor/
- * canceller = gov), with a guardian holding only PAUSER. Mirrors the intended production governance wiring. */
 async function deployWithTimelock() {
   const [gov, guardian, outsider] = await ethers.getSigners();
 
@@ -63,7 +61,7 @@ async function deployWithTimelock() {
     kageVerifier: verifierAddrs[10],
     compliancePkX: BASE8_X,
     compliancePkY: BASE8_Y,
-    initialAdminDelay: 0, // timelock holds DEFAULT_ADMIN immediately
+    initialAdminDelay: 0,
     initialAdmin: timelockAddr,
     pauser: guardian.address,
     upgrader: timelockAddr,
@@ -111,7 +109,6 @@ describe("Timelock-governed upgrade path (D-11)", function () {
       .connect(gov)
       .schedule(proxyAddr, 0, upgradeData, ZeroHash, salt, TIMELOCK_DELAY);
 
-    // Not yet ready: execute reverts.
     await expect(
       timelock.connect(gov).execute(proxyAddr, 0, upgradeData, ZeroHash, salt),
     ).to.be.revertedWithCustomError(

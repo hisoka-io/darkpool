@@ -9,20 +9,19 @@ import {
 } from "@hisoka/wallets";
 import * as frost from "@hisoka/wallets/frost";
 import { NoteInput, proveDeposit } from "@hisoka/prover";
-import { Point } from "@zk-kit/baby-jubjub";
+import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
 import { DarkPool, MockERC20 } from "../../typechain-types";
 import { ContractRunner } from "ethers";
 import { COMPLIANCE_PK, evenYEphemeral } from "./fixtures";
 
-/** A MULTISIG note (note_type == 1) owned by a FROST account (owner == Poseidon2(gpk)), ECDH-encrypted to the
- *  compliance key. Returns the leaf commitment, the prover NoteInput view, and psi (for the nullifier). */
+/** A MULTISIG note (note_type == 1) owned by a FROST account (owner == Poseidon2(gpk)), ECDH'd to compliance. */
 export async function buildMultisigNote(
   eph: Fr,
   value: bigint,
   owner: Fr,
   assetFr: Fr,
   parents: Fr,
-): Promise<{ commitment: Fr; noteInput: NoteInput; psi: Fr }> {
+): Promise<{ commitment: Fr; noteInput: NoteInput; psi: Fr; tag: Fr }> {
   const cek = deriveCek(eph, COMPLIANCE_PK);
   const psi = await computePsi(cek);
   const commitment = await leaf({
@@ -45,10 +44,10 @@ export async function buildMultisigNote(
     psi,
     parents,
   };
-  return { commitment, noteInput, psi };
+  const tag = new Fr(mulPointEscalar(Base8, eph.toBigInt())[0]);
+  return { commitment, noteInput, psi, tag };
 }
 
-/** Run a full FROST 2-round session: `signerIds` (a t-of-n quorum) jointly sign `m` under `gpk`. */
 export async function frostSign(
   gpk: Point<bigint>,
   shares: Map<bigint, bigint>,
@@ -94,8 +93,7 @@ export async function frostSign(
   return { R: sig.R, z: sig.z };
 }
 
-/** Deposit a MULTISIG note (owner == Poseidon2(gpk)) so the account holds a spendable note at the next index.
- *  The deposit circuit asserts an even-y discovery tag, so the ephemeral is derived from `ephSeed`. */
+/** The deposit circuit asserts an even-y discovery tag. */
 export async function depositMultisig(
   darkPool: DarkPool,
   token: MockERC20,
@@ -104,7 +102,7 @@ export async function depositMultisig(
   owner: Fr,
   assetFr: Fr,
   ephSeed: bigint,
-): Promise<{ commitment: Fr; noteInput: NoteInput; psi: Fr }> {
+): Promise<{ commitment: Fr; noteInput: NoteInput; psi: Fr; tag: Fr }> {
   const eph = evenYEphemeral(ephSeed);
   const ms = await buildMultisigNote(eph, value, owner, assetFr, toFr(0n));
   const proof = await proveDeposit({

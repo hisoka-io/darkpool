@@ -6,7 +6,7 @@ pub mod mint;
 pub mod mutation;
 
 pub use common::{conservation, note, test_fixtures};
-use common::{dem, domains, even_y, kem, note_nullifier, owner};
+use common::{dem, domains, even_y, kem, note_nullifier, owner, subgroup};
 pub use multisig::frost;
 pub use spend::{open_multisig_note, verify_spend};
 
@@ -14,12 +14,10 @@ use poseidon::poseidon2::Poseidon2;
 
 pub global TREE_DEPTH: u32 = 32;
 
-// BabyJubJub prime-order subgroup order.
-// https://docs.iden3.io/publications/pdfs/Baby-Jubjub.pdf
+// BabyJubJub prime-order subgroup order: https://docs.iden3.io/publications/pdfs/Baby-Jubjub.pdf
 pub global SUBORDER: Field =
     2736030358979909402780800718157159386076813972158567259200215660948447373041;
 
-// Double-spend is bound by leaf_index + the psi nullifier elsewhere, not by this range check.
 pub fn assert_subgroup_scalar(x: Field) {
     assert(x != 0, "scalar must be non-zero");
     assert(x.lt(SUBORDER), "scalar not in BabyJubJub prime-order subgroup");
@@ -38,7 +36,7 @@ pub fn lean_imt_inclusion_proof<let MAX_DEPTH: u32>(
         if sibling != 0 {
             let path_bit = path_bits[i] as Field;
             let left = current + path_bit * (sibling - current);
-            let right = sibling + path_bit * (current - sibling);
+            let right = current + sibling - left;
             current = Poseidon2::hash([left, right], 2);
         } else {
             assert(!path_bits[i], "non-canonical leaf index: right child at empty level");
@@ -65,7 +63,6 @@ pub fn test_lean_imt_inclusion_proof() {
     assert(root == 0x05d7e5aaddb74c086c24617065e8c97dea94b86fdae0eab7b498249e0dfee2a8);
 }
 
-// Pins the `lt` boundary: SUBORDER-1 accepts, SUBORDER+1 rejects (off-by-one guard).
 #[test]
 fn test_subgroup_scalar_accepts_max() {
     assert_subgroup_scalar(SUBORDER - 1);
@@ -76,20 +73,15 @@ fn test_subgroup_scalar_rejects_over() {
     assert_subgroup_scalar(SUBORDER + 1);
 }
 
-// Freeze pin: the LeanIMT depth drives every spend circuit's witness layout and every historical root; a change
-// unspends every existing note. This KAT fails if the frozen depth ever moves off 32 (parity with the on-chain
-// MERKLE_TREE_DEPTH pinned in DarkPoolUpgrade.slots.test.ts and the TS LeanIMT default depth 32).
+// Depth 32 is frozen: it must match the on-chain MERKLE_TREE_DEPTH and the TS LeanIMT default.
 #[test]
 fn kat_tree_depth_frozen() {
     assert(TREE_DEPTH == 32, "LeanIMT depth is a frozen seam: must stay 32");
 }
 
-// Tri-parity KAT (generated from the TS LeanIMT reference): the Noir inclusion
-// proof reconstructs the same root the TS reference produced, over edge cases (single leaf, power-of-2
-// boundaries, deep-carry). Solidity<->TS parity is proven by FrontierParity.bench.ts. Depth 32 frozen.
+// Vectors generated from the TS LeanIMT reference; Solidity<->TS parity is proven by FrontierParity.bench.ts.
 #[test]
 fn kat_leanimt_tri_parity() {
-    // n=1 idx=0
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000001,
@@ -131,7 +123,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x0000000000000000000000000000000000000000000000000000000000000001,
     );
-    // n=2 idx=0
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000001,
@@ -173,7 +164,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x038682aa1cb5ae4e0a3f13da432a95c77c5c111f6f030faf9cad641ce1ed7383,
     );
-    // n=2 idx=1
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000002,
@@ -215,7 +205,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x038682aa1cb5ae4e0a3f13da432a95c77c5c111f6f030faf9cad641ce1ed7383,
     );
-    // n=3 idx=0
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000001,
@@ -257,7 +246,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x1aa3f32cb0a5491c696519d83d9e82bb1d7bef8e7d427e1c96258044eef88193,
     );
-    // n=3 idx=2
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000003,
@@ -299,7 +287,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x1aa3f32cb0a5491c696519d83d9e82bb1d7bef8e7d427e1c96258044eef88193,
     );
-    // n=8 idx=0
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000001,
@@ -341,7 +328,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x05d7e5aaddb74c086c24617065e8c97dea94b86fdae0eab7b498249e0dfee2a8,
     );
-    // n=8 idx=7
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000008,
@@ -383,7 +369,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x05d7e5aaddb74c086c24617065e8c97dea94b86fdae0eab7b498249e0dfee2a8,
     );
-    // n=9 idx=8
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000009,
@@ -425,7 +410,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x240bf1ff0324364a2b95d6c365c546b3c1f6974218897327ce664363e5e5871f,
     );
-    // n=16 idx=0
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000001,
@@ -467,7 +451,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x1528946361c480e8dc1e9ae3f8c31c997625fa1ddeddc7db5ad0dce3ac58fc4c,
     );
-    // n=16 idx=15
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000010,
@@ -509,7 +492,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x1528946361c480e8dc1e9ae3f8c31c997625fa1ddeddc7db5ad0dce3ac58fc4c,
     );
-    // n=17 idx=16
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000011,
@@ -551,7 +533,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x2c49c87b6901221e46e91d5cd747a5f6b4c153585cb43e5ea8f28b24a2e1503a,
     );
-    // n=33 idx=32
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000021,
@@ -593,7 +574,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x048b0596ca42fe3afab1983a0016c40b2b49eabed0774536b7545b47a5a45ced,
     );
-    // n=40 idx=33
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000022,
@@ -635,7 +615,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x2b883a20a8fd7d17d73dc541e897b09a885cbbdd18cdfe481588a31e727de8b3,
     );
-    // n=40 idx=0
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000001,
@@ -677,7 +656,6 @@ fn kat_leanimt_tri_parity() {
         )
             == 0x2b883a20a8fd7d17d73dc541e897b09a885cbbdd18cdfe481588a31e727de8b3,
     );
-    // n=40 idx=39
     assert(
         lean_imt_inclusion_proof(
             0x0000000000000000000000000000000000000000000000000000000000000028,

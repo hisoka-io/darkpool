@@ -11,10 +11,6 @@ import {
   INTENT_PI_LEN,
 } from "../config.js";
 
-// Fail-closed recursion-pin guard (CI-safe, bb.js only): swap_intent's compiled recursion vkHash + widths MUST
-// equal the pinned INTENT_* constants baked into kage_lib and swap_settle. A swap_intent change that moves the VK
-// without re-pinning fails here, before swap_settle silently rejects every real proof on-chain. Also pins TS<->Noir
-// parity: the TS-built witness yields the nargo swap_intent KAT's golden nullifier + root.
 const C: Point<bigint> = [
   0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111n,
   0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8n,

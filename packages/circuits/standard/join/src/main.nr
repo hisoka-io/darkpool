@@ -26,8 +26,9 @@ fn main(
     let (nullifier_b, root_b) = verify_spend(note_b, spend_scalar_b, index_b, path_b);
     assert(root_a == root_b, "inputs must share a root");
     assert(nullifier_a != nullifier_b, "cannot join a note with itself");
-    // pack_parents is positional, so index_a < index_b pins one canonical packing per consumed set.
-    assert(index_a.lt(index_b), "join inputs must be strictly index-ordered");
+    // index_a < index_b pins one canonical parent packing (pack_parents is positional). The u32 compare is
+    // exact, not truncating: verify_spend already range-bound both indexes to 32 bits.
+    assert((index_a as u32) < (index_b as u32), "join inputs must be strictly index-ordered");
 
     assert(note_a.asset_id == note_b.asset_id, "input asset mismatch");
     assert(note_a.asset_id == note_out.asset_id, "output asset mismatch");
