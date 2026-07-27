@@ -15,7 +15,7 @@ describe("DarkPool Behavior: Public Interop", function () {
     const bobWallet = await TestWallet.create(bob, darkPool, token);
     const AMOUNT = ethers.parseEther("50");
 
-    const bobClaimSk = await bobWallet.account.getIncomingKey(0n);
+    const bobClaimSk = await bobWallet.account.getPublicIncomingKey(0n);
     const bobClaimPub = publicKey(bobClaimSk);
 
     await token.connect(alice).approve(await darkPool.getAddress(), AMOUNT);
@@ -73,7 +73,7 @@ describe("DarkPool Behavior: Public Interop", function () {
     const bobWallet = await TestWallet.create(bob, darkPool, token);
     const AMOUNT = ethers.parseEther("10");
 
-    const bobClaimSk = await bobWallet.account.getIncomingKey(0n);
+    const bobClaimSk = await bobWallet.account.getPublicIncomingKey(0n);
     const bobClaimPub = publicKey(bobClaimSk);
 
     await token.connect(alice).approve(await darkPool.getAddress(), AMOUNT);

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { Fr } from "@aztec/foundation/fields";
 import {
   multisigAddress,
+  multisigIncomingKeyAt,
   buildIncomingMultisigNote,
   memberReadIncoming,
   deriveSelfEph,
@@ -65,18 +66,39 @@ describe("multisig note VIEW layer (FROST accounts, decoupled owner/view, member
   const compliancePk: Point = scalarBaseMul(randScalar());
   const v = evenYViewKey();
 
-  it("address: owner = Poseidon2(gpk), V = v*Base8 even-y; rejects an odd-y V", async () => {
+  // An odd-y v is no longer rejected: the index rolls until V lands even-y, matching the standard path.
+  it("address: owner = Poseidon2(gpk), V even-y, and any v yields a usable address", async () => {
     const { ownerCommitment, viewPub } = await multisigAddress(gpk, v);
     expect(ownerCommitment.toBigInt()).toBe(await multisigOwner(gpk));
     expect(isEvenY(viewPub)).toBe(true);
 
     let oddV = new Fr(randScalar());
     while (isEvenY(scalarBaseMul(oddV.toBigInt()))) oddV = new Fr(randScalar());
-    await expect(multisigAddress(gpk, oddV)).rejects.toThrow(/odd y/i);
+    const rolled = await multisigAddress(gpk, oddV);
+    expect(isEvenY(rolled.viewPub)).toBe(true);
   });
 
-  it("incoming: owner decoupled to gpk, member recovers the SAME cek via v, tag = V.x", async () => {
-    const { viewPub, ownerCommitment } = await multisigAddress(gpk, v);
+  // The treasury-clustering fix: distinct indices must yield distinct on-chain tags, or one log filter
+  // recovers a group's entire inbound history.
+  it("address: rotating the index yields a different tag under the same group", async () => {
+    const a = await multisigAddress(gpk, v, 0n);
+    const b = await multisigAddress(gpk, v, a.index + 1n);
+    expect(b.index).toBeGreaterThan(a.index);
+    expect(b.viewPub[0]).not.toBe(a.viewPub[0]);
+    // The group identity is unchanged; only the receiving address rotated.
+    expect(b.ownerCommitment.toBigInt()).toBe(a.ownerCommitment.toBigInt());
+  });
+
+  it("address: derivation is deterministic across members holding the same v", async () => {
+    const first = await multisigAddress(gpk, v, 7n);
+    const second = await multisigAddress(gpk, v, 7n);
+    expect(second.index).toBe(first.index);
+    expect(second.viewPub[0]).toBe(first.viewPub[0]);
+  });
+
+  it("incoming: owner decoupled to gpk, member recovers the SAME cek via the rotated key, tag = V.x", async () => {
+    const { index, viewKey, viewPub } = await multisigIncomingKeyAt(v, 0n);
+    const { ownerCommitment } = await multisigAddress(gpk, v, index);
     const eph = new Fr(randScalar());
     const built = await buildIncomingMultisigNote(
       eph,
@@ -88,7 +110,12 @@ describe("multisig note VIEW layer (FROST accounts, decoupled owner/view, member
     expect(built.owner.toBigInt()).toBe(ownerCommitment.toBigInt());
     expect(built.tag.equals(new Fr(viewPub[0]))).toBe(true);
 
-    const recovered = await memberReadIncoming(built.cekWrap, v, built.ephPub);
+    // The wrap targets the rotated point, so only the rotated secret opens it.
+    const recovered = await memberReadIncoming(
+      built.cekWrap,
+      viewKey,
+      built.ephPub,
+    );
     expect(recovered.equals(built.cek)).toBe(true);
   });
 

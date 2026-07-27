@@ -8,3 +8,4 @@ export * from "./state/UtxoRepository.js";
 export * from "./sync/types.js";
 export * from "./sync/ScanEngine.js";
 export * from "./sync/NoteProcessor.js";
+export * from "./sync/PublicMemoScanner.js";

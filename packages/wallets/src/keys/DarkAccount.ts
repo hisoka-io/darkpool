@@ -6,9 +6,12 @@ import { toReducedFr } from "../crypto/fields.js";
 import { IDarkAccount } from "../interfaces.js";
 import {
   CanonicalAddress,
+  PublicIncomingAddress,
   canonicalIncomingAddress,
+  canonicalPublicAddress,
   canonicalSelfTag,
   deriveIncomingKey,
+  derivePublicIncomingKey,
   deriveSelfEphemeral,
   deriveSelfSpendKey,
   deriveViewKey,
@@ -83,6 +86,14 @@ export class DarkAccount implements IDarkAccount {
     return publicKey(await this.getIncomingKey(index));
   }
 
+  public async getPublicIncomingKey(index: bigint): Promise<Fr> {
+    return derivePublicIncomingKey(await this.getViewKey(), index);
+  }
+
+  public async getPublicIncomingPub(index: bigint): Promise<Point<bigint>> {
+    return publicKey(await this.getPublicIncomingKey(index));
+  }
+
   public async getSelfEphemeral(index: bigint): Promise<Fr> {
     return deriveSelfEphemeral(await this.getViewKey(), index);
   }
@@ -106,6 +117,12 @@ export class DarkAccount implements IDarkAccount {
 
   public async canonicalSelfTag(startIndex: bigint): Promise<CanonicalAddress> {
     return canonicalSelfTag(await this.getViewKey(), startIndex);
+  }
+
+  public async canonicalPublicAddress(
+    index: bigint,
+  ): Promise<PublicIncomingAddress> {
+    return canonicalPublicAddress(await this.getViewKey(), index);
   }
 
   public static async fromMnemonic(mnemonic: string): Promise<DarkAccount> {

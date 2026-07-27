@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Fr } from "@aztec/foundation/fields";
-import { calculatePublicMemoId } from "../crypto/index";
+import { addressToFr, calculatePublicMemoId } from "../crypto/index";
 
 // TS leg of the memo-id parity triangle (Noir public_claim test_public_claim_kat + evm poseidon-parity.test.ts).
 const VAL = new Fr(100n);
@@ -24,6 +24,18 @@ describe("public memo id parity (TS leg)", () => {
     const memoId = await calculatePublicMemoId(
       VAL,
       ASSET,
+      TIMELOCK,
+      OWNER_X,
+      OWNER_Y,
+      SALT,
+    );
+    expect(memoId.equals(GOLDEN)).toBe(true);
+  });
+
+  it("encodes the asset the way the contract does (uint256(uint160(asset)))", async () => {
+    const memoId = await calculatePublicMemoId(
+      VAL,
+      addressToFr("0x1234567890123456789012345678901234567890"),
       TIMELOCK,
       OWNER_X,
       OWNER_Y,

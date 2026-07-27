@@ -20,9 +20,11 @@
       "outputs": []
     },
     "test": {
+      "dependsOn": ["^build"],
       "outputs": []
     },
     "test:fast": {
+      "dependsOn": ["^build"],
       "outputs": []
     },
     "@hisoka/prover#build": {
@@ -44,9 +46,11 @@
       "outputs": []
     },
     "test:fork": {
+      "dependsOn": ["^build"],
       "outputs": []
     },
     "test:full": {
+      "dependsOn": ["^build"],
       "outputs": []
     },
     "audit": {

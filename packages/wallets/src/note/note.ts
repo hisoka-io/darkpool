@@ -6,6 +6,11 @@ const TWO_POW_32 = 1n << 32n;
 const TWO_POW_64 = 1n << 64n;
 const TWO_POW_128 = 1n << 128n;
 
+/** Frozen with the leaf preimage; MUST match the Noir globals of the same names (CONDITIONAL=2 reserved). */
+export const NOTE_VERSION = new Fr(1n);
+export const NOTE_TYPE_STANDARD = 0n;
+export const NOTE_TYPE_MULTISIG = 1n;
+
 export interface Parent {
   leafIndex: number;
 }

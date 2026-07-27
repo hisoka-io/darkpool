@@ -1,5 +1,11 @@
 import { Fr } from "@aztec/foundation/fields";
-import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
+import {
+  Base8,
+  inCurve,
+  mulPointEscalar,
+  Point,
+  subOrder,
+} from "@zk-kit/baby-jubjub";
 import { Kdf } from "../crypto/Kdf.js";
 import { Poseidon } from "../crypto/Poseidon.js";
 import { toFr } from "../crypto/fields.js";
@@ -9,6 +15,7 @@ const VIEW_LABEL = "hisoka.view";
 const IN_KEY_LABEL = "hisoka.inKey";
 const SELF_EPH_LABEL = "hisoka.selfEph";
 const SELF_SPEND_LABEL = "hisoka.selfSpend";
+const PUB_IN_LABEL = "hisoka.pubIn";
 
 // Only guards a non-terminating even-y roll; each index is even-y with prob ~1/2.
 const MAX_INDEX_ROLL = 256n;
@@ -17,6 +24,12 @@ export interface CanonicalAddress {
   index: bigint;
   pub: Point<bigint>;
   tag: Fr;
+}
+
+/** Carries no discovery tag: a public memo publishes both owner coordinates, so nothing is derived from `pub.x`. */
+export interface PublicIncomingAddress {
+  index: bigint;
+  pub: Point<bigint>;
 }
 
 export async function deriveViewKey(sk_root: Fr): Promise<Fr> {
@@ -39,6 +52,16 @@ export async function deriveSelfEphemeral(
 
 export async function deriveSelfSpendKey(sk_view: Fr): Promise<Fr> {
   return toBjjScalar(await Kdf.derive(SELF_SPEND_LABEL, sk_view));
+}
+
+/** Separate label from `deriveIncomingKey` on purpose: a public transfer publishes its owner point in
+ *  calldata, and the incoming family's `pub.x` is the private discovery tag, so sharing one family would
+ *  retroactively deanonymize every private payment made to that index. */
+export async function derivePublicIncomingKey(
+  sk_view: Fr,
+  index: bigint,
+): Promise<Fr> {
+  return toBjjScalar(await Kdf.derive(PUB_IN_LABEL, sk_view, toFr(index)));
 }
 
 export function publicKey(scalar: Fr): Point<bigint> {
@@ -133,7 +156,9 @@ export function discoveryTag(pub: Point<bigint>): Fr {
   return new Fr(pub[0]);
 }
 
-async function rollToEvenY(
+/** Shared by the standard and multisig address paths: the tag is `pub.x`, so `pub` must be even-y for a
+ *  single coordinate to identify the point. An index whose key lands on odd y is skipped, never patched. */
+export async function rollToEvenY(
   derive: (index: bigint) => Promise<Fr>,
   startIndex: bigint,
 ): Promise<CanonicalAddress> {
@@ -164,4 +189,34 @@ export function canonicalSelfTag(
     (index) => deriveSelfEphemeral(sk_view, index),
     startIndex,
   );
+}
+
+/** DarkPool `_isValidBjjPoint` checks the curve equation only; a memo owner outside the prime-order
+ *  subgroup is reachable by no `public_claim` witness, so its escrow is unrecoverable. */
+export function assertBjjSubgroupPoint(
+  pub: Point<bigint>,
+  subject: string,
+): void {
+  if (!inCurve(pub)) {
+    throw new Error(`${subject} is not on the BabyJubJub curve.`);
+  }
+  if (pub[0] === 0n && pub[1] === 1n) {
+    throw new Error(`${subject} is the identity.`);
+  }
+  const [ox, oy] = mulPointEscalar(pub, subOrder);
+  if (ox !== 0n || oy !== 1n) {
+    throw new Error(`${subject} is not in the prime-order subgroup.`);
+  }
+}
+
+/** No even-y roll: even-y exists so a lone `pub.x` identifies the point, but `publicTransfer` publishes
+ *  ownerX AND ownerY and `public_claim` binds both, so the point is already determined. Rolling would
+ *  discard half the index space and silently renumber the caller's address for no gain. */
+export async function canonicalPublicAddress(
+  sk_view: Fr,
+  index: bigint,
+): Promise<PublicIncomingAddress> {
+  const pub = publicKey(await derivePublicIncomingKey(sk_view, index));
+  assertBjjSubgroupPoint(pub, `Public receiving key at index ${index}`);
+  return { index, pub };
 }

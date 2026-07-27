@@ -296,7 +296,7 @@ describe("NOX Mixnet: Full DeFi E2E", function () {
     const AMOUNT = ethers.parseEther("25");
 
     // The incoming key doubles as the claim key: its pubkey is the memo owner.
-    const charlieClaimSk = await charlieWallet.account.getIncomingKey(0n);
+    const charlieClaimSk = await charlieWallet.account.getPublicIncomingKey(0n);
     const charlieClaimPub = publicKey(charlieClaimSk);
 
     const salt = 12345n;

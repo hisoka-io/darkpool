@@ -13,6 +13,7 @@ import {
   deriveSelfEph,
   memberReadIncoming,
   multisigAddress,
+  multisigIncomingKeyAt,
 } from "./multisigNote.js";
 
 // asset ids are ERC20 addresses; >= 2^160 cannot be a real asset (mirrors NoteProcessor).
@@ -21,6 +22,10 @@ const ASSET_MODULUS = 1n << 160n;
 const DEFAULT_SELF_WINDOW = 100;
 
 const MAX_SELF_ROLL = 1_000;
+
+// A gap limit over ISSUED receiving addresses, mirroring the standard path: a group that rotates per payer
+// must still find notes sent to an address it issued but has not yet seen used.
+const DEFAULT_INCOMING_WINDOW = 20;
 
 export interface MultisigNoteView {
   note: Note;
@@ -38,6 +43,7 @@ export interface MultisigScanConfig {
   compliancePk: Point;
   memberIds: bigint[];
   selfWindow?: number;
+  incomingWindow?: number;
 }
 
 interface SelfSource {
@@ -46,24 +52,29 @@ interface SelfSource {
   eph: Fr;
 }
 
+interface IncomingSource {
+  index: bigint;
+  viewKey: Fr;
+}
+
 export class MultisigScanner {
   readonly #v: Fr;
   readonly #compliancePk: Point;
   readonly #expectedOwner: Fr;
-  readonly #incomingTag: string;
+  readonly #incomingTags: Map<string, IncomingSource>;
   readonly #selfTags: Map<string, SelfSource>;
 
   private constructor(
     v: Fr,
     compliancePk: Point,
     expectedOwner: Fr,
-    incomingTag: string,
+    incomingTags: Map<string, IncomingSource>,
     selfTags: Map<string, SelfSource>,
   ) {
     this.#v = v;
     this.#compliancePk = compliancePk;
     this.#expectedOwner = expectedOwner;
-    this.#incomingTag = incomingTag;
+    this.#incomingTags = incomingTags;
     this.#selfTags = selfTags;
   }
 
@@ -80,11 +91,26 @@ export class MultisigScanner {
         found++;
       }
     }
+
+    // Each rotated address wraps its content key to a DIFFERENT point, so the scanner must carry the
+    // per-address secret, not just the tag: matching the tag is not enough to open the note.
+    const incomingTags = new Map<string, IncomingSource>();
+    const incomingWindow = cfg.incomingWindow ?? DEFAULT_INCOMING_WINDOW;
+    let next = 0n;
+    for (let found = 0; found < incomingWindow; found++) {
+      const { index, viewKey, viewPub } = await multisigIncomingKeyAt(
+        cfg.v,
+        next,
+      );
+      incomingTags.set(tagKey(viewPub[0]), { index, viewKey });
+      next = index + 1n;
+    }
+
     return new MultisigScanner(
       cfg.v,
       cfg.compliancePk,
       address.ownerCommitment,
-      tagKey(address.viewPub[0]),
+      incomingTags,
       selfTags,
     );
   }
@@ -113,10 +139,15 @@ export class MultisigScanner {
   ): Promise<MultisigNoteView | null> {
     const { tag, cekWrap, ephemeralX } = event.args;
     if (tag === undefined || cekWrap === undefined) return null;
-    if (tagKey(tag) !== this.#incomingTag) return null;
+    const source = this.#incomingTags.get(tagKey(tag));
+    if (!source) return null;
     const ephPub: Point = recoverEvenY(ephemeralX);
-    const cek = await memberReadIncoming(new Fr(cekWrap), this.#v, ephPub);
-    return this.#recover(event, cek, true, undefined, undefined);
+    const cek = await memberReadIncoming(
+      new Fr(cekWrap),
+      source.viewKey,
+      ephPub,
+    );
+    return this.#recover(event, cek, true, undefined, source.index);
   }
 
   async #readSelf(event: UnprocessedEvent): Promise<MultisigNoteView | null> {

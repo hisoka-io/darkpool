@@ -40,7 +40,7 @@ class TraderAgent {
     amountIn: bigint,
     fee: number = 3000,
   ) {
-    const recipientSk = await this.wallet.account.getIncomingKey(
+    const recipientSk = await this.wallet.account.getPublicIncomingKey(
       this.claimIdx++,
     );
     const recipientPk = publicKey(recipientSk);

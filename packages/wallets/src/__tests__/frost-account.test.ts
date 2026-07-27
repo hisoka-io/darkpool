@@ -38,9 +38,12 @@ describe("FROST account: DKG establishes gpk + shared viewing key + owner", () =
     expect(pointEq(acct.viewPub, scalarBaseMul(acct.viewKey))).toBe(true);
 
     expect(isEvenY(acct.viewPub)).toBe(true);
+    // The DKG settles the group's MASTER view key. Receiving addresses are derived from it per index, so an
+    // address is deliberately NOT the master point: that separation is what lets a treasury rotate.
     const address = await multisigAddress(acct.gpk, new Fr(acct.viewKey));
     expect(address.ownerCommitment.toBigInt()).toBe(acct.owner.toBigInt());
-    expect(pointEq(address.viewPub, acct.viewPub)).toBe(true);
+    expect(pointEq(address.viewPub, acct.viewPub)).toBe(false);
+    expect(isEvenY(address.viewPub)).toBe(true);
 
     const m = 0xabcabcn;
     const msg = encodeMessage(m);
