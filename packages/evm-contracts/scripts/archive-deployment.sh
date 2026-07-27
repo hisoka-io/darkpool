@@ -58,7 +58,7 @@ done
 
 # 4. Copy ABIs
 echo "[4/6] Copying ABIs..."
-for abi in DarkPool NoxRegistry NoxRewardPool MockERC20 RelayerMulticall; do
+for abi in DarkPool NoxRegistry NoxRewardPool MockERC20; do
   found=$(find "${CONTRACTS_DIR}/artifacts" -name "${abi}.json" -not -name "*.dbg.json" -not -path "*/build-info/*" | head -1)
   if [ -n "$found" ]; then
     cp "$found" "${ARCHIVE_DIR}/abis/${abi}.json"

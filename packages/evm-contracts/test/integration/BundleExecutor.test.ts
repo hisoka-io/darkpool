@@ -329,15 +329,26 @@ describe("Integration: BundleExecutor", function () {
     ).to.be.revertedWithCustomError(executor, "ExpiredDeadline");
   });
 
-  it("raw DarkPool.withdraw to the executor from an EOA reverts OnlyRecipientMayPull", async function () {
+  it("raw DarkPool.withdraw to the executor from an EOA is refused: no pull is open", async function () {
     const ctx = await loadFixture(deployExecutorFixture);
-    const { darkPool, alice } = ctx;
+    const { darkPool, alice, executor } = ctx;
+    const executorAddr = await executor.getAddress();
 
-    const { proof } = await proveWithdrawToExecutor(ctx, 100n, 40n, toFr(0n));
+    const { proof, nullifier } = await proveWithdrawToExecutor(
+      ctx,
+      100n,
+      40n,
+      toFr(0n),
+    );
 
     await expect(
       darkPool.connect(alice).withdraw(proof.proof, proof.publicInputs),
-    ).to.be.revertedWithCustomError(darkPool, "OnlyRecipientMayPull");
+    )
+      .to.be.revertedWithCustomError(darkPool, "RecipientCannotAcceptWithdraw")
+      .withArgs(executorAddr);
+
+    expect(await darkPool.isNullifierSpent(nullifier)).to.equal(false);
+    expect(await ctx.token.balanceOf(executorAddr)).to.equal(0n);
   });
 
   it("reentrancy: a bound call that re-enters execute is blocked by nonReentrant", async function () {

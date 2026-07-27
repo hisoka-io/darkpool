@@ -6,10 +6,11 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import {IDarkPool} from "../../interfaces/IDarkPool.sol";
+import {IWithdrawRecipient} from "../../interfaces/IWithdrawRecipient.sol";
 import {Poseidon2} from "../../Poseidon/Poseidon2.sol";
 import {Field} from "../../Poseidon/Field.sol";
 
-contract UniswapAdaptor is ReentrancyGuard {
+contract UniswapAdaptor is ReentrancyGuard, IWithdrawRecipient {
     using SafeERC20 for IERC20;
 
     error ZeroAddress();
@@ -21,9 +22,17 @@ contract UniswapAdaptor is ReentrancyGuard {
     error IntentExpired();
     error DeadlineTooFar();
     error ZeroSlippageBound();
+    error NotTheDarkPool();
+    error NoPullInProgress();
+    error IntentMismatch();
 
     address public immutable DARK_POOL;
     ISwapRouter public immutable UNISWAP_ROUTER;
+
+    /// @dev Set only across the one pull `executeSwap` initiates. Any other pull naming this contract finds
+    ///      this zero and is refused at the pool.
+    uint256 private _pullIntent;
+    bool private _pulling;
 
     uint256 constant PRIME =
         0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001;
@@ -81,6 +90,20 @@ contract UniswapAdaptor is ReentrancyGuard {
         UNISWAP_ROUTER = ISwapRouter(_uniswapRouter);
     }
 
+    /// @notice Affirm to the pool that this contract requested the withdraw now being settled.
+    /// @dev The intent hash is what makes this specific rather than a blanket yes: `executeSwap` recomputes it
+    ///      from the exact swap params and deadline, so a pull carrying any other intent is refused even while
+    ///      a legitimate pull is in flight.
+    function acceptWithdraw(
+        bytes32,
+        uint256 intentHash
+    ) external view returns (bytes4) {
+        if (msg.sender != DARK_POOL) revert NotTheDarkPool();
+        if (!_pulling) revert NoPullInProgress();
+        if (intentHash != _pullIntent) revert IntentMismatch();
+        return IWithdrawRecipient.acceptWithdraw.selector;
+    }
+
     function executeSwap(
         bytes calldata proof,
         bytes32[] memory publicInputs,
@@ -103,7 +126,11 @@ contract UniswapAdaptor is ReentrancyGuard {
         // Binds the swap to the proof: a tampered swap yields a different hash and fails verification.
         publicInputs[2] = intentHash;
 
+        _pulling = true;
+        _pullIntent = uint256(intentHash);
         IDarkPool(DARK_POOL).withdraw(proof, publicInputs);
+        _pulling = false;
+        _pullIntent = 0;
 
         uint256 withdrawnAmount = uint256(publicInputs[0]);
         address withdrawnAsset = address(uint160(uint256(publicInputs[7])));

@@ -17,14 +17,13 @@ import {
 } from "./fixtures";
 import type { DarkPool, MockERC20 } from "../../typechain-types";
 
-/** TestWallet with RelayerMulticall transport: every non-deposit action is submitted by a third party. */
+/** TestWallet whose non-deposit actions are broadcast by a third party, never by the note owner. */
 export class MixnetWallet {
   public readonly base: TestWallet;
 
   private constructor(
     base: TestWallet,
-    public multicallAddress: string,
-    public relayerAddress: string,
+    public relayer: ethersLib.Signer & { address: string },
   ) {
     this.base = base;
   }
@@ -36,12 +35,11 @@ export class MixnetWallet {
     },
     darkPool: DarkPool,
     token: MockERC20,
-    multicallAddress: string,
-    relayerAddress: string,
+    relayer: ethersLib.Signer & { address: string },
     fromBlock?: number,
   ): Promise<MixnetWallet> {
     const base = await TestWallet.create(signer, darkPool, token, fromBlock);
-    return new MixnetWallet(base, multicallAddress, relayerAddress);
+    return new MixnetWallet(base, relayer);
   }
 
   get signer() {
@@ -78,25 +76,12 @@ export class MixnetWallet {
   }
 
   private async submitAction(actionCalldata: string): Promise<string> {
-    const darkPoolAddr = await this.base.darkPool.getAddress();
-
-    const multicallContract = new ethersLib.Contract(
-      this.multicallAddress,
-      [
-        "function multicall((address target, bytes data, uint256 value, bool requireSuccess)[] calls)",
-      ],
-      this.signer as unknown as ethersLib.ContractRunner,
-    );
-
-    const tx = await multicallContract.multicall([
-      {
-        target: darkPoolAddr,
-        data: actionCalldata,
-        value: 0n,
-        requireSuccess: true,
-      },
-    ]);
+    const tx = await this.relayer.sendTransaction({
+      to: await this.base.darkPool.getAddress(),
+      data: actionCalldata,
+    });
     const receipt = await tx.wait();
+    if (!receipt) throw new Error("Relayer action was not mined");
     return receipt.hash;
   }
 

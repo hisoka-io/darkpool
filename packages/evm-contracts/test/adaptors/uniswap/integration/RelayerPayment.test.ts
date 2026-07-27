@@ -8,9 +8,9 @@ import {
   WETH_ADDRESS,
   USDC_ADDRESS,
 } from "../../fixtures";
+import { newSeededTree } from "../../../helpers/fixtures";
 import { Fr, toFr } from "@hisoka/wallets";
 import { hashUniswapIntent, SwapType, encodePath } from "@hisoka/adaptors";
-import { RelayerMulticall__factory } from "../../../../typechain-types";
 import { publicKey } from "@hisoka/wallets";
 
 const swapDeadline = async () =>
@@ -25,24 +25,28 @@ describe("Relayer Safe Settlement: Integration", function () {
     const data = await loadFixture(deployUniswapFixture);
     const { uniswapAdaptor, darkPool, weth, deployer } = data;
 
-    const RelayerMulticallFactory = (await ethers.getContractFactory(
-      "RelayerMulticall",
-    )) as unknown as RelayerMulticall__factory;
-    const relayerMulticall = await RelayerMulticallFactory.deploy();
-
     const relayer = deployer;
 
-    const paymentSetup = await setupAdaptorNote(data, "1.0");
+    // Distinct ephemeral seeds: one seed at one leaf index yields one nullifier, and two notes sharing it
+    // would make the second spend fail as a double spend instead of on the property under test.
+    const paymentSetup = await setupAdaptorNote(data, "1.0", 11n);
+    const swapSetup = await setupAdaptorNote(data, "2.0", 22n);
+
+    const { chainId } = await ethers.provider.getNetwork();
+    const tree = await newSeededTree(chainId);
+    await tree.insert(paymentSetup.built.commitment);
+    await tree.insert(swapSetup.built.commitment);
+
     const paymentProof = await buildAdaptorWithdraw({
       built: paymentSetup.built,
       spendScalar: paymentSetup.spendScalar,
-      tree: paymentSetup.tree,
+      tree,
       amount: paymentSetup.amount,
       recipient: relayer.address,
       intentHash: toFr(0n),
+      noteIndex: 1,
     });
 
-    const swapSetup = await setupAdaptorNote(data, "2.0");
     const path = encodePath([WETH_ADDRESS, USDC_ADDRESS], [500]);
     const params = {
       type: SwapType.ExactInput,
@@ -57,16 +61,12 @@ describe("Relayer Safe Settlement: Integration", function () {
     const swapProof = await buildAdaptorWithdraw({
       built: swapSetup.built,
       spendScalar: swapSetup.spendScalar,
-      tree: swapSetup.tree,
+      tree,
       amount: swapSetup.amount,
       recipient: await uniswapAdaptor.getAddress(),
       intentHash,
+      noteIndex: 2,
     });
-
-    const withdrawData = darkPool.interface.encodeFunctionData("withdraw", [
-      paymentProof.proofHex,
-      paymentProof.pubHex,
-    ]);
 
     const encodedParams = new ethers.AbiCoder().encode(
       [
@@ -82,57 +82,38 @@ describe("Relayer Safe Settlement: Integration", function () {
       ],
     );
 
-    const swapData = uniswapAdaptor.interface.encodeFunctionData(
-      "executeSwap",
-      [
-        swapProof.proofHex,
-        swapProof.pubHex,
-        SwapType.ExactInput,
-        encodedParams,
-        deadline,
-      ],
-    );
-
-    const calls = [
-      {
-        target: await darkPool.getAddress(),
-        data: withdrawData,
-        value: 0n,
-        requireSuccess: true,
-      },
-      {
-        target: await uniswapAdaptor.getAddress(),
-        data: swapData,
-        value: 0n,
-        requireSuccess: false,
-      },
-    ];
-
     const relayerBalanceBefore = await weth.balanceOf(relayer.address);
 
-    const tx = await relayerMulticall.connect(relayer).multicall(calls, {
-      maxFeePerGas: ethers.parseUnits("200", "gwei"),
-      maxPriorityFeePerGas: ethers.parseUnits("5", "gwei"),
-    });
-    const receipt = await tx.wait();
+    await (
+      await darkPool
+        .connect(relayer)
+        .withdraw(paymentProof.proofHex, paymentProof.pubHex)
+    ).wait();
 
-    const executedEvents = await relayerMulticall.queryFilter(
-      relayerMulticall.filters.CallExecuted(),
-      receipt?.blockNumber,
-    );
-    const failedEvents = await relayerMulticall.queryFilter(
-      relayerMulticall.filters.CallFailed(),
-      receipt?.blockNumber,
-    );
-
-    expect(executedEvents.length).to.be.gte(2);
-    expect(failedEvents.length).to.equal(1);
-    expect(executedEvents[0].args.success).to.equal(true);
-    expect(executedEvents[1].args.success).to.equal(false);
-
-    const relayerBalanceAfter = await weth.balanceOf(relayer.address);
-    expect(relayerBalanceAfter).to.equal(
+    const relayerBalanceAfterPayment = await weth.balanceOf(relayer.address);
+    expect(relayerBalanceAfterPayment).to.equal(
       relayerBalanceBefore + ethers.parseEther("1.0"),
+    );
+
+    // amountOutMin is unreachable, so the router's slippage guard must be what trips. Pinning it is what
+    // separates a real swap failure from the note being unspendable for an unrelated reason.
+    await expect(
+      uniswapAdaptor
+        .connect(relayer)
+        .executeSwap(
+          swapProof.proofHex,
+          swapProof.pubHex,
+          SwapType.ExactInput,
+          encodedParams,
+          deadline,
+        ),
+    ).to.be.revertedWith("Too little received");
+
+    expect(await weth.balanceOf(relayer.address)).to.equal(
+      relayerBalanceAfterPayment,
+    );
+    expect(await darkPool.isNullifierSpent(swapProof.pubHex[5])).to.equal(
+      false,
     );
   });
 });

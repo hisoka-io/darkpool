@@ -78,9 +78,12 @@ export const COMPLIANCE_PK: Point<bigint> = mulPointEscalar(
   COMPLIANCE_SK,
 );
 
+// `ephSeed` fixes the ephemeral scalar and through it the CEK, psi, and nullifier: two notes minted under one
+// seed at one leaf index share a nullifier, so a test needing two spendable notes must vary the seed.
 export async function setupAdaptorNote(
   data: { darkPool: DarkPool; weth: IERC20; alice: { address: string } },
   amountEth: string = "10",
+  ephSeed: bigint = 1n,
 ): Promise<{
   built: BuiltNote;
   tree: LeanIMT;
@@ -91,7 +94,7 @@ export async function setupAdaptorNote(
   const assetFr = addressToFr(WETH_ADDRESS);
   const spendScalar = await userSpendScalar(data.alice.address);
   const built = await mintSelfNote(
-    evenYEphemeral(1n),
+    evenYEphemeral(ephSeed),
     amount,
     spendScalar,
     assetFr,
@@ -126,13 +129,16 @@ export async function buildAdaptorWithdraw(args: {
   amount: bigint;
   recipient: string;
   intentHash: Fr;
+  // Leaf index of the note being spent; `tree` must hold it at that index.
+  noteIndex?: number;
 }): Promise<{ proof: Uint8Array; proofHex: string; pubHex: string[] }> {
+  const noteIndex = args.noteIndex ?? 1;
   const change = await mintSelfNote(
     evenYEphemeral(999n),
     0n,
     args.spendScalar,
     addressToFr(WETH_ADDRESS),
-    packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
+    packParents([{ leafIndex: noteIndex }, { leafIndex: 0 }]),
   );
   const inputs: WithdrawInputs = {
     withdrawValue: toFr(args.amount),
@@ -141,8 +147,8 @@ export async function buildAdaptorWithdraw(args: {
     compliancePk: HELPER_COMPLIANCE_PK,
     oldNote: args.built.note,
     spendScalar: args.spendScalar,
-    oldNoteIndex: 1,
-    oldNotePath: args.tree.getMerklePath(1),
+    oldNoteIndex: noteIndex,
+    oldNotePath: args.tree.getMerklePath(noteIndex),
     changeNote: change.note,
     changeEph: change.eph,
   };

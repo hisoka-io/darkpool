@@ -193,4 +193,47 @@ describe("UniswapAdaptor swap-withdraw (mock router, no fork)", function () {
 
     expect(await tokenOut.balanceOf(adaptorAddr)).to.equal(0n);
   });
+
+  it("refuses a raw pool withdraw naming the adaptor that the adaptor never asked for", async function () {
+    const ctx = await loadFixture(deploySwapFixture);
+    const { darkPool, token, alice, adaptor } = ctx;
+    const adaptorAddr = await adaptor.getAddress();
+
+    const dep = await makeDeposit(darkPool, token, alice, 100n);
+    const tree = await newSeededTree();
+    await tree.insert(dep.commitment);
+    const assetFr = addressToFr(await token.getAddress());
+    const changeEph = evenYEphemeral(0x7171n);
+    const change = await mintSelfNote(
+      changeEph,
+      60n,
+      dep.spendScalar,
+      assetFr,
+      packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
+    );
+    const inputs: WithdrawInputs = {
+      withdrawValue: toFr(40n),
+      recipient: addressToFr(adaptorAddr),
+      intentHash: toFr(0n),
+      compliancePk: COMPLIANCE_PK,
+      oldNote: dep.built.note,
+      spendScalar: dep.spendScalar,
+      oldNoteIndex: 1,
+      oldNotePath: tree.getMerklePath(1),
+      changeNote: change.note,
+      changeEph,
+    };
+    const proof = await proveWithdraw(inputs);
+
+    await expect(
+      darkPool.connect(alice).withdraw(proof.proof, proof.publicInputs),
+    )
+      .to.be.revertedWithCustomError(darkPool, "RecipientCannotAcceptWithdraw")
+      .withArgs(adaptorAddr);
+
+    expect(await darkPool.isNullifierSpent(proof.publicInputs[5])).to.equal(
+      false,
+    );
+    expect(await token.balanceOf(adaptorAddr)).to.equal(0n);
+  });
 });

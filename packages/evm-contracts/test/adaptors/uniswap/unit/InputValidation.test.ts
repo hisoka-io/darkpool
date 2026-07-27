@@ -192,10 +192,11 @@ describe("Uniswap Adaptor: Security & Validation", function () {
     ).to.be.revertedWithCustomError(darkPool, "NullifierAlreadySpent");
   });
 
-  it("C-1: blocks a direct withdraw to a contract recipient from a non-recipient caller", async function () {
+  it("C-1: blocks a direct withdraw to the adaptor that the adaptor never asked for", async function () {
     const deadline = await swapDeadline();
     const data = await loadFixture(fixture);
     const { darkPool, attacker, uniswapAdaptor } = data;
+    const adaptorAddr = await uniswapAdaptor.getAddress();
     // @ts-ignore
     const intentHash: Fr = await hashUniswapIntent(goodParams, deadline);
     const { proofHex, pubHex } = await buildAdaptorWithdraw({
@@ -203,11 +204,12 @@ describe("Uniswap Adaptor: Security & Validation", function () {
       spendScalar: data.spendScalar,
       tree: data.tree,
       amount: data.amount,
-      recipient: await uniswapAdaptor.getAddress(),
+      recipient: adaptorAddr,
       intentHash,
     });
-    await expect(
-      darkPool.connect(attacker).withdraw(proofHex, pubHex),
-    ).to.be.revertedWithCustomError(darkPool, "OnlyRecipientMayPull");
+    await expect(darkPool.connect(attacker).withdraw(proofHex, pubHex))
+      .to.be.revertedWithCustomError(darkPool, "RecipientCannotAcceptWithdraw")
+      .withArgs(adaptorAddr);
+    expect(await darkPool.isNullifierSpent(pubHex[5])).to.equal(false);
   });
 });

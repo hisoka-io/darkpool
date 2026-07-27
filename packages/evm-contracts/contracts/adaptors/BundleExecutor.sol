@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IDarkPool} from "../interfaces/IDarkPool.sol";
+import {IWithdrawRecipient} from "../interfaces/IWithdrawRecipient.sol";
 
 /**
  * @title BundleExecutor
@@ -14,12 +15,17 @@ import {IDarkPool} from "../interfaces/IDarkPool.sol";
  * @dev The bundle is bound to the proof through the withdraw layout's free public input [2] (intent hash):
  *      `execute` recomputes the hash from the exact `boundCalls/deadline/assetsToClear` and overwrites [2],
  *      so a relayer that alters any call makes the proof fail verification. That binding covers only the one
- *      proof passed to `execute`; the pool's recipient gate (msg.sender != recipient) is satisfied by
- *      anything this contract calls, so a bound call reaching the pool is screened separately and may never
- *      pull a withdraw naming this contract.
+ *      proof passed to `execute`, so a bound call reaching the pool is screened separately and may never pull
+ *      a withdraw naming this contract: by then the pool's affirmation callback finds no pull in progress, and
+ *      the screen is the defence in depth in front of it.
  */
-contract BundleExecutor is ReentrancyGuard {
+contract BundleExecutor is ReentrancyGuard, IWithdrawRecipient {
     using SafeERC20 for IERC20;
+
+    /// @dev Set only across the one pull `execute` initiates. Any other pull naming this contract, including
+    ///      one a bound call tries to trigger, finds this zero and is refused at the pool.
+    uint256 private _pullIntent;
+    bool private _pulling;
 
     /// @dev BN254 scalar field modulus; the intent hash is reduced into it to land in a Field input.
     uint256 internal constant BN254_P =
@@ -73,6 +79,9 @@ contract BundleExecutor is ReentrancyGuard {
     error NonZeroCallValue(uint256 index);
     error RequiredCallFailed(uint256 index);
     error UnsupportedDarkPoolCall(uint256 index, bytes4 selector);
+    error NotTheDarkPool();
+    error NoPullInProgress();
+    error IntentMismatch();
     error NestedWithdrawToSelf(uint256 index);
     error ApproveTargetIsDarkPool(uint256 index);
     error AllowanceCallForbidden(uint256 index);
@@ -89,6 +98,20 @@ contract BundleExecutor is ReentrancyGuard {
     constructor(address _darkPool) {
         if (_darkPool == address(0)) revert ZeroAddress();
         DARK_POOL = _darkPool;
+    }
+
+    /// @notice Affirm to the pool that this contract requested the withdraw now being settled.
+    /// @dev The intent hash is what makes this specific rather than a blanket yes: it is recomputed by
+    ///      `execute` from the exact bundle, so a pull carrying any other bundle's binding is refused even
+    ///      while a legitimate pull is in flight.
+    function acceptWithdraw(
+        bytes32,
+        uint256 intentHash
+    ) external view returns (bytes4) {
+        if (msg.sender != DARK_POOL) revert NotTheDarkPool();
+        if (!_pulling) revert NoPullInProgress();
+        if (intentHash != _pullIntent) revert IntentMismatch();
+        return IWithdrawRecipient.acceptWithdraw.selector;
     }
 
     /// @notice Recompute the intent hash that binds a bundle to its withdraw proof.
@@ -129,7 +152,11 @@ contract BundleExecutor is ReentrancyGuard {
             address(this)
         ) revert RecipientNotExecutor();
 
+        _pulling = true;
+        _pullIntent = intentHash;
         IDarkPool(DARK_POOL).withdraw(proof, publicInputs);
+        _pulling = false;
+        _pullIntent = 0;
 
         for (uint256 i; i < boundCalls.length; ++i) {
             BundleCall calldata c = boundCalls[i];
@@ -187,11 +214,10 @@ contract BundleExecutor is ReentrancyGuard {
         );
     }
 
-    /// @dev `execute` binds exactly one pull, and the pool's recipient gate is satisfied by anything this
-    ///      contract calls, so a second withdraw naming this contract is unbound by construction. The nested
-    ///      arguments are read with `abi.decode` over the forwarded slice, never a fixed offset: the caller
-    ///      controls the argument-region head pointers, so a peek at the canonical position can be aimed at a
-    ///      different word than the pool's own decoder consumes.
+    /// @dev `execute` binds exactly one pull, so a second withdraw naming this contract is unbound by
+    ///      construction. The nested arguments are read with `abi.decode` over the forwarded slice, never a
+    ///      fixed offset: the caller controls the argument-region head pointers, so a peek at the canonical
+    ///      position can be aimed at a different word than the pool's own decoder consumes.
     function _screenBoundCall(
         uint256 index,
         address target,

@@ -463,22 +463,10 @@ async function main() {
   }
   console.log();
 
-  let multicallAddr = "";
-  {
-    console.log("Step 12: RelayerMulticall...");
-    const multicall = await (
-      await ethers.getContractFactory("RelayerMulticall")
-    ).deploy();
-    await multicall.waitForDeployment();
-    multicallAddr = await multicall.getAddress();
-    console.log(`  RelayerMulticall: ${multicallAddr}`);
-    console.log();
-  }
-
   const swapRouter = process.env.SWAP_ROUTER;
   let adaptorAddr = "";
   if (swapRouter && ethers.isAddress(swapRouter)) {
-    console.log("Step 13: UniswapAdaptor...");
+    console.log("Step 12: UniswapAdaptor...");
     const adaptor = await (
       await ethers.getContractFactory("UniswapAdaptor", {
         libraries: { Poseidon2: poseidon2Addr },
@@ -491,7 +479,7 @@ async function main() {
   }
 
   if (network.name !== "hardhat" && network.name !== "localhost") {
-    console.log("Step 14: Block-explorer verification (best-effort)...");
+    console.log("Step 13: Block-explorer verification (best-effort)...");
     await tryVerify(poseidon2Addr, []);
     for (let i = 0; i < verifiers.length; i++) {
       await tryVerify(
@@ -549,7 +537,6 @@ async function main() {
       noxRewardPool: rewardPoolAddr,
       darkPool: darkPoolAddr,
       stakingToken: stakingTokenAddr,
-      relayerMulticall: multicallAddr,
       uniswapAdaptor: adaptorAddr,
     },
     proxySlots,
@@ -597,7 +584,6 @@ async function main() {
   console.log(`  NoxRegistry:   ${noxRegistryAddr}`);
   console.log(`  NoxRewardPool: ${rewardPoolAddr}`);
   console.log(`  Staking Token: ${stakingTokenAddr}`);
-  if (multicallAddr) console.log(`  Multicall:     ${multicallAddr}`);
   if (adaptorAddr) console.log(`  UniswapAdaptor:${adaptorAddr}`);
   console.log();
 

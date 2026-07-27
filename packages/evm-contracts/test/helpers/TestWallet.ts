@@ -94,12 +94,17 @@ export class TestWallet {
     wallet.utxoRepo = new UtxoRepository();
     wallet.fromBlock = fromBlock ?? 0;
 
+    // `scanFloor` is min(fromBlock, deploymentBlock), so leaving deploymentBlock at 0 discards the caller's
+    // start block and scans from genesis. Harmless on a fresh chain; on a mainnet fork it is ~25M blocks and
+    // every real RPC caps eth_getLogs well below that.
     wallet.scanEngine = new ScanEngine(
       darkPool as unknown as ethers.Contract,
       wallet.keyRepo,
       wallet.utxoRepo,
       COMPLIANCE_PK,
       wallet.tree,
+      undefined,
+      wallet.fromBlock,
     );
 
     return wallet;

@@ -4,6 +4,7 @@ pragma solidity ^0.8.25;
 import {Poseidon2} from "./Poseidon/Poseidon2.sol";
 import {Field} from "./Poseidon/Field.sol";
 import {MerkleTreeLib} from "./libraries/MerkleTreeLib.sol";
+import {IWithdrawRecipient} from "./interfaces/IWithdrawRecipient.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -81,7 +82,8 @@ contract DarkPool is
     error MemoSpent();
     error MemoInvalid();
     error FeeOnTransferUnsupported();
-    error OnlyRecipientMayPull();
+    error RecipientRejectedWithdraw(address recipient);
+    error RecipientCannotAcceptWithdraw(address recipient);
     error UnknownCircuitId();
     error VerifierHasNoCode();
     error VerifierUnset(uint256 circuitId);
@@ -478,6 +480,27 @@ contract DarkPool is
         _kage(_proof, _publicInputs);
     }
 
+    /// @dev A contract recipient must affirm THIS pull. Proving it is merely the caller is not enough: an
+    ///      adaptor induced to call the pool with attacker calldata satisfies that weaker test while pulling
+    ///      a withdraw it never asked for. Failing to implement the interface is a rejection, by design.
+    function _requireRecipientAccepts(
+        address recipient,
+        bytes32 nullifierHash,
+        uint256 intentHash
+    ) private {
+        try
+            IWithdrawRecipient(recipient).acceptWithdraw(
+                nullifierHash,
+                intentHash
+            )
+        returns (bytes4 magic) {
+            if (magic != IWithdrawRecipient.acceptWithdraw.selector)
+                revert RecipientRejectedWithdraw(recipient);
+        } catch {
+            revert RecipientCannotAcceptWithdraw(recipient);
+        }
+    }
+
     /// @dev Layout: [0] value; [1] recipient; [2] intent_hash; [3,4] compliance; [5] nullifier; [6] root;
     ///      [7] asset; [8] change leaf; [9] change eph_pub.x; [10..16] change ciphertext.
     ///      The code-gate covers EIP-7702-delegated EOAs, not just contracts. No root-freshness bound by
@@ -490,8 +513,6 @@ contract DarkPool is
         if (_publicInputs.length != 17) revert InvalidInputsLength();
 
         address recipient = address(uint160(uint256(_publicInputs[1])));
-        if (recipient.code.length > 0 && msg.sender != recipient)
-            revert OnlyRecipientMayPull();
 
         if (!_treeStorage().tree.isKnownRoot[_publicInputs[6]])
             revert InvalidRoot();
@@ -503,6 +524,17 @@ contract DarkPool is
 
         bytes32 nullifierHash = _publicInputs[5];
         _spendNullifier(nullifierHash);
+
+        // After the proof verifies and the nullifier is spent, so a recipient that reenters cannot double
+        // spend, and before any token moves, so a rejection costs nothing. The code check also covers
+        // EIP-7702-delegated EOAs, which is why it is a code-length test rather than a registry lookup.
+        if (recipient.code.length > 0) {
+            _requireRecipientAccepts(
+                recipient,
+                nullifierHash,
+                uint256(_publicInputs[2])
+            );
+        }
 
         _insertNote(_publicInputs, 8, 9, 10);
 

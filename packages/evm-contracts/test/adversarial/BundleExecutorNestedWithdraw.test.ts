@@ -109,7 +109,8 @@ describe("Adversarial: BundleExecutor nested-withdraw confused deputy", function
     await treeAfterAttacker.insert(vDep.commitment);
     await treeAfterAttacker.insert(aDep.commitment);
 
-    // Bound call 0 re-enters the pool with the victim's UNMODIFIED proof: the recipient is the one the proof commits to, so the gate passes.
+    // Bound call 0 re-enters the pool with the victim's UNMODIFIED proof, so nothing upstream of the screen
+    // rejects it on its contents.
     const attackerCalls = [
       {
         target: darkPoolAddr,
