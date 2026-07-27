@@ -116,18 +116,21 @@ jobs:
           echo "$out" | grep -q 'opt-in only' && { echo "::error::gate did not receive KAGE_NATIVE=1"; exit 1; }
           echo "$out" | grep -qE '1 passed' || { echo "::error::gate did not report a passing assertion"; exit 1; }
           exit "$rc"
-      - name: FROST forgery accept-path control (must execute, never skip)
+      - name: Forgery accept-path controls, all 3 harnesses (must execute, never skip)
         run: |
           test -x "$HOME/.bb/bb" || { echo "::error::native bb not installed at ~/.bb/bb"; exit 1; }
           "$HOME/.bb/bb" --version | grep -q '5.0.0' || { echo "::error::native bb is not 5.0.0"; exit 1; }
-          # `out=$(cmd)` under bash -e aborts at the assignment when cmd fails, so a separate `rc=$?` line
-          # would never run. Capture the status in the same command instead.
+          # The circuits job runs each harness's reject battery. Only this step proves the UN-ABLATED
+          # harness still yields a bb-verifying proof, so a reject battery cannot pass by rejecting
+          # everything. `out=$(cmd)` under bash -e aborts at the assignment when cmd fails, so a separate
+          # `rc=$?` line would never run; capture the status in the same command instead.
           rc=0
-          out="$(packages/prover/test-harness/frost-forgery/run-gold-standard.sh 2>&1)" || rc=$?
+          out="$(bash scripts/run-forgery-harnesses.sh 2>&1)" || rc=$?
           echo "$out"
-          test "$rc" -eq 0 || { echo "::error::accept control exited $rc"; exit 1; }
-          echo "$out" | grep -q 'Proof verified successfully' || { echo "::error::bb never reported a verified proof; the accept control did not run"; exit 1; }
-          echo "$out" | grep -q 'produced a VERIFYING proof' || { echo "::error::accept control did not reach its success assertion"; exit 1; }
+          test "$rc" -eq 0 || { echo "::error::forgery harness runner exited $rc"; exit 1; }
+          echo "$out" | grep -q 'all 3 harnesses PASS' || { echo "::error::runner did not reach its all-3-pass assertion"; exit 1; }
+          test "$(echo "$out" | grep -c 'Proof verified successfully')" -ge 3 \
+            || { echo "::error::fewer than 3 accept paths reported a verified proof"; exit 1; }
 
   evm-tests:
     name: EVM Tests
@@ -154,6 +157,14 @@ jobs:
         run: pnpm --filter evm-contracts run test:fast
       - name: Run slow Solidity tests
         run: pnpm --filter evm-contracts run test:slow
+      - name: Gas regression guard (per-entrypoint ceilings)
+        run: |
+          # The bench self-skips without GAS_BENCH=1, so assert it actually ran rather than trusting exit 0.
+          rc=0
+          out="$(GAS_BENCH=1 pnpm --filter evm-contracts exec hardhat test test/benchmark/Gas.bench.ts 2>&1)" || rc=$?
+          echo "$out"
+          test "$rc" -eq 0 || { echo "::error::gas guard exited $rc"; exit 1; }
+          echo "$out" | grep -qE '10 passing' || { echo "::error::gas guard did not run all 10 entrypoints"; exit 1; }
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
       - name: Run invariant tests (Foundry)
@@ -162,6 +173,39 @@ jobs:
         run: pnpm --filter evm-contracts run validate:upgrades
       - name: Check storage-layout snapshots
         run: pnpm --filter evm-contracts run storage:check
+
+  fork-tests:
+    name: Adaptor Tests (mainnet fork)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+      - name: Install Nargo
+        run: |
+          curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+          export PATH="$HOME/.nargo/bin:$PATH"
+          noirup -v 1.0.0-beta.22
+          echo "$HOME/.nargo/bin" >> $GITHUB_PATH
+      - run: pnpm install --frozen-lockfile
+      - name: Build all packages
+        run: pnpm turbo run build
+      - name: Run adaptor tests against a mainnet fork (must execute, never skip)
+        env:
+          MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
+        run: |
+          # test/adaptors runs in NO other job: hardhat binds it to the test:fork task. Fail loudly on a
+          # missing secret rather than skipping, because a skipped job reads as a passing gate.
+          test -n "$MAINNET_FORK_URL" \
+            || { echo "::error::MAINNET_FORK_URL secret is not set; the adaptor suite cannot run"; exit 1; }
+          rc=0
+          out="$(pnpm --filter evm-contracts run test:fork 2>&1)" || rc=$?
+          echo "$out"
+          test "$rc" -eq 0 || { echo "::error::adaptor fork suite exited $rc"; exit 1; }
+          echo "$out" | grep -qE '[0-9]+ passing' || { echo "::error::fork suite reported no passing tests"; exit 1; }
 
   security:
     name: Secrets + Deps

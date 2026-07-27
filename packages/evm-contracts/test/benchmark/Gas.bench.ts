@@ -1,3 +1,4 @@
+import { expect } from "chai";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployDarkPoolFixture,
@@ -42,9 +43,35 @@ import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
 // Standalone and env-gated (its dir is outside the fast globs): GAS_BENCH=1 npx hardhat test test/benchmark/Gas.bench.ts
 const run = process.env.GAS_BENCH ? describe : describe.skip;
 
+// Ceilings, not targets. Measured 2026-07-26 on the bb 5.0.0 optimized verifiers, plus ~3% headroom: proof
+// bytes differ per run, and calldata costs 16 gas per nonzero byte against 4 per zero byte, so the same code
+// does not reproduce an exact figure. A breach is a real regression -- re-measure and re-pin deliberately,
+// never widen a budget to get back to green.
+const GAS_BUDGET: Record<string, number> = {
+  deposit: 1_002_000,
+  withdraw: 1_044_000,
+  transfer: 1_104_000,
+  split: 1_102_000,
+  join: 1_046_000,
+  publicClaim: 990_000,
+  withdrawMultisig: 1_044_000,
+  transferMultisig: 1_105_000,
+  splitMultisig: 1_102_000,
+  joinMultisig: 1_046_000,
+};
+
 const results: { op: string; gas: bigint }[] = [];
 function record(op: string, gas: bigint | undefined) {
-  results.push({ op, gas: gas ?? 0n });
+  const used = gas ?? 0n;
+  results.push({ op, gas: used });
+  const budget = GAS_BUDGET[op];
+  if (budget === undefined) {
+    throw new Error(`no gas budget pinned for entrypoint "${op}"`);
+  }
+  expect(Number(used)).to.be.at.most(
+    budget,
+    `${op} gas regressed past its pinned ceiling`,
+  );
 }
 
 run("Benchmark: per-entrypoint gas", function () {
