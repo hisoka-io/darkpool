@@ -26,9 +26,11 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
     }
 
     struct SolverProfile {
+        bytes32 noiseKey;
         uint256 stakedAmount;
         uint256 unlockTime;
         SolverStatus status;
+        bool frozen;
     }
 
     IERC20 public immutable STAKING_TOKEN;
@@ -37,17 +39,26 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
     mapping(address => SolverProfile) public solvers;
     uint256 public solverCount;
 
-    event SolverRegistered(address indexed solver, uint256 stake);
+    event SolverRegistered(
+        address indexed solver,
+        bytes32 noiseKey,
+        uint256 stake
+    );
+    event NoiseKeyUpdated(address indexed solver, bytes32 newNoiseKey);
     event StakeAdded(address indexed solver, uint256 amount);
     event SolverDeregistered(address indexed solver, uint256 unlockTime);
+    event CooldownReset(address indexed solver, uint256 unlockTime);
     event Unstaked(address indexed solver, uint256 amount);
     event Slashed(
         address indexed solver,
         uint256 amount,
         address indexed slasher
     );
+    event SolverFrozen(address indexed solver, address indexed by);
+    event SolverUnfrozen(address indexed solver, address indexed by);
 
     error ZeroAddress();
+    error InvalidKey();
     error InvalidAmount();
     error AlreadyRegistered();
     error NotRegistered();
@@ -55,6 +66,9 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
     error InsufficientStake();
     error CooldownNotOver();
     error NothingToSlash();
+    error NodeFrozen();
+    error AlreadyFrozen();
+    error NotFrozen();
 
     constructor(
         address _stakingToken,
@@ -73,28 +87,43 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
         _grantRole(SLASHER_ROLE, _slasher);
     }
 
+    /// @dev Pulls _amount from the caller, returning what the contract actually received
+    ///      so fee-on-transfer tokens can never make recorded stake exceed the balance.
+    function _pullStake(uint256 _amount) private returns (uint256 received) {
+        if (_amount == 0) return 0;
+        uint256 balanceBefore = STAKING_TOKEN.balanceOf(address(this));
+        STAKING_TOKEN.safeTransferFrom(msg.sender, address(this), _amount);
+        return STAKING_TOKEN.balanceOf(address(this)) - balanceBefore;
+    }
+
     /// @notice Join instantly with MIN_STAKE total; InCooldown stake counts, cancelling the cooldown.
-    function register(uint256 _stakeAmount) external nonReentrant {
+    function register(
+        bytes32 _noiseKey,
+        uint256 _stakeAmount
+    ) external nonReentrant {
         SolverProfile storage profile = solvers[msg.sender];
         if (profile.status == SolverStatus.Registered)
             revert AlreadyRegistered();
+        if (_noiseKey == bytes32(0)) revert InvalidKey();
 
-        uint256 totalStake = profile.stakedAmount + _stakeAmount;
+        uint256 totalStake = profile.stakedAmount + _pullStake(_stakeAmount);
         if (totalStake < MIN_STAKE) revert InsufficientStake();
 
-        if (_stakeAmount > 0) {
-            STAKING_TOKEN.safeTransferFrom(
-                msg.sender,
-                address(this),
-                _stakeAmount
-            );
-        }
-
+        profile.noiseKey = _noiseKey;
         profile.stakedAmount = totalStake;
         profile.unlockTime = 0;
         profile.status = SolverStatus.Registered;
         solverCount++;
-        emit SolverRegistered(msg.sender, totalStake);
+        emit SolverRegistered(msg.sender, _noiseKey, totalStake);
+    }
+
+    /// @notice Rotate the caller's Noise pubkey.
+    function updateNoiseKey(bytes32 _newNoiseKey) external {
+        SolverProfile storage profile = solvers[msg.sender];
+        if (profile.status != SolverStatus.Registered) revert NotRegistered();
+        if (_newNoiseKey == bytes32(0)) revert InvalidKey();
+        profile.noiseKey = _newNoiseKey;
+        emit NoiseKeyUpdated(msg.sender, _newNoiseKey);
     }
 
     /// @notice Top up the caller's stake while registered.
@@ -103,9 +132,9 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
         if (profile.status != SolverStatus.Registered) revert NotRegistered();
         if (_amount == 0) revert InvalidAmount();
 
-        STAKING_TOKEN.safeTransferFrom(msg.sender, address(this), _amount);
-        profile.stakedAmount += _amount;
-        emit StakeAdded(msg.sender, _amount);
+        uint256 received = _pullStake(_amount);
+        profile.stakedAmount += received;
+        emit StakeAdded(msg.sender, received);
     }
 
     /// @notice Leave the network immediately; stake stays locked and slashable for the cooldown.
@@ -123,6 +152,7 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
     function unstake(address _solver) external nonReentrant {
         SolverProfile storage profile = solvers[_solver];
         if (profile.status != SolverStatus.InCooldown) revert NotInCooldown();
+        if (profile.frozen) revert NodeFrozen();
         if (block.timestamp < profile.unlockTime) revert CooldownNotOver();
 
         uint256 amount = profile.stakedAmount;
@@ -158,10 +188,33 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
             profile.unlockTime = block.timestamp + UNSTAKE_COOLDOWN;
             solverCount--;
             emit SolverDeregistered(_solver, profile.unlockTime);
+        } else if (profile.status == SolverStatus.InCooldown) {
+            profile.unlockTime = block.timestamp + UNSTAKE_COOLDOWN;
+            emit CooldownReset(_solver, profile.unlockTime);
         }
 
         STAKING_TOKEN.safeTransfer(msg.sender, slashAmount);
         emit Slashed(_solver, slashAmount, msg.sender);
+    }
+
+    /// @notice Lock a solver's stake so it cannot unstake while a slash is pending. Slasher-only.
+    function freeze(address _solver) external onlyRole(SLASHER_ROLE) {
+        SolverProfile storage profile = solvers[_solver];
+        if (
+            profile.status != SolverStatus.Registered &&
+            profile.status != SolverStatus.InCooldown
+        ) revert NotRegistered();
+        if (profile.frozen) revert AlreadyFrozen();
+        profile.frozen = true;
+        emit SolverFrozen(_solver, msg.sender);
+    }
+
+    /// @notice Lift a freeze, letting the solver unstake again once its cooldown is over. Slasher-only.
+    function unfreeze(address _solver) external onlyRole(SLASHER_ROLE) {
+        SolverProfile storage profile = solvers[_solver];
+        if (!profile.frozen) revert NotFrozen();
+        profile.frozen = false;
+        emit SolverUnfrozen(_solver, msg.sender);
     }
 
     /// @notice True only for a solver currently in the network.
