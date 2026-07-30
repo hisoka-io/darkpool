@@ -70,6 +70,25 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
     error AlreadyFrozen();
     error NotFrozen();
 
+    /// @dev Blocks the action while `_solver` is frozen by the slasher.
+    modifier notFrozen(address _solver) {
+        if (solvers[_solver].frozen) revert NodeFrozen();
+        _;
+    }
+
+    /// @dev Restricts the action to callers currently registered as solvers.
+    modifier onlyRegistered() {
+        if (solvers[msg.sender].status != SolverStatus.Registered)
+            revert NotRegistered();
+        _;
+    }
+
+    /// @dev Rejects the zero value as a Noise pubkey.
+    modifier validKey(bytes32 _key) {
+        if (_key == bytes32(0)) revert InvalidKey();
+        _;
+    }
+
     constructor(
         address _stakingToken,
         uint256 _minStake,
@@ -100,12 +119,10 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
     function register(
         bytes32 _noiseKey,
         uint256 _stakeAmount
-    ) external nonReentrant {
+    ) external nonReentrant notFrozen(msg.sender) validKey(_noiseKey) {
         SolverProfile storage profile = solvers[msg.sender];
         if (profile.status == SolverStatus.Registered)
             revert AlreadyRegistered();
-        if (profile.frozen) revert NodeFrozen();
-        if (_noiseKey == bytes32(0)) revert InvalidKey();
 
         uint256 totalStake = profile.stakedAmount + _pullStake(_stakeAmount);
         if (totalStake < MIN_STAKE) revert InsufficientStake();
@@ -119,33 +136,27 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
     }
 
     /// @notice Rotate the caller's Noise pubkey.
-    function updateNoiseKey(bytes32 _newNoiseKey) external {
-        SolverProfile storage profile = solvers[msg.sender];
-        if (profile.status != SolverStatus.Registered) revert NotRegistered();
-        if (profile.frozen) revert NodeFrozen();
-        if (_newNoiseKey == bytes32(0)) revert InvalidKey();
-        profile.noiseKey = _newNoiseKey;
+    function updateNoiseKey(
+        bytes32 _newNoiseKey
+    ) external onlyRegistered notFrozen(msg.sender) validKey(_newNoiseKey) {
+        solvers[msg.sender].noiseKey = _newNoiseKey;
         emit NoiseKeyUpdated(msg.sender, _newNoiseKey);
     }
 
     /// @notice Top up the caller's stake while registered.
-    function addStake(uint256 _amount) external nonReentrant {
-        SolverProfile storage profile = solvers[msg.sender];
-        if (profile.status != SolverStatus.Registered) revert NotRegistered();
+    function addStake(
+        uint256 _amount
+    ) external nonReentrant onlyRegistered notFrozen(msg.sender) {
         if (_amount == 0) revert InvalidAmount();
-        if (profile.frozen) revert NodeFrozen();
 
         uint256 received = _pullStake(_amount);
-        profile.stakedAmount += received;
+        solvers[msg.sender].stakedAmount += received;
         emit StakeAdded(msg.sender, received);
     }
 
     /// @notice Leave the network immediately; stake stays locked and slashable for the cooldown.
-    function deregister() external {
+    function deregister() external onlyRegistered notFrozen(msg.sender) {
         SolverProfile storage profile = solvers[msg.sender];
-        if (profile.status != SolverStatus.Registered) revert NotRegistered();
-        if (profile.frozen) revert NodeFrozen();
-
         profile.status = SolverStatus.InCooldown;
         profile.unlockTime = block.timestamp + UNSTAKE_COOLDOWN;
         solverCount--;
@@ -153,10 +164,9 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
     }
 
     /// @notice After the cooldown, anyone may release the stake — always to the solver's own address.
-    function unstake(address _solver) external nonReentrant {
+    function unstake(address _solver) external nonReentrant notFrozen(_solver) {
         SolverProfile storage profile = solvers[_solver];
         if (profile.status != SolverStatus.InCooldown) revert NotInCooldown();
-        if (profile.frozen) revert NodeFrozen();
         if (block.timestamp < profile.unlockTime) revert CooldownNotOver();
 
         uint256 amount = profile.stakedAmount;
