@@ -206,6 +206,46 @@ describe("KageRegistry (Solver Staking)", function () {
     await registry.connect(solver).unstake(solver.address);
   });
 
+  it("frozen solver is not active and cannot act until unfrozen", async function () {
+    const { registry, slasher, solver } = await loadFixture(deployFixture);
+    await registry.connect(solver).register(NOISE_KEY, MIN_STAKE);
+    await registry.connect(slasher).freeze(solver.address);
+
+    expect(await registry.isActiveSolver(solver.address)).to.equal(false);
+
+    const newKey = ethers.keccak256(ethers.toUtf8Bytes("evade"));
+    await expect(
+      registry.connect(solver).updateNoiseKey(newKey),
+    ).to.be.revertedWithCustomError(registry, "NodeFrozen");
+    await expect(
+      registry.connect(solver).deregister(),
+    ).to.be.revertedWithCustomError(registry, "NodeFrozen");
+
+    await registry.connect(slasher).unfreeze(solver.address);
+    expect(await registry.isActiveSolver(solver.address)).to.equal(true);
+    await registry.connect(solver).deregister();
+  });
+
+  it("frozen solver in cooldown cannot re-register or unstake", async function () {
+    const { registry, slasher, solver, anyone } =
+      await loadFixture(deployFixture);
+    await registry.connect(solver).register(NOISE_KEY, MIN_STAKE);
+    await registry.connect(solver).deregister();
+    await registry.connect(slasher).freeze(solver.address);
+
+    await expect(
+      registry.connect(solver).register(NOISE_KEY, 0),
+    ).to.be.revertedWithCustomError(registry, "NodeFrozen");
+
+    await time.increase(COOLDOWN + 1);
+    await expect(
+      registry.connect(anyone).unstake(solver.address),
+    ).to.be.revertedWithCustomError(registry, "NodeFrozen");
+
+    await registry.connect(slasher).unfreeze(solver.address);
+    await registry.connect(anyone).unstake(solver.address);
+  });
+
   it("only slasher can slash", async function () {
     const { registry, solver, anyone } = await loadFixture(deployFixture);
     await registry.connect(solver).register(NOISE_KEY, MIN_STAKE);

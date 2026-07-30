@@ -104,6 +104,7 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
         SolverProfile storage profile = solvers[msg.sender];
         if (profile.status == SolverStatus.Registered)
             revert AlreadyRegistered();
+        if (profile.frozen) revert NodeFrozen();
         if (_noiseKey == bytes32(0)) revert InvalidKey();
 
         uint256 totalStake = profile.stakedAmount + _pullStake(_stakeAmount);
@@ -121,6 +122,7 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
     function updateNoiseKey(bytes32 _newNoiseKey) external {
         SolverProfile storage profile = solvers[msg.sender];
         if (profile.status != SolverStatus.Registered) revert NotRegistered();
+        if (profile.frozen) revert NodeFrozen();
         if (_newNoiseKey == bytes32(0)) revert InvalidKey();
         profile.noiseKey = _newNoiseKey;
         emit NoiseKeyUpdated(msg.sender, _newNoiseKey);
@@ -131,6 +133,7 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
         SolverProfile storage profile = solvers[msg.sender];
         if (profile.status != SolverStatus.Registered) revert NotRegistered();
         if (_amount == 0) revert InvalidAmount();
+        if (profile.frozen) revert NodeFrozen();
 
         uint256 received = _pullStake(_amount);
         profile.stakedAmount += received;
@@ -141,6 +144,7 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
     function deregister() external {
         SolverProfile storage profile = solvers[msg.sender];
         if (profile.status != SolverStatus.Registered) revert NotRegistered();
+        if (profile.frozen) revert NodeFrozen();
 
         profile.status = SolverStatus.InCooldown;
         profile.unlockTime = block.timestamp + UNSTAKE_COOLDOWN;
@@ -197,7 +201,7 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
         emit Slashed(_solver, slashAmount, msg.sender);
     }
 
-    /// @notice Lock a solver's stake so it cannot unstake while a slash is pending. Slasher-only.
+    /// @notice Suspend a solver while a slash is pending: not routable, cannot act or unstake. Slasher-only.
     function freeze(address _solver) external onlyRole(SLASHER_ROLE) {
         SolverProfile storage profile = solvers[_solver];
         if (
@@ -209,7 +213,7 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
         emit SolverFrozen(_solver, msg.sender);
     }
 
-    /// @notice Lift a freeze, letting the solver unstake again once its cooldown is over. Slasher-only.
+    /// @notice Lift a freeze, restoring the solver's ability to act and unstake. Slasher-only.
     function unfreeze(address _solver) external onlyRole(SLASHER_ROLE) {
         SolverProfile storage profile = solvers[_solver];
         if (!profile.frozen) revert NotFrozen();
@@ -217,8 +221,9 @@ contract KageRegistry is AccessControl, ReentrancyGuard {
         emit SolverUnfrozen(_solver, msg.sender);
     }
 
-    /// @notice True only for a solver currently in the network.
+    /// @notice True only for a solver currently in the network and not frozen.
     function isActiveSolver(address _solver) external view returns (bool) {
-        return solvers[_solver].status == SolverStatus.Registered;
+        SolverProfile storage profile = solvers[_solver];
+        return profile.status == SolverStatus.Registered && !profile.frozen;
     }
 }
