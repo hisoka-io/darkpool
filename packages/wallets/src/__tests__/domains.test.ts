@@ -27,12 +27,17 @@ describe("note-format domain tags (parity)", () => {
     );
   });
 
-  it("new KDF purpose-labels derive distinct field tags (key domain separation)", async () => {
+  it("KDF purpose-labels derive distinct field tags (key domain separation)", async () => {
     const labels = [
+      "hisoka.mnemonic",
+      "hisoka.root",
       "hisoka.view",
       "hisoka.inKey",
+      "hisoka.pubIn",
       "hisoka.selfEph",
       "hisoka.selfSpend",
+      "hisoka.msInKey",
+      "hisoka.msSelfEph",
     ];
     const frs = await Promise.all(labels.map((l) => stringToFr(l)));
     const distinct = new Set(frs.map((f) => f.toString()));

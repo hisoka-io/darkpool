@@ -8,6 +8,10 @@ import { isEvenY } from "../note/keys";
 
 const MNEMONIC = "test test test test test test test test test test test junk";
 const MESSAGE = "Hisoka Dark Account Setup";
+// Checked-in vector. pss-client turns these 32 bytes into an Ed25519 key and then into accountId, which
+// is a server-side primary key, so a silent change here would orphan every stored blob.
+const PSS_STATE_KEY_KAT =
+  "0x0a8af92fddacb7bf30c09f0159261e469e3ab454a04cfe7071d76b00bee08eda";
 
 describe("DarkAccount (Option A)", () => {
   afterEach(() => vi.restoreAllMocks());
@@ -81,16 +85,33 @@ describe("DarkAccount (Option A)", () => {
       account = await DarkAccount.fromMnemonic(MNEMONIC);
     });
 
-    it("domain-separates view, self-spend, incoming, and self-ephemeral keys", async () => {
+    it("domain-separates view, self-spend, incoming, self-ephemeral and state keys", async () => {
       const keys = [
         await account.getViewKey(),
         await account.getSelfSpendKey(),
         await account.getIncomingKey(0n),
         await account.getSelfEphemeral(0n),
+        await account.getStateKey(),
       ];
       const distinct = new Set(keys.map((k) => k.toString()));
       expect(distinct.size).toBe(keys.length);
       for (const k of keys.slice(1)) expect(k.isZero()).toBe(false);
+    });
+
+    it("pins the PSS state key, which seeds an off-package account identifier", async () => {
+      const stateKey = await account.getStateKey();
+      expect(stateKey.toString()).toBe(PSS_STATE_KEY_KAT);
+      expect(stateKey.toBuffer().length).toBe(32);
+      expect((await account.getStateKey()).equals(stateKey)).toBe(true);
+    });
+
+    it("derives the state key from the root, not from the view key", async () => {
+      const stateKey = await account.getStateKey();
+      const fromView = await Kdf.derive(
+        "hisoka.pss.state",
+        await account.getViewKey(),
+      );
+      expect(stateKey.equals(fromView)).toBe(false);
     });
 
     it("derives deterministic per-index incoming keys with matching public keys", async () => {

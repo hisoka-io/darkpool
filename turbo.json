@@ -19,9 +19,14 @@
     "lint": {
       "outputs": []
     },
-    "test": {
+    "typecheck": {
       "dependsOn": ["^build"],
       "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": [],
+      "env": ["PSS_HOST", "PSS_PORT", "PSS_DATABASE_PATH"]
     },
     "test:fast": {
       "dependsOn": ["^build"],
@@ -58,7 +63,8 @@
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "env": ["PSS_HOST", "PSS_PORT", "PSS_DATABASE_PATH"]
     }
   }
 }

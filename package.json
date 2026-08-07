@@ -6,6 +6,7 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "audit": "turbo run audit",
     "format": "prettier --write \"**/*.{ts,tsx,md,sol}\"",
@@ -29,7 +30,10 @@
     "overrides": {
       "undici": "^6.27.0",
       "ws": "^8.21.0"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   },
   "packageManager": "pnpm@10.24.0",
   "engines": {

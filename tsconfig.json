@@ -12,6 +12,12 @@
     },
     {
       "path": "./packages/adaptors"
+    },
+    {
+      "path": "./packages/pss-client"
+    },
+    {
+      "path": "./packages/pss-server"
     }
   ]
 }

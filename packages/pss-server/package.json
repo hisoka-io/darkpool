@@ -1,0 +1,37 @@
+{
+  "name": "@hisoka/pss-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint 'src/**/*.ts'",
+    "lint:fix": "eslint 'src/**/*.ts' --fix",
+    "start": "node dist/main.js",
+    "dev": "pnpm run build && node dist/main.js"
+  },
+  "author": "hisoka-io",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@hisoka/pss-client": "workspace:*",
+    "better-sqlite3": "12.11.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "^24.10.0",
+    "tsup": "^8.5.1",
+    "typescript": "5.9.2",
+    "vitest": "^1.6.0"
+  }
+}

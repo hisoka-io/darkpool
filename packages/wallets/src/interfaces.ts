@@ -21,6 +21,8 @@ export interface IDarkAccount {
   getSelfSpendKey(): Promise<Fr>;
   getSelfSpendPub(): Promise<Point<bigint>>;
 
+  getStateKey(): Promise<Fr>;
+
   canonicalIncomingAddress(startIndex: bigint): Promise<CanonicalAddress>;
   canonicalSelfTag(startIndex: bigint): Promise<CanonicalAddress>;
   canonicalPublicAddress(index: bigint): Promise<PublicIncomingAddress>;

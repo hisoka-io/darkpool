@@ -20,6 +20,7 @@ import {
 
 const MNEMONIC_LABEL = "hisoka.mnemonic";
 const ROOT_LABEL = "hisoka.root";
+const PSS_STATE_LABEL = "hisoka.pss.state";
 
 async function mnemonicToSeed(mnemonic: string): Promise<Uint8Array> {
   const encoder = new TextEncoder();
@@ -58,6 +59,7 @@ export class DarkAccount implements IDarkAccount {
   #skRoot: Fr;
   #skView?: Fr;
   #selfSpend?: Fr;
+  #stateKey?: Fr;
 
   private constructor(skRoot: Fr) {
     this.#skRoot = skRoot;
@@ -107,6 +109,15 @@ export class DarkAccount implements IDarkAccount {
 
   public async getSelfSpendPub(): Promise<Point<bigint>> {
     return publicKey(await this.getSelfSpendKey());
+  }
+
+  /** Derived from the root secret, not the view key: state is not viewing material, so handing out the
+   *  view key must not hand out the ability to read or forge state. */
+  public async getStateKey(): Promise<Fr> {
+    if (this.#stateKey === undefined) {
+      this.#stateKey = await Kdf.derive(PSS_STATE_LABEL, this.#skRoot);
+    }
+    return this.#stateKey;
   }
 
   public async canonicalIncomingAddress(
