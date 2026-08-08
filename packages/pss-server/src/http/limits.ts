@@ -43,11 +43,12 @@ const DELETE_ENVELOPE_CHARS = envelopeChars({
   sig: "",
 });
 
-// The skeleton is the tightest legal envelope, which leaves a compactly serialised body only a handful
-// of spare bytes. A client that pretty-prints its JSON is still sending a legal request, and DELETE is
-// the one route with no recovery, so the cap carries whitespace headroom rather than assuming the
-// serialiser. The PUT path gets the same slack for free from the invite-code allowance.
-const WHITESPACE_HEADROOM_CHARS = 256;
+// The skeleton is the tightest legal envelope, so a compactly serialised body sits within a handful of
+// bytes of it and a create carrying a maximum-length invite sits exactly on it. A client that
+// pretty-prints its JSON is still sending a legal request, so both caps carry headroom rather than
+// assuming the serialiser. DELETE keeps a smaller allowance of its own: its body is short and
+// fixed-shape, and it is the one route with no recovery.
+const DELETE_HEADROOM_CHARS = 256;
 
 const CREDENTIAL_CHARS =
   base64Chars(GCM_NONCE_BYTES) +
@@ -55,13 +56,17 @@ const CREDENTIAL_CHARS =
   base64Chars(ED25519_SIGNATURE_BYTES);
 
 export const MAX_DELETE_BODY_BYTES =
-  DELETE_ENVELOPE_CHARS + CREDENTIAL_CHARS + WHITESPACE_HEADROOM_CHARS;
+  DELETE_ENVELOPE_CHARS + CREDENTIAL_CHARS + DELETE_HEADROOM_CHARS;
 
-export function maxPutBodyBytes(maxCiphertextBytes: number): number {
+export function maxPutBodyBytes(
+  maxCiphertextBytes: number,
+  headroomBytes: number,
+): number {
   return (
     PUT_ENVELOPE_CHARS +
     CREDENTIAL_CHARS +
     INVITE_CODE_MAX_CHARS +
-    base64Chars(maxCiphertextBytes)
+    base64Chars(maxCiphertextBytes) +
+    headroomBytes
   );
 }

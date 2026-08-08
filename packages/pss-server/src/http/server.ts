@@ -140,7 +140,10 @@ async function handlePut(
 ): Promise<Reply> {
   const read = await readBody(
     req,
-    maxPutBodyBytes(deps.config.maxCiphertextBytes),
+    maxPutBodyBytes(
+      deps.config.maxCiphertextBytes,
+      deps.config.bodyHeadroomBytes,
+    ),
   );
   if (!read.ok) {
     return bare(
@@ -262,8 +265,12 @@ async function handleDelete(
     return bare(PSS_STATUS.rate_limited);
   }
 
-  deps.store.deleteAccount(route.accountId);
-  deps.replay.record(deleteSignature, seconds(deps));
+  // Recorded only when rows actually went away. A self-signed delete for an invented account erases
+  // nothing, so it must not spend a guard slot; the reply stays a bare 200 either way, so declining to
+  // record does not turn into an account-existence oracle.
+  if (deps.store.deleteAccount(route.accountId) > 0) {
+    deps.replay.record(deleteSignature, seconds(deps));
+  }
   return bare(PSS_STATUS.ok);
 }
 

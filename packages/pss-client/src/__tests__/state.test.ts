@@ -23,6 +23,7 @@ const ACCOUNT =
   "8cfa343c716638269401b19220ec6ff3607ac1ed9e11f0b29d125bee39bb6188";
 const INSTALL_A = "0x11111111111111111111111111111111";
 const INSTALL_B = "0x22222222222222222222222222222222";
+const INSTALL_C = "0x33333333333333333333333333333333";
 
 function note(
   leafIndex: number,
@@ -329,9 +330,34 @@ describe("version floor (R3)", () => {
     expect(await floor.current("state")).toBe(12);
   });
 
-  it("rejects a corrupt stored floor rather than treating it as zero", async () => {
+  // Number() would read every one of these as a plausible floor: "0x10" is 16, "1e3" is 1000, "" and
+  // "  " and "-0" are 0. Only the last spelling raises on its own.
+  it.each([
+    ["", 0],
+    ["  ", 0],
+    ["\t\n", 0],
+    ["-0", -0],
+    ["0x10", 16],
+    ["0b11", 3],
+    ["1e3", 1000],
+    ["5.0", 5],
+    [" 7 ", 7],
+    ["not-a-number", Number.NaN],
+  ])(
+    "rejects the corrupt stored floor %j rather than reading it as %j",
+    async (raw: string, wouldBe: number) => {
+      expect(Number(raw)).toBe(wouldBe);
+      const store = new MemoryPssStore();
+      await store.set(floorKey(ACCOUNT, "state"), raw);
+      await expect(
+        new VersionFloor(store, ACCOUNT).current("state"),
+      ).rejects.toThrow(PssStateError);
+    },
+  );
+
+  it("rejects a stored floor beyond the safe integer range", async () => {
     const store = new MemoryPssStore();
-    await store.set(floorKey(ACCOUNT, "state"), "not-a-number");
+    await store.set(floorKey(ACCOUNT, "state"), "9007199254740993");
     await expect(
       new VersionFloor(store, ACCOUNT).current("state"),
     ).rejects.toThrow(PssStateError);
@@ -411,17 +437,50 @@ describe("takeover (R6)", () => {
     const remote = payload({ installId: INSTALL_B }).known;
 
     expect(g.evaluate(remote).mode).toBe("readonly");
-    await g.confirmTakeover({ state: 20, labels: 5 });
+    await g.confirmTakeover(remote, { state: 20, labels: 5 });
     expect(g.evaluate(remote).mode).toBe("writer");
     expect(await floor.current("state")).toBe(20);
     expect(await floor.current("labels")).toBe(5);
     await expect(floor.accept("state", 19)).rejects.toThrow(PssRollbackError);
   });
 
+  it("re-prompts when a different install takes the account over", async () => {
+    const g = guard();
+    const fromB = payload({ installId: INSTALL_B }).known;
+    const fromC = payload({
+      installId: INSTALL_C,
+      platform: "mobile/ios",
+    }).known;
+
+    await g.confirmTakeover(fromB, { state: 0, labels: 0 });
+    expect(g.evaluate(fromB).mode).toBe("writer");
+
+    const decision = g.evaluate(fromC);
+    expect(decision.mode).toBe("readonly");
+    expect(decision.heldBy).toEqual({
+      installId: INSTALL_C,
+      platform: "mobile/ios",
+    });
+    expect(() => g.stamp(payload(), fromC, 1)).toThrow(PssStateError);
+  });
+
+  it("does not let the device it took over from take the account back silently", async () => {
+    const g = guard();
+    const fromB = payload({ installId: INSTALL_B }).known;
+
+    await g.confirmTakeover(fromB, { state: 0, labels: 0 });
+    // The handover completes the moment our own id is in the blob, which spends the grant.
+    expect(g.evaluate(payload({ installId: INSTALL_A }).known).mode).toBe(
+      "writer",
+    );
+    expect(g.evaluate(fromB).mode).toBe("readonly");
+    expect(() => g.stamp(payload(), fromB, 1)).toThrow(PssStateError);
+  });
+
   it("stamps its own identity onto the payload after takeover", async () => {
     const g = guard();
     const remote = payload({ installId: INSTALL_B }).known;
-    await g.confirmTakeover({ state: 0, labels: 0 });
+    await g.confirmTakeover(remote, { state: 0, labels: 0 });
     const stamped = g.stamp(
       payload({ installId: INSTALL_B, platform: "mobile/ios" }),
       remote,

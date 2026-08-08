@@ -20,12 +20,17 @@ export interface RunningServer {
   close(): Promise<void>;
 }
 
-function openDatabase(config: ServerConfig): Database.Database {
+// `synchronous` is per connection and is never persisted, so only the connection that opens the file
+// can observe the level this sets. Exported so that is checkable.
+export function openDatabase(config: ServerConfig): Database.Database {
   if (config.databasePath !== MEMORY_DATABASE) {
     mkdirSync(dirname(resolve(config.databasePath)), { recursive: true });
   }
   const db = new Database(config.databasePath);
   db.pragma("journal_mode = WAL");
+  // Stated rather than inherited from the driver's build flags. NORMAL under WAL can lose the last
+  // acknowledged writes to a power loss, which is the right trade for a store the chain can rebuild.
+  db.pragma("synchronous = NORMAL");
   runMigrations(db, loadMigrations(config.migrationsDir));
   return db;
 }
@@ -79,18 +84,22 @@ export async function startServer(
   });
   const port = await listen(server, config);
 
-  const sweep = setInterval(() => {
+  const sweep = (): void => {
     store.sweepExpired(retentionCutoff(new Date(), config.retentionDays));
     limiter.sweepIdle();
-  }, SWEEP_INTERVAL_MS);
-  sweep.unref();
+  };
+  // Once at boot, because the interval is a day: a deploy or restart cadence shorter than that would
+  // otherwise mean the sweep never runs, and nothing catches up the backlog built while it was down.
+  sweep();
+  const sweepTimer = setInterval(sweep, SWEEP_INTERVAL_MS);
+  sweepTimer.unref();
 
   return {
     port,
     counters,
     close: () =>
       new Promise<void>((done) => {
-        clearInterval(sweep);
+        clearInterval(sweepTimer);
         server.close(() => {
           db.close();
           done();
@@ -100,10 +109,13 @@ export async function startServer(
   };
 }
 
-function isDirectRun(): boolean {
-  const entry = process.argv[1];
+export function shouldAutoStart(
+  argv: readonly string[],
+  moduleUrl: string,
+): boolean {
+  const entry = argv[1];
   if (entry === undefined) return false;
-  return import.meta.url === pathToFileURL(resolve(entry)).href;
+  return moduleUrl === pathToFileURL(resolve(entry)).href;
 }
 
 async function run(): Promise<void> {
@@ -131,7 +143,7 @@ async function run(): Promise<void> {
   }
 }
 
-if (isDirectRun()) {
+if (shouldAutoStart(process.argv, import.meta.url)) {
   run().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

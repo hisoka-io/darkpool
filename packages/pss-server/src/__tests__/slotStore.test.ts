@@ -89,6 +89,33 @@ describe("compare and swap", () => {
     expect(store.get(ACCOUNT, "state")?.version).toBe(1);
   });
 
+  it("refuses a rewrite at the stored version", () => {
+    const { store } = memoryStore();
+    store.upsert(write(1, 0), OPEN);
+    // The one write the prevVersion conjunct alone would let through, so it is the only case that pins
+    // the monotonicity half of the predicate. The ciphertext override is required: the default is keyed
+    // on the version, so a bare write(1, 1) carries the bytes already stored and would pass either way.
+    expect(
+      store.upsert(write(1, 1, { ciphertext: Uint8Array.of(0xff) }), OPEN),
+    ).toBe("conflict");
+    expect(store.get(ACCOUNT, "state")).toEqual({
+      version: 1,
+      prevVersion: 0,
+      nonce: NONCE,
+      ciphertext: Uint8Array.of(1),
+      updatedOn: DAY,
+    });
+  });
+
+  it("leaves the create arm unguarded, so the prevVersion floor lives above it", () => {
+    const { store } = memoryStore();
+    // The insert arm carries no predicate at all: ON CONFLICT only reaches the update arm. A create
+    // declaring a prevVersion it never had is refused by the ordered check list in the request handler,
+    // not here, and pinning that keeps the two layers from each assuming the other does it.
+    expect(store.upsert(write(6, 5), OPEN)).toBe("written");
+    expect(store.get(ACCOUNT, "state")?.version).toBe(6);
+  });
+
   it("keeps the two collections independent", () => {
     const { store } = memoryStore();
     store.upsert(write(1, 0), OPEN);

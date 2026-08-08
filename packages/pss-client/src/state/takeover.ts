@@ -12,6 +12,16 @@ import { VersionFloor } from "./floor.js";
 
 export type WriteMode = "writer" | "readonly";
 
+declare const stampedTag: unique symbol;
+
+// `stamp` is the only enforcement point for read-only demotion, and it was opt-in: `mergeStatePayloads`
+// and `serializeStatePayload` are both public and take no guard, so a caller could merge and upload a
+// payload still carrying the other device's installId. Branding the output means a write path typed to
+// take a StampedPayload cannot be reached without passing through the check.
+export type StampedPayload = ParsedStatePayload & {
+  readonly [stampedTag]: true;
+};
+
 export interface InstallIdentity {
   readonly installId: string;
   readonly platform: string;
@@ -33,7 +43,10 @@ export function newInstallId(backend: CryptoBackend): string {
 export class InstallGuard {
   readonly #identity: InstallIdentity;
   readonly #floor: VersionFloor;
-  #confirmed = false;
+  // The holder the user confirmed against, not a bare flag. A grant that outlived the holder it was
+  // given for would make every later takeover automatic, which is the two-writer state this class
+  // exists to keep unreachable.
+  #confirmedAgainst: string | null = null;
 
   constructor(identity: InstallIdentity, floor: VersionFloor) {
     if (!INSTALL_ID_SHAPE.test(identity.installId)) {
@@ -55,10 +68,17 @@ export class InstallGuard {
   }
 
   evaluate(remote: PssStatePayload | null): TakeoverDecision {
-    if (remote === null || remote.installId === this.#identity.installId) {
+    if (remote === null) return { mode: "writer", heldBy: null };
+    if (remote.installId === this.#identity.installId) {
+      // Our own id is in the blob, so the handover completed and the grant has served its purpose.
+      // Holding it open would let the device we took over from take the account back without a prompt.
+      this.#confirmedAgainst = null;
       return { mode: "writer", heldBy: null };
     }
-    if (this.#confirmed) return { mode: "writer", heldBy: null };
+    if (remote.installId === this.#confirmedAgainst) {
+      return { mode: "writer", heldBy: null };
+    }
+    this.#confirmedAgainst = null;
     return {
       mode: "readonly",
       heldBy: { installId: remote.installId, platform: remote.platform },
@@ -66,24 +86,25 @@ export class InstallGuard {
   }
 
   /**
-   * Takeover is never automatic: this runs only behind an explicit user confirmation. The chain floor
-   * bootstrap happens BEFORE this install becomes the writer, so anything the previous device minted
-   * and did not sync is still respected.
+   * Takeover is never automatic: this runs only behind an explicit user confirmation, and the grant it
+   * records is good for `remote`'s holder alone. The chain floor bootstrap happens BEFORE this install
+   * becomes the writer, so anything the previous device minted and did not sync is still respected.
    */
   async confirmTakeover(
+    remote: PssStatePayload,
     chainFloors: Readonly<Record<Collection, number>>,
   ): Promise<void> {
     for (const collection of COLLECTIONS) {
       await this.#floor.bootstrap(collection, chainFloors[collection]);
     }
-    this.#confirmed = true;
+    this.#confirmedAgainst = remote.installId;
   }
 
   stamp(
     payload: ParsedStatePayload,
     remote: PssStatePayload | null,
     updatedAt: number,
-  ): ParsedStatePayload {
+  ): StampedPayload {
     const decision = this.evaluate(remote);
     if (decision.mode !== "writer") {
       throw new PssStateError(
@@ -99,6 +120,6 @@ export class InstallGuard {
         updatedAt,
       },
       extra: payload.extra,
-    };
+    } as StampedPayload;
   }
 }

@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import {
+  BODY_HEADROOM_BYTES,
   MAX_CIPHERTEXT_BYTES,
   RETENTION_DAYS,
   TIMESTAMP_SKEW_SECONDS,
@@ -10,7 +11,6 @@ import {
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 8787;
-const DEFAULT_DATABASE_PATH = "./data/pss.db";
 const MAX_PORT = 65_535;
 // Bounds on the two in-process caches. An accountId costs an attacker one keypair, so neither map may
 // grow with the number of accounts that have ever sent a valid request.
@@ -31,6 +31,7 @@ export interface ServerConfig {
   readonly migrationsDir: string;
   readonly timestampSkewSeconds: number;
   readonly maxCiphertextBytes: number;
+  readonly bodyHeadroomBytes: number;
   readonly writesPerHour: number;
   readonly writeBurst: number;
   readonly retentionDays: number;
@@ -39,8 +40,20 @@ export interface ServerConfig {
   readonly inviteRequired: boolean;
 }
 
+function packageDir(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), "..");
+}
+
 export function defaultMigrationsDir(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+  return resolve(packageDir(), "migrations");
+}
+
+// Anchored to the module, not the working directory, so the two defaults in this file agree about what
+// "the package" means. A cwd-relative default silently opens a different, empty database when the
+// process is launched from elsewhere while the migrations still resolve, which reads as a healthy
+// server that has lost every account. A real deployment sets PSS_DATABASE_PATH.
+export function defaultDatabasePath(): string {
+  return resolve(packageDir(), "data", "pss.db");
 }
 
 function readPort(raw: string | undefined): number {
@@ -60,10 +73,11 @@ export function loadConfig(
   return {
     host: env.PSS_HOST ?? DEFAULT_HOST,
     port: readPort(env.PSS_PORT),
-    databasePath: env.PSS_DATABASE_PATH ?? DEFAULT_DATABASE_PATH,
+    databasePath: env.PSS_DATABASE_PATH ?? defaultDatabasePath(),
     migrationsDir: defaultMigrationsDir(),
     timestampSkewSeconds: TIMESTAMP_SKEW_SECONDS,
     maxCiphertextBytes: MAX_CIPHERTEXT_BYTES,
+    bodyHeadroomBytes: BODY_HEADROOM_BYTES,
     writesPerHour: WRITES_PER_HOUR,
     writeBurst: WRITE_BURST,
     retentionDays: RETENTION_DAYS,

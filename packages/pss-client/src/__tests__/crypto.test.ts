@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cellAad } from "../wire/aad.js";
 import { fromBase64, fromHexRaw, toHexRaw, utf8 } from "../wire/codec.js";
 import {
@@ -24,7 +24,6 @@ import {
   openCell,
   pad,
   sealCell,
-  selectBackend,
   tierFor,
   unpad,
   webCryptoBackend,
@@ -557,10 +556,67 @@ describe("request signing", () => {
 });
 
 describe("backend selection", () => {
-  it("picks a working backend and caches it", async () => {
-    const first = await selectBackend();
-    expect(["webcrypto", "noble"]).toContain(first.name);
-    expect(await selectBackend()).toBe(first);
+  const realCrypto: unknown = globalThis.crypto;
+
+  function stubCrypto(value: unknown): void {
+    Object.defineProperty(globalThis, "crypto", {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  // The decision is memoised in module scope, so each case needs its own module instance or it grades
+  // whatever the first case decided.
+  async function freshSelect(): Promise<() => Promise<CryptoBackend>> {
+    vi.resetModules();
+    const module = await import("../crypto/select.js");
+    return module.selectBackend;
+  }
+
+  afterEach(() => {
+    stubCrypto(realCrypto);
+    vi.resetModules();
+  });
+
+  it("falls back to noble when the runtime has no subtle", async () => {
+    stubCrypto({});
+    expect((await (await freshSelect())()).name).toBe("noble");
+  });
+
+  it("falls back to noble when subtle is present but rejects Ed25519", async () => {
+    stubCrypto({
+      subtle: {
+        importKey: (): Promise<never> =>
+          Promise.reject(new Error("Unrecognized algorithm name")),
+      },
+    });
+    expect((await (await freshSelect())()).name).toBe("noble");
+  });
+
+  it("picks webcrypto exactly when the platform can derive an Ed25519 key", async () => {
+    // Not pinned to the literal "webcrypto": Ed25519 in SubtleCrypto is still flagged experimental on
+    // the pinned Node, so asserting it would bind this suite to a surface that can be withdrawn.
+    const platformHasEd25519 = await webCryptoBackend
+      .ed25519PublicKey(new Uint8Array(32))
+      .then(
+        () => true,
+        () => false,
+      );
+    expect((await (await freshSelect())()).name).toBe(
+      platformHasEd25519 ? "webcrypto" : "noble",
+    );
+  });
+
+  it("probes once and reuses the answer", async () => {
+    const importKey = vi.fn(
+      (): Promise<never> => Promise.reject(new Error("no Ed25519 here")),
+    );
+    stubCrypto({ subtle: { importKey } });
+    const select = await freshSelect();
+    const first = await select();
+    expect(await select()).toBe(first);
+    expect(importKey).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -2,10 +2,13 @@ import { Collection } from "../wire/collection.js";
 import { PssRollbackError, PssStateError } from "./errors.js";
 import { PssStore, floorKey } from "./store.js";
 
+const CANONICAL_DECIMAL = /^(0|[1-9][0-9]*)$/;
+
 // The store is async, so a check-then-act across the await would let the debounced writer and the
-// periodic flush interleave and each accept a version the other has already superseded. Every read and
-// write of the floor is serialised through this chain, and `accept` is the only way to move it, so the
-// unsafe sequence is not reachable from outside.
+// periodic flush interleave and each accept a version the other has already superseded. The lock
+// serialises this instance only: two VersionFloor objects over one account drive the floor backwards,
+// because neither sees the other's chain. Exactly one instance per (accountId, collection) per realm is
+// therefore a wiring precondition the caller owes, not something this class can enforce.
 export class VersionFloor {
   readonly #store: PssStore;
   readonly #accountId: string;
@@ -48,6 +51,14 @@ export class VersionFloor {
   async #read(collection: Collection): Promise<number> {
     const raw = await this.#store.get(floorKey(this.#accountId, collection));
     if (raw === null) return 0;
+    // Number() reads hex, binary, exponent, fractional, signed-zero and whitespace-padded spellings, so
+    // it turns most corruption into a plausible floor instead of an error. The store is injected by the
+    // embedder, so this is a third-party boundary and it fails closed.
+    if (!CANONICAL_DECIMAL.test(raw)) {
+      throw new PssStateError(
+        `stored version floor for ${collection} is corrupt: ${raw}`,
+      );
+    }
     const parsed = Number(raw);
     if (!Number.isSafeInteger(parsed) || parsed < 0) {
       throw new PssStateError(

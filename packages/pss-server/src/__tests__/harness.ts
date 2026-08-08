@@ -23,7 +23,7 @@ import { openSlotStore } from "../db/sqliteSlotStore.js";
 import { createPssServer } from "../http/server.js";
 import { createCounters } from "../metrics.js";
 import { createRateLimiter } from "../rateLimit.js";
-import { createReplayGuard } from "../replayGuard.js";
+import { type ReplayGuard, createReplayGuard } from "../replayGuard.js";
 
 export interface TestAccount {
   readonly authPk: Uint8Array;
@@ -58,6 +58,7 @@ export interface Harness {
   readonly port: number;
   readonly db: Database.Database;
   readonly store: SlotStore;
+  readonly replay: ReplayGuard;
   readonly counters: ReturnType<typeof createCounters>;
   setNow(ms: number): void;
   advance(ms: number): void;
@@ -110,6 +111,7 @@ export async function startHarness(
     port,
     db,
     store,
+    replay,
     counters,
     setNow: (ms) => {
       nowMs = ms;

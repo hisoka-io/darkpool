@@ -21,9 +21,10 @@ const MS_PER_SECOND = 1000;
 //
 // Keyed by the signature because it is unique per distinct signed request and is already authenticated
 // by the time it is recorded. Entries live in process and expire with the window, so no request leaves
-// a durable (account, instant) trace. Only accepted requests are recorded, so an unauthenticated flood
-// cannot fill it, and a legitimate retry after a 409 carries a new version and therefore a new
-// signature.
+// a durable (account, instant) trace. Only a request that changed state is recorded: a signature is
+// free to mint, so a request naming an account with no rows must cost no entry, or the map fills from
+// nothing and evicts real entries inside the skew window. A legitimate retry after a version conflict
+// carries a new version and therefore a new signature.
 class WindowedReplayGuard implements ReplayGuard {
   readonly #seenAt = new Map<string, number>();
   readonly #windowSeconds: number;

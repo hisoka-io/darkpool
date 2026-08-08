@@ -5,8 +5,8 @@ const MAX_BLOCKS = 255;
 
 // RFC 5869 section 2.3, the Expand half only. Neither WebCrypto nor node:crypto exposes Expand without
 // Extract, so it is built here from the backend's HMAC and both backends therefore agree by
-// construction. The frozen key schedule specifies Expand directly over k_state; see the builder report
-// for why that deviates from the Extract-then-Expand form the design research specified.
+// construction. RFC 5869 section 3.3 scopes Expand-only to an IKM that is already a uniform key;
+// `deriveKeys` states what k_state actually is and why the schedule applies Expand to it directly.
 export async function hkdfExpand(
   backend: CryptoBackend,
   prk: Uint8Array,

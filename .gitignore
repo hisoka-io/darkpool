@@ -62,8 +62,10 @@ tmp/
 packages/evm-contracts/deployments/archives/
 deployments
 
+# Local service state
+data/
+
 # NOX runtime
-packages/pss-server/data/
 packages/nox/data/nox_db/
 packages/nox/*.log
 packages/nox/scripts/bench/data_backup_debug

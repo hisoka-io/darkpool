@@ -30,7 +30,10 @@ export class MemoryPssStore implements PssStore {
     return Object.fromEntries(this.#cells);
   }
 
+  // A microtask when no delay is asked for, so the async boundary is still there but a suite driving
+  // fake timers is not deadlocked by a store read it never advances the clock for.
   #tick(): Promise<void> {
+    if (this.#delayMs === 0) return Promise.resolve();
     return new Promise((resolve) => setTimeout(resolve, this.#delayMs));
   }
 }

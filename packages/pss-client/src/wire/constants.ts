@@ -24,6 +24,11 @@ export const PAD_TIERS: readonly number[] = [16_384, 131_072, 1_048_576];
 export const MAX_PLAINTEXT_BYTES = 1_048_576;
 export const MAX_CIPHERTEXT_BYTES = MAX_PLAINTEXT_BYTES + 64;
 
+// Slack above the tightest legal envelope, so a client whose JSON serialiser inserts whitespace is not
+// refused. Uniform across deployments for the same reason the tiers are: a server that set its own
+// tolerance would accept bodies its neighbours reject, and the client could tell which one it reached.
+export const BODY_HEADROOM_BYTES = 4096;
+
 export const TIMESTAMP_SKEW_SECONDS = 300;
 export const WRITES_PER_HOUR = 60;
 export const WRITE_BURST = 10;

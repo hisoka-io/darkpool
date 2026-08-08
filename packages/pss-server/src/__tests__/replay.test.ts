@@ -193,8 +193,93 @@ describe("replay over HTTP", () => {
       blobPath(account, "state"),
       body,
     );
-    expect(resurrect.status).not.toBe(PSS_STATUS.ok);
+    // The exact status matters. Without the replay guard the invite gate answers 401 instead, and an
+    // assertion that merely rules out 200 cannot tell the two defences apart.
+    expect(resurrect.status).toBe(PSS_STATUS.version_conflict);
     expect(harness.store.get(account.accountId, "state")).toBeNull();
+  });
+
+  it("refuses a resurrect whose invite was swapped for a fresh one", async () => {
+    const original = signedPut(account, "state", harness.seconds(), {
+      invite: INVITE,
+    });
+    expect(
+      (
+        await harness.send(
+          "PUT",
+          blobPath(account, "state"),
+          JSON.stringify(original),
+        )
+      ).status,
+    ).toBe(PSS_STATUS.ok);
+
+    expect(
+      (
+        await harness.send(
+          "DELETE",
+          `/v1/blob/${account.path}`,
+          signedDelete(account, harness.seconds()).body,
+        )
+      ).status,
+    ).toBe(PSS_STATUS.ok);
+
+    // `invite` is outside the PUT preimage, so an attacker holding an unspent code of their own can
+    // swap it into a captured create body and the signature still verifies. The replay guard, not the
+    // invite gate, is what refuses this today.
+    const attackerCode = `${INVITE}-attacker`;
+    insertInvite(harness.db, attackerCode);
+    const swapped = await harness.send(
+      "PUT",
+      blobPath(account, "state"),
+      JSON.stringify({ ...original, invite: attackerCode }),
+    );
+    expect(swapped.status).toBe(PSS_STATUS.version_conflict);
+    expect(harness.store.get(account.accountId, "state")).toBeNull();
+  });
+
+  it("spends no guard slot on a delete that erased nothing", async () => {
+    // A signature is free to mint, so if a delete naming an account with no rows took an entry, the
+    // guard could be filled from nothing and a victim's real entry evicted inside the skew window.
+    const stranger = newAccount();
+    const before = harness.replay.size();
+    const captured = signedDelete(stranger, harness.seconds());
+
+    const first = await harness.send(
+      "DELETE",
+      `/v1/blob/${stranger.path}`,
+      captured.body,
+    );
+    expect(first.status).toBe(PSS_STATUS.ok);
+    expect(harness.replay.size()).toBe(before);
+
+    // Nothing was recorded, so the identical resend is answered the same way. The reply is a bare 200
+    // either way, so declining to record is not an account-existence oracle.
+    const resend = await harness.send(
+      "DELETE",
+      `/v1/blob/${stranger.path}`,
+      captured.body,
+    );
+    expect(resend.status).toBe(PSS_STATUS.ok);
+    expect(harness.replay.size()).toBe(before);
+  });
+
+  it("spends a guard slot on a delete that erased rows", async () => {
+    await create();
+    const before = harness.replay.size();
+    const captured = signedDelete(account, harness.seconds());
+
+    expect(
+      (await harness.send("DELETE", `/v1/blob/${account.path}`, captured.body))
+        .status,
+    ).toBe(PSS_STATUS.ok);
+    expect(harness.replay.size()).toBe(before + 1);
+
+    const resend = await harness.send(
+      "DELETE",
+      `/v1/blob/${account.path}`,
+      captured.body,
+    );
+    expect(resend.status).toBe(PSS_STATUS.unauthorized);
   });
 
   it("forgets a signature once the window has passed", async () => {

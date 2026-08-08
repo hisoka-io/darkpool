@@ -30,10 +30,7 @@
     "overrides": {
       "undici": "^6.27.0",
       "ws": "^8.21.0"
-    },
-    "onlyBuiltDependencies": [
-      "better-sqlite3"
-    ]
+    }
   },
   "packageManager": "pnpm@10.24.0",
   "engines": {
