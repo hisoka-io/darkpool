@@ -57,6 +57,11 @@ jobs:
   ts-tests:
     name: TS Tests
     runs-on: ubuntu-latest
+    # vitest and turbo colourise on CI, and the exact-count assertions below match on literal spaces.
+    # Without this the escape codes sit between "Tests" and the number, so every assertion fails on a
+    # suite that passed. The guard against a false green was otherwise a guaranteed false red.
+    env:
+      NO_COLOR: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
