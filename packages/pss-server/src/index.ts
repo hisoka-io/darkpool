@@ -5,6 +5,7 @@ export * from "./db/retention.js";
 export * from "./db/slotStore.js";
 export * from "./db/sqliteSlotStore.js";
 export * from "./http/server.js";
+export * from "./main.js";
 export * from "./metrics.js";
 export * from "./rateLimit.js";
 export * from "./replayGuard.js";

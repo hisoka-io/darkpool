@@ -122,16 +122,24 @@ describe("attack 2: dropped write", () => {
     }));
     await v.sync.flushNow();
 
-    // The server answered 200 and stored nothing, so a re-read still shows the old version.
-    const outcome = await v.sync.pull();
-    expect(outcome).toMatchObject({ kind: "present" });
+    // The server answered 200 and stored nothing, so a re-read serves the superseded version. The
+    // client raised its floor on its own accepted write, so it refuses that rather than accepting it
+    // as current: acknowledging a write and then serving something older IS a rollback.
+    await expect(v.sync.pull()).rejects.toThrow(PssRollbackError);
     expect(v.transport.honest.stored(v.accountPath, "state")?.version).toBe(1);
     // Local storage still holds the change, so nothing was lost.
     expect(v.sync.current().known.selfEphHighwater).toBe(99);
 
+    // Recovery is NOT automatic here, and that is the deliberate trade. Raising the floor on an
+    // accepted write is what lets the client detect the drop at all; the cost is that a server which
+    // destroyed an acknowledged write is now behind the floor, so honest service alone cannot restore
+    // it. The client fails closed and reports, local state keeps every change, and the documented
+    // recovery is a client-side resync from the chain rather than a server repair.
     v.transport.stopLying();
-    await v.sync.flushNow();
-    expect(v.transport.honest.stored(v.accountPath, "state")?.version).toBe(2);
+    await expect(v.sync.flushNow()).resolves.toBeUndefined();
+    expect(v.sync.state.degraded).not.toBeNull();
+    expect(v.sync.current().known.selfEphHighwater).toBe(99);
+    expect(await v.floor.current("state")).toBe(2);
   });
 });
 
@@ -343,10 +351,14 @@ describe("attack 12: 404 against a non-zero floor", () => {
 });
 
 // Not on the list. The frozen payload rule says a client MUST preserve unknown fields verbatim through
-// a merge, and the merge does exactly that. A hostile server can therefore hand the client arbitrary
-// junk in an unknown field and the client will carry it faithfully, re-uploading it forever. Pushed far
-// enough it crosses a padding tier and then the 1 MB ceiling, at which point the client can no longer
-// write its own state at all. The attack costs the server one response.
+// a merge, and the merge does exactly that, so a writer can put arbitrary junk in an unknown field and
+// every other device carries it faithfully and re-uploads it forever. Pushed far enough it crosses a
+// padding tier and then the 1 MB ceiling, at which point the client can no longer write its own state.
+//
+// The actor is NOT the server: the junk has to arrive in a cell that opens under the account's own cell
+// key, which the server never holds. It is a writer that legitimately holds that key, meaning a
+// future-schema client of the same account or a compromised device. The seal below uses the victim's
+// own cellKey.state for exactly that reason.
 describe("attack 13 (mine): unknown-field amplification", () => {
   async function inject(v: Victim, junkBytes: number): Promise<void> {
     const carrier = JSON.parse(

@@ -1,0 +1,25 @@
+{
+  "name": "@hisoka/pss-integration",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint 'src/**/*.ts'",
+    "lint:fix": "eslint 'src/**/*.ts' --fix",
+    "pretest": "bash ../../scripts/check-node.sh"
+  },
+  "author": "hisoka-io",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@hisoka/pss-client": "workspace:*",
+    "@hisoka/pss-server": "workspace:*",
+    "@hisoka/wallets": "workspace:*",
+    "@noble/hashes": "1.8.0",
+    "@types/node": "^24.10.0",
+    "typescript": "5.9.2",
+    "vitest": "^1.6.0"
+  }
+}

@@ -16,6 +16,20 @@ const MAX_PORT = 65_535;
 // grow with the number of accounts that have ever sent a valid request.
 const DEFAULT_MAX_TRACKED_ACCOUNTS = 100_000;
 const DEFAULT_MAX_TRACKED_REPLAYS = 100_000;
+// Deployment limits, not protocol limits, so unlike the tiers and the skew window these are a local
+// operational choice and are deliberately not read from the environment either.
+//
+// A body is accumulated before the signature is checked, because the signature covers a digest of it,
+// so an unauthenticated caller can hold memory for as long as the request stays open. Node's defaults
+// are a 300 s request timeout and no connection cap at all, which is 1.37 MB of retained buffers per
+// half-open chunked upload for five minutes, times an unbounded number of sockets.
+//
+// 30 s is far more than a 1 MB upload needs on a slow link and far less than 300 s. 10 s for headers is
+// generous for a request whose headers are three lines. 512 concurrent connections is well above what a
+// deployment sized for tens to hundreds of accounts will ever see, and bounds the worst case.
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_HEADERS_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_CONNECTIONS = 512;
 
 export class ConfigError extends Error {
   constructor(detail: string) {
@@ -37,6 +51,9 @@ export interface ServerConfig {
   readonly retentionDays: number;
   readonly maxTrackedAccounts: number;
   readonly maxTrackedReplays: number;
+  readonly requestTimeoutMs: number;
+  readonly headersTimeoutMs: number;
+  readonly maxConnections: number;
   readonly inviteRequired: boolean;
 }
 
@@ -83,6 +100,9 @@ export function loadConfig(
     retentionDays: RETENTION_DAYS,
     maxTrackedAccounts: DEFAULT_MAX_TRACKED_ACCOUNTS,
     maxTrackedReplays: DEFAULT_MAX_TRACKED_REPLAYS,
+    requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+    headersTimeoutMs: DEFAULT_HEADERS_TIMEOUT_MS,
+    maxConnections: DEFAULT_MAX_CONNECTIONS,
     inviteRequired: true,
   };
 }

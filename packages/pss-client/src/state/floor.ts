@@ -36,8 +36,11 @@ export class VersionFloor {
   }
 
   /**
-   * R3a. Local storage is gone after a reinstall, which reopens the rollback window, so the floor is
-   * seeded from the wallet's own on-chain notes before any PSS value is trusted. Never lowers.
+   * Raises the floor to the highest version this install has durable evidence of, before any served
+   * value is trusted. Never lowers.
+   *
+   * After a true reinstall that evidence is 0, because no chain quantity yields a blob version. Rollback
+   * protection then rests on rechecking the chain before minting, not on this floor.
    */
   bootstrap(collection: Collection, chainFloor: number): Promise<number> {
     return this.#withLock(async () => {

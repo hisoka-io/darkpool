@@ -91,7 +91,7 @@ async function openStored(r: Rig): Promise<ParsedStatePayload> {
   return decodeStatePayload(new TextDecoder().decode(plaintext));
 }
 
-describe("get response parsing (P4.2)", () => {
+describe("get response parsing", () => {
   const good = {
     version: 3,
     prevVersion: 2,
@@ -147,7 +147,7 @@ describe("get response parsing (P4.2)", () => {
   });
 });
 
-describe("http transport (P4.2)", () => {
+describe("http transport", () => {
   const base = { baseUrl: "http://pss.test", timeoutMs: 1000 };
 
   it("turns every non-200 into a typed PssError", async () => {
@@ -220,7 +220,7 @@ describe("http transport (P4.2)", () => {
   });
 });
 
-describe("install identity (P4.6)", () => {
+describe("install identity and local cache", () => {
   it("mints an install id once and reuses it on a warm start", async () => {
     const store = new MemoryPssStore();
     const first = await rig({}, store);
@@ -239,6 +239,28 @@ describe("install identity (P4.6)", () => {
     );
   });
 
+  // The invite rides only on the create. Dropping the prevVersion term is behaviourally undetectable
+  // against the server, which ignores a repeated code on an update and still answers 200, so nothing
+  // would notice the code being resent on every write for the life of the account.
+  it("sends the invite on the create and never again", async () => {
+    const r = await rig({ invite: "invite-code-1" });
+    await r.sync.update((p) => ({
+      known: { ...p.known, selfEphHighwater: 1 },
+      extra: p.extra,
+    }));
+    await r.sync.flushNow();
+    await r.sync.update((p) => ({
+      known: { ...p.known, selfEphHighwater: 2 },
+      extra: p.extra,
+    }));
+    await r.sync.flushNow();
+
+    expect(r.transport.puts).toHaveLength(2);
+    expect(r.transport.puts[0].invite).toBe("invite-code-1");
+    expect(r.transport.puts[1].prevVersion).toBe(1);
+    expect(r.transport.puts[1].invite).toBeUndefined();
+  });
+
   it("caches the payload locally under its own key", async () => {
     const r = await rig();
     await r.sync.update((p) => ({
@@ -250,7 +272,7 @@ describe("install identity (P4.6)", () => {
   });
 });
 
-describe("takeover through the loop (P4.6)", () => {
+describe("takeover through the loop", () => {
   async function twoDevices(): Promise<{ a: Rig; b: Rig }> {
     const transport = new FakeTransport();
     const a = await rig({}, new MemoryPssStore(), transport);
@@ -347,7 +369,7 @@ describe("takeover through the loop (P4.6)", () => {
   });
 });
 
-describe("the write path (P4.3)", () => {
+describe("the write path", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -376,7 +398,7 @@ describe("the write path (P4.3)", () => {
     expect(r.transport.puts).toHaveLength(1);
   });
 
-  it("flushes periodically while open", async () => {
+  it("flushes on a fixed interval regardless of pending local edits, which is what propagates a prune or a merge", async () => {
     const r = await rig();
     r.sync.start();
     await r.sync.update((p) => ({
@@ -405,7 +427,7 @@ describe("the write path (P4.3)", () => {
   });
 });
 
-describe("the stamped-payload brand (P4.3)", () => {
+describe("the stamped-payload brand", () => {
   it("makes an unstamped payload unassignable to the write path", async () => {
     const r = await rig();
     const unstamped: ParsedStatePayload = r.sync.current();
@@ -418,7 +440,7 @@ describe("the stamped-payload brand (P4.3)", () => {
   });
 });
 
-describe("the conflict path (P4.4)", () => {
+describe("the version-conflict path", () => {
   // The single-writer conflict, which is the one that actually happens: the stored version is in
   // memory only, so the first write after a restart offers version 1 against a server already holding
   // three. A second install writing here instead would be refused as read-only, which is the takeover
@@ -507,7 +529,7 @@ describe("the conflict path (P4.4)", () => {
   });
 });
 
-describe("the missing-blob path (P4.5)", () => {
+describe("the missing-blob path", () => {
   it("treats a 404 as a fresh account only when the floor is zero", async () => {
     const r = await rig();
     await expect(r.sync.pull()).resolves.toEqual({ kind: "absent" });
@@ -560,6 +582,27 @@ describe("the missing-blob path (P4.5)", () => {
   });
 });
 
+describe("the floor rises on this install's own accepted write", () => {
+  it("refuses a rollback without an intervening pull", async () => {
+    const r = await rig();
+    for (let i = 1; i <= 3; i++) {
+      await r.sync.update((p) => ({
+        known: { ...p.known, selfEphHighwater: i },
+        extra: p.extra,
+      }));
+      await r.sync.flushNow();
+    }
+    // The client authored these versions and the server accepted them, so the claim is authenticated at
+    // the source. Before this the floor moved only on a read, so a wallet that wrote and was then
+    // served an older version accepted the rollback.
+    expect(await r.floor.current("state")).toBe(3);
+
+    r.transport.rollbackTo = 1;
+    await expect(r.sync.pull()).rejects.toThrow(PssRollbackError);
+    expect(await r.floor.current("state")).toBe(3);
+  });
+});
+
 describe("rollback refusal", () => {
   it("refuses a version below the floor with a typed error naming both", async () => {
     const r = await rig();
@@ -568,7 +611,7 @@ describe("rollback refusal", () => {
   });
 });
 
-describe("degraded mode (P4.8)", () => {
+describe("degraded mode", () => {
   it("never throws out of the loop when every request fails", async () => {
     const dead: PssTransport = {
       getBlob: () =>
@@ -635,7 +678,7 @@ describe("degraded mode (P4.8)", () => {
   });
 });
 
-describe("spent-note prune (P4.7)", () => {
+describe("spent-note prune", () => {
   const payload = (notes: readonly UnspentNote[]): ParsedStatePayload => ({
     known: {
       schema: 1,
@@ -707,6 +750,79 @@ describe("spent-note prune (P4.7)", () => {
     ]);
   });
 
+  // The other half of the whole-set rule. Testing every note closes the note-set axis; starting at or
+  // below the checkpoint closes the block axis, because the result certifies every block up to toBlock
+  // as checked, so a sweep starting above the checkpoint silently certifies blocks it never asked about.
+  it("refuses a sweep that would skip blocks below the checkpoint", async () => {
+    let asked = 0;
+    const oracle = {
+      spentBetween: () => {
+        asked += 1;
+        return Promise.resolve(new Set<string>());
+      },
+    };
+    // Blocks 101..499 would never be asked about, yet the result would certify everything through 1000.
+    await expect(
+      pruneSpentNotes(payload([note(5)]), oracle, 500, 1000),
+    ).rejects.toThrow(PssStateError);
+    expect(asked).toBe(0);
+
+    // Starting at or below the checkpoint is what the rule requires, and it drops the note.
+    const ok = await pruneSpentNotes(
+      payload([note(5)]),
+      { spentBetween: () => Promise.resolve(new Set([note(5).nullifier])) },
+      0,
+      5000,
+    );
+    expect(ok.dropped).toHaveLength(1);
+  });
+
+  // Starting exactly AT the checkpoint leaves no certification gap and is therefore allowed, but it
+  // does not revisit a spend below the checkpoint, which is precisely what a merge can reinstate. The
+  // library cannot close that on its own because it has no deployment block, so the doc contract on
+  // pruneSpentNotes and pruneSpent requires the embedder to sweep from the deployment block on load.
+  it("allows a sweep starting exactly at the checkpoint, which is why the caller owes a full sweep", async () => {
+    const spentLow = new Set([note(5).nullifier]);
+    const fromCheckpoint = await pruneSpentNotes(
+      payload([note(5)]),
+      {
+        spentBetween: (from) =>
+          Promise.resolve(from <= 80 ? spentLow : new Set<string>()),
+      },
+      100,
+      5000,
+    );
+    expect(fromCheckpoint.dropped).toHaveLength(0);
+
+    const fromDeployment = await pruneSpentNotes(
+      payload([note(5)]),
+      {
+        spentBetween: (from) =>
+          Promise.resolve(from <= 80 ? spentLow : new Set<string>()),
+      },
+      0,
+      5000,
+    );
+    expect(fromDeployment.dropped).toHaveLength(1);
+  });
+
+  it("refuses block bounds that are not non-negative integers", async () => {
+    for (const [from, to] of [
+      [-5, 100],
+      [0, 2.5],
+      [Number.NaN, 100],
+    ]) {
+      await expect(
+        pruneSpentNotes(
+          payload([note(5)]),
+          { spentBetween: () => Promise.resolve(new Set<string>()) },
+          from,
+          to,
+        ),
+      ).rejects.toThrow(PssStateError);
+    }
+  });
+
   it("refuses a chunk size that would never terminate", () => {
     expect(() =>
       createLogSweepOracle({
@@ -746,7 +862,7 @@ describe("spent-note prune (P4.7)", () => {
   });
 });
 
-describe("the ephemeral highwater is a hint, never a source (P4.9)", () => {
+describe("the ephemeral highwater is a hint, never a source", () => {
   it("never lowers a local highwater when a stale remote payload merges in", async () => {
     const store = new MemoryPssStore();
     const transport = new FakeTransport();

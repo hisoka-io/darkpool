@@ -37,3 +37,21 @@ export const PUT_CIPHERTEXT_SHA256_HEX =
 // "pss-v1:put" || accountId(32) || 0x05 "state" || u64be(7) || u64be(6) || sha256(ct)(32) || u64be(ts)
 export const PUT_PREIMAGE_HEX =
   "7073732d76313a7075748cfa343c716638269401b19220ec6ff3607ac1ed9e11f0b29d125bee39bb618805737461746500000000000000070000000000000006bee222d07e58cf6b85ef6a8458f5b9c9f795e2dbee06f6111ea36eaa34956545000000006a72abe0";
+
+// Byte-exact layouts for the rest of the frozen wire surface. Every value below was written out by hand
+// from the layout, not printed from the function it grades, because a regenerated golden moves with the
+// code and pins nothing. Changing any of these orphans stored ciphertext.
+
+// u8(len) || collection || u64be(version)
+export const AAD_STATE_V7_HEX = "0573746174650000000000000007";
+export const AAD_LABELS_V7_HEX = "066c6162656c730000000000000007";
+
+export const DELETE_NONCE_HEX = "111111111111111111111111";
+
+// "pss-v1:del" || accountId(32) || nonce(12) || u64be(timestamp)
+export const DELETE_PREIMAGE_HEX =
+  "7073732d76313a64656c8cfa343c716638269401b19220ec6ff3607ac1ed9e11f0b29d125bee39bb6188111111111111111111111111000000006a72abe0";
+
+// pad() emits u32be(length) || payload || zero fill. PUT_PAYLOAD is 12 bytes, so the header is
+// 0000000c and the payload follows immediately.
+export const PAD_PREFIX_HEX = "0000000c7b227363";

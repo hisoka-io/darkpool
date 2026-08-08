@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { defaultMigrationsDir } from "../config.js";
-import { loadMigrations, runMigrations, today } from "../db/migrate.js";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  MigrationError,
+  loadMigrations,
+  runMigrations,
+  today,
+} from "../db/migrate.js";
 
 function migratedDb(): Database.Database {
   const db = new Database(":memory:");
@@ -96,5 +104,20 @@ describe("migrations", () => {
     expect(today(new Date(Date.UTC(2026, 7, 7, 23, 59, 59)))).toBe(
       "2026-08-07",
     );
+  });
+});
+
+describe("migration naming", () => {
+  // Apply order is lexical, so a file that does not carry a zero-padded numeric prefix has undefined
+  // order relative to its siblings. The rule exists; nothing exercised it.
+  it("refuses a migration whose name does not fix its apply order", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pss-migrations-"));
+    try {
+      writeFileSync(join(dir, "001_init.sql"), "SELECT 1;");
+      writeFileSync(join(dir, "1_bad.sql"), "SELECT 1;");
+      expect(() => loadMigrations(dir)).toThrow(MigrationError);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

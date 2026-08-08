@@ -9,6 +9,8 @@
         "out/**",
         ".next/**",
         "artifacts/**",
+        "typechain-types/**",
+        "cache/**",
         "target/**",
         "src/generated/**"
       ]

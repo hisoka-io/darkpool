@@ -19,7 +19,9 @@
     "lint": "eslint 'src/**/*.ts'",
     "lint:fix": "eslint 'src/**/*.ts' --fix",
     "start": "node dist/main.js",
-    "dev": "pnpm run build && node dist/main.js"
+    "dev": "pnpm run build && node dist/main.js",
+    "pretest": "bash ../../scripts/check-node.sh",
+    "prestart": "bash ../../scripts/check-node.sh"
   },
   "author": "hisoka-io",
   "license": "Apache-2.0",

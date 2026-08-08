@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -118,6 +119,69 @@ describe("entry point", () => {
       expect(level, pass).toBe(SQLITE_SYNCHRONOUS_NORMAL);
     }
   });
+});
+
+describe("unauthenticated request limits", () => {
+  it("bounds request time, header time and concurrent connections", async () => {
+    const config = {
+      ...loadConfig(),
+      port: 0,
+      databasePath: join(directory, "limits.db"),
+    };
+    running = await startServer(config);
+    const probe = await fetch(
+      `http://127.0.0.1:${running.port}/v1/blob/${ACCOUNT_PATH}/state`,
+    );
+    expect(probe.status).toBe(PSS_STATUS.not_found);
+
+    // Node defaults are a 300 s request timeout and no connection cap. The body is accumulated before
+    // the signature can be checked, so an unauthenticated caller holds memory for the whole window.
+    expect(config.requestTimeoutMs).toBeLessThan(300_000);
+    expect(config.headersTimeoutMs).toBeLessThan(60_000);
+    expect(config.maxConnections).toBeGreaterThan(0);
+    expect(Number.isFinite(config.maxConnections)).toBe(true);
+  });
+
+  it("closes a chunked body that dribbles past the request timeout", async () => {
+    const config = {
+      ...loadConfig(),
+      port: 0,
+      databasePath: join(directory, "dribble.db"),
+      requestTimeoutMs: 300,
+      headersTimeoutMs: 200,
+    };
+    running = await startServer(config);
+
+    const closed = await new Promise<string>((resolve) => {
+      const req = request(
+        {
+          host: "127.0.0.1",
+          port: running?.port,
+          method: "PUT",
+          path: `/v1/blob/${ACCOUNT_PATH}/state`,
+          // No content-length, so the declared-size shortcut cannot fire and the server must rely on
+          // the timeout to stop holding the accumulated buffers.
+          headers: { "transfer-encoding": "chunked" },
+        },
+        (res) => {
+          resolve(`status:${res.statusCode ?? 0}`);
+        },
+      );
+      req.on("error", (error: Error) => {
+        resolve(`error:${error.message}`);
+      });
+      req.write('{"ciphertext":"');
+      // Deliberately never finished.
+      const dribble = setInterval(() => req.write("A"), 50);
+      setTimeout(() => {
+        clearInterval(dribble);
+        req.destroy();
+        resolve("never-closed");
+      }, 3_000);
+    });
+
+    expect(closed).not.toBe("never-closed");
+  }, 15_000);
 });
 
 describe("defaults", () => {
