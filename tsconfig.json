@@ -18,6 +18,9 @@
     },
     {
       "path": "./packages/pss-server"
+    },
+    {
+      "path": "./packages/pss-integration"
     }
   ]
 }

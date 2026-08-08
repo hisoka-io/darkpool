@@ -57,6 +57,11 @@ jobs:
   ts-tests:
     name: TS Tests
     runs-on: ubuntu-latest
+    # vitest and turbo colourise on CI, and the exact-count assertions below match on literal spaces.
+    # Without this the escape codes sit between "Tests" and the number, so every assertion fails on a
+    # suite that passed. The guard against a false green was otherwise a guaranteed false red.
+    env:
+      NO_COLOR: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -70,11 +75,21 @@ jobs:
           export PATH="$HOME/.nargo/bin:$PATH"
           noirup -v 1.0.0-beta.22
           echo "$HOME/.nargo/bin" >> $GITHUB_PATH
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Check Node version
+        run: bash scripts/check-node.sh
       - run: pnpm install --frozen-lockfile
       - name: Build packages
         run: pnpm turbo run build --filter=@hisoka/wallets --filter=@hisoka/adaptors --filter=@hisoka/prover --filter=@hisoka/pss-client --filter=@hisoka/pss-server
       - name: Typecheck TS packages
-        run: pnpm turbo run typecheck --filter=@hisoka/pss-client --filter=@hisoka/pss-server
+        run: |
+          out="$(pnpm turbo run typecheck --filter=@hisoka/pss-client --filter=@hisoka/pss-server --filter=@hisoka/pss-integration --force 2>&1)" || rc=$?
+          echo "$out"
+          test "${rc:-0}" -eq 0 || { echo "::error::typecheck exited ${rc}"; exit 1; }
+          # turbo exits 0 when a package lacks the task, so assert the measured count instead. Three
+          # typecheck tasks plus the three builds their ^build dependency pulls in.
+          echo "$out" | grep -qE "Tasks: +6 successful, 6 total" \
+            || { echo "::error::expected 6 typecheck tasks; a filter or a package script is missing"; exit 1; }
       - name: Test wallets
         run: pnpm --filter @hisoka/wallets run test
       - name: Test adaptors
@@ -82,9 +97,35 @@ jobs:
       - name: Test prover
         run: pnpm --filter @hisoka/prover run test
       - name: Test pss-client
-        run: pnpm --filter @hisoka/pss-client run test
+        run: |
+          out="$(pnpm --filter @hisoka/pss-client run test 2>&1)" || rc=$?
+          echo "$out"
+          test "${rc:-0}" -eq 0 || { echo "::error::pss-client tests exited ${rc}"; exit 1; }
+          # pnpm exits 0 when the filter matches nothing and when the script is missing, so a green
+          # step is not evidence the suite ran. Assert a non-zero pass count.
+          # Exact, not a wildcard: vitest prints "Tests N passed | M skipped" and exits 0, so a
+          # partially skipped suite would satisfy a [0-9]+ match while covering less than it claims.
+          echo "$out" | grep -qE "Tests +191 passed \(191\)" \
+            || { echo "::error::pss-client did not report exactly 191 passing tests"; exit 1; }
       - name: Test pss-server
-        run: pnpm --filter @hisoka/pss-server run test
+        run: |
+          out="$(pnpm --filter @hisoka/pss-server run test 2>&1)" || rc=$?
+          echo "$out"
+          test "${rc:-0}" -eq 0 || { echo "::error::pss-server tests exited ${rc}"; exit 1; }
+          echo "$out" | grep -qE "Tests +103 passed \(103\)" \
+            || { echo "::error::pss-server did not report exactly 103 passing tests"; exit 1; }
+      - name: Test pss-integration
+        run: |
+          # Through turbo, not pnpm --filter, so `test.dependsOn: ["^build"]` rebuilds pss-client and
+          # pss-server first. This suite resolves them through dist, so a pnpm --filter run would grade
+          # whatever bundle happened to be on disk.
+          out="$(pnpm turbo run test --filter=@hisoka/pss-integration --force 2>&1)" || rc=$?
+          echo "$out"
+          test "${rc:-0}" -eq 0 || { echo "::error::pss-integration tests exited ${rc}"; exit 1; }
+          echo "$out" | grep -qE "Tests +12 passed \(12\)" \
+            || { echo "::error::pss-integration did not report exactly 12 passing tests"; exit 1; }
+          echo "$out" | grep -qE "Tasks: +4 successful, 4 total" \
+            || { echo "::error::expected 4 turbo tasks; a build dependency is missing"; exit 1; }
 
   kage-native-gate:
     name: Kage native VK-pin gate

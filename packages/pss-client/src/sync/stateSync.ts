@@ -93,7 +93,6 @@ export class StateSync {
   #debounceTimer: ReturnType<typeof setTimeout> | null = null;
   #flushTimer: ReturnType<typeof setInterval> | null = null;
   #inFlight: Promise<void> = Promise.resolve();
-  #backoffStep = 0;
 
   private constructor(
     deps: StateSyncDeps,
@@ -278,6 +277,12 @@ export class StateSync {
   /**
    * Drops notes the chain shows spent, over the whole merged note set rather than a range above the
    * checkpoint, and advances the checkpoint.
+   *
+   * The embedder owes the range, because this package has no chain of its own. On every load, sweep
+   * from the pool's deployment block to the head BEFORE spending any note from `current()`: a
+   * `fromBlock` above the stored checkpoint is rejected, since the result certifies every block up to
+   * `toBlock`. `toBlock` is not clamped for finality, so on a reorg-prone chain pass
+   * `head - finalityDepth` and drop `removed` logs inside the log source.
    */
   async pruneSpent(fromBlock: number, toBlock: number): Promise<number> {
     const result = await pruneSpentNotes(
@@ -324,15 +329,14 @@ export class StateSync {
   async #pushGuarded(): Promise<void> {
     try {
       await this.#push();
-      this.#backoffStep = 0;
       this.#syncState = {
         ...this.#syncState,
         degraded: null,
         pendingWrite: false,
       };
     } catch (error) {
-      const backoff = this.#deps.config.backoffMs;
-      this.#backoffStep = Math.min(this.#backoffStep + 1, backoff.length);
+      // No sleep schedule: the periodic flush is the retry cadence, and it already exceeds any backoff
+      // step this loop would have used, so a schedule here would retry sooner rather than later.
       this.#syncState = {
         ...this.#syncState,
         degraded: { operation: "push", message: describe(error) },
@@ -355,6 +359,7 @@ export class StateSync {
         this.#storedVersion,
       );
       this.#storedVersion += 1;
+      await this.#acceptOwnWrite(this.#storedVersion);
       return;
     } catch (error) {
       if (!isConflict(error) || this.#deps.config.conflictRetries < 1) {
@@ -375,6 +380,20 @@ export class StateSync {
     const next = this.#nextWrite(outcome);
     await this.#writeOnce(this.#stampCurrent(), next.version, next.prevVersion);
     this.#storedVersion = next.version;
+    await this.#acceptOwnWrite(next.version);
+  }
+
+  /**
+   * Raises the durable floor to a version this install just wrote and the server accepted. The client
+   * authored that version, so the claim is authenticated at the source and needs no ciphertext to prove
+   * it. Without this the floor moves only on a read, so a wallet that writes and is then served an
+   * older version accepts the rollback, which is the protection users are told they have.
+   */
+  async #acceptOwnWrite(version: number): Promise<void> {
+    // Raise-only, never refuse. `accept` throws on a lower version because an OFFERED lower version is
+    // a rollback attempt; a version this install just wrote is not, so if the floor already sits higher
+    // (a takeover bootstrap seeds it from a caller-supplied number) the right answer is to leave it.
+    await this.#deps.floor.bootstrap(STATE, version);
   }
 
   // A missing blob recreates above the floor, never at version 1: writing below the floor is accepted

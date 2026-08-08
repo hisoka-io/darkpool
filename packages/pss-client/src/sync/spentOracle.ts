@@ -56,12 +56,30 @@ export interface PruneResult {
   readonly checkedThroughBlock: number;
 }
 
+function assertBlock(value: number, label: string): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new PssStateError(
+      `${label} must be a non-negative integer block number, got ${value}`,
+    );
+  }
+  return value;
+}
+
 /**
- * Membership-tests the WHOLE merged note set rather than a block range above `nullifierCheckedAt`.
+ * Membership-tests the WHOLE merged note set rather than a block range above the stored checkpoint, and
+ * refuses a range that would leave a gap below it.
+ *
  * The merge unions notes from every input while taking the max checkpoint over them, so a note one
- * device correctly pruned is reinstated by another's union and then covered by the higher checkpoint;
- * a range scan from the checkpoint would never revisit it. Testing the whole set is also what the
- * merge rule says literally: union by leaf index, minus anything the chain shows spent.
+ * device correctly pruned is reinstated by another's union and then covered by the higher checkpoint; a
+ * range scan starting at the checkpoint would never revisit it. Testing the whole note set closes that
+ * on one axis and starting at or below the checkpoint closes it on the other, because a sweep that
+ * starts above the checkpoint certifies blocks it never asked about.
+ *
+ * The caller owes the range. A load MUST sweep from the pool's deployment block to the head before any
+ * note from the local state is spent; an incremental `fromBlock` is rejected rather than trusted.
+ * `toBlock` is caller-chosen and is NOT clamped for finality: on a reorg-prone chain pass
+ * `head - finalityDepth` and drop `removed` logs inside the log source. Getting that wrong makes the
+ * advisory cache lossy and a rescan repairs it; it never loses a note.
  */
 export async function pruneSpentNotes(
   payload: ParsedStatePayload,
@@ -69,9 +87,19 @@ export async function pruneSpentNotes(
   fromBlock: number,
   toBlock: number,
 ): Promise<PruneResult> {
+  assertBlock(fromBlock, "fromBlock");
+  assertBlock(toBlock, "toBlock");
   if (toBlock < fromBlock) {
     throw new PssStateError(
       `spent sweep range is inverted: ${fromBlock}..${toBlock}`,
+    );
+  }
+  const checkpoint = payload.known.nullifierCheckedAt.block;
+  if (fromBlock > checkpoint) {
+    throw new PssStateError(
+      `spent sweep would skip blocks ${checkpoint + 1}..${fromBlock - 1}: it must start at or below ` +
+        `the recorded checkpoint ${checkpoint}, because the result certifies every block up to ` +
+        `${toBlock} as checked`,
     );
   }
   const spent = await oracle.spentBetween(fromBlock, toBlock);

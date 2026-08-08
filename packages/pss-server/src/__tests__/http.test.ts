@@ -488,3 +488,31 @@ describe("counters", () => {
     }
   });
 });
+
+describe("body decoding", () => {
+  let harness: Harness;
+  beforeEach(async () => {
+    harness = await startHarness();
+  });
+  afterEach(async () => {
+    await harness.stop();
+  });
+
+  // The decoder is constructed with `fatal: true`, so invalid UTF-8 is refused before JSON.parse ever
+  // sees it. A lone 0x80 is a continuation byte with no lead byte, which no JSON text can contain.
+  it("refuses a body that is not valid UTF-8", async () => {
+    const account = newAccount();
+    const body = Buffer.from([0x7b, 0x80, 0x7d]);
+    const reply = await rawRequest(
+      harness.port,
+      "PUT",
+      `/v1/blob/${account.path}/state`,
+      {
+        headers: { "content-length": String(body.length) },
+        chunks: [body],
+        finish: true,
+      },
+    );
+    expect(reply.status).toBe(PSS_STATUS.bad_request);
+  });
+});

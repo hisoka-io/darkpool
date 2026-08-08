@@ -330,12 +330,25 @@ async function dispatch(
 }
 
 export function createPssServer(deps: ServerDeps): Server {
-  return createServer((req, res) => {
-    dispatch(req, res, deps).catch(() => {
-      if (!res.headersSent) {
-        res.writeHead(INTERNAL_ERROR, { "content-length": 0 });
-      }
-      res.end();
-    });
-  });
+  // Node enforces requestTimeout and headersTimeout from a sweep whose interval defaults to 30 s, so
+  // without this a 30 s budget is only noticed up to 30 s late. Tying the sweep to the headers timeout
+  // bounds the overshoot to the tightest budget the server sets.
+  const server = createServer(
+    { connectionsCheckingInterval: deps.config.headersTimeoutMs },
+    (req, res) => {
+      dispatch(req, res, deps).catch(() => {
+        if (!res.headersSent) {
+          res.writeHead(INTERNAL_ERROR, { "content-length": 0 });
+        }
+        res.end();
+      });
+    },
+  );
+  // The body is read before the signature can be checked, because the signature covers a digest of it,
+  // so these bound what an unauthenticated caller can hold. Node's defaults are a 300 s request timeout
+  // and no connection cap, which leaves retained buffers per half-open upload times unbounded sockets.
+  server.requestTimeout = deps.config.requestTimeoutMs;
+  server.headersTimeout = deps.config.headersTimeoutMs;
+  server.maxConnections = deps.config.maxConnections;
+  return server;
 }

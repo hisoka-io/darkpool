@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nobleBackend } from "../crypto/index.js";
-import { PSS_SCHEMA_VERSION } from "../wire/constants.js";
+import { PAD_TIERS, PSS_SCHEMA_VERSION } from "../wire/constants.js";
 import { ParsedStatePayload, PssStatePayload } from "../wire/payload.js";
 import {
   InstallGuard,
@@ -87,6 +87,34 @@ describe("payload serde", () => {
     expect(parsed.extra).toEqual(forward);
   });
 
+  // Preservation is TOP LEVEL only. Nested unknowns are dropped by rebuilding each record from its
+  // named fields, which is a structural property with no test of its own: spreading `...raw` into the
+  // record parsers leaves the whole suite green.
+  it("drops unknown keys nested inside records rather than carrying them", () => {
+    const parsed = parseStatePayload({
+      ...payload().known,
+      unspentNotes: [{ ...note(1), futureNoteField: "x" }],
+      issuedAddresses: [{ index: 3, futureAddressField: "x" }],
+      syncCursor: { block: 1, logIndex: 2, futureCursorField: "x" },
+      nullifierCheckedAt: { block: 3, futureCheckpointField: "x" },
+    });
+    expect(Object.keys(parsed.known.unspentNotes[0]).sort()).toEqual([
+      "amount",
+      "assetId",
+      "leafIndex",
+      "nullifier",
+    ]);
+    expect(Object.keys(parsed.known.issuedAddresses[0])).toEqual(["index"]);
+    expect(Object.keys(parsed.known.syncCursor).sort()).toEqual([
+      "block",
+      "logIndex",
+    ]);
+    expect(Object.keys(parsed.known.nullifierCheckedAt)).toEqual(["block"]);
+    // Not smuggled into extra either: a nested additive field is a schema bump, not a silent carry.
+    expect(parsed.extra).toEqual({});
+    expect(JSON.stringify(parsed)).not.toContain("future");
+  });
+
   it("refuses a payload from a newer schema instead of dropping its fields", () => {
     expect(() =>
       parseStatePayload({
@@ -151,7 +179,7 @@ describe("payload serde", () => {
   });
 });
 
-describe("merge table (R4)", () => {
+describe("merge table", () => {
   it("takes the max of both highwaters", () => {
     const merged = mergeStatePayloads([
       complete(payload({ selfEphHighwater: 412, incomingIssueHighwater: 3 })),
@@ -275,7 +303,7 @@ describe("merge table (R4)", () => {
   });
 });
 
-describe("version floor (R3)", () => {
+describe("version floor", () => {
   it("accepts a rising version and refuses a lower one", async () => {
     const floor = new VersionFloor(new MemoryPssStore(), ACCOUNT);
     await floor.accept("state", 5);
@@ -363,7 +391,7 @@ describe("version floor (R3)", () => {
     ).rejects.toThrow(PssStateError);
   });
 
-  it("bootstraps from the chain after a reinstall and never lowers (R3a)", async () => {
+  it("bootstraps after a reinstall and never lowers", async () => {
     const store = new MemoryPssStore();
     await new VersionFloor(store, ACCOUNT).accept("state", 12);
 
@@ -383,7 +411,53 @@ describe("version floor (R3)", () => {
   });
 });
 
-describe("takeover (R6)", () => {
+describe("payload capacity", () => {
+  const filled = (count: number): ParsedStatePayload => ({
+    known: {
+      schema: PSS_SCHEMA_VERSION,
+      installId: INSTALL_A,
+      platform: "extension/chrome",
+      updatedAt: 1_785_900_000,
+      selfEphHighwater: 0,
+      incomingIssueHighwater: 0,
+      issuedAddresses: [],
+      unspentNotes: Array.from({ length: count }, (_unused, i) => ({
+        leafIndex: i,
+        assetId: `0x${"12".repeat(20)}`,
+        amount: "1000000000000000000",
+        nullifier: `0x${i.toString(16).padStart(64, "0")}`,
+      })),
+      syncCursor: { block: 21_830_001, logIndex: 4 },
+      nullifierCheckedAt: { block: 21_830_001 },
+    },
+    extra: {},
+  });
+  const bytes = (count: number): number =>
+    Buffer.byteLength(serializeStatePayload(filled(count)), "utf8");
+
+  // Graded by the serialiser rather than by hand arithmetic, because the published figure was wrong by
+  // 1.8x twice. The shape is fixed here: a 20-byte asset address and a 32-byte nullifier, both at the
+  // widths the frozen payload shapes require, so the smallest legal record cannot be smaller.
+  it("costs about 185 bytes per note, not 105", () => {
+    const marginal = bytes(101) - bytes(100);
+    expect(marginal).toBe(185);
+    expect(bytes(0)).toBe(286);
+  });
+
+  it("fits the note counts the capacity table claims", () => {
+    const fits = (tier: number): number => {
+      let count = 0;
+      while (bytes(count + 1) <= tier - 4) count++;
+      return count;
+    };
+    // Minus the 4-byte padding length header, which is inside the tier.
+    expect(fits(PAD_TIERS[0])).toBe(87);
+    expect(fits(PAD_TIERS[1])).toBe(707);
+    expect(fits(PAD_TIERS[2])).toBe(5641);
+  });
+});
+
+describe("takeover", () => {
   const identity = { installId: INSTALL_A, platform: "extension/chrome" };
 
   function guard(): InstallGuard {

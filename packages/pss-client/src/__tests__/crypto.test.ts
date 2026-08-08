@@ -9,9 +9,10 @@ import {
   HKDF_INFO_CELL_LABELS,
   HKDF_INFO_CELL_STATE,
   MAX_CIPHERTEXT_BYTES,
+  MAX_PLAINTEXT_BYTES,
   PAD_TIERS,
 } from "../wire/constants.js";
-import { putPreimage } from "../wire/preimage.js";
+import { deletePreimage, putPreimage } from "../wire/preimage.js";
 import {
   CryptoBackend,
   PssCryptoError,
@@ -409,6 +410,26 @@ describe("cell AEAD", () => {
     );
     expect(seen.size).toBe(4);
   });
+
+  // Distinctness alone is satisfied by ANY injective encoding, so it cannot see a reordering or a
+  // dropped length prefix. These pin the bytes. Reordering the associated data orphans every stored
+  // ciphertext: the AEAD open fails and the blob can never be read again.
+  it("emits the associated data byte for byte", () => {
+    expect(toHexRaw(cellAad("state", 7))).toBe(fixed.AAD_STATE_V7_HEX);
+    expect(toHexRaw(cellAad("labels", 7))).toBe(fixed.AAD_LABELS_V7_HEX);
+  });
+
+  it("emits the padding length header big-endian, ahead of the payload", () => {
+    const padded = pad(utf8(fixed.PUT_PAYLOAD));
+    expect(toHexRaw(padded.subarray(0, 8))).toBe(fixed.PAD_PREFIX_HEX);
+  });
+
+  // The tiers and the plaintext ceiling are declared independently in wire/constants.ts, so an edit to
+  // one silently desynchronises the server's body cap from the client's largest legal payload.
+  it("keeps the padding tiers and the plaintext ceiling frozen and in step", () => {
+    expect(PAD_TIERS).toEqual([16_384, 131_072, 1_048_576]);
+    expect(MAX_PLAINTEXT_BYTES).toBe(PAD_TIERS[PAD_TIERS.length - 1]);
+  });
 });
 
 describe("request signing", () => {
@@ -425,6 +446,18 @@ describe("request signing", () => {
       timestamp: fixed.PUT_TIMESTAMP,
     });
     expect(toHexRaw(preimage)).toBe(fixed.PUT_PREIMAGE_HEX);
+  });
+
+  // The only prior assertion over the DELETE preimage was that it differs from the PUT one, which any
+  // change to its prefix, field order or widths still satisfies.
+  it("reproduces the fixed-seed DELETE preimage byte for byte", async () => {
+    const keys = await deriveKeys(nobleBackend, kState);
+    const preimage = deletePreimage({
+      accountId: keys.accountId,
+      nonce: hex(fixed.DELETE_NONCE_HEX),
+      timestamp: fixed.PUT_TIMESTAMP,
+    });
+    expect(toHexRaw(preimage)).toBe(fixed.DELETE_PREIMAGE_HEX);
   });
 
   it.each(BACKENDS.map((b) => [b.name, b] as const))(

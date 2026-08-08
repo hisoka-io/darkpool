@@ -241,6 +241,30 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@24.12.2)
 
+  packages/pss-integration:
+    devDependencies:
+      '@hisoka/pss-client':
+        specifier: workspace:*
+        version: link:../pss-client
+      '@hisoka/pss-server':
+        specifier: workspace:*
+        version: link:../pss-server
+      '@hisoka/wallets':
+        specifier: workspace:*
+        version: link:../wallets
+      '@noble/hashes':
+        specifier: 1.8.0
+        version: 1.8.0
+      '@types/node':
+        specifier: ^24.10.0
+        version: 24.12.2
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@24.12.2)
+
   packages/pss-server:
     dependencies:
       '@hisoka/pss-client':

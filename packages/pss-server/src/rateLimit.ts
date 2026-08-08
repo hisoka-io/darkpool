@@ -24,9 +24,10 @@ interface Bucket {
 // The map is capped because an accountId costs an attacker one keypair: it is SHA256 of a public key
 // they choose, with no registration step, so every signature-valid request can name a fresh account.
 // Eviction is least-recently-used and carries no timestamp off this process, so bounding memory does
-// not reintroduce the (accountId, instant) record the design forbids. A full bucket is indistinguishable
-// from an absent one, so evicting the least recently used entry can only ever restore burst allowance
-// to an account that was already near it.
+// not reintroduce the (accountId, instant) record the design forbids. Eviction does hand an evicted
+// account a fresh full burst, so it is a limit on memory rather than on throughput; that costs nothing,
+// because an attacker who can evict entries can mint new account ids instead and buy the same writes
+// without the detour.
 class TokenBucketLimiter implements RateLimiter {
   readonly #buckets = new Map<string, Bucket>();
   readonly #refillPerMs: number;
