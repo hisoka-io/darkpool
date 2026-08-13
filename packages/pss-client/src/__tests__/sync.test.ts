@@ -19,7 +19,11 @@ import {
   payloadKey,
 } from "../state/index.js";
 import { fromBase64, toHexRaw } from "../wire/codec.js";
-import { MAX_CIPHERTEXT_BYTES, PSS_STATUS } from "../wire/index.js";
+import {
+  MAX_CIPHERTEXT_BYTES,
+  PSS_SCHEMA_VERSION,
+  PSS_STATUS,
+} from "../wire/index.js";
 import { PssError, PssProtocolError } from "../wire/errors.js";
 import { parseGetBlobResponse } from "../wire/types.js";
 import { ParsedStatePayload, UnspentNote } from "../wire/payload.js";
@@ -436,7 +440,7 @@ describe("the stamped-payload brand", () => {
     // and the directive below becomes an unused-expect-error, which is itself an error.
     // @ts-expect-error a payload that never passed the guard is not a StampedPayload
     const stamped: StampedPayload = unstamped;
-    expect(stamped.known.schema).toBe(1);
+    expect(stamped.known.schema).toBe(PSS_SCHEMA_VERSION);
   });
 });
 
@@ -691,6 +695,7 @@ describe("spent-note prune", () => {
       unspentNotes: [...notes],
       syncCursor: { block: 0, logIndex: 0 },
       nullifierCheckedAt: { block: 100 },
+      ephemeralCounters: {},
     },
     extra: {},
   });

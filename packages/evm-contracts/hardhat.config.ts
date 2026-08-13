@@ -49,7 +49,9 @@ task("test:fast", "Runs core logic tests (no fork)")
     const dirs = [
       "test/adversarial",
       "test/behaviors",
+      "test/deploy",
       "test/integration",
+      "test/kage",
       "test/nox",
       "test/upgrade",
     ];

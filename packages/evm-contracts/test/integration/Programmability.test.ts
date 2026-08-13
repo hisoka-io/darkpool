@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
+import type { DerivedEph } from "@hisoka/wallets";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import {
   deployDarkPoolFixture,
@@ -26,7 +27,7 @@ describe("Integration: Note-type invariants (STANDARD notes)", function () {
   async function nonStandardNote(
     assetFr: Fr,
     overrides: Partial<NoteInput>,
-  ): Promise<{ note: NoteInput; eph: Fr }> {
+  ): Promise<{ note: NoteInput; eph: DerivedEph }> {
     const eph = evenYEphemeral(7n);
     const cek = deriveCek(eph, COMPLIANCE_PK);
     const psi = await computePsi(cek);

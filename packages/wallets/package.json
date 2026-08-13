@@ -39,7 +39,8 @@
     "build": "tsup",
     "test": "vitest run",
     "lint": "eslint 'src/**/*.ts'",
-    "lint:fix": "eslint 'src/**/*.ts' --fix"
+    "lint:fix": "eslint 'src/**/*.ts' --fix",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "author": "hisoka-io",
   "license": "Apache-2.0",

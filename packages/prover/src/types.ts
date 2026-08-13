@@ -1,3 +1,4 @@
+import type { DerivedEph } from "@hisoka/wallets";
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
 
@@ -15,7 +16,7 @@ export interface NoteInput {
 export interface DepositInputs {
   compliancePk: Point<bigint>;
   note: NoteInput;
-  eph: Fr;
+  eph: DerivedEph;
 }
 
 export interface WithdrawInputs {
@@ -30,7 +31,7 @@ export interface WithdrawInputs {
   oldNotePath: Fr[];
 
   changeNote: NoteInput;
-  changeEph: Fr;
+  changeEph: DerivedEph;
 }
 
 // gpk's scalar is t-of-n shared and cannot ECDH, so viewPub carries discovery and decryption.
@@ -53,7 +54,7 @@ export interface TransferInputs {
   memoEph: Fr;
 
   changeNote: NoteInput;
-  changeEph: Fr;
+  changeEph: DerivedEph;
 }
 
 export interface SplitInputs {
@@ -65,10 +66,10 @@ export interface SplitInputs {
   pathIn: Fr[];
 
   noteOut1: NoteInput;
-  eph1: Fr;
+  eph1: DerivedEph;
 
   noteOut2: NoteInput;
-  eph2: Fr;
+  eph2: DerivedEph;
 }
 
 export interface JoinInputs {
@@ -85,7 +86,7 @@ export interface JoinInputs {
   pathB: Fr[];
 
   noteOut: NoteInput;
-  ephOut: Fr;
+  ephOut: DerivedEph;
 }
 
 export interface PublicClaimInputs {
@@ -102,7 +103,7 @@ export interface PublicClaimInputs {
 
   recipientSk: Fr;
   noteOut: NoteInput;
-  eph: Fr;
+  eph: DerivedEph;
 }
 
 export interface ProofData {
@@ -120,10 +121,10 @@ export interface SwapIntentInputs {
   pathIn: Fr[];
 
   changeNote: NoteInput;
-  changeEph: Fr;
+  changeEph: DerivedEph;
 
   receivedNote: NoteInput;
-  receivedEph: Fr;
+  receivedEph: DerivedEph;
 
   toAsset: Fr;
   fromAmount: Fr;
@@ -151,8 +152,8 @@ export interface SwapSettleInputs {
   makerPath: Fr[];
 
   makerReceived: NoteInput;
-  makerReceivedEph: Fr;
+  makerReceivedEph: DerivedEph;
 
   makerChange: NoteInput;
-  makerChangeEph: Fr;
+  makerChangeEph: DerivedEph;
 }

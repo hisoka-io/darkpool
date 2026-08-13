@@ -57,6 +57,28 @@ function mergeUnspentNotes(inputs: readonly MergeInput[]): UnspentNote[] {
   return [...byLeaf.values()].sort((a, b) => a.leafIndex - b.leafIndex);
 }
 
+/**
+ * Per-key max over the UNION of every input's scopes.
+ *
+ * Union, not intersection, and this is the load-bearing part: a scope present in only one input must
+ * survive. Dropping it rewinds that counter to 0, and the next reserve() reissues indices that were
+ * already used, which reuses the CEK and two-time-pads the note DEM. That is the exact failure this
+ * whole field exists to prevent, so an intersection here would be worse than having no field at all.
+ */
+function mergeEphemeralCounters(
+  inputs: readonly MergeInput[],
+): Record<string, number> {
+  const merged: Record<string, number> = {};
+  for (const input of inputs) {
+    for (const [scope, high] of Object.entries(
+      input.payload.known.ephemeralCounters,
+    )) {
+      merged[scope] = Math.max(merged[scope] ?? 0, high);
+    }
+  }
+  return merged;
+}
+
 function newest(inputs: readonly MergeInput[]): MergeInput {
   return inputs.reduce((best, input) =>
     input.payload.known.updatedAt > best.payload.known.updatedAt ? input : best,
@@ -109,6 +131,7 @@ export function mergeStatePayloads(
       unspentNotes: mergeUnspentNotes(inputs),
       syncCursor: cursor,
       nullifierCheckedAt: checkedAt,
+      ephemeralCounters: mergeEphemeralCounters(inputs),
     },
     extra,
   };

@@ -83,13 +83,15 @@ jobs:
         run: pnpm turbo run build --filter=@hisoka/wallets --filter=@hisoka/adaptors --filter=@hisoka/prover --filter=@hisoka/pss-client --filter=@hisoka/pss-server
       - name: Typecheck TS packages
         run: |
-          out="$(pnpm turbo run typecheck --filter=@hisoka/pss-client --filter=@hisoka/pss-server --filter=@hisoka/pss-integration --force 2>&1)" || rc=$?
+          out="$(pnpm turbo run typecheck --filter=@hisoka/pss-client --filter=@hisoka/pss-server --filter=@hisoka/pss-integration --filter=@hisoka/wallets --force 2>&1)" || rc=$?
           echo "$out"
           test "${rc:-0}" -eq 0 || { echo "::error::typecheck exited ${rc}"; exit 1; }
-          # turbo exits 0 when a package lacks the task, so assert the measured count instead. Three
-          # typecheck tasks plus the three builds their ^build dependency pulls in.
-          echo "$out" | grep -qE "Tasks: +6 successful, 6 total" \
-            || { echo "::error::expected 6 typecheck tasks; a filter or a package script is missing"; exit 1; }
+          # turbo exits 0 when a package lacks the task, so assert the measured count instead. Four
+          # typecheck tasks plus the builds their ^build dependency pulls in. The wallets entry covers
+          # its TESTS, which is the only enforcement of the derived-ephemeral brand pin: the package
+          # tsconfig excludes test files and vitest strips types.
+          echo "$out" | grep -qE "Tasks: +7 successful, 7 total" \
+            || { echo "::error::expected 7 typecheck tasks; a filter or a package script is missing"; exit 1; }
       - name: Test wallets
         run: pnpm --filter @hisoka/wallets run test
       - name: Test adaptors
@@ -105,8 +107,8 @@ jobs:
           # step is not evidence the suite ran. Assert a non-zero pass count.
           # Exact, not a wildcard: vitest prints "Tests N passed | M skipped" and exits 0, so a
           # partially skipped suite would satisfy a [0-9]+ match while covering less than it claims.
-          echo "$out" | grep -qE "Tests +191 passed \(191\)" \
-            || { echo "::error::pss-client did not report exactly 191 passing tests"; exit 1; }
+          echo "$out" | grep -qE "Tests +197 passed \(197\)" \
+            || { echo "::error::pss-client did not report exactly 197 passing tests"; exit 1; }
       - name: Test pss-server
         run: |
           out="$(pnpm --filter @hisoka/pss-server run test 2>&1)" || rc=$?
@@ -122,8 +124,8 @@ jobs:
           out="$(pnpm turbo run test --filter=@hisoka/pss-integration --force 2>&1)" || rc=$?
           echo "$out"
           test "${rc:-0}" -eq 0 || { echo "::error::pss-integration tests exited ${rc}"; exit 1; }
-          echo "$out" | grep -qE "Tests +12 passed \(12\)" \
-            || { echo "::error::pss-integration did not report exactly 12 passing tests"; exit 1; }
+          echo "$out" | grep -qE "Tests +17 passed \(17\)" \
+            || { echo "::error::pss-integration did not report exactly 17 passing tests"; exit 1; }
           echo "$out" | grep -qE "Tasks: +4 successful, 4 total" \
             || { echo "::error::expected 4 turbo tasks; a build dependency is missing"; exit 1; }
 
@@ -271,4 +273,3 @@ jobs:
           node-version: "20"
       - name: Dependency audit (prod deps, high severity)
         run: pnpm audit --prod --audit-level high || true
-

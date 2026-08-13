@@ -1,4 +1,4 @@
-export const PSS_SCHEMA_VERSION = 1;
+export const PSS_SCHEMA_VERSION = 2;
 
 export const STATE_KEY_BYTES = 32;
 export const DERIVED_KEY_BYTES = 32;

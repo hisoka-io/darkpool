@@ -1,4 +1,5 @@
 import { Fr } from "@aztec/foundation/fields";
+import type { DerivedEph } from "../types/ephemeral.js";
 import { Mnemonic, Signature } from "ethers";
 import { Point } from "@zk-kit/baby-jubjub";
 import { Kdf } from "../crypto/Kdf.js";
@@ -96,7 +97,7 @@ export class DarkAccount implements IDarkAccount {
     return publicKey(await this.getPublicIncomingKey(index));
   }
 
-  public async getSelfEphemeral(index: bigint): Promise<Fr> {
+  public async getSelfEphemeral(index: bigint): Promise<DerivedEph> {
     return deriveSelfEphemeral(await this.getViewKey(), index);
   }
 

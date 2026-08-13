@@ -1,4 +1,5 @@
 import { Fr } from "@aztec/foundation/fields";
+import type { DerivedEph } from "./types/ephemeral.js";
 import { Point } from "@zk-kit/baby-jubjub";
 import { WalletNote } from "./state/types.js";
 
@@ -12,7 +13,7 @@ export interface KeyRepoState {
 }
 
 export interface SelfEphemeral {
-  eph: Fr;
+  eph: DerivedEph;
   ephPub: Point<bigint>;
   index: number;
 }

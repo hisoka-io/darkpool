@@ -25,6 +25,7 @@ import {
   LeanIMT,
   Poseidon,
 } from "@hisoka/wallets";
+import type { DerivedEph } from "@hisoka/wallets";
 import { Base8, mulPointEscalar, Point, subOrder } from "@zk-kit/baby-jubjub";
 
 export const COMPLIANCE_SK = 987654321n;
@@ -61,7 +62,7 @@ const ZERO = toFr(0n);
 export interface BuiltNote {
   note: NoteInput;
   commitment: Fr;
-  eph: Fr;
+  eph: DerivedEph;
   ephPub: Point<bigint>;
   cek: Fr;
   psi: Fr;
@@ -71,12 +72,20 @@ export interface BuiltNote {
   cekWrap?: Fr;
 }
 
-/** Next even-y BabyJubJub subgroup scalar at or after `seed`: the tag eph_pub.x is only injective when y is even. */
-export function evenYEphemeral(seed: bigint): Fr {
+/**
+ * Next even-y BabyJubJub subgroup scalar at or after `seed`: the tag eph_pub.x is only injective when y is
+ * even.
+ *
+ * Returns `DerivedEph` because on-chain tests construct ephemerals from a seed rather than from a wallet
+ * key schedule. This is THE test-fixture boundary and the only place that assertion is made: production
+ * code must obtain a self-family ephemeral from the counter-backed derivation, because the discovery tag
+ * is the ephemeral's own public x and a sampled scalar yields a note no scanner can find.
+ */
+export function evenYEphemeral(seed: bigint): DerivedEph {
   let s = ((seed % subOrder) + subOrder) % subOrder;
   if (s === 0n) s = 1n;
   for (let i = 0n; i < subOrder; i++) {
-    if (isEvenY(mulPointEscalar(Base8, s))) return new Fr(s);
+    if (isEvenY(mulPointEscalar(Base8, s))) return new Fr(s) as DerivedEph;
     s += 1n;
     if (s >= subOrder) s = 1n;
   }
@@ -86,7 +95,7 @@ export function evenYEphemeral(seed: bigint): Fr {
 export function subgroupScalar(seed: bigint): Fr {
   let s = ((seed % subOrder) + subOrder) % subOrder;
   if (s === 0n) s = 1n;
-  return new Fr(s);
+  return new Fr(s) as DerivedEph;
 }
 
 /** Deterministic per-user spend scalar so a test deposit stays spendable: owner == Poseidon2(scalar*Base8). */
@@ -97,7 +106,7 @@ export async function userSpendScalar(address: string): Promise<Fr> {
 }
 
 async function finishNote(
-  eph: Fr,
+  eph: DerivedEph,
   value: bigint,
   owner: Fr,
   assetFr: Fr,
@@ -131,7 +140,7 @@ async function finishNote(
   return {
     note,
     commitment,
-    eph,
+    eph: eph as DerivedEph,
     ephPub,
     cek,
     psi,
@@ -141,14 +150,22 @@ async function finishNote(
 }
 
 export async function mintSelfNote(
-  eph: Fr,
+  eph: DerivedEph,
   value: bigint,
   spendScalar: Fr,
   assetFr: Fr,
   parents: Fr = ZERO,
 ): Promise<BuiltNote> {
   const owner = await pubkeyOwner(publicKey(spendScalar));
-  return finishNote(eph, value, owner, assetFr, spendScalar, parents);
+  // Memo ephemerals are legitimately random: cek_wrap travels and the tag is the recipient key.
+  return finishNote(
+    eph as DerivedEph,
+    value,
+    owner,
+    assetFr,
+    spendScalar,
+    parents,
+  );
 }
 
 export async function mintIncomingNote(
@@ -160,7 +177,15 @@ export async function mintIncomingNote(
   parents: Fr = ZERO,
 ): Promise<BuiltNote> {
   const owner = await pubkeyOwner(inPub);
-  const built = await finishNote(eph, value, owner, assetFr, inKey, parents);
+  // Memo ephemeral: legitimately random, cek_wrap travels and the tag is the recipient key.
+  const built = await finishNote(
+    eph as DerivedEph,
+    value,
+    owner,
+    assetFr,
+    inKey,
+    parents,
+  );
   built.inPub = inPub;
   built.cekWrap = await wrapCek(built.cek, eph, inPub);
   built.tag = new Fr(inPub[0]);
@@ -204,7 +229,7 @@ export async function mintIncomingMultisigNote(
       parents,
     },
     commitment,
-    eph,
+    eph: eph as DerivedEph,
     ephPub,
     cek,
     psi,
@@ -362,7 +387,7 @@ export async function makeDeposit(
   token: MockERC20,
   user: ContractRunner & { address: string },
   amount: bigint,
-  eph?: Fr,
+  eph?: DerivedEph,
 ) {
   const assetFr = addressToFr(await token.getAddress());
   const spendScalar = await userSpendScalar(user.address);

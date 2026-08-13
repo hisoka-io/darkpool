@@ -2,6 +2,8 @@ import { PSS_SCHEMA_VERSION, PLATFORM_MAX_CHARS } from "../wire/constants.js";
 import {
   AMOUNT_SHAPE,
   ASSET_ID_SHAPE,
+  COUNTER_SCOPE_SHAPE,
+  MAX_COUNTER_SCOPES,
   INSTALL_ID_SHAPE,
   IssuedAddress,
   MAX_NOTE_AMOUNT,
@@ -92,6 +94,33 @@ function platform(value: unknown): string {
   return value;
 }
 
+/**
+ * Attacker-controlled: the server chooses this whole object. A bad key is a scope a future reserve()
+ * could collide with, and a bad value is a high-water that could regress and reissue an index, so the
+ * key shape, the value bound and the entry count are all checked rather than trusted.
+ *
+ * Absent is legal and means an empty map: a v1 payload has no such field, and a client that threw on it
+ * could never read the state it wrote before upgrading.
+ */
+function parseEphemeralCounters(value: unknown): Record<string, number> {
+  if (value === undefined || value === null) return {};
+  const raw = record(value, "ephemeralCounters");
+  const entries = Object.entries(raw);
+  if (entries.length > MAX_COUNTER_SCOPES) {
+    throw new PssStateError(
+      `ephemeralCounters carries ${entries.length} scopes, above the ${MAX_COUNTER_SCOPES} cap`,
+    );
+  }
+  const counters: Record<string, number> = {};
+  for (const [scope, high] of entries) {
+    if (!COUNTER_SCOPE_SHAPE.test(scope)) {
+      throw new PssStateError(`ephemeralCounters scope is malformed: ${scope}`);
+    }
+    counters[scope] = count(high, `ephemeralCounters[${scope}]`);
+  }
+  return counters;
+}
+
 export function parseStatePayload(value: unknown): ParsedStatePayload {
   const raw = record(value, "payload");
   const schema = count(raw.schema, "schema");
@@ -114,6 +143,7 @@ export function parseStatePayload(value: unknown): ParsedStatePayload {
     unspentNotes: array(raw.unspentNotes, "unspentNotes").map(parseUnspentNote),
     syncCursor: parseSyncCursor(raw.syncCursor),
     nullifierCheckedAt: parseCheckpoint(raw.nullifierCheckedAt),
+    ephemeralCounters: parseEphemeralCounters(raw.ephemeralCounters),
   };
   const extra: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(raw)) {
@@ -157,6 +187,7 @@ export function emptyStatePayload(
       unspentNotes: [],
       syncCursor: { block: 0, logIndex: 0 },
       nullifierCheckedAt: { block: 0 },
+      ephemeralCounters: {},
     },
     extra: {},
   };

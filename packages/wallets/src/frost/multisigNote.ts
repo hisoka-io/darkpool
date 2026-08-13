@@ -1,7 +1,9 @@
 // owner=Poseidon2(gpk) is DECOUPLED from the view key V=v*Base8. Discovery tags are point.x, so V and every eph_pub must be even-y.
 
 import { Fr } from "@aztec/foundation/fields";
-import { Point, scalarBaseMul, randScalar } from "../tss/bjj.js";
+import { Point, scalarBaseMul } from "../tss/bjj.js";
+import type { EphemeralCounterStore } from "../state/EphemeralCounterStore.js";
+import { type DerivedEph, asDerivedEph } from "../types/ephemeral.js";
 import { deriveCek, wrapCek, unwrapCek } from "../crypto/kem.js";
 import { Kdf } from "../crypto/Kdf.js";
 import { toBjjScalar } from "../crypto/index.js";
@@ -17,6 +19,37 @@ const SELF_EPH_LABEL = "hisoka.msSelfEph";
 const IN_KEY_LABEL = "hisoka.msInKey";
 
 const MAX_INDEX_ROLL = 256n;
+
+/**
+ * The counter scope for a member's self-family indices.
+ *
+ * Keyed on a commitment to the VIEW SECRET, not on the owner commitment, because the ephemeral family
+ * is a pure function of (v, memberId, j). Keying it on the group's signing key would reset the counter
+ * whenever gpk rotates while v survives, reissuing indices against an unchanged family and two-time-
+ * padding the DEM. A commitment rather than v itself, because a scope string reaches a durable store.
+ */
+async function depositScope(v: Fr, memberId: bigint): Promise<string> {
+  return `msSelf:${(await Poseidon.hash([v])).toString()}:${memberId}`;
+}
+
+declare const selfMintBrand: unique symbol;
+
+/**
+ * The witness a self-family mint must carry: the derived scalar plus the index it came from.
+ *
+ * Branded as well as typed, so it cannot be assembled structurally. `canonicalMultisigSelfTag` is on the
+ * public barrel and derives from a caller-chosen index with no counter, so without this brand a caller
+ * could widen its result into a mint witness and reach the two-time-pad the counter exists to prevent.
+ * `multisigDepositEph` is the only producer, and it is the only path that reserves an index.
+ */
+export interface MultisigSelfMint {
+  readonly eph: DerivedEph;
+  readonly ephPub: Point;
+  readonly tag: Fr;
+  readonly j: bigint;
+  readonly memberId: bigint;
+  readonly [selfMintBrand]: true;
+}
 
 export interface MultisigAddress {
   ownerCommitment: Fr;
@@ -113,14 +146,14 @@ export async function deriveSelfEph(
   v: Fr,
   memberId: bigint,
   j: bigint,
-): Promise<{ eph: Fr; ephPub: Point }> {
+): Promise<{ eph: DerivedEph; ephPub: Point }> {
   const salt = await memberSalt(memberId, j);
   const eph = toBjjScalar(await Kdf.derive(SELF_EPH_LABEL, v, salt));
-  return { eph, ephPub: scalarBaseMul(eph.toBigInt()) };
+  return { eph: asDerivedEph(eph), ephPub: scalarBaseMul(eph.toBigInt()) };
 }
 
 export interface CanonicalMultisigSelfTag {
-  eph: Fr;
+  eph: DerivedEph;
   ephPub: Point;
   j: bigint;
   tag: Fr;
@@ -147,10 +180,33 @@ export interface SelfMultisigNote {
   tag: Fr;
   ephPub: Point;
 }
-export function buildSelfNote(eph: Fr, compliancePk: Point): SelfMultisigNote {
-  const cek = deriveCek(eph, compliancePk);
-  const ephPub = scalarBaseMul(eph.toBigInt());
-  return { cek, tag: new Fr(ephPub[0]), ephPub };
+
+/**
+ * Builds the self-family note key material from a mint witness.
+ *
+ * It takes the witness rather than a bare scalar because the tag it emits is the ephemeral's own public
+ * x: a scalar that was sampled instead of derived yields a tag no scanner registers, and the note is
+ * then invisible and unspendable with no error raised anywhere.
+ */
+export function buildSelfNote(
+  mint: MultisigSelfMint,
+  compliancePk: Point,
+): SelfMultisigNote {
+  // Recomputed rather than trusted. The witness carries three fields that must agree, and taking them
+  // on faith would let a caller assemble a note whose advertised tag is not the tag its scalar produces,
+  // which is the same undiscoverable outcome by a different route.
+  const ephPub = scalarBaseMul(mint.eph.toBigInt());
+  if (ephPub[0] !== mint.ephPub[0] || ephPub[1] !== mint.ephPub[1]) {
+    throw new Error(
+      "multisig self mint witness is inconsistent: eph_pub does not match the ephemeral scalar",
+    );
+  }
+  if (!mint.tag.equals(new Fr(ephPub[0]))) {
+    throw new Error(
+      "multisig self mint witness is inconsistent: tag is not eph_pub.x",
+    );
+  }
+  return { cek: deriveCek(mint.eph, compliancePk), tag: mint.tag, ephPub };
 }
 
 export async function memberReadSelf(
@@ -163,15 +219,46 @@ export async function memberReadSelf(
   return deriveCek(eph, compliancePk);
 }
 
-export async function freshMultisigDepositEph(): Promise<{
-  eph: Fr;
-  ephPub: Point;
-  tag: Fr;
-}> {
+/**
+ * Reserves a durable index and derives the self-family ephemeral for a group deposit or change output.
+ *
+ * The index comes from the counter store rather than from randomness, and it is reserved before it is
+ * handed out: a crash skips indices but can never reissue one, because a reissued index reuses the CEK
+ * and two-time-pads the DEM keystream, which publicly links both notes to one wallet.
+ *
+ * It reuses the one self-tag family, so every tag it can produce is a tag the group's own scanner
+ * registers. A second family here would mint notes the scanner cannot see, which is the defect this
+ * replaces.
+ */
+export async function multisigDepositEph(
+  v: Fr,
+  memberId: bigint,
+  counters: EphemeralCounterStore,
+): Promise<MultisigSelfMint> {
+  const scope = await depositScope(v, memberId);
   for (let attempt = 0n; attempt < MAX_INDEX_ROLL; attempt++) {
-    const eph = toBjjScalar(new Fr(randScalar()));
-    const ephPub = scalarBaseMul(eph.toBigInt());
-    if (isEvenY(ephPub)) return { eph, ephPub, tag: new Fr(ephPub[0]) };
+    const reservation = await counters.reserve(scope, 1);
+    const j = BigInt(reservation.base);
+    const { eph, ephPub } = await deriveSelfEph(v, memberId, j);
+    if (!isEvenY(ephPub)) {
+      // Burned deliberately, NOT released. `release` rewinds the high-water to the same base, and the
+      // derivation is a pure function of (v, memberId, j), so a released index is re-derived identically
+      // on the next attempt and the mint could never move past an odd-y index. Abandoning it costs one
+      // index and means the roll always walks forward. The 256-attempt cap below is an escape hatch
+      // against a structurally broken derivation issuing one durable write per iteration forever; a
+      // healthy derivation cannot reach it, since that needs 256 consecutive odd-y indices.
+      continue;
+    }
+    await reservation.commit(reservation.base);
+    return {
+      eph,
+      ephPub,
+      tag: new Fr(ephPub[0]),
+      j,
+      memberId,
+    } as MultisigSelfMint;
   }
-  throw new Error("multisig: no even-y fresh deposit ephemeral sampled");
+  throw new Error(
+    `multisig: no even-y self ephemeral within ${MAX_INDEX_ROLL} reservations for member ${memberId}`,
+  );
 }

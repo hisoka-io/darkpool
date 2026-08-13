@@ -20,8 +20,6 @@ const MAX_INDEX_ROLL = 256;
 const MAX_KEY_INDEX = 1_000_000;
 
 const SELF_EPH_SCOPE = "self";
-// Reserve the whole roll durably up front; a crash skips (harmless) but can never reuse (two-time-pad).
-const SELF_EPH_ROLL_MARGIN = MAX_INDEX_ROLL;
 
 function clampIndex(value: number, floor: number): number {
   if (!Number.isFinite(value)) return floor;
@@ -60,13 +58,17 @@ export class KeyRepository implements IKeyRepository {
     return this.account.getSelfSpendPub();
   }
 
+  // One index reserved per attempt, and an odd-y index is abandoned rather than released: `release`
+  // rewinds the high-water to the same base, and the derivation is pure in the index, so a released
+  // index is re-derived identically forever. Abandoning burns exactly one index per attempt, which
+  // bounds what a crash between reserve and commit can skip to one and means the roll always walks
+  // forward. The attempt cap is an escape hatch against a structurally broken derivation issuing one
+  // durable write per iteration forever, unreachable by a healthy one at 256 consecutive odd-y indices.
   public nextSelfEphemeral(): Promise<SelfEphemeral> {
     return this.#withLock(async () => {
-      const res = await this.counter.reserve(
-        SELF_EPH_SCOPE,
-        SELF_EPH_ROLL_MARGIN,
-      );
-      for (let index = res.base; index < res.base + res.span; index++) {
+      for (let attempt = 0; attempt < MAX_INDEX_ROLL; attempt++) {
+        const res = await this.counter.reserve(SELF_EPH_SCOPE, 1);
+        const index = res.base;
         const eph = await this.account.getSelfEphemeral(BigInt(index));
         const ephPub = publicKey(eph);
         if (!isEvenY(ephPub)) continue;
@@ -76,9 +78,8 @@ export class KeyRepository implements IKeyRepository {
         if (this.#selfScanIndex < index + 1) this.#selfScanIndex = index + 1;
         return { eph, ephPub, index };
       }
-      await res.release();
       throw new Error(
-        `no even-y self ephemeral within ${res.span} indices from ${res.base}`,
+        `no even-y self ephemeral within ${MAX_INDEX_ROLL} reservations`,
       );
     });
   }

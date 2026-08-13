@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // Tests are run by vitest, which resolves through esbuild, so they use extensionless relative
+    // imports throughout. Typechecking them under node16 resolution would report that style rather than
+    // the type errors this exists to catch.
+    "moduleResolution": "bundler",
+    "module": "esnext"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -202,16 +202,19 @@ describe("buildPublicTransfer (MetaMask-only sender)", () => {
     ["outside the prime-order subgroup", ORDER_TWO_POINT],
     ["off the curve", OFF_CURVE_POINT],
     ["the identity", IDENTITY_POINT],
-  ])("refuses a recipient point %s", async (_label, ownerPub) => {
-    await expect(
-      buildPublicTransfer({
-        darkPool: DARKPOOL,
-        recipient: { ownerPub, index: 0n },
-        asset: TOKEN,
-        value: VALUE,
-      }),
-    ).rejects.toThrow(PublicMemoError);
-  });
+  ])(
+    "refuses a recipient point %s",
+    async (_label: string, ownerPub: Point<bigint>) => {
+      await expect(
+        buildPublicTransfer({
+          darkPool: DARKPOOL,
+          recipient: { ownerPub, index: 0n },
+          asset: TOKEN,
+          value: VALUE,
+        }),
+      ).rejects.toThrow(PublicMemoError);
+    },
+  );
 
   it("refuses a private hiso_ address, which would deanonymize its private payments", async () => {
     const priv = encodeHisokaAddress({
@@ -232,32 +235,38 @@ describe("buildPublicTransfer (MetaMask-only sender)", () => {
     ["a zero value", { value: 0n }],
     ["a value above u128", { value: 1n << 128n }],
     ["a timelock above u64", { timelock: 1n << 64n }],
-  ])("refuses %s the contract would reject", async (_label, overrides) => {
-    await expect(
-      buildPublicTransfer({
-        darkPool: DARKPOOL,
-        recipient: address,
-        asset: TOKEN,
-        value: VALUE,
-        ...overrides,
-      }),
-    ).rejects.toThrow(PublicMemoError);
-  });
+  ])(
+    "refuses %s the contract would reject",
+    async (_label: string, overrides: Record<string, unknown>) => {
+      await expect(
+        buildPublicTransfer({
+          darkPool: DARKPOOL,
+          recipient: address,
+          asset: TOKEN,
+          value: VALUE,
+          ...overrides,
+        }),
+      ).rejects.toThrow(PublicMemoError);
+    },
+  );
 
   it.each([
     ["asset", { asset: "0xnot-an-address" }],
     ["darkPool", { darkPool: "0x00" }],
-  ])("refuses a malformed %s address", async (_label, overrides) => {
-    await expect(
-      buildPublicTransfer({
-        darkPool: DARKPOOL,
-        recipient: address,
-        asset: TOKEN,
-        value: VALUE,
-        ...overrides,
-      }),
-    ).rejects.toThrow(PublicMemoError);
-  });
+  ])(
+    "refuses a malformed %s address",
+    async (_label: string, overrides: Record<string, unknown>) => {
+      await expect(
+        buildPublicTransfer({
+          darkPool: DARKPOOL,
+          recipient: address,
+          asset: TOKEN,
+          value: VALUE,
+          ...overrides,
+        }),
+      ).rejects.toThrow(PublicMemoError);
+    },
+  );
 
   it("refuses the zero asset address", async () => {
     await expect(

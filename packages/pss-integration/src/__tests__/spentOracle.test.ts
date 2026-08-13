@@ -143,6 +143,7 @@ function payload(notes: readonly UnspentNote[]): ParsedStatePayload {
       unspentNotes: [...notes],
       syncCursor: { block: 0, logIndex: 0 },
       nullifierCheckedAt: { block: 0 },
+      ephemeralCounters: {},
     },
     extra: {},
   };

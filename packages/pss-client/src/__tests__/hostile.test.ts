@@ -15,7 +15,7 @@ import {
 import { PssCryptoError } from "../crypto/backend.js";
 import { PssProtocolError } from "../wire/errors.js";
 import { toBase64, toHexRaw, utf8 } from "../wire/codec.js";
-import { MAX_CIPHERTEXT_BYTES } from "../wire/constants.js";
+import { MAX_CIPHERTEXT_BYTES, PSS_SCHEMA_VERSION } from "../wire/constants.js";
 import { GetBlobResponse } from "../wire/types.js";
 import { ParsedStatePayload } from "../wire/payload.js";
 import { MemoryPssStore } from "./memoryStore.js";
@@ -224,7 +224,9 @@ describe("attack 7: a payload from a newer schema", () => {
     const future = JSON.parse(
       serializeStatePayload(v.sync.current()),
     ) as Record<string, unknown>;
-    future.schema = 2;
+    // Relative to the current version, not a literal: a schema bump must not silently turn this
+    // attack into a legal payload.
+    future.schema = PSS_SCHEMA_VERSION + 1;
     const sealed = await sealCell(
       nobleBackend,
       v.keys.cellKey.state,

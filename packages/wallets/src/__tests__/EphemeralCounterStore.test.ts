@@ -111,4 +111,31 @@ describe("KeyRepository self-eph durability (WC-1)", () => {
     const b = await repo.nextSelfEphemeral();
     expect(b.index).toBeGreaterThan(a.index);
   });
+
+  // 1.7 mirror: the standard path had no coverage of the reservation mechanism at all.
+  //
+  // Reserving one index per attempt makes one durable reserve call per odd-y index crossed, plus one for
+  // the index actually used. The reverted span-reserve version makes exactly one call regardless, and
+  // asserting only the resulting index cannot tell them apart. Counting the calls can.
+  it("reserves one index per attempt, so an odd-y index is burned and never retried", async () => {
+    const account = await DarkAccount.fromMnemonic(MNEMONIC);
+    const inner = new InMemoryEphemeralCounterStore();
+    const spans: number[] = [];
+    const counting = {
+      reserve: (scope: string, span: number) => {
+        spans.push(span);
+        return inner.reserve(scope, span);
+      },
+      highWater: (scope: string) => inner.highWater(scope),
+    };
+
+    const mint = await new KeyRepository(account, counting).nextSelfEphemeral();
+
+    // Every reservation is exactly one index wide. A span wider than one is the reverted shape.
+    expect(spans.every((span) => span === 1)).toBe(true);
+    // One call per odd-y index crossed, plus the one committed.
+    expect(spans.length).toBe(mint.index + 1);
+    // The high-water sits past the index used, so nothing can reissue it.
+    expect(await inner.highWater("self")).toBe(mint.index + 1);
+  });
 });

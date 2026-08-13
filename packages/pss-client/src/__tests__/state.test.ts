@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { nobleBackend } from "../crypto/index.js";
 import { PAD_TIERS, PSS_SCHEMA_VERSION } from "../wire/constants.js";
-import { ParsedStatePayload, PssStatePayload } from "../wire/payload.js";
+import {
+  ParsedStatePayload,
+  PssStatePayload,
+  STATE_PAYLOAD_KNOWN_KEYS,
+} from "../wire/payload.js";
 import {
   InstallGuard,
   MergeInput,
@@ -53,6 +57,7 @@ function payload(
       unspentNotes: [],
       syncCursor: { block: 0, logIndex: 0 },
       nullifierCheckedAt: { block: 0 },
+      ephemeralCounters: {},
       ...overrides,
     },
     extra,
@@ -176,6 +181,94 @@ describe("payload serde", () => {
     expect(empty.known.schema).toBe(PSS_SCHEMA_VERSION);
     expect(empty.known.unspentNotes).toEqual([]);
     expect(decodeStatePayload(serializeStatePayload(empty))).toEqual(empty);
+  });
+});
+
+describe("ephemeral counters", () => {
+  const SELF = "self";
+  const GROUP_A = `msSelf:0x${"1".repeat(64)}:1`;
+  const GROUP_B = `msSelf:0x${"2".repeat(64)}:7`;
+
+  it("round trips the map through serialise and parse", () => {
+    const original = payload({
+      ephemeralCounters: { [SELF]: 41, [GROUP_A]: 9 },
+    });
+    expect(decodeStatePayload(serializeStatePayload(original))).toEqual(
+      original,
+    );
+  });
+
+  // The load-bearing property. A scope present in only ONE input must survive: dropping it rewinds that
+  // counter to 0 and the next reserve reissues indices already used, which reuses the CEK and
+  // two-time-pads the note DEM.
+  it("merges as a UNION, so a scope in only one input survives", () => {
+    const merged = mergeStatePayloads([
+      complete(payload({ ephemeralCounters: { [SELF]: 5, [GROUP_A]: 12 } })),
+      complete(payload({ ephemeralCounters: { [SELF]: 3, [GROUP_B]: 4 } })),
+    ]);
+    expect(Object.keys(merged.known.ephemeralCounters).sort()).toEqual(
+      [SELF, GROUP_A, GROUP_B].sort(),
+    );
+    expect(merged.known.ephemeralCounters[GROUP_A]).toBe(12);
+    expect(merged.known.ephemeralCounters[GROUP_B]).toBe(4);
+  });
+
+  it("takes the per-key max, never the last writer", () => {
+    // The HIGHER value comes first in both array order and updatedAt order, so any last-writer rule,
+    // by position or by timestamp, yields 5 and regresses the counter.
+    const merged = mergeStatePayloads([
+      complete(payload({ updatedAt: 200, ephemeralCounters: { [SELF]: 90 } })),
+      complete(payload({ updatedAt: 300, ephemeralCounters: { [SELF]: 5 } })),
+    ]);
+    expect(merged.known.ephemeralCounters[SELF]).toBe(90);
+  });
+
+  it("refuses a malformed scope key, a bad value, and too many scopes", () => {
+    expect(() =>
+      parseStatePayload({
+        ...payload().known,
+        ephemeralCounters: { "../../etc": 1 },
+      }),
+    ).toThrow(PssStateError);
+    expect(() =>
+      parseStatePayload({
+        ...payload().known,
+        ephemeralCounters: { [SELF]: -1 },
+      }),
+    ).toThrow(PssStateError);
+    expect(() =>
+      parseStatePayload({
+        ...payload().known,
+        ephemeralCounters: { [SELF]: 1.5 },
+      }),
+    ).toThrow(PssStateError);
+    const many: Record<string, number> = {};
+    for (let i = 0; i < 65; i++) many[`msSelf:0x${"a".repeat(64)}:${i}`] = 1;
+    expect(() =>
+      parseStatePayload({ ...payload().known, ephemeralCounters: many }),
+    ).toThrow(PssStateError);
+  });
+
+  // Both directions of the schema gate.
+  it("reads a v1 payload as an empty map rather than throwing", () => {
+    const v1 = { ...payload().known, schema: 1 } as Record<string, unknown>;
+    delete v1.ephemeralCounters;
+    const parsed = parseStatePayload(v1);
+    expect(parsed.known.ephemeralCounters).toEqual({});
+    expect(parsed.extra).toEqual({});
+  });
+
+  it("keeps the field in extra when an older build reads it", () => {
+    // A v1 build does not list the key, so its parser files it into extra and carries it verbatim.
+    const v1KnownKeys = STATE_PAYLOAD_KNOWN_KEYS.filter(
+      (key) => key !== "ephemeralCounters",
+    );
+    const raw = { ...payload({ ephemeralCounters: { [SELF]: 7 } }).known };
+    const extra: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (!(v1KnownKeys as readonly string[]).includes(key)) extra[key] = value;
+    }
+    expect(extra).toEqual({ ephemeralCounters: { [SELF]: 7 } });
   });
 });
 
@@ -429,6 +522,7 @@ describe("payload capacity", () => {
       })),
       syncCursor: { block: 21_830_001, logIndex: 4 },
       nullifierCheckedAt: { block: 21_830_001 },
+      ephemeralCounters: {},
     },
     extra: {},
   });
@@ -441,7 +535,9 @@ describe("payload capacity", () => {
   it("costs about 185 bytes per note, not 105", () => {
     const marginal = bytes(101) - bytes(100);
     expect(marginal).toBe(185);
-    expect(bytes(0)).toBe(286);
+    // 309, not 286: the schema-2 counter carrier adds exactly `,"ephemeralCounters":{}` when empty.
+    // The per-note cost is unchanged, so the tier occupancies below are unchanged too.
+    expect(bytes(0)).toBe(309);
   });
 
   it("fits the note counts the capacity table claims", () => {

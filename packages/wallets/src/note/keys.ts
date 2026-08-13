@@ -1,4 +1,5 @@
 import { Fr } from "@aztec/foundation/fields";
+import { type DerivedEph, asDerivedEph } from "../types/ephemeral.js";
 import {
   Base8,
   inCurve,
@@ -46,8 +47,10 @@ export async function deriveIncomingKey(
 export async function deriveSelfEphemeral(
   sk_view: Fr,
   index: bigint,
-): Promise<Fr> {
-  return toBjjScalar(await Kdf.derive(SELF_EPH_LABEL, sk_view, toFr(index)));
+): Promise<DerivedEph> {
+  return asDerivedEph(
+    toBjjScalar(await Kdf.derive(SELF_EPH_LABEL, sk_view, toFr(index))),
+  );
 }
 
 export async function deriveSelfSpendKey(sk_view: Fr): Promise<Fr> {

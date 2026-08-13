@@ -1,4 +1,5 @@
 import { Fr } from "@aztec/foundation/fields";
+import type { DerivedEph } from "./types/ephemeral.js";
 import { Point } from "@zk-kit/baby-jubjub";
 import { CanonicalAddress, PublicIncomingAddress } from "./note/keys.js";
 
@@ -17,7 +18,7 @@ export interface IDarkAccount {
   getPublicIncomingKey(index: bigint): Promise<Fr>;
   getPublicIncomingPub(index: bigint): Promise<Point<bigint>>;
 
-  getSelfEphemeral(index: bigint): Promise<Fr>;
+  getSelfEphemeral(index: bigint): Promise<DerivedEph>;
   getSelfSpendKey(): Promise<Fr>;
   getSelfSpendPub(): Promise<Point<bigint>>;
 

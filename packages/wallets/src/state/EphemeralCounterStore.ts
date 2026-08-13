@@ -1,6 +1,34 @@
 // A reused index reuses the CEK => two-time-pad on the DEM keystream, so reserve() raises the durable
 // high-water before handing out an index: a crash skips indices but never reissues one.
 
+/**
+ * A reserved block of ephemeral indices, and the contract every backend must satisfy.
+ *
+ * The whole point is that an index is never handed out twice: a reissued index reuses the CEK and
+ * two-time-pads the note DEM keystream, which publicly links both notes to one wallet.
+ *
+ * - `reserve(scope, span)` MUST persist the advance BEFORE returning. On return, the durable high-water
+ *   is already `base + span`. A backend that returns first and writes later can reissue after a crash.
+ * - `commit(usedThrough)` trims the durable high-water to `usedThrough + 1`, giving back the unused
+ *   tail so indices stay dense. `usedThrough` must lie in `[base, base + span)`.
+ * - `release()` REWINDS the durable high-water to `base`, giving back the whole reservation.
+ *
+ * **`release()` MUST NOT be called on a path whose derivation is deterministic in the index.** Rewinding
+ * makes the next `reserve` return the same base, and a pure derivation then produces the identical
+ * ephemeral, so a caller that releases on a failed even-y roll re-derives the same failing index
+ * forever: the account can never mint again. Such a path must ABANDON the reservation instead, leaving
+ * the high-water advanced, which costs one index and always moves forward.
+ *
+ * Durability boundary, stated per gap:
+ * - crash between `reserve` and `commit`: the whole reserved span is burned. Never reissued.
+ * - crash between `commit` and the next `reserve`: the trim is durable, so the next base is
+ *   `usedThrough + 1`.
+ * - crash during `reserve` itself: either the advance is durable or the call rejected. A backend must
+ *   never leave a third state where an index was returned but not persisted.
+ *
+ * Both trims are conditional on the high-water still equalling `base + span`, so a concurrent
+ * reservation that already moved it is never clobbered.
+ */
 export interface EphemeralReservation {
   readonly base: number;
   readonly span: number;

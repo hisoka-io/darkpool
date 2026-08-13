@@ -118,7 +118,12 @@ async function buildLifecycleChain(): Promise<MockChain> {
   return chain;
 }
 
-function expectGraph(actual: SpendGraph, expected: SpendGraph): void {
+// Only the two fields the callers actually supply. `truncated` is asserted separately where it matters,
+// so requiring it here would force every call site to restate a value it does not exercise.
+function expectGraph(
+  actual: SpendGraph,
+  expected: Pick<SpendGraph, "nodes" | "edges">,
+): void {
   expect(actual.nodes).toEqual(expected.nodes);
   expect(actual.edges).toEqual(expected.edges);
 }
