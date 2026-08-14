@@ -100,6 +100,9 @@ importers:
       '@hisoka-io/nox-wasm':
         specifier: ^0.1.4
         version: 0.1.4
+      '@hisoka/howl-e2e':
+        specifier: workspace:*
+        version: link:../howl-e2e
       '@hisoka/prover':
         specifier: workspace:^
         version: link:../prover
@@ -184,6 +187,36 @@ importers:
       typescript:
         specifier: 5.9.2
         version: 5.9.2
+
+  packages/howl-e2e:
+    devDependencies:
+      '@aztec/foundation':
+        specifier: 2.1.11
+        version: 2.1.11
+      '@hisoka/prover':
+        specifier: workspace:*
+        version: link:../prover
+      '@hisoka/pss-client':
+        specifier: workspace:*
+        version: link:../pss-client
+      '@hisoka/wallets':
+        specifier: workspace:*
+        version: link:../wallets
+      '@types/node':
+        specifier: ^24.10.0
+        version: 24.12.2
+      '@zk-kit/baby-jubjub':
+        specifier: ^1.0.3
+        version: 1.0.3
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(postcss@8.5.10)(tsx@4.21.0)(typescript@5.9.2)(yaml@2.8.3)
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@24.12.2)
 
   packages/prover:
     dependencies:
