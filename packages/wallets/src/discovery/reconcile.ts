@@ -2,19 +2,13 @@ import { Fr } from "@aztec/foundation/fields";
 import type { EphemeralCounterStore } from "../state/EphemeralCounterStore.js";
 import type { DiscoverySource } from "./types.js";
 
-/**
- * The edge between what the CHAIN knows and what the durable counter knows.
- *
- * Discovery and index allocation are two separate state machines. A wallet can restore from a stale blob,
- * discover every note it owns, report a correct balance, and still hold a counter that has never heard of
- * them. The next mint then reuses an index that is already on chain, which reuses the CEK, which repeats
- * the DEM keystream AND publishes a byte-identical `ephemeralPK_x` in two events. The second half is the
- * expensive one: it links the two notes for any observer with an archive node and no cryptography at all.
- *
- * Everything here is MONOTONE FORWARD. A discovery answer may raise the counter and may never lower it,
- * because the discovery service lags the chain and is not trusted, so "I see nothing" carries no
- * information. Lowering on a not-found is how a recoverable gap becomes a reused index.
- */
+// Discovery and index allocation are separate state machines: a wallet can restore, discover every note it
+// owns, report a correct balance, and still hold a counter that never heard of them. Reusing an index
+// repeats the CEK and publishes a byte-identical `ephemeralPK_x` in two events, which links them for any
+// observer with no cryptography at all.
+//
+// MONOTONE FORWARD throughout. Raven lags the chain and is untrusted, so "I see nothing" carries no
+// information, and lowering on a not-found is how a recoverable gap becomes a reused index.
 
 /** A derived self tag paired with the index it came from, which is what makes reconciliation possible. */
 export interface IndexedTag {
@@ -22,13 +16,7 @@ export interface IndexedTag {
   readonly tag: Fr;
 }
 
-/**
- * Raises `scope` to `toExclusive` if it is behind, and returns the resulting high-water.
- *
- * Implemented with `reserve` and no matching commit, which is the store's existing ABANDON semantic: the
- * span is burned and can never be reissued. That is exactly right here, because every index being skipped
- * is one the chain has already seen.
- */
+/** `reserve` with no commit is the store's ABANDON semantic: the span is burned, which is what we want. */
 export async function ratchetCounter(
   store: EphemeralCounterStore,
   scope: string,
@@ -46,12 +34,8 @@ export async function ratchetCounter(
 }
 
 /**
- * Asks the discovery service which of these tags already have a row.
- *
- * The predicate is OCCUPANCY, not openability. A row that exists but does not open is still an index the
- * chain has consumed: it may be a note this wallet minted under a compliance key that has since rotated, or
- * a cuckoo probe collision. Treating "did not open" as "free" is how the check hands back an index that is
- * already spent.
+ * The predicate is OCCUPANCY, not openability. A row that exists but does not open is still a consumed
+ * index: possibly this wallet's own note under a rotated compliance key. "Did not open" is not "free".
  */
 export async function occupiedTags(
   source: DiscoverySource,
@@ -70,12 +54,9 @@ export async function occupiedTags(
 }
 
 /**
- * Probes a window of candidate indices and ratchets the counter past every one the chain has consumed.
- *
- * Call this after a restore and before the first mint. It is a LAGGING indicator, never an interlock: it
- * cannot see a transaction still in a relayer queue, a transaction in the mempool, or a second device that
- * has reserved but not yet broadcast. It shrinks the window in which a collision is possible; it does not
- * close it. Only a single writer closes it.
+ * Call after a restore and before the first mint. A LAGGING indicator, never an interlock: it cannot see a
+ * transaction in a relayer queue or a second device that reserved but has not broadcast. It shrinks the
+ * collision window; only a single writer closes it.
  */
 export async function reconcileCounterWithChain(
   source: DiscoverySource,

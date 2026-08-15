@@ -1,6 +1,8 @@
 // SIMULATED FROST multisig account ceremony. Builds all n shares + v in ONE process: TEST/DEV ONLY, MUST NOT ship.
 
 import { Fr } from "@aztec/foundation/fields";
+import { deriveGroupViewKey } from "../frost/groupViewKey.js";
+import type { DarkAccount } from "../keys/DarkAccount.js";
 import { Point, scalarBaseMul, modSub, randScalar } from "../tss/bjj.js";
 import { poseidon2 } from "../tss/hashToScalar.js";
 import { Poseidon } from "../crypto/Poseidon.js";
@@ -60,14 +62,27 @@ async function establishViewKey(
   );
 }
 
+/**
+ * @param creator when supplied, the group view key is DERIVED from that account and `gpk` rather than
+ * sampled, so the creator can recompute it from their seed alone. Omitting it keeps the contributory
+ * reveal round, which reproduces nothing and is retained only for the existing simulation call sites.
+ */
 export async function frostAccountDkg(
   n: number,
   t: number,
   context: bigint,
+  creator?: DarkAccount,
 ): Promise<FrostAccount> {
   const dkg: DkgResult = await runDkg(n, t, context);
   const participants = [...dkg.shares.keys()];
-  const { v, V } = await establishViewKey(participants);
+  // FrostAccount carries the view key as a bigint; the derived path returns an Fr, so narrow at the seam
+  // rather than widening a type that 18 simulation call sites depend on.
+  const { v, V } = creator
+    ? await deriveGroupViewKey(creator, dkg.C).then((k) => ({
+        v: k.v.toBigInt(),
+        V: k.V,
+      }))
+    : await establishViewKey(participants);
   const owner = await Poseidon.hash([new Fr(dkg.C[0]), new Fr(dkg.C[1])]);
   return {
     gpk: dkg.C,

@@ -11,13 +11,8 @@ import {
   type OccurrenceRequest,
 } from "@hisoka/wallets";
 
-/**
- * The two-round-trip sync a real wallet performs against a discovery service.
- *
- * The shape is the product claim: round 1 probes occurrence 0 for every candidate tag and learns how many
- * notes each tag holds; round 2 fetches the remainder in one padded batch. Total round trips is 2 no matter
- * how deep the history, which is what a trial-decrypt pool cannot do.
- */
+// Round 1 probes occurrence 0 for every candidate tag and learns each tag's count; round 2 fetches the
+// remainder in one padded batch. Two round trips regardless of history depth, which is the product claim.
 
 export interface TagCandidate {
   readonly tag: Fr;
@@ -37,23 +32,14 @@ export interface SyncResult {
   readonly notes: readonly DiscoveredNote[];
   /** Rows that came back but failed the local prefix check: probe misses and other people's notes. */
   readonly rejected: number;
-  /**
-   * Tags whose advertised occurrence count exceeded the cap and were fetched only up to it.
-   *
-   * Surfaced rather than thrown: throwing lets one hostile count wedge the whole sync, and silently
-   * truncating loses notes the wallet owns. The caller is told which tags are incomplete so it can escalate.
-   */
+  /** Surfaced, not thrown: throwing lets one hostile count wedge the sync, silence loses owned notes. */
   readonly truncatedTags: readonly string[];
 }
 
 /**
- * Opens a row, or rejects it.
- *
- * The acceptance rule is the LEAF and it cannot be supplied by the caller, because the obvious weaker check
- * is tautological: `reconstructCiphertext` builds ciphertext word 5 FROM the expected owner, so decrypting
- * it returns that owner for any row under any key. Comparing the recomputed 8-field commitment against the
- * prefix the server sent is the only check that can actually fail, which is why a probe carries a prefix at
- * all.
+ * The acceptance rule is the LEAF and is deliberately not caller-supplied: the obvious weaker check is
+ * TAUTOLOGICAL, because `reconstructCiphertext` builds ciphertext word 5 from the expected owner, so
+ * decrypting returns that owner for any row under any key. Only the recomputed commitment can fail.
  */
 async function open(
   candidate: TagCandidate,
@@ -115,8 +101,15 @@ export async function syncViaDiscovery(
     }
   }
 
-  // ROUND 2: every remaining occurrence, independent, one batch. There is never a round 3.
+  // ROUND 2. Results bind POSITIONALLY, which is the real contract: Raven keeps slots in request order and
+  // the client holds per-slot decode state, so a reordered response does not decode. A LENGTH mismatch is
+  // what that does not survive, since it would pair a record with the wrong tag.
   const rest = await source.fetchOccurrences(follow);
+  if (rest.length !== follow.length) {
+    throw new Error(
+      `discovery round 2 returned ${rest.length} rows for ${follow.length} requests`,
+    );
+  }
   for (let i = 0; i < rest.length; i++) {
     const record = rest[i];
     if (record === null) continue;
