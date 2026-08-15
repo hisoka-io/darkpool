@@ -96,3 +96,26 @@ describe("group view key derived from the creator's seed", () => {
     expect(publicKey(key.v)[1] % 2n).toBe(0n);
   });
 });
+
+describe("the ceremony uses the derived key when a creator is supplied", () => {
+  it("yields a group whose view key the creator can recompute from the seed alone", async () => {
+    const { frostAccountDkg } = await import("../unsafe-sim/accountDkg.js");
+    const creator = await DarkAccount.fromMnemonic(MNEMONIC);
+    const account = await frostAccountDkg(3, 2, 0x1234n, creator);
+
+    // Everything is gone except the mnemonic and the group's PUBLIC key.
+    const recovered = await deriveGroupViewKey(
+      await DarkAccount.fromMnemonic(MNEMONIC),
+      account.gpk,
+    );
+    expect(recovered.v.toBigInt()).toBe(account.viewKey);
+    expect(recovered.V[0]).toBe(account.viewPub[0]);
+  });
+
+  it("without a creator the key is sampled and no seed reproduces it", async () => {
+    const { frostAccountDkg } = await import("../unsafe-sim/accountDkg.js");
+    const a = await frostAccountDkg(3, 2, 0x1234n);
+    const b = await frostAccountDkg(3, 2, 0x1234n);
+    expect(a.viewKey).not.toBe(b.viewKey);
+  });
+});

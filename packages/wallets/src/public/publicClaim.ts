@@ -1,4 +1,7 @@
 import { Fr } from "@aztec/foundation/fields";
+import { acquireSelfEphemeral } from "../discovery/guardedMint.js";
+import type { DiscoverySource } from "../discovery/types.js";
+import type { EphemeralCounterStore } from "../state/EphemeralCounterStore.js";
 import { Point } from "@zk-kit/baby-jubjub";
 import { toFr } from "../crypto/fields.js";
 import { deriveCek } from "../crypto/kem.js";
@@ -75,10 +78,22 @@ export interface PublicClaimRequest {
   compliancePk: Point<bigint>;
   keys: SelfNoteKeys;
   currentTimestamp?: number;
+  /**
+   * Optional collision guard. Supplied, the ephemeral is acquired optimistically: the discovery probe is
+   * fired now and `confirm` on the result must be awaited immediately before broadcast, so proving is never
+   * blocked on a round trip. Omitted, the claim behaves exactly as before and carries no `confirm`.
+   */
+  guard?: {
+    source: DiscoverySource;
+    store: EphemeralCounterStore;
+    scope: string;
+  };
 }
 
 export interface AssembledPublicClaim {
   inputs: PublicClaimWitness;
+  /** Present only when `guard` was supplied. Await before broadcasting; see `acquireSelfEphemeral`. */
+  confirm?: () => Promise<void>;
   /** Plaintext note the claim mints, for the wallet's own bookkeeping. */
   note: Note;
   commitment: Fr;
@@ -133,7 +148,16 @@ export async function buildPublicClaim(
     );
   }
 
-  const { eph, index: ephemeralIndex } = await request.keys.nextSelfEphemeral();
+  const guarded = request.guard
+    ? await acquireSelfEphemeral(
+        request.keys,
+        request.guard.source,
+        request.guard.store,
+        request.guard.scope,
+      )
+    : null;
+  const { eph, index: ephemeralIndex } =
+    guarded ?? (await request.keys.nextSelfEphemeral());
   const cek = deriveCek(eph, request.compliancePk);
   const psi = await computePsi(cek);
   const owner = await pubkeyOwner(await request.keys.getSelfSpendPub());
@@ -151,6 +175,7 @@ export async function buildPublicClaim(
   const commitment = await computeLeaf(note);
 
   return {
+    ...(guarded ? { confirm: guarded.confirm } : {}),
     inputs: {
       memoId: memo.memoId,
       compliancePk: request.compliancePk,

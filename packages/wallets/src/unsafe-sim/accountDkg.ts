@@ -30,6 +30,9 @@ interface ViewContribution {
   blind: bigint;
 }
 
+// LEGACY, retained only for the simulation call sites that predate the derived path. It produces a `v`
+// that no seed reproduces, which is why a group that lost it could never recover. Production derives from
+// the creator (see `deriveGroupViewKey`); do not extend this.
 async function revealRound(
   participants: bigint[],
 ): Promise<{ v: bigint; V: Point }> {
