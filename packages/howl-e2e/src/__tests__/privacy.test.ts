@@ -113,7 +113,7 @@ describe("the property that separates Howl from a trial-decrypt pool", () => {
     expect(large.log.roundTrips).toBe(small.log.roundTrips);
   });
 
-  it("gives an observer of the table no way to tell which rows belong to one wallet", async () => {
+  it("emits a byte-uniform row shape for every self note, and never the owner in the clear", async () => {
     const owner = await pubkeyOwner(publicKey(new Fr(0x2ab1n)));
     const raven = new MockRaven();
     const events: ChainNoteEvent[] = [];
@@ -161,7 +161,11 @@ describe("the property that separates Howl from a trial-decrypt pool", () => {
     expect(Buffer.from(raw).toString("hex")).not.toContain(ownerHex);
   });
 
-  it("returns a row on a miss, so a probe does not reveal whether a tag exists", async () => {
+  // MOCK DIVERGENCE, stated so nobody reads this as faithful: a real cuckoo probe returns a ROW on a miss,
+  // which is what makes a hit indistinguishable from a miss on the wire. MockRaven returns null instead, so
+  // this can only assert that both probes cost the SAME, not that they are indistinguishable. Closing that
+  // gap needs miss-row support in the mock.
+  it("charges the same for a present tag and an absent one", async () => {
     const raven = new MockRaven();
     const owner = await pubkeyOwner(publicKey(new Fr(0x2ab1n)));
     const eph = evenY(0x1000n);

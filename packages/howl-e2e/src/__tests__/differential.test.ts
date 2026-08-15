@@ -282,8 +282,9 @@ describe("differential gate: MockRaven must find exactly what NoteProcessor find
     indexEvents(raven, events);
     raven.resetQueryLog();
 
-    const ownerCommitment = await pubkeyOwner(publicKey(SPEND));
-    await syncViaDiscovery(raven, [
+    // Incoming notes are spendable by the INCOMING key, so that is what their owner binds.
+    const ownerCommitment = await pubkeyOwner(publicKey(inKey));
+    const swept = await syncViaDiscovery(raven, [
       {
         tag: discoveryTag(publicKey(inKey)),
         ownerCommitment,
@@ -295,6 +296,10 @@ describe("differential gate: MockRaven must find exactly what NoteProcessor find
           ),
       },
     ]);
+
+    // The amortization claim is worthless unless the notes actually came back: assert recovery FIRST.
+    expect(swept.notes).toHaveLength(40);
+    expect(swept.rejected).toBe(0);
 
     // 40 notes under one tag, and still 2 round trips. This is the property a trial-decrypt pool cannot have.
     expect(raven.queryLog.roundTrips).toBe(2);

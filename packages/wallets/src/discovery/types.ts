@@ -22,6 +22,16 @@ export const COMMITMENT_PREFIX_BYTES = 16;
 /** Ciphertext words the server keeps. Words 0 (note_version) and 5 (owner) are stripped; see reconstruct. */
 export const CIPHERTEXT_KEPT_INDICES = [1, 2, 3, 4, 6] as const;
 
+/**
+ * Ceiling on how many rows one tag may claim in round 2.
+ *
+ * `occurrenceCount` is a server-chosen integer that the client turns directly into a batch size. Unbounded,
+ * one hostile or corrupt response allocates an arbitrarily large array on every sync, which wedges the
+ * device on a boot loop rather than merely failing a request. The cap is far above any legitimate receiving
+ * address: a real one accumulates payments, not hundreds of thousands of them.
+ */
+export const MAX_OCCURRENCES_PER_TAG = 100_000;
+
 /** DB2 block size, 2^k leaves. k=10 gives a 1-in-1024 anonymity set for a plain, non-PIR fetch. */
 export const LEAF_BLOCK_LOG2 = 10;
 export const LEAF_BLOCK_SIZE = 1 << LEAF_BLOCK_LOG2;

@@ -11,6 +11,7 @@ export * from "./note/keys.js";
 export * from "./discovery/types.js";
 export * from "./discovery/codec.js";
 export * from "./discovery/reconstruct.js";
+export * from "./discovery/reconcile.js";
 export * from "./state/EphemeralCounterStore.js";
 export * from "./public/memo.js";
 export * from "./public/publicTransfer.js";

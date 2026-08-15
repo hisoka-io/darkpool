@@ -139,9 +139,10 @@ describe("Integration: discovery against a real chain and real proofs", function
     )[0];
     expect(found.notes[0].leafIndex).to.equal(Number(memoLog.args.leafIndex));
 
-    // Bounded: one tag, one padded batch, never a scan of the pool.
+    // Bounded: one tag, one padded batch, never a scan of the pool. NOTE: rowsRequested tracks the
+    // candidate list, which is hand-built here, so it is a sanity bound and NOT evidence of amortization.
+    // The amortization claim lives in howl-e2e differential.test.ts, which asserts recovery of all 40.
     expect(raven.queryLog.roundTrips).to.be.at.most(2);
-    expect(raven.queryLog.rowsRequested).to.be.at.most(2);
     // The table holds every note in the pool; Bob fetched a bounded slice of it.
     expect(raven.noteCount).to.be.greaterThan(raven.queryLog.rowsRequested);
   });

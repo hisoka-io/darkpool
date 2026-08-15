@@ -2,6 +2,7 @@ import { Fr } from "@aztec/foundation/fields";
 import {
   commitmentPrefixMatches,
   computePsi,
+  MAX_OCCURRENCES_PER_TAG,
   demDecrypt,
   leaf as computeLeaf,
   reconstructCiphertext,
@@ -36,6 +37,13 @@ export interface SyncResult {
   readonly notes: readonly DiscoveredNote[];
   /** Rows that came back but failed the local prefix check: probe misses and other people's notes. */
   readonly rejected: number;
+  /**
+   * Tags whose advertised occurrence count exceeded the cap and were fetched only up to it.
+   *
+   * Surfaced rather than thrown: throwing lets one hostile count wedge the whole sync, and silently
+   * truncating loses notes the wallet owns. The caller is told which tags are incomplete so it can escalate.
+   */
+  readonly truncatedTags: readonly string[];
 }
 
 /**
@@ -84,6 +92,7 @@ export async function syncViaDiscovery(
 ): Promise<SyncResult> {
   const byTag = new Map(candidates.map((c) => [c.tag.toString(), c]));
   const notes: DiscoveredNote[] = [];
+  const truncatedTags: string[] = [];
   let rejected = 0;
 
   // ROUND 1: occurrence 0 for every candidate, plus the count that makes round 2 exact.
@@ -98,7 +107,10 @@ export async function syncViaDiscovery(
       if (opened) notes.push(opened);
       else rejected += 1;
     }
-    for (let occ = 1; occ < entry.occurrenceCount; occ++) {
+    const advertised = entry.occurrenceCount;
+    const bounded = Math.min(advertised, MAX_OCCURRENCES_PER_TAG);
+    if (advertised > bounded) truncatedTags.push(entry.tag.toString());
+    for (let occ = 1; occ < bounded; occ++) {
       follow.push({ tag: entry.tag, occurrence: occ });
     }
   }
@@ -115,7 +127,7 @@ export async function syncViaDiscovery(
     else rejected += 1;
   }
 
-  return { notes, rejected };
+  return { notes, rejected, truncatedTags };
 }
 
 /** Local false-hit rejection. A probe returns a row on a miss, so the prefix is checked before the leaf. */
