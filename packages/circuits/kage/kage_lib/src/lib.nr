@@ -18,7 +18,7 @@ global CT_LEN: u32 = 7;
 // own circuit to forge the taker's half (`0` = not pinned = total forgery). hash(vk) == key_hash is enforced by
 // barretenberg, not the stdlib, so this must stay a compile-time constant.
 pub global INTENT_VK_HASH: Field =
-    0x0acd44e1ec48394f150038558d8ee52c0e29412d03c35d9d198fd30914e585f3;
+    0x2e0b51ed4736571c1daa939f67d50684aa262bab910d8971e77c0d65f89efc50;
 pub global PROOF_TYPE: u32 = 6;
 // Compiled swap_intent recursion widths; regenerate with INTENT_VK_HASH on any swap_intent change.
 pub global INTENT_VK_LEN: u32 = 115;

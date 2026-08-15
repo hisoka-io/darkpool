@@ -64,9 +64,10 @@ describe("Adversarial: Malleability & Integrity", function () {
     it("should reject if Public Input 'Value' is modified", async function () {
       const { darkPool, alice, proofData } = await loadFixture(fixture);
 
-      // Deposit layout: [0,1] compliance, [2] leaf, [3,4] eph_pub, [5] value, [6] asset, [7..13] ct.
+      // Deposit layout: [0,1] compliance, [2] leaf, [3] eph_pub.x, [4] value, [5] asset, [6..12] ct.
+      // eph_pub is x-only, so each field below sits one slot earlier than a y-carrying layout would put it.
       const tamperedInputs = [...proofData.publicInputs];
-      tamperedInputs[5] = ethers.zeroPadValue(ethers.toBeHex(200n), 32);
+      tamperedInputs[4] = ethers.zeroPadValue(ethers.toBeHex(200n), 32);
 
       await expect(
         darkPool.connect(alice).deposit(proofData.proof, tamperedInputs),
@@ -80,7 +81,7 @@ describe("Adversarial: Malleability & Integrity", function () {
       const fakeAsset = addressToFr(
         "0x000000000000000000000000000000000000dead",
       );
-      tamperedInputs[6] = ethers.zeroPadValue(
+      tamperedInputs[5] = ethers.zeroPadValue(
         ethers.toBeHex(fakeAsset.toBigInt()),
         32,
       );
@@ -94,7 +95,7 @@ describe("Adversarial: Malleability & Integrity", function () {
       const { darkPool, alice, proofData } = await loadFixture(fixture);
 
       const tamperedInputs = [...proofData.publicInputs];
-      tamperedInputs[7] = ethers.zeroPadValue("0xdeadbeef", 32);
+      tamperedInputs[6] = ethers.zeroPadValue("0xdeadbeef", 32);
 
       await expect(
         darkPool.connect(alice).deposit(proofData.proof, tamperedInputs),

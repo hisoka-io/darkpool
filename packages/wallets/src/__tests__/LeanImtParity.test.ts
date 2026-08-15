@@ -14,19 +14,19 @@ async function treeOf(n: number): Promise<LeanIMT> {
 const CASES: Array<{ n: number; root: string }> = [
   {
     n: 16,
-    root: "0x1528946361c480e8dc1e9ae3f8c31c997625fa1ddeddc7db5ad0dce3ac58fc4c",
+    root: "0x27785efe80248e9c945c1b2af10d8a8f24d3fedbbaac546e6ce7272206e6cc99",
   },
   {
     n: 17,
-    root: "0x2c49c87b6901221e46e91d5cd747a5f6b4c153585cb43e5ea8f28b24a2e1503a",
+    root: "0x09b1b3b74d6b8d08fc8fd03e1d0b1672fe3aecd488d7ed030b91f3fac1456461",
   },
   {
     n: 33,
-    root: "0x048b0596ca42fe3afab1983a0016c40b2b49eabed0774536b7545b47a5a45ced",
+    root: "0x0e98ae5275a8150809382554f307b2d12a4411de2d2f296f8fecefd091498ca5",
   },
   {
     n: 40,
-    root: "0x2b883a20a8fd7d17d73dc541e897b09a885cbbdd18cdfe481588a31e727de8b3",
+    root: "0x0c65ee133f15f3e41b526a7c27c8f71545f41a92e096fa35e8552b3937272fa2",
   },
 ];
 

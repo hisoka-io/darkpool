@@ -58,11 +58,15 @@ library Poseidon2Lib {
         bool is_variable_length
     ) private pure returns (Field.Type) {
         uint256 len = input.length;
-        // iv := len << 64, initial state := [0, 0, 0, iv]
+        // iv := absorbed length << 64, initial state := [0, 0, 0, iv]. The IV must key off the ABSORBED
+        // length, matching Noir's `Poseidon2::hash(input, message_size)` which derives it from message_size.
+        // Keying it off the array length instead made a call with std_input_length != input.length produce a
+        // digest neither Noir nor TypeScript reproduces; every present caller passes them equal, so this
+        // changes no existing hash.
         uint256 s0 = 0;
         uint256 s1 = 0;
         uint256 s2 = 0;
-        uint256 s3 = len << 64;
+        uint256 s3 = std_input_length << 64;
 
         uint256 c0 = 0;
         uint256 c1 = 0;

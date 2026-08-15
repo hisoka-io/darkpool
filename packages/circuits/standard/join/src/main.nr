@@ -95,7 +95,7 @@ fn test_join_kat() {
     );
     assert(nf_a == 0x0d03e7c701405c0572f9c8904d08cadc64679d2fb2c7430cf3b691c2fc0517e0);
     assert(nf_b == 0x0ce50a6b4132e77d1aba13c3d3763957eb373bfe81e4cd1582e1b9ac26f143eb);
-    assert(root == 0x23bbb50573c7f196c32e4fd8cd8e1d3fe32285e77deddc2bdcb2728ee512b8bb);
+    assert(root == 0x015c488460086ad829ce11c0704ddbebe2e468ddba865417999c867a7b29b28c);
     assert(leaf == 0x1b008ec77c6cb53d1f0cafce3e1e993cb1b0b828173ac378e809547f83972038);
     assert(epk_x == 0x239a26d12954771a03d624b21a260f447412b746b66eede628a2f0af3be0a212);
     assert(ct[0] == 0x059d4801f52074b83e793e4c9461d1686c52340eb324ae906ee4392535da6a57);

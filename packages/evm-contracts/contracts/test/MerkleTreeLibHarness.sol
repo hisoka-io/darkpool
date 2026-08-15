@@ -36,9 +36,10 @@ library FullWalkMerkleTree {
             } else {
                 node = bytes32(
                     Field.Type.unwrap(
-                        Poseidon2.hash_2(
+                        Poseidon2.hash_3(
                             uint256(self.sideNodes[level]).toField(),
-                            uint256(node).toField()
+                            uint256(node).toField(),
+                            level.toField()
                         )
                     )
                 );
@@ -91,9 +92,10 @@ library BreakBeforeWriteMerkleTree {
             } else {
                 node = bytes32(
                     Field.Type.unwrap(
-                        Poseidon2.hash_2(
+                        Poseidon2.hash_3(
                             uint256(self.sideNodes[level]).toField(),
-                            uint256(node).toField()
+                            uint256(node).toField(),
+                            level.toField()
                         )
                     )
                 );

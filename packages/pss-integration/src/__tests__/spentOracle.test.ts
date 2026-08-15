@@ -107,14 +107,19 @@ async function waitForAnvil(launchError: () => string): Promise<void> {
   );
 }
 
-async function mined(hash: string): Promise<{ blockNumber: number }> {
+async function mined(
+  hash: string,
+): Promise<{ blockNumber: number; contractAddress?: string }> {
   for (let attempt = 0; attempt < 100; attempt++) {
     const receipt = (await rpc("eth_getTransactionReceipt", [hash])) as {
       blockNumber: string;
       contractAddress?: string;
     } | null;
     if (receipt !== null) {
-      return { blockNumber: Number(receipt.blockNumber) };
+      return {
+        blockNumber: Number(receipt.blockNumber),
+        contractAddress: receipt.contractAddress,
+      };
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
@@ -172,16 +177,13 @@ beforeAll(async () => {
   const deployHash = (await rpc("eth_sendTransaction", [
     { from: sender, data: EMITTER_INIT, gas: "0x100000" },
   ])) as string;
-  const receipt = (await rpc("eth_getTransactionReceipt", [deployHash])) as {
-    contractAddress: string;
-  } | null;
-  emitter =
-    receipt?.contractAddress ??
-    (
-      (await rpc("eth_getTransactionReceipt", [deployHash])) as {
-        contractAddress: string;
-      }
-    ).contractAddress;
+  // anvil auto-mines, but not synchronously with the send, so the receipt must be polled like every
+  // other transaction here. Reading it once raced the miner and dereferenced null.
+  const deployed = await mined(deployHash);
+  if (deployed.contractAddress === undefined) {
+    throw new Error(`deploy ${deployHash} mined without a contract address`);
+  }
+  emitter = deployed.contractAddress;
 
   // Spend four nullifiers, one per transaction, so the sweep has to cross several blocks.
   const spent = [1, 2, 3, 4];

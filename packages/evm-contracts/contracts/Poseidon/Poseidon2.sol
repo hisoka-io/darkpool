@@ -30,12 +30,6 @@ library Poseidon2 {
         return Poseidon2Lib.hash(input, input.length, false);
     }
 
-    function hash_5(
-        Field.Type[] memory input
-    ) public pure returns (Field.Type) {
-        return Poseidon2Lib.hash(input, 5, false);
-    }
-
     function hash(
         Field.Type[] memory input,
         uint256 std_input_length,

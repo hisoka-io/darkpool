@@ -11,7 +11,7 @@ export const KAGE_PROOF_TYPE = 6;
 
 // Must equal kage_lib INTENT_VK_HASH, or swap_settle rejects every real proof.
 export const INTENT_VK_HASH =
-  "0x0acd44e1ec48394f150038558d8ee52c0e29412d03c35d9d198fd30914e585f3";
+  "0x2e0b51ed4736571c1daa939f67d50684aa262bab910d8971e77c0d65f89efc50";
 export const INTENT_VK_LEN = 115;
 export const INTENT_PROOF_LEN = 458;
 export const INTENT_PI_LEN = 27;

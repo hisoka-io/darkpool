@@ -9,17 +9,17 @@ const ARTIFACTS = resolve(process.cwd(), "artifacts/contracts");
 
 // Keyed by artifact path: every generated verifier declares `contract HonkVerifier`, so the NAME is not a key.
 const BUDGETS: Record<string, number> = {
-  "Poseidon/Poseidon2.sol/Poseidon2.json": 24049,
-  "DarkPool.sol/DarkPool.json": 17593,
-  "verifiers/KageVerifier.sol/HonkVerifier.json": 18186,
-  "verifiers/JoinMultisigVerifier.sol/HonkVerifier.json": 17066,
-  "verifiers/TransferMultisigVerifier.sol/HonkVerifier.json": 17068,
-  "verifiers/SplitMultisigVerifier.sol/HonkVerifier.json": 17068,
-  "verifiers/JoinVerifier.sol/HonkVerifier.json": 17065,
-  "verifiers/SplitVerifier.sol/HonkVerifier.json": 17066,
+  "Poseidon/Poseidon2.sol/Poseidon2.json": 24006,
+  "DarkPool.sol/DarkPool.json": 17610,
+  "verifiers/KageVerifier.sol/HonkVerifier.json": 18185,
+  "verifiers/JoinMultisigVerifier.sol/HonkVerifier.json": 17067,
+  "verifiers/TransferMultisigVerifier.sol/HonkVerifier.json": 17066,
+  "verifiers/SplitMultisigVerifier.sol/HonkVerifier.json": 17067,
+  "verifiers/JoinVerifier.sol/HonkVerifier.json": 17067,
+  "verifiers/SplitVerifier.sol/HonkVerifier.json": 17068,
   "verifiers/TransferVerifier.sol/HonkVerifier.json": 17067,
-  "verifiers/WithdrawVerifier.sol/HonkVerifier.json": 17067,
-  "verifiers/WithdrawMultisigVerifier.sol/HonkVerifier.json": 17068,
+  "verifiers/WithdrawVerifier.sol/HonkVerifier.json": 17068,
+  "verifiers/WithdrawMultisigVerifier.sol/HonkVerifier.json": 17067,
   "verifiers/PublicClaimVerifier.sol/HonkVerifier.json": 16857,
   "verifiers/DepositVerifier.sol/HonkVerifier.json": 16856,
 };
@@ -101,7 +101,7 @@ describe("Deployed-bytecode budget (EIP-170)", function () {
           `${d.key} = ${d.bytes} (${((d.bytes / EIP_170_LIMIT) * 100).toFixed(1)}%)`,
       );
     expect(tight).to.deep.equal([
-      `Poseidon/Poseidon2.sol/Poseidon2.json = 24049 (97.9%)`,
+      `Poseidon/Poseidon2.sol/Poseidon2.json = 24006 (97.7%)`,
     ]);
   });
 });

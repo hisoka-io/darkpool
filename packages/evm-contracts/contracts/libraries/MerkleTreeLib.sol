@@ -60,12 +60,15 @@ library MerkleTreeLib {
                 // The frontier write must precede this break -- leaf 2^L reads the slot as its left sibling.
                 if (index == 0) break;
             } else {
-                // Odd position: the frontier is the left sibling, so hash left||right.
+                // Odd position: the frontier is the left sibling, so hash left||right||level. The level is
+                // absorbed so a sibling cannot be relocated between levels; see the matching binding in
+                // Noir `lean_imt_inclusion_proof` and `LeanIMT.ts`.
                 node = bytes32(
                     Field.Type.unwrap(
-                        Poseidon2.hash_2(
+                        Poseidon2.hash_3(
                             uint256(self.sideNodes[level]).toField(),
-                            uint256(node).toField()
+                            uint256(node).toField(),
+                            level.toField()
                         )
                     )
                 );

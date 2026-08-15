@@ -52,7 +52,11 @@ export class LeanIMT {
       } else if (left.equals(this.zeroValue)) {
         currentComputedNode = right;
       } else {
-        currentComputedNode = await Poseidon.hash([left, right]);
+        currentComputedNode = await Poseidon.hash([
+          left,
+          right,
+          new Fr(BigInt(level)),
+        ]);
       }
 
       const parentIndex = Math.floor(currentIndexInLevel / 2);

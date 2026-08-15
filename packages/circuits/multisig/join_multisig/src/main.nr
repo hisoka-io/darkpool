@@ -57,8 +57,8 @@ global ASSET_ID: Field = 0x1234567890123456789012345678901234567890;
 
 fn kat_gpk() -> Point {
     Point {
-        x: 0x2546ab52faee9ab8ead1ad868567473b9757c6456c137274b12a5c51330d764d,
-        y: 0x0d7a564269d3675f75799ee9d7574b00d01190b243041994c0e460af507a71aa,
+        x: 0x1a24b1fe4e6942942d1f9f28840e8789c056c18c0c742a09225f9ca9f7fe2990,
+        y: 0x0ea0ae14fdceb777d6f15bb956d8e6befae98803fb493769930f039cf31e6edc,
     }
 }
 
@@ -214,14 +214,14 @@ fn audit_reject_cross_account_gpk() {
     );
 }
 
-// Real 3-of-5 FROST witness from the TS signer (gen-join-multisig-kat); accept parity.
+// Real 3-of-5 FROST witness from the TS signer; regenerate with sandbox/gen_join_multisig_kat.ts.
 global KAT_PSI_OUT: Field = 0x2aaee0e06ff8b0e8cf78d66b27f27fe9d0e82cc687724cee2eb92b0d8a90c2c2;
-global KAT_FROST_Z: Field = 0x0413fd66ff083810c4ed2b5983fe1bb590b1f504f72cf71f463c5e2af0665969;
+global KAT_FROST_Z: Field = 0x03722f712e3228619edf5833a13e9215e07f2ba7b88cba3ee6c2ac4046bf3004;
 
 fn kat_frost_r() -> Point {
     Point {
-        x: 0x0eb01cc518d80b04ff65166edfe9731d838791e90f07be3857597674b189bc0e,
-        y: 0x180531d77c5761fbbb55b43ff7eb01b5e607e17d82e37f2dbb0b72ad5700ed53,
+        x: 0x283c56ff94b60bca90a9111b0a55f0642ee8a253cba40e5d03e7465135764692,
+        y: 0x29e2a5a196bf247c6052ddd790e5a680c24ae985b0d415422a3fe7ee4f271a92,
     }
 }
 
