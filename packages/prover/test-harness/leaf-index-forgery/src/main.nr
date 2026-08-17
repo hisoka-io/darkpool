@@ -9,9 +9,17 @@
 // drive the identical Merkle path -- the path only ever consumes 32 bits -- while producing two DIFFERENT
 // nullifiers for one committed leaf. That is a double-spend of every note in the pool, repeatable.
 //
-// The sole guard is `leaf_index.to_le_bits::<32>()` inside `lean_imt_inclusion_proof`
-// (circuits/shared/src/lib.nr:33). This harness pins that it holds, that it is load-bearing, and what breaks
+// `leaf_index.to_le_bits::<32>()` inside `lean_imt_inclusion_proof` (circuits/shared/src/lib.nr:33) is what
+// closes THAT aliasing, and this harness pins that it holds, that it is load-bearing, and what breaks
 // without it.
+//
+// SCOPE, and read this before trusting the file name. The 32-bit bound is NOT the only thing determining the
+// index, and this harness does NOT cover the other half. Aliasing WITHIN the 32-bit range -- relocating a
+// sibling to a different level, which reproduces one root under many indices -- is closed separately by
+// absorbing the level into every tree hash, and is pinned by `shared/src/index_uniqueness.nr`. This file
+// once claimed to be the sole guard; it was not, and a fund-draining forgery lived in the gap for months
+// while this harness was green. A harness that proves a true statement about the wrong axis reads exactly
+// like coverage. Keep the two files' scopes distinct and stated.
 //
 // WHY THIS HARNESS IS SHAPED DIFFERENTLY FROM frost-forgery / psi-cek-forgery. Those mirror a Noir-SOURCE
 // binding and ablate it textually. Here the binding is COMPILER-EMITTED, not source-level: Noir's
@@ -63,7 +71,7 @@ fn check_binding_absent<let MAX_DEPTH: u32>(
             let left = current + path_bit * (sibling - current);
             // right is whichever of the pair left is not; the sum is invariant, so one conditional suffices.
             let right = current + sibling - left;
-            current = Poseidon2::hash([left, right], 2);
+            current = Poseidon2::hash([left, right, i as Field], 3);
         } else {
             assert(!path_bits[i], "non-canonical leaf index: right child at empty level");
         }
