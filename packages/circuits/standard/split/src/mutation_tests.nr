@@ -79,6 +79,15 @@ fn m_in_asset_mismatch() {
     ni.asset_id = ASSET + 1;
     run(cx, cy, ni, SCALAR, 0, out1(), EPH1, out2(), EPH2);
 }
+// Mutating the INPUT asset trips the out1 guard first, so out2's guard needs its own case or it is
+// deletable with the battery green. Value conservation is numeric and would not notice the swap.
+#[test(should_fail_with = "out2 asset mismatch")]
+fn m_out2_asset_mismatch() {
+    let (cx, cy) = compliance();
+    let mut o2 = out2();
+    o2.asset_id = ASSET + 1;
+    run(cx, cy, note_in(), SCALAR, 0, out1(), EPH1, o2, EPH2);
+}
 #[test(should_fail_with = "non-canonical leaf index")]
 fn m_noncanonical_leaf_index() {
     let (cx, cy) = compliance();
@@ -249,4 +258,32 @@ fn m_eph2_ge_suborder() {
 fn m_eph_reused() {
     let (cx, cy) = compliance();
     run(cx, cy, note_in(), SCALAR, 0, out1(), EPH1, out2(), EPH1);
+}
+
+// Relocation: the honest sibling sequence moved into a different order-preserving choice of levels, index bits set
+// to match. Absorbing the level into every tree hash is what keeps the two roots apart; without it one note proves
+// membership at many indexes and Poseidon2(psi, leaf_index) mints a fresh nullifier under each.
+#[test]
+fn m_relocated_index_moves_root_and_nullifier() {
+    let (cx, cy) = compliance();
+    let mut low = [0; TREE_DEPTH];
+    low[0] = 7;
+    low[1] = 11;
+    let mut high = [0; TREE_DEPTH];
+    high[2] = 7;
+    high[3] = 11;
+    let mut a1 = out1();
+    a1.parents = 3;
+    let mut a2 = out2();
+    a2.parents = 3;
+    let mut b1 = out1();
+    b1.parents = 12;
+    let mut b2 = out2();
+    b2.parents = 12;
+    let (nf_low, root_low, _, _, _, _, _, _) =
+        super::main(cx, cy, note_in(), SCALAR, 3, low, a1, EPH1, a2, EPH2);
+    let (nf_high, root_high, _, _, _, _, _, _) =
+        super::main(cx, cy, note_in(), SCALAR, 12, high, b1, EPH1, b2, EPH2);
+    assert(root_low != root_high, "relocated siblings reproduced the root");
+    assert(nf_low != nf_high, "relocated index left the nullifier unchanged");
 }

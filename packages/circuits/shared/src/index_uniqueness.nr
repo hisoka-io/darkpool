@@ -8,7 +8,7 @@
 //
 // The binding is that the level is absorbed into every tree hash, so a sibling cannot move between levels.
 // These tests pin the property itself, not the mechanism that delivers it.
-use crate::lean_imt_inclusion_proof;
+use crate::{lean_imt_inclusion_proof, TREE_DEPTH};
 
 global S: Field = 0x038682aa1cb5ae4e0a3f13da432a95c77c5c111f6f030faf9cad641ce1ed7383;
 global T: Field = 0x232400b3cca0da78d26295f345d21e9bf8949238bee02b285140ebf183119982;
@@ -70,4 +70,29 @@ fn interleaved_empty_levels_stay_provable() {
 #[test(should_fail_with = "non-canonical leaf index: right child at empty level")]
 fn right_child_at_empty_level_still_rejected() {
     let _ = lean_imt_inclusion_proof(4, 1, [0; 8]);
+}
+
+// The depth-8 cases above are the readable form. Production spends run at TREE_DEPTH = 32, and a property
+// proven only at a smaller width is exactly the "true statement about a neighbouring case" this file exists
+// to avoid. So relocate across all 32 real levels too.
+#[test]
+fn relocation_is_blocked_at_the_production_depth() {
+    let leaf: Field = 4;
+    let mut roots: [Field; TREE_DEPTH] = [0; TREE_DEPTH];
+    // index 2^level: its only set bit sits at the level carrying the sibling. Doubled rather than shifted,
+    // because a Noir shift needs both operands at one width and 2^31 does not fit the loop counter's.
+    let mut index: Field = 1;
+    for level in 0..TREE_DEPTH {
+        let mut path: [Field; TREE_DEPTH] = [0; TREE_DEPTH];
+        path[level] = S;
+        roots[level] = lean_imt_inclusion_proof(leaf, index, path);
+        index = index * 2;
+    }
+    for a in 0..TREE_DEPTH {
+        for b in 0..TREE_DEPTH {
+            if a != b {
+                assert(roots[a] != roots[b], "relocation reproduced a root at depth 32");
+            }
+        }
+    }
 }

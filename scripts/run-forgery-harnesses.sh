@@ -4,6 +4,10 @@
 # runner is the only place all three accept paths are exercised.
 set -uo pipefail
 
+# Assertions read their haystack from a here-string, never `echo ... | grep -q`. Under pipefail, `grep -q`
+# exits on the first match, `echo` dies of SIGPIPE, and pipefail promotes 141 to the pipeline status -- so a
+# PRESENT pattern reported FAILURE roughly one run in three. A mandatory gate that cries wolf gets ignored.
+
 HARNESSES=(frost-forgery psi-cek-forgery leaf-index-forgery)
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HARNESS_ROOT="$REPO_ROOT/packages/prover/test-harness"
@@ -65,7 +69,7 @@ for h in "${HARNESSES[@]}"; do
     || { echo "FAIL: harness $h step 2 ran only $passed tests (expected >= $want_min) -- a test was removed or renamed"; failed=1; continue; }
   missing=0
   for tname in $(required_tests_for "$h"); do
-    echo "$test_out" | grep -q "Testing $tname" \
+    grep -q "Testing $tname" <<< "$test_out" \
       || { echo "FAIL: harness $h step 2 never ran the required test '$tname'"; missing=1; }
   done
   [ "$missing" -eq 0 ] || { failed=1; continue; }
@@ -74,9 +78,9 @@ for h in "${HARNESSES[@]}"; do
   echo "$gold_out"
   [ "$gold_rc" -eq 0 ] \
     || { echo "FAIL: harness $h step 3 (run-gold-standard) exited $gold_rc"; failed=1; continue; }
-  echo "$gold_out" | grep -q 'Proof verified successfully' \
+  grep -q 'Proof verified successfully' <<< "$gold_out" \
     || { echo "FAIL: harness $h step 3 -- native bb never reported a verified proof (vacuous accept)"; failed=1; continue; }
-  echo "$gold_out" | grep -q 'VERIFYING proof' \
+  grep -q 'VERIFYING proof' <<< "$gold_out" \
     || { echo "FAIL: harness $h step 3 -- did not reach its accept-path success assertion"; failed=1; continue; }
 
   echo "PASS: $h ($passed tests incl. all required rejects; anti-drift + native-bb accept-path)"

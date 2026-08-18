@@ -342,3 +342,51 @@ fn m_change_parents_forged() {
     ch.parents = 1;
     v(rin(), old(), SCALAR, 0, memo(), MEPH, ch, CEPH);
 }
+
+// Relocation: the honest sibling sequence moved into a different order-preserving choice of levels, index bits set
+// to match. Absorbing the level into every tree hash is what keeps the two roots apart; without it one note proves
+// membership at many indexes and Poseidon2(psi, leaf_index) mints a fresh nullifier under each.
+#[test]
+fn m_relocated_index_moves_root_and_nullifier() {
+    let mut low = [0; TREE_DEPTH];
+    low[0] = 7;
+    low[1] = 11;
+    let mut high = [0; TREE_DEPTH];
+    high[2] = 7;
+    high[3] = 11;
+    let mut ch_low = change();
+    ch_low.parents = 3;
+    let mut ch_high = change();
+    ch_high.parents = 12;
+    let r = rin();
+    let (nf_low, root_low, _, _, _, _, _, _, _, _) = super::main(
+        super::CX,
+        super::CY,
+        r,
+        r,
+        old(),
+        SCALAR,
+        3,
+        low,
+        memo(),
+        MEPH,
+        ch_low,
+        CEPH,
+    );
+    let (nf_high, root_high, _, _, _, _, _, _, _, _) = super::main(
+        super::CX,
+        super::CY,
+        r,
+        r,
+        old(),
+        SCALAR,
+        12,
+        high,
+        memo(),
+        MEPH,
+        ch_high,
+        CEPH,
+    );
+    assert(root_low != root_high, "relocated siblings reproduced the root");
+    assert(nf_low != nf_high, "relocated index left the nullifier unchanged");
+}

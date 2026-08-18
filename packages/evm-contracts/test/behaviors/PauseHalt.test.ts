@@ -24,6 +24,7 @@ describe("DarkPool: pause halts every money entrypoint", function () {
       () => darkPool.connect(alice).transferMultisig(p, pi),
       () => darkPool.connect(alice).splitMultisig(p, pi),
       () => darkPool.connect(alice).joinMultisig(p, pi),
+      () => darkPool.connect(alice).kageSwap(p, pi),
     ];
     for (const call of proofCalls) {
       await expect(call()).to.be.revertedWithCustomError(

@@ -2,6 +2,7 @@
 
 use shared::mutation;
 use shared::note::Note;
+use shared::open_multisig_note;
 use shared::SUBORDER;
 use shared::TREE_DEPTH;
 
@@ -488,4 +489,23 @@ fn m_change_eph_zero() {
 #[test(should_fail_with = "scalar not in BabyJubJub prime-order subgroup")]
 fn m_change_eph_ge_suborder() {
     v(gpk(), r(), super::KAT_FROST_Z, inp(), 0, out(), SUBORDER);
+}
+
+// Relocation: the honest sibling sequence moved into a different order-preserving choice of levels, index bits set
+// to match. Absorbing the level into every tree hash is what keeps the two roots apart; without it one note proves
+// membership at many indexes and Poseidon2(psi, leaf_index) mints a fresh nullifier under each. Driven through
+// open_multisig_note rather than main: the FROST signature is over the root and nullifier, so a second index needs
+// a second signature the KAT cannot supply.
+#[test]
+fn m_relocated_index_moves_root_and_nullifier() {
+    let mut low = [0; TREE_DEPTH];
+    low[0] = 7;
+    low[1] = 11;
+    let mut high = [0; TREE_DEPTH];
+    high[2] = 7;
+    high[3] = 11;
+    let (nf_low, root_low) = open_multisig_note(inp(), gpk(), 3, low);
+    let (nf_high, root_high) = open_multisig_note(inp(), gpk(), 12, high);
+    assert(root_low != root_high, "relocated siblings reproduced the root");
+    assert(nf_low != nf_high, "relocated index left the nullifier unchanged");
 }

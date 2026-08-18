@@ -68,6 +68,24 @@ fn audit_noncanonical_index_rejected() {
     let _ = spend_at_zero(valid_note(), VALID_SCALAR, 7);
 }
 
+// The empty-level assert above does not cover relocation: moving the honest sibling sequence into a different
+// order-preserving choice of levels, with the index bits set to match, leaves no right child at an empty level.
+// Only the level absorbed into every tree hash separates the two roots, and without it one note proves membership
+// at many indexes while Poseidon2(psi, leaf_index) mints a fresh nullifier under each.
+#[test]
+fn audit_relocated_index_moves_root_and_nullifier() {
+    let mut low = [0; TREE_DEPTH];
+    low[0] = 7;
+    low[1] = 11;
+    let mut high = [0; TREE_DEPTH];
+    high[2] = 7;
+    high[3] = 11;
+    let (nf_low, root_low) = verify_spend(valid_note(), VALID_SCALAR, 3, low);
+    let (nf_high, root_high) = verify_spend(valid_note(), VALID_SCALAR, 12, high);
+    assert(root_low != root_high, "relocated siblings reproduced the root");
+    assert(nf_low != nf_high, "relocated index left the nullifier unchanged");
+}
+
 #[test(should_fail_with = "unexpected note version")]
 fn audit_mint_wrong_version() {
     let mut note = valid_note();

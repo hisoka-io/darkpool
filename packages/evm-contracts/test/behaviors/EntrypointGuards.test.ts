@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { deployDarkPoolFixture } from "../helpers/fixtures";
 import { publicKey, Fr } from "@hisoka/wallets";
@@ -72,6 +73,39 @@ describe("DarkPool: entrypoint input + access guards", function () {
     ).to.be.revertedWithCustomError(
       darkPool,
       "AccessControlUnauthorizedAccount",
+    );
+  });
+
+  // Both memo guards below were found by ablation to have ZERO coverage: each could be deleted with the
+  // entire contract suite green. MemoInvalid is the only on-chain link between a claim and a funded escrow.
+  it("publicClaim rejects a memoId that was never escrowed", async function () {
+    const { darkPool, alice } = await loadFixture(deployDarkPoolFixture);
+
+    // MemoInvalid is checked before proof verification, so a dummy proof reaches it.
+    const pi: string[] = Array.from({ length: 13 }, (_, i) =>
+      ethers.zeroPadValue(ethers.toBeHex(i === 0 ? 0xdeadbeefn : 0n), 32),
+    );
+    await expect(
+      darkPool.connect(alice).publicClaim("0x", pi),
+    ).to.be.revertedWithCustomError(darkPool, "MemoInvalid");
+  });
+
+  it("publicTransfer rejects a second escrow under a live memoId", async function () {
+    const { darkPool, token, alice } = await loadFixture(deployDarkPoolFixture);
+    const asset = await token.getAddress();
+    const owner = publicKey(new Fr(42n));
+    const post = () =>
+      darkPool
+        .connect(alice)
+        .publicTransfer(owner[0], owner[1], asset, 100n, 0n, 777n);
+
+    await token.connect(alice).approve(await darkPool.getAddress(), 1000n);
+    await post();
+    // Without this guard the same memoId is funded twice while only one claim can redeem it, so the second
+    // payer's tokens are stranded in the pool.
+    await expect(post()).to.be.revertedWithCustomError(
+      darkPool,
+      "MemoCollision",
     );
   });
 });

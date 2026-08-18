@@ -2,6 +2,7 @@
 
 use shared::mutation;
 use shared::note::Note;
+use shared::open_multisig_note;
 use shared::SUBORDER;
 use shared::TREE_DEPTH;
 
@@ -1138,4 +1139,33 @@ fn m_signed_nullifier_b() {
         out_v(),
         EPH,
     );
+}
+
+// Relocation: the same two leaves re-proved one level up, indexes 0 and 2 instead of 0 and 1, which keeps one
+// shared root, distinct nullifiers and ascending indexes. Only the level absorbed into each tree hash separates
+// the two roots; without it the pair is a second free spend of both notes. Driven through open_multisig_note
+// rather than main: the FROST signature is over the root and nullifiers, so a second index needs a second
+// signature the KAT cannot supply.
+#[test]
+fn m_relocated_index_moves_the_join_root() {
+    let a = note_a_v();
+    let b = note_b_v();
+    let mut pa = [0; TREE_DEPTH];
+    pa[0] = b.leaf();
+    let mut pb = [0; TREE_DEPTH];
+    pb[0] = a.leaf();
+    let mut ra = [0; TREE_DEPTH];
+    ra[1] = b.leaf();
+    let mut rb = [0; TREE_DEPTH];
+    rb[1] = a.leaf();
+    let (_, root_a_honest) = open_multisig_note(a, gpk(), 0, pa);
+    let (_, root_b_honest) = open_multisig_note(b, gpk(), 1, pb);
+    let (_, root_a_relocated) = open_multisig_note(a, gpk(), 0, ra);
+    let (_, root_b_relocated) = open_multisig_note(b, gpk(), 2, rb);
+    assert(root_a_honest == root_b_honest, "the honest pair no longer shares a root");
+    assert(
+        root_a_relocated == root_b_relocated,
+        "the relocated pair must still share a root, else this test proves nothing",
+    );
+    assert(root_a_honest != root_a_relocated, "a level-relocated pair reproduced the join root");
 }

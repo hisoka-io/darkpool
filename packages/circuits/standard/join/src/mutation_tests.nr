@@ -764,3 +764,47 @@ fn m_eph_ge_suborder() {
         SUBORDER,
     );
 }
+
+// Relocation: the same two leaves re-proved one level up, indexes 0 and 2 instead of 0 and 1. Every other join
+// guard still holds (one shared root, distinct nullifiers, strictly ascending indexes), so the level absorbed into
+// each tree hash is the only thing separating the two roots. Without it the pair is a second, free spend of both
+// notes, and join turns that into mint-from-nothing.
+#[test]
+fn m_relocated_index_moves_the_join_root() {
+    let (pa, pb) = kat_paths();
+    let mut ra = [0; TREE_DEPTH];
+    ra[1] = super::LEAF_B;
+    let mut rb = [0; TREE_DEPTH];
+    rb[1] = super::LEAF_A;
+    let mut out_relocated = note_out();
+    out_relocated.parents = 0x200000000;
+    let (_, _, root_honest, _, _, _) = super::main(
+        super::CX,
+        super::CY,
+        note_a(),
+        SCALAR,
+        0,
+        pa,
+        note_b(),
+        SCALAR,
+        1,
+        pb,
+        note_out(),
+        EPH,
+    );
+    let (_, _, root_relocated, _, _, _) = super::main(
+        super::CX,
+        super::CY,
+        note_a(),
+        SCALAR,
+        0,
+        ra,
+        note_b(),
+        SCALAR,
+        2,
+        rb,
+        out_relocated,
+        EPH,
+    );
+    assert(root_honest != root_relocated, "a level-relocated pair reproduced the join root");
+}
