@@ -46,7 +46,8 @@
     "lint": "eslint 'src/**/*.ts'",
     "lint:fix": "eslint 'src/**/*.ts' --fix",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
-    "test:browser": "node scripts/browser-smoke.mjs"
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "test:bundle": "node scripts/browser-smoke.mjs --bundle-only"
   },
   "author": "hisoka-io",
   "license": "Apache-2.0",

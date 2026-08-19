@@ -6,7 +6,13 @@
 // reaches `tty` through a logger, and its `poseidon2Hash` is backed by Barretenberg WASM behind
 // `process.env.BB_WASM_PATH`. All three are build-time concerns, none is a code change, and this proves it.
 //
-// Run: node scripts/browser-smoke.mjs   (needs a Chromium; set CHROME_PATH to override discovery)
+// Two modes. `--bundle-only` stops after the bundle: it needs no browser, runs in about a second, and
+// catches the regression that actually happens (a node-only import creeping into the crypto core, which
+// makes the package unbundleable for every browser consumer). That mode is the CI gate. The full run also
+// launches Chromium and compares leaves, which proves RUNTIME parity but costs a browser download, so it
+// stays a local/periodic check rather than a per-commit one.
+//
+// Run: node scripts/browser-smoke.mjs [--bundle-only]   (full mode needs a Chromium; CHROME_PATH overrides)
 import { createServer } from "node:http";
 import { readFile, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -63,8 +69,10 @@ function findChrome() {
   return null;
 }
 
+const BUNDLE_ONLY = process.argv.includes("--bundle-only");
+
 async function main() {
-  const expected = await nodeLeaf();
+  const expected = BUNDLE_ONLY ? null : await nodeLeaf();
 
   const esbuild = require("esbuild");
   const dir = await mkdtemp(join(tmpdir(), "howl-browser-smoke-"));
@@ -98,6 +106,14 @@ catch(e){ el.textContent="ERR:"+(e&&e.message?e.message:String(e)); }
     },
     inject: [join(PKG, "browser-shims/globals.js")],
   });
+
+  if (BUNDLE_ONLY) {
+    await rm(dir, { recursive: true, force: true });
+    console.log(
+      "browser-smoke: bundle OK (browser target resolves, no node-only imports)",
+    );
+    return;
+  }
 
   // COOP/COEP so the page is cross-origin isolated, which is what bb.js checks before using threads.
   const server = createServer((q, s) => {

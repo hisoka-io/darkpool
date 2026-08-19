@@ -1,0 +1,21 @@
+name: Setup Nargo
+description: Install the pinned Noir toolchain.
+
+# Single-sourced on purpose. This pin was duplicated across five jobs, so bumping it meant five edits and
+# missing one would have left jobs compiling circuits on different compilers with no signal that they had
+# diverged.
+inputs:
+  version:
+    description: nargo version to install
+    required: false
+    default: 1.0.0-beta.22
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+        export PATH="$HOME/.nargo/bin:$PATH"
+        noirup -v ${{ inputs.version }}
+        echo "$HOME/.nargo/bin" >> $GITHUB_PATH
