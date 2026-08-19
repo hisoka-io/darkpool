@@ -6,6 +6,7 @@ import { deriveCek } from "../crypto/kem.js";
 import { computeNullifier, computePsi } from "../note/nullifier.js";
 import { leaf as computeLeaf, Note } from "../note/note.js";
 import { isEvenY, recoverEvenY } from "../note/keys.js";
+import { ComplianceKeyRing } from "../note/complianceKeys.js";
 import type { UnprocessedEvent } from "../sync/types.js";
 import {
   MultisigAddress,
@@ -57,7 +58,8 @@ export interface MultisigNoteView {
 export interface MultisigScanConfig {
   v: Fr;
   gpk: Point;
-  compliancePk: Point;
+  /** A bare key is the single-version case; pass a ring once the pool has rotated (see ComplianceKeyRing). */
+  compliancePk: Point | ComplianceKeyRing;
   memberIds: bigint[];
   selfWindow?: number;
   incomingWindow?: number;
@@ -76,7 +78,8 @@ interface IncomingSource {
 
 export class MultisigScanner {
   readonly #v: Fr;
-  readonly #compliancePk: Point;
+  readonly #complianceKeys: ComplianceKeyRing;
+  #unopenable = 0;
   readonly #expectedOwner: Fr;
   readonly #incomingTags: Map<string, IncomingSource>;
   readonly #selfTags: Map<string, SelfSource>;
@@ -90,7 +93,7 @@ export class MultisigScanner {
 
   private constructor(
     v: Fr,
-    compliancePk: Point,
+    compliancePk: Point | ComplianceKeyRing,
     expectedOwner: Fr,
     incomingTags: Map<string, IncomingSource>,
     selfTags: Map<string, SelfSource>,
@@ -99,7 +102,7 @@ export class MultisigScanner {
     incomingScanIndex: bigint,
   ) {
     this.#v = v;
-    this.#compliancePk = compliancePk;
+    this.#complianceKeys = ComplianceKeyRing.coerce(compliancePk);
     this.#expectedOwner = expectedOwner;
     this.#incomingTags = incomingTags;
     this.#selfTags = selfTags;
@@ -242,6 +245,14 @@ export class MultisigScanner {
     return this.#recover(event, cek, true, undefined, source.index);
   }
 
+  /**
+   * Notes whose tag matched this group but which no compliance key version could open. Non-zero means
+   * the ring is missing a version and the reported balance is LOWER than the true one.
+   */
+  get unopenableNoteCount(): number {
+    return this.#unopenable;
+  }
+
   async #readSelf(event: UnprocessedEvent): Promise<MultisigNoteView | null> {
     const source = this.#selfTags.get(tagKey(event.args.ephemeralX));
     // A miss is the common case: every note in the pool belonging to someone else misses this map, so a
@@ -250,8 +261,34 @@ export class MultisigScanner {
     if (source.j > (this.#highestMatchedSelf.get(source.memberId) ?? -1n)) {
       this.#highestMatchedSelf.set(source.memberId, source.j);
     }
-    const cek = deriveCek(source.eph, this.#compliancePk);
-    return this.#recover(event, cek, false, source.memberId, source.j);
+    // The tag is this group's own derived ephemeral, so the note IS ours; only the compliance key that
+    // minted it is unknown, and rotation leaves older notes bound to older versions.
+    const tried: number[] = [];
+    for (const epoch of this.#complianceKeys.candidatesFor(event.blockNumber)) {
+      const cek = deriveCek(source.eph, epoch.pk);
+      tried.push(epoch.version);
+      // A wrong key decrypts to a random field element, so the leaf rebuild THROWS on the u128 range
+      // check more often than it returns a clean mismatch. Both mean wrong key, try the next.
+      try {
+        const view = await this.#recover(
+          event,
+          cek,
+          false,
+          source.memberId,
+          source.j,
+        );
+        if (view) return view;
+      } catch {
+        continue;
+      }
+    }
+    this.#unopenable += 1;
+    console.error(
+      `[MultisigScanner] self-tagged note at leaf ${event.args.leafIndex} (block ${event.blockNumber}) ` +
+        `could not be opened by any known compliance key (tried versions ${tried.join(", ")}). ` +
+        `Balance is UNDER-reported. Rebuild the ring from the pool's ComplianceKeyRotated log.`,
+    );
+    return null;
   }
 
   async #recover(

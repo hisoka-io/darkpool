@@ -6,6 +6,7 @@ import { LeanIMT } from "../merkle/LeanIMT.js";
 import { toFr } from "../crypto/fields.js";
 import { Contract } from "ethers";
 import { IKeyRepository, IUtxoRepository } from "../repositories.js";
+import { ComplianceKeyRing } from "../note/complianceKeys.js";
 
 const DEFAULT_PROBE_EXTRA_WINDOW = 100;
 
@@ -17,7 +18,7 @@ export class ScanEngine {
     private contract: Contract,
     private keyRepo: IKeyRepository,
     private utxoRepo: IUtxoRepository,
-    compliancePk: Point<bigint>,
+    compliancePk: Point<bigint> | ComplianceKeyRing,
     private merkleTree?: LeanIMT,
     lookaheadWindow: number = 20,
     private readonly deploymentBlock: number = 0,
