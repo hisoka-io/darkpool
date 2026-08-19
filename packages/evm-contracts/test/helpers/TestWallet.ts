@@ -5,11 +5,18 @@ import {
   Fr,
   toFr,
   addressToFr,
-  packParents,
-  PARENTS_HIDDEN,
   isEvenY,
   publicKey,
 } from "@hisoka/wallets";
+import {
+  assembleDeposit,
+  assembleWithdraw,
+  assembleTransfer,
+  assembleSplit,
+  assembleJoin,
+  LocalTreeWitnessSource,
+} from "@hisoka/wallets/tx";
+import type { AssemblyContext } from "@hisoka/wallets/tx";
 import {
   KeyRepository,
   InMemoryEphemeralCounterStore,
@@ -37,7 +44,6 @@ import {
   HARDHAT_CHAIN_ID,
   newSeededTree,
   mintSelfNote,
-  mintIncomingNote,
   noteToInput,
   subgroupScalar,
 } from "./fixtures";
@@ -126,6 +132,14 @@ export class TestWallet {
     return this.utxoRepo.getBalance(asset ? addressToFr(asset) : undefined);
   }
 
+  /** The assembler's ports, backed by this wallet's own synced tree. */
+  private assemblyCtx(): AssemblyContext {
+    return {
+      compliancePk: COMPLIANCE_PK,
+      merkle: new LocalTreeWitnessSource(this.tree),
+    };
+  }
+
   private async assetFr(asset?: string): Promise<Fr> {
     return addressToFr(asset ?? (await this.token.getAddress()));
   }
@@ -151,13 +165,15 @@ export class TestWallet {
     const assetFr = await this.assetFr(asset);
     const { eph } = await this.keyRepo.nextSelfEphemeral();
     const spendScalar = await this.account.getSelfSpendKey();
-    const built = await mintSelfNote(eph, amount, spendScalar, assetFr);
-
-    const proof = await proveDeposit({
-      compliancePk: COMPLIANCE_PK,
-      note: built.note,
+    const assembled = await assembleDeposit(this.assemblyCtx(), {
+      value: amount,
+      assetId: assetFr,
+      spendScalar,
       eph,
     });
+    const built = assembled.minted;
+
+    const proof = await proveDeposit(assembled.inputs);
 
     let tokenContract = this.token;
     if (asset && asset !== (await this.token.getAddress())) {
@@ -191,27 +207,23 @@ export class TestWallet {
 
     const input = this.pickNote(assetFr, amount);
     const { eph: changeEph } = await this.keyRepo.nextSelfEphemeral();
-    const spendScalar = await this.account.getSelfSpendKey();
-    const change = await mintSelfNote(
-      changeEph,
-      input.note.value - amount,
-      spendScalar,
-      assetFr,
-      packParents([{ leafIndex: Number(input.leafIndex) }, { leafIndex: 0 }]),
-    );
 
-    const inputs: WithdrawInputs = {
-      withdrawValue: toFr(amount),
+    // Delegated to the shipped assembler, so this suite grades @hisoka/wallets rather than a parallel copy.
+    // Change derivation, parents packing and the merkle-index cross-check all live there now.
+    const assembled = await assembleWithdraw(this.assemblyCtx(), {
+      input: {
+        note: noteToInput(input.note),
+        leaf: input.commitment,
+        leafIndex: Number(input.leafIndex),
+        spendScalar: input.spendScalar,
+      },
+      value: amount,
       recipient: addressToFr(recipient),
-      intentHash,
-      compliancePk: COMPLIANCE_PK,
-      oldNote: noteToInput(input.note),
-      spendScalar: input.spendScalar,
-      oldNoteIndex: input.leafIndex,
-      oldNotePath: this.tree.getMerklePath(input.leafIndex),
-      changeNote: change.note,
+      selfSpendScalar: await this.account.getSelfSpendKey(),
       changeEph,
-    };
+      intentHash,
+    });
+    const inputs = assembled.inputs as unknown as WithdrawInputs;
 
     const proof = await proveWithdraw(inputs);
 
@@ -233,48 +245,32 @@ export class TestWallet {
   ) {
     const assetFr = await this.assetFr(asset);
     const input = this.pickNote(assetFr, amount);
-    const parents = packParents([
-      { leafIndex: Number(input.leafIndex) },
-      { leafIndex: 0 },
-    ]);
 
     // The emitted memo eph_pub must be even-y so its y is recoverable off-chain; roll until even.
     let memoEph = subgroupScalar(ethers.toBigInt(ethers.randomBytes(16)));
     while (!isEvenY(publicKey(memoEph))) {
       memoEph = subgroupScalar(ethers.toBigInt(ethers.randomBytes(16)));
     }
-    // The counterparty memo binds parents to the hidden sentinel, not the sender's index.
-    const memo = await mintIncomingNote(
-      memoEph,
-      amount,
-      recipientInPub,
-      toFr(0n),
-      assetFr,
-      PARENTS_HIDDEN,
-    );
 
     const { eph: changeEph } = await this.keyRepo.nextSelfEphemeral();
-    const spendScalar = await this.account.getSelfSpendKey();
-    const change = await mintSelfNote(
-      changeEph,
-      input.note.value - amount,
-      spendScalar,
-      assetFr,
-      parents,
-    );
-
-    const inputs: TransferInputs = {
-      compliancePk: COMPLIANCE_PK,
+    // PARENTS_HIDDEN on the memo and the change parents packing are the assembler's job now.
+    const assembled = await assembleTransfer(this.assemblyCtx(), {
+      input: {
+        note: noteToInput(input.note),
+        leaf: input.commitment,
+        leafIndex: Number(input.leafIndex),
+        spendScalar: input.spendScalar,
+      },
+      value: amount,
       recipientInPub,
-      oldNote: noteToInput(input.note),
-      spendScalar: input.spendScalar,
-      oldNoteIndex: input.leafIndex,
-      oldNotePath: this.tree.getMerklePath(input.leafIndex),
-      memoNote: memo.note,
+      recipientInKey: toFr(0n),
+      selfSpendScalar: await this.account.getSelfSpendKey(),
       memoEph,
-      changeNote: change.note,
       changeEph,
-    };
+    });
+    const memo = assembled.memo;
+    const change = assembled.change;
+    const inputs = assembled.inputs as unknown as TransferInputs;
 
     const proof = await proveTransfer(inputs);
     const tx = await this.darkPool
@@ -292,40 +288,31 @@ export class TestWallet {
   async split(amountA: bigint, amountB: bigint, asset?: string) {
     const assetFr = await this.assetFr(asset);
     const input = this.pickNote(assetFr, amountA + amountB);
-    const parents = packParents([
-      { leafIndex: Number(input.leafIndex) },
-      { leafIndex: 0 },
-    ]);
-    const spendScalar = await this.account.getSelfSpendKey();
-
     const { eph: eph1 } = await this.keyRepo.nextSelfEphemeral();
-    const out1 = await mintSelfNote(
-      eph1,
-      amountA,
-      spendScalar,
-      assetFr,
-      parents,
-    );
     const { eph: eph2 } = await this.keyRepo.nextSelfEphemeral();
-    const out2 = await mintSelfNote(
-      eph2,
-      amountB,
-      spendScalar,
-      assetFr,
-      parents,
-    );
 
-    const inputs: SplitInputs = {
-      compliancePk: COMPLIANCE_PK,
-      noteIn: noteToInput(input.note),
-      spendScalar: input.spendScalar,
-      indexIn: input.leafIndex,
-      pathIn: this.tree.getMerklePath(input.leafIndex),
-      noteOut1: out1.note,
+    // amountB is implied: the assembler derives output 2 as the remainder, which is what the circuit
+    // conserves. Passing both would let a caller state a total that does not add up.
+    const assembled = await assembleSplit(this.assemblyCtx(), {
+      input: {
+        note: noteToInput(input.note),
+        leaf: input.commitment,
+        leafIndex: Number(input.leafIndex),
+        spendScalar: input.spendScalar,
+      },
+      value1: amountA,
+      selfSpendScalar: await this.account.getSelfSpendKey(),
       eph1,
-      noteOut2: out2.note,
       eph2,
-    };
+    });
+    const out1 = assembled.out1;
+    const out2 = assembled.out2;
+    if (out2.note.value.toBigInt() !== amountB) {
+      throw new Error(
+        `split remainder ${out2.note.value.toBigInt()} does not match requested ${amountB}`,
+      );
+    }
+    const inputs = assembled.inputs as unknown as SplitInputs;
 
     const proof = await proveSplit(inputs);
     const tx = await this.darkPool
@@ -346,33 +333,26 @@ export class TestWallet {
       throw new Error("join requires >= 2 unspent notes of the asset");
     }
     const [noteA, noteB] = notes;
-    const parents = packParents([
-      { leafIndex: Number(noteA.leafIndex) },
-      { leafIndex: Number(noteB.leafIndex) },
-    ]);
-    const spendScalar = await this.account.getSelfSpendKey();
     const { eph: ephOut } = await this.keyRepo.nextSelfEphemeral();
-    const out = await mintSelfNote(
+    // The assembler sorts the pair ascending itself, so the sort above is belt and braces.
+    const assembled = await assembleJoin(this.assemblyCtx(), {
+      inputA: {
+        note: noteToInput(noteA.note),
+        leaf: noteA.commitment,
+        leafIndex: Number(noteA.leafIndex),
+        spendScalar: noteA.spendScalar,
+      },
+      inputB: {
+        note: noteToInput(noteB.note),
+        leaf: noteB.commitment,
+        leafIndex: Number(noteB.leafIndex),
+        spendScalar: noteB.spendScalar,
+      },
+      selfSpendScalar: await this.account.getSelfSpendKey(),
       ephOut,
-      noteA.note.value + noteB.note.value,
-      spendScalar,
-      assetFr,
-      parents,
-    );
-
-    const inputs: JoinInputs = {
-      compliancePk: COMPLIANCE_PK,
-      noteA: noteToInput(noteA.note),
-      spendScalarA: noteA.spendScalar,
-      indexA: noteA.leafIndex,
-      pathA: this.tree.getMerklePath(noteA.leafIndex),
-      noteB: noteToInput(noteB.note),
-      spendScalarB: noteB.spendScalar,
-      indexB: noteB.leafIndex,
-      pathB: this.tree.getMerklePath(noteB.leafIndex),
-      noteOut: out.note,
-      ephOut,
-    };
+    });
+    const out = assembled.out;
+    const inputs = assembled.inputs as unknown as JoinInputs;
 
     const proof = await proveJoin(inputs);
     const tx = await this.darkPool

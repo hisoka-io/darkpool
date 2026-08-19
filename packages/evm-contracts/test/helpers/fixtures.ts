@@ -1,5 +1,5 @@
 import { ethers, upgrades } from "hardhat";
-import { ContractRunner, keccak256, toUtf8Bytes } from "ethers";
+import { ContractRunner } from "ethers";
 import {
   DarkPool,
   MockERC20,
@@ -10,7 +10,6 @@ import { proveDeposit, NoteInput } from "@hisoka/prover";
 import {
   Fr,
   toFr,
-  toReducedFr,
   addressToFr,
   Kdf,
   toBjjScalar,
@@ -23,8 +22,12 @@ import {
   publicKey,
   isEvenY,
   LeanIMT,
-  Poseidon,
+  genesisLeaf as walletsGenesisLeaf,
+  newSeededTree as walletsNewSeededTree,
+  mintSelfNote as walletsMintSelfNote,
+  mintIncomingNote as walletsMintIncomingNote,
 } from "@hisoka/wallets";
+import type { MintedNote } from "@hisoka/wallets";
 import type { DerivedEph } from "@hisoka/wallets";
 import { Base8, mulPointEscalar, Point, subOrder } from "@zk-kit/baby-jubjub";
 
@@ -37,40 +40,26 @@ export const COMPLIANCE_PK: Point<bigint> = mulPointEscalar(
 // Hardhat's in-process network chain id; the DarkPool binds its tree genesis leaf to block.chainid.
 export const HARDHAT_CHAIN_ID = 31337n;
 
-/** Byte-identical to DarkPool._genesisLeaf(): Poseidon2(keccak256("hisoka.darkpool.genesis") reduced mod the BN254 scalar field, chainId). */
+/** The hardhat chain id default lives HERE, in the test fixture. `genesisLeaf` in @hisoka/wallets requires
+ *  the argument, because a wrong chain id silently produces a tree the pool disagrees with. */
 export async function genesisLeaf(
   chainId: bigint = HARDHAT_CHAIN_ID,
 ): Promise<Fr> {
-  const domainTag = BigInt(keccak256(toUtf8Bytes("hisoka.darkpool.genesis")));
-  return Poseidon.hash([toReducedFr(domainTag), toFr(chainId)]);
+  return walletsGenesisLeaf(chainId);
 }
 
-/** A LeanIMT seeded with the genesis leaf at index 0, mirroring the contract: real notes start at index 1. */
 export async function newSeededTree(
   chainId: bigint = HARDHAT_CHAIN_ID,
 ): Promise<LeanIMT> {
-  const tree = new LeanIMT(32);
-  await tree.insert(await genesisLeaf(chainId));
-  return tree;
+  return walletsNewSeededTree(chainId);
 }
 
 const NOTE_VERSION = toFr(1n);
-const NOTE_TYPE_STANDARD = toFr(0n);
 const NOTE_TYPE_MULTISIG = toFr(1n);
 const ZERO = toFr(0n);
 
-export interface BuiltNote {
-  note: NoteInput;
-  commitment: Fr;
-  eph: DerivedEph;
-  ephPub: Point<bigint>;
-  cek: Fr;
-  psi: Fr;
-  spendScalar: Fr;
-  tag: Fr;
-  inPub?: Point<bigint>;
-  cekWrap?: Fr;
-}
+/** The promoted shape. Kept as a local alias so the ~8 existing referents do not all have to move. */
+export type BuiltNote = MintedNote;
 
 /**
  * Next even-y BabyJubJub subgroup scalar at or after `seed`: the tag eph_pub.x is only injective when y is
@@ -105,50 +94,7 @@ export async function userSpendScalar(address: string): Promise<Fr> {
   );
 }
 
-async function finishNote(
-  eph: DerivedEph,
-  value: bigint,
-  owner: Fr,
-  assetFr: Fr,
-  spendScalar: Fr,
-  parents: Fr,
-): Promise<BuiltNote> {
-  const cek = deriveCek(eph, COMPLIANCE_PK);
-  const psi = await computePsi(cek);
-  const plaintextNote: Note = {
-    noteVersion: NOTE_VERSION,
-    assetId: assetFr,
-    noteType: NOTE_TYPE_STANDARD,
-    conditionsHash: ZERO,
-    value,
-    owner,
-    psi,
-    parents,
-  };
-  const commitment = await leaf(plaintextNote);
-  const ephPub = publicKey(eph);
-  const note: NoteInput = {
-    noteVersion: NOTE_VERSION,
-    assetId: assetFr,
-    noteType: NOTE_TYPE_STANDARD,
-    conditionsHash: ZERO,
-    value: toFr(value),
-    owner,
-    psi,
-    parents,
-  };
-  return {
-    note,
-    commitment,
-    eph: eph as DerivedEph,
-    ephPub,
-    cek,
-    psi,
-    spendScalar,
-    tag: new Fr(ephPub[0]),
-  };
-}
-
+/** Test-fixture wrappers: the promoted versions take the compliance key explicitly, tests always use ours. */
 export async function mintSelfNote(
   eph: DerivedEph,
   value: bigint,
@@ -156,14 +102,12 @@ export async function mintSelfNote(
   assetFr: Fr,
   parents: Fr = ZERO,
 ): Promise<BuiltNote> {
-  const owner = await pubkeyOwner(publicKey(spendScalar));
-  // Memo ephemerals are legitimately random: cek_wrap travels and the tag is the recipient key.
-  return finishNote(
-    eph as DerivedEph,
+  return walletsMintSelfNote(
+    eph,
     value,
-    owner,
-    assetFr,
     spendScalar,
+    assetFr,
+    COMPLIANCE_PK,
     parents,
   );
 }
@@ -176,20 +120,15 @@ export async function mintIncomingNote(
   assetFr: Fr,
   parents: Fr = ZERO,
 ): Promise<BuiltNote> {
-  const owner = await pubkeyOwner(inPub);
-  // Memo ephemeral: legitimately random, cek_wrap travels and the tag is the recipient key.
-  const built = await finishNote(
-    eph as DerivedEph,
+  return walletsMintIncomingNote(
+    eph,
     value,
-    owner,
-    assetFr,
+    inPub,
     inKey,
+    assetFr,
+    COMPLIANCE_PK,
     parents,
   );
-  built.inPub = inPub;
-  built.cekWrap = await wrapCek(built.cek, eph, inPub);
-  built.tag = new Fr(inPub[0]);
-  return built;
 }
 
 /** A MULTISIG memo: owner binds the account gpk (spend authority) while discovery and decryption bind the view key V, which gpk's t-of-n scalar cannot do. */

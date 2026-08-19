@@ -18,6 +18,11 @@
       "import": "./dist/frost/index.js",
       "require": "./dist/frost/index.cjs"
     },
+    "./tx": {
+      "types": "./dist/tx/index.d.ts",
+      "import": "./dist/tx/index.js",
+      "require": "./dist/tx/index.cjs"
+    },
     "./threshold": {
       "types": "./dist/threshold/index.d.ts",
       "import": "./dist/threshold/index.js",
@@ -40,7 +45,8 @@
     "test": "vitest run",
     "lint": "eslint 'src/**/*.ts'",
     "lint:fix": "eslint 'src/**/*.ts' --fix",
-    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "test:browser": "node scripts/browser-smoke.mjs"
   },
   "author": "hisoka-io",
   "license": "Apache-2.0",
@@ -49,10 +55,12 @@
     "@types/node": "^24.10.0",
     "tsup": "^8.5.1",
     "typescript": "5.9.2",
-    "vitest": "^1.6.0"
+    "vitest": "^1.6.0",
+    "esbuild": "0.27.7",
+    "buffer": "6.0.3"
   },
   "dependencies": {
-    "@aztec/foundation": "^2.0.4",
+    "@aztec/foundation": "2.1.11",
     "@zk-kit/baby-jubjub": "^1.0.3",
     "@zk-kit/utils": "^1.4.1",
     "bs58check": "^4.0.0",

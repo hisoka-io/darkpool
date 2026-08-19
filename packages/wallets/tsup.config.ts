@@ -11,6 +11,7 @@ export default defineConfig({
     "frost/index": "src/frost/index.ts",
     "threshold/index": "src/threshold/index.ts",
     "unsafe-sim/index": "src/unsafe-sim/index.ts",
+    "tx/index": "src/tx/index.ts",
   },
   format: ["cjs", "esm"],
   dts: true,

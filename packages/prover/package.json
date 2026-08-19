@@ -20,11 +20,12 @@
     "benchmark": "node ./scripts/bench/benchmark.mjs",
     "lint": "eslint 'src/**/*.ts'",
     "gen-verifier": "node ./scripts/generate_verifier.js",
-    "lint:fix": "eslint 'src/**/*.ts' --fix"
+    "lint:fix": "eslint 'src/**/*.ts' --fix",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "dependencies": {
     "@aztec/bb.js": "5.0.0",
-    "@aztec/foundation": "^2.0.4",
+    "@aztec/foundation": "2.1.11",
     "@noir-lang/noir_js": "1.0.0-beta.22",
     "@hisoka/wallets": "workspace:*",
     "@zk-kit/baby-jubjub": "^1.0.3"
