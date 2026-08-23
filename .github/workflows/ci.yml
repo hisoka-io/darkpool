@@ -65,6 +65,10 @@ jobs:
           node-version: "20"
           cache: "pnpm"
       - uses: ./.github/actions/setup-nargo
+      # Foundry is REQUIRED here even though this job runs no forge command: pss-integration's
+      # spentOracle suite spawns `anvil` directly (src/__tests__/spentOracle.test.ts:165). Removing this
+      # because "no step in this job uses forge" breaks that suite with `spawn anvil ENOENT`.
+      - uses: foundry-rs/foundry-toolchain@v1
       - name: Check Node version
         run: bash scripts/check-node.sh
       - run: pnpm install --frozen-lockfile
