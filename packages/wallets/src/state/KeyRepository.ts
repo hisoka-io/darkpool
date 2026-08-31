@@ -1,7 +1,7 @@
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
 import { DarkAccount } from "../keys/DarkAccount.js";
-import { isEvenY, publicKey } from "../note/keys.js";
+import { isEvenY, publicKey, pubkeyOwner } from "../note/keys.js";
 import {
   IKeyRepository,
   IncomingAddress,
@@ -12,6 +12,7 @@ import {
   EphemeralCounterStore,
   SealedEphemeralCounterStore,
 } from "./EphemeralCounterStore.js";
+import { markDerivedSelfMintCandidate } from "../types/ephemeral.js";
 
 const DEFAULT_LOOKAHEAD_WINDOW = 20;
 // Only guards a non-terminating even-y roll; each index is even-y with prob ~1/2.
@@ -58,12 +59,7 @@ export class KeyRepository implements IKeyRepository {
     return this.account.getSelfSpendPub();
   }
 
-  // One index reserved per attempt, and an odd-y index is abandoned rather than released: `release`
-  // rewinds the high-water to the same base, and the derivation is pure in the index, so a released
-  // index is re-derived identically forever. Abandoning burns exactly one index per attempt, which
-  // bounds what a crash between reserve and commit can skip to one and means the roll always walks
-  // forward. The attempt cap is an escape hatch against a structurally broken derivation issuing one
-  // durable write per iteration forever, unreachable by a healthy one at 256 consecutive odd-y indices.
+  // One index is reserved per attempt. Odd-y indices stay burned because derivation is pure in the index.
   public nextSelfEphemeral(): Promise<SelfEphemeral> {
     return this.#withLock(async () => {
       for (let attempt = 0; attempt < MAX_INDEX_ROLL; attempt++) {
@@ -73,10 +69,21 @@ export class KeyRepository implements IKeyRepository {
         const ephPub = publicKey(eph);
         if (!isEvenY(ephPub)) continue;
         await res.commit(index);
+        const ownerCommitment = await pubkeyOwner(
+          await this.account.getSelfSpendPub(),
+        );
         this.#selfMintCounter = Math.max(this.#selfMintCounter, index + 1);
         this.#selfMap.set(tagKey(ephPub[0]), { eph, index });
         if (this.#selfScanIndex < index + 1) this.#selfScanIndex = index + 1;
-        return { eph, ephPub, index };
+        return markDerivedSelfMintCandidate(
+          {
+            eph,
+            ephPub,
+            tag: new Fr(ephPub[0]),
+            index,
+          },
+          ownerCommitment,
+        );
       }
       throw new Error(
         `no even-y self ephemeral within ${MAX_INDEX_ROLL} reservations`,
@@ -165,11 +172,15 @@ export class KeyRepository implements IKeyRepository {
   }
 
   public async restore(state: KeyRepoState): Promise<void> {
+    const selfHighWater = clampIndex(
+      await this.counter.highWater(SELF_EPH_SCOPE),
+      0,
+    );
     this.#selfMintCounter = Math.max(
       this.#selfMintCounter,
       clampIndex(state.selfMintCounter, 0),
+      selfHighWater,
     );
-    const selfHighWater = await this.counter.highWater(SELF_EPH_SCOPE);
     if (selfHighWater < this.#selfMintCounter) {
       await this.counter.reserve(
         SELF_EPH_SCOPE,
@@ -191,7 +202,7 @@ export class KeyRepository implements IKeyRepository {
 
     const selfTarget = Math.max(
       clampIndex(state.selfScanIndex, 0),
-      this.#selfMintCounter,
+      clampIndex(this.#selfMintCounter + DEFAULT_LOOKAHEAD_WINDOW, 0),
     );
     while (this.#selfScanIndex < selfTarget) {
       await this.#registerSelf(this.#selfScanIndex++);

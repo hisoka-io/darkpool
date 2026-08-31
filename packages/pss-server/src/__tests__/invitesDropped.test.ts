@@ -30,7 +30,6 @@ function seed(who: TestAccount, version: number): void {
       prevVersion: version - 1,
       nonce: new Uint8Array(12),
       ciphertext: Uint8Array.of(9),
-      updatedOn: "2026-08-07",
     },
     { required: false },
   );

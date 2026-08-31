@@ -12,18 +12,18 @@ describe("EphemeralCounterStore (WC-1)", () => {
     expect(b.base).toBe(4);
   });
 
-  it("commit reclaims the unused tail so indices stay dense", async () => {
+  it("commit burns the unused tail so no index can be reissued", async () => {
     const s = new InMemoryEphemeralCounterStore();
     const r = await s.reserve("self", 256);
     await r.commit(3);
-    expect(await s.highWater("self")).toBe(4);
-    expect((await s.reserve("self", 256)).base).toBe(4);
+    expect(await s.highWater("self")).toBe(256);
+    expect((await s.reserve("self", 256)).base).toBe(256);
   });
 
-  it("release reclaims the whole span when still the top", async () => {
+  it("release burns the whole span", async () => {
     const s = new InMemoryEphemeralCounterStore();
     await (await s.reserve("self", 10)).release();
-    expect(await s.highWater("self")).toBe(0);
+    expect(await s.highWater("self")).toBe(10);
   });
 
   it("commit never rewinds below a later reserve (no reuse under interleaving)", async () => {
@@ -33,7 +33,7 @@ describe("EphemeralCounterStore (WC-1)", () => {
     await r1.commit(3);
     expect(await s.highWater("self")).toBe(512);
     await r2.commit(300);
-    expect(await s.highWater("self")).toBe(301);
+    expect(await s.highWater("self")).toBe(512);
   });
 
   it("CRASH between reserve and use cannot reissue (write-ahead is persisted)", async () => {
@@ -110,6 +110,26 @@ describe("KeyRepository self-eph durability (WC-1)", () => {
     const a = await repo.nextSelfEphemeral();
     const b = await repo.nextSelfEphemeral();
     expect(b.index).toBeGreaterThan(a.index);
+  });
+
+  it("restores the mint counter and scan window from a higher durable counter", async () => {
+    const account = await DarkAccount.fromMnemonic(MNEMONIC);
+    const repo = new KeyRepository(
+      account,
+      new InMemoryEphemeralCounterStore({ self: 40 }),
+    );
+    await repo.restore({
+      selfMintCounter: 2,
+      selfScanIndex: 2,
+      incomingIssueCounter: 0,
+      incomingScanIndex: 0,
+      highestMatchedSelf: -1,
+      highestMatchedIncoming: -1,
+    });
+
+    expect(repo.getState().selfMintCounter).toBe(40);
+    expect(repo.selfScanIndex).toBeGreaterThanOrEqual(60);
+    expect((await repo.nextSelfEphemeral()).index).toBeGreaterThanOrEqual(40);
   });
 
   // 1.7 mirror: the standard path had no coverage of the reservation mechanism at all.

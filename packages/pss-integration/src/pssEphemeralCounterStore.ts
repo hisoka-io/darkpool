@@ -13,10 +13,13 @@ import type { ParsedStatePayload } from "@hisoka/pss-client";
  */
 export interface CounterPayloadPort {
   current(): ParsedStatePayload;
-  /** MUST resolve only once the new payload is durable. */
-  update(
-    change: (current: ParsedStatePayload) => ParsedStatePayload,
-  ): Promise<void>;
+  /** MUST return only after the mutation is durable and its writer authority is remotely confirmed. */
+  mutateAsWriterDurably<T>(
+    change: (current: ParsedStatePayload) => {
+      readonly payload: ParsedStatePayload;
+      readonly value: T;
+    },
+  ): Promise<T>;
 }
 
 function withCounters(
@@ -35,10 +38,23 @@ export function pssCounterPersistence(
 ): CounterPersistence {
   return {
     read: () => port.current().known.ephemeralCounters,
-    write: (change) =>
-      port.update((payload) =>
-        withCounters(payload, change(payload.known.ephemeralCounters)),
-      ),
+    reserve: (scope, span) =>
+      port.mutateAsWriterDurably((payload) => {
+        const base = payload.known.ephemeralCounters[scope] ?? 0;
+        const next = base + span;
+        if (!Number.isSafeInteger(next)) {
+          throw new Error(
+            `ephemeral reserve: scope ${scope} high-water ${base} plus span ${span} exceeds the safe integer range`,
+          );
+        }
+        return {
+          payload: withCounters(payload, {
+            ...payload.known.ephemeralCounters,
+            [scope]: next,
+          }),
+          value: base,
+        };
+      }),
   };
 }
 

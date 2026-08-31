@@ -13,7 +13,9 @@ import {
   InMemoryEphemeralCounterStore,
   reconcileCounterWithChain,
   ratchetCounter,
+  completeComplianceHistory,
   MAX_OCCURRENCES_PER_TAG,
+  SelfMintPreflight,
   type DiscoverySource,
   type IndexedTag,
 } from "@hisoka/wallets";
@@ -27,6 +29,11 @@ const ZERO = new Fr(0n);
 const ASSET = new Fr(0xaaaan);
 const COMPLIANCE_PK = publicKey(new Fr(0x1f3n));
 const SELF_SCOPE = "self";
+const DOMAIN = {
+  chainId: 31337n,
+  poolAddress: "0x0000000000000000000000000000000000000001",
+  deploymentAnchor: 1n,
+};
 
 async function mintSelf(
   eph: Fr,
@@ -171,12 +178,44 @@ describe("scenario B: the counter must learn what the chain already knows", () =
     for (const used of mintedIndices) expect(next.index).toBeGreaterThan(used);
   });
 
+  it("preflight opens a stale-counter collision locally and persists past it", async () => {
+    const account = await DarkAccount.fromMnemonic(MNEMONIC);
+    const owner = await pubkeyOwner(await account.getSelfSpendPub());
+    const used = await new KeyRepository(
+      account,
+      new InMemoryEphemeralCounterStore(),
+    ).nextSelfEphemeral();
+    const raven = new MockRaven();
+    indexEvents(raven, [await mintSelf(used.eph, owner, 100n, 0)]);
+
+    const staleStore = new InMemoryEphemeralCounterStore();
+    const restored = new KeyRepository(account, staleStore);
+    const preflight = new SelfMintPreflight({
+      allocator: { next: () => restored.nextSelfEphemeral() },
+      discovery: raven,
+      history: completeComplianceHistory({
+        genesisPk: COMPLIANCE_PK,
+        rotations: [],
+        currentPk: COMPLIANCE_PK,
+        currentVersion: 1,
+      }),
+      ownerCommitment: owner,
+      domain: DOMAIN,
+    });
+
+    const [safe] = await preflight.take(1);
+    expect(Object.keys(safe)).toEqual([]);
+    expect(await staleStore.highWater(SELF_SCOPE)).toBeGreaterThan(used.index);
+    expect(raven.queryLog.rowsHit).toBe(1);
+    expect(raven.queryLog.rowsRequested).toBe(6);
+  });
+
   it("never lowers the counter, because a discovery miss carries no information", async () => {
     const store = new InMemoryEphemeralCounterStore();
     await store.reserve(SELF_SCOPE, 50);
     expect(await store.highWater(SELF_SCOPE)).toBe(50);
 
-    // An empty table. Raven lags the chain and is untrusted, so "nothing found" must not rewind anything.
+    // Absence never lowers a durable high-water because reserved indices remain burned.
     const empty = new MockRaven();
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
     const { highWater } = await reconcileCounterWithChain(
@@ -262,8 +301,8 @@ describe("multi-realm collision: two stores, one account", () => {
   });
 });
 
-describe("a hostile occurrence count cannot wedge the device", () => {
-  it("bounds the round-2 batch and reports which tags were truncated", async () => {
+describe("hostile occurrence rows", () => {
+  it("returns one note when Raven repeats occurrence zero ten times", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
     const owner = await pubkeyOwner(await account.getSelfSpendPub());
     const eph = await account.getSelfEphemeral(0n);
@@ -272,12 +311,11 @@ describe("a hostile occurrence count cannot wedge the device", () => {
     const raven = new MockRaven();
     indexEvents(raven, [await mintSelf(eph, owner, 100n, 0)]);
 
-    // A server that claims a quarter of a million rows under one tag, delegating everything else honestly.
     const hostile: DiscoverySource = {
       probeFirst: async (tags) =>
         (await raven.probeFirst(tags)).map((r) => ({
           ...r,
-          occurrenceCount: 250_000,
+          occurrenceCount: 10,
         })),
       fetchOccurrences: (requests) => raven.fetchOccurrences(requests),
       fetchLeafBlock: (block) => raven.fetchLeafBlock(block),
@@ -291,11 +329,34 @@ describe("a hostile occurrence count cannot wedge the device", () => {
       },
     ]);
 
-    expect(result.truncatedTags).toContain(tag.toString());
-    // Bounded, not unbounded: the request never grows past the cap no matter what the server claims.
-    expect(raven.queryLog.rowsRequested).toBeLessThanOrEqual(
-      MAX_OCCURRENCES_PER_TAG + 1,
-    );
+    expect(result.truncatedTags).toEqual([]);
+    expect(raven.queryLog.rowsRequested).toBe(10);
     expect(result.notes).toHaveLength(1);
+    expect(new Set(result.notes.map((note) => note.leafIndex)).size).toBe(1);
+    expect(result.rejected).toBe(9);
+
+    let cappedRequests = 0;
+    const capped: DiscoverySource = {
+      probeFirst: async (tags) =>
+        (await raven.probeFirst(tags)).map((row) => ({
+          ...row,
+          occurrenceCount: MAX_OCCURRENCES_PER_TAG + 1,
+        })),
+      fetchOccurrences: (requests) => {
+        cappedRequests = requests.length;
+        return Promise.resolve(requests.map(() => null));
+      },
+      fetchLeafBlock: (block) => raven.fetchLeafBlock(block),
+    };
+    const cappedResult = await syncViaDiscovery(capped, [
+      {
+        tag,
+        ownerCommitment: owner,
+        cekFor: async () => deriveCek(eph, COMPLIANCE_PK),
+      },
+    ]);
+    expect(cappedRequests).toBe(MAX_OCCURRENCES_PER_TAG - 1);
+    expect(cappedResult.truncatedTags).toEqual([tag.toString()]);
+    expect(cappedResult.notes).toHaveLength(1);
   });
 });

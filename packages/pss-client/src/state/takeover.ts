@@ -36,10 +36,9 @@ export function newInstallId(backend: CryptoBackend): string {
   return toHex(backend.randomBytes(INSTALL_ID_BYTES));
 }
 
-// One writer per account, by takeover rather than by lock. Two devices allocating ephemeral indices
-// independently collide, and a collision is a key handover rather than a lost update, so it has to be
-// prevented at mint time. A blob compare-and-swap cannot do that, because the collision happens before
-// either device writes.
+// One writer per account, by takeover rather than by lock. Counter allocation must wait for the blob
+// compare-and-swap before releasing an index, so a conflicting former writer cannot mint from its local
+// snapshot.
 export class InstallGuard {
   readonly #identity: InstallIdentity;
   readonly #floor: VersionFloor;
@@ -59,7 +58,7 @@ export class InstallGuard {
         `platform must be at most ${PLATFORM_MAX_CHARS} characters`,
       );
     }
-    this.#identity = identity;
+    this.#identity = Object.freeze({ ...identity });
     this.#floor = floor;
   }
 

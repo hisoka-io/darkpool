@@ -4,7 +4,10 @@ import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
 import { toFr } from "../crypto/fields.js";
 import { PARENTS_HIDDEN, packParents } from "../note/note.js";
 import { publicKey, pubkeyOwner } from "../note/keys.js";
-import type { DerivedEph } from "../types/ephemeral.js";
+import {
+  markDerivedSelfMintCandidate,
+  type DerivedEph,
+} from "../types/ephemeral.js";
 import {
   assembleDeposit,
   assembleWithdraw,
@@ -17,11 +20,77 @@ import {
 } from "../tx/assemble.js";
 import { mintSelfNote } from "../note/mint.js";
 import type { MerkleWitnessSource } from "../tx/ports.js";
+import { completeComplianceHistory } from "../note/complianceKeys.js";
+import { SelfMintPreflight } from "../discovery/preflight.js";
+import {
+  CIPHERTEXT_KEPT_INDICES,
+  COMMITMENT_PREFIX_BYTES,
+  HOWL_NOTE_LAYOUT_VERSION,
+  RECORD_KIND_INCOMING,
+  type DiscoverySource,
+  type HowlNoteRecord,
+} from "../discovery/types.js";
 
 const COMPLIANCE_PK = mulPointEscalar(Base8, 987654321n);
 const ASSET = toFr(0x1234567890123456789012345678901234567890n);
 const SPEND = toFr(789n);
 const eph = (n: bigint): DerivedEph => toFr(n) as DerivedEph;
+const COMPLIANCE_HISTORY = completeComplianceHistory({
+  genesisPk: COMPLIANCE_PK,
+  rotations: [],
+  currentPk: COMPLIANCE_PK,
+  currentVersion: 1,
+});
+const DOMAIN = {
+  chainId: 31337n,
+  poolAddress: "0x0000000000000000000000000000000000000001",
+  deploymentAnchor: 1n,
+};
+const MISS_RECORD: HowlNoteRecord = {
+  layoutVersion: HOWL_NOTE_LAYOUT_VERSION,
+  recordKind: RECORD_KIND_INCOMING,
+  leafIndex: 0,
+  commitmentPrefix: new Uint8Array(COMMITMENT_PREFIX_BYTES),
+  ephemeralPkX: Fr.ZERO,
+  cekWrap: Fr.ZERO,
+  ciphertextKept: CIPHERTEXT_KEPT_INDICES.map(() => Fr.ZERO),
+};
+
+const emptyDiscovery: DiscoverySource = {
+  probeFirst: (tags) =>
+    Promise.resolve(
+      tags.map((tag) => ({ tag, record: MISS_RECORD, occurrenceCount: 0 })),
+    ),
+  fetchOccurrences: () => Promise.resolve([]),
+  fetchLeafBlock: () => Promise.resolve([]),
+};
+
+async function preflighted(n: bigint) {
+  const scalar = eph(n);
+  const ephPub = publicKey(scalar);
+  const ownerCommitment = await pubkeyOwner(publicKey(SPEND));
+  const preflight = new SelfMintPreflight({
+    allocator: {
+      next: () =>
+        Promise.resolve(
+          markDerivedSelfMintCandidate(
+            {
+              eph: scalar,
+              ephPub,
+              tag: new Fr(ephPub[0]),
+              index: Number(n),
+            },
+            ownerCommitment,
+          ),
+        ),
+    },
+    discovery: emptyDiscovery,
+    history: COMPLIANCE_HISTORY,
+    ownerCommitment,
+    domain: DOMAIN,
+  });
+  return (await preflight.take(1))[0];
+}
 
 /** Populated by `spendable()` so the stub agrees with the wallet about where each note sits. */
 const byLeaf = new Map<string, number>();
@@ -55,6 +124,9 @@ async function spendable(
 
 const ctx = (index: number, root?: Fr): AssemblyContext => ({
   compliancePk: COMPLIANCE_PK,
+  complianceVersion: 1,
+  complianceHistory: COMPLIANCE_HISTORY,
+  ...DOMAIN,
   merkle: source(index, root),
 });
 
@@ -64,12 +136,82 @@ describe("assembleDeposit", () => {
       value: 100n,
       assetId: ASSET,
       spendScalar: SPEND,
-      eph: eph(5n),
+      selfMint: await preflighted(5n),
     });
     expect(a.inputs.note.value.toBigInt()).toBe(100n);
     expect(a.minted.commitment).toBeInstanceOf(Fr);
     // A self note's discovery tag IS the ephemeral's own public x.
     expect(a.minted.tag.toBigInt()).toBe(publicKey(eph(5n))[0]);
+  });
+
+  it("consumes one authorization once and rejects runtime forgeries", async () => {
+    const authorization = await preflighted(70n);
+    const request = {
+      value: 10n,
+      assetId: ASSET,
+      spendScalar: SPEND,
+      selfMint: authorization,
+    };
+    await expect(assembleDeposit(ctx(1), request)).resolves.toBeDefined();
+    await expect(assembleDeposit(ctx(1), request)).rejects.toThrow(/consumed/);
+
+    await expect(
+      Reflect.apply(assembleDeposit, undefined, [
+        ctx(1),
+        { ...request, selfMint: {} },
+      ]),
+    ).rejects.toThrow(/unknown|copied/);
+  });
+
+  it("checks owner and compliance context before consuming", async () => {
+    const authorization = await preflighted(71n);
+    await expect(
+      assembleDeposit(ctx(1), {
+        value: 10n,
+        assetId: ASSET,
+        spendScalar: toFr(999n),
+        selfMint: authorization,
+      }),
+    ).rejects.toThrow(/context/);
+    await expect(
+      assembleDeposit(
+        { ...ctx(1), complianceVersion: 2 },
+        {
+          value: 10n,
+          assetId: ASSET,
+          spendScalar: SPEND,
+          selfMint: authorization,
+        },
+      ),
+    ).rejects.toThrow(/context/);
+    await expect(
+      assembleDeposit(ctx(1), {
+        value: 10n,
+        assetId: ASSET,
+        spendScalar: SPEND,
+        selfMint: authorization,
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it("does not burn authorization on request validation failure", async () => {
+    const authorization = await preflighted(72n);
+    await expect(
+      assembleDeposit(ctx(1), {
+        value: -1n,
+        assetId: ASSET,
+        spendScalar: SPEND,
+        selfMint: authorization,
+      }),
+    ).rejects.toThrow(AssemblyError);
+    await expect(
+      assembleDeposit(ctx(1), {
+        value: 1n,
+        assetId: ASSET,
+        spendScalar: SPEND,
+        selfMint: authorization,
+      }),
+    ).resolves.toBeDefined();
   });
 });
 
@@ -81,7 +223,7 @@ describe("assembleWithdraw", () => {
       value: 30n,
       recipient: toFr(0xbeefn),
       selfSpendScalar: SPEND,
-      changeEph: eph(21n),
+      changeMint: await preflighted(21n),
     });
     expect(a.change.note.value.toBigInt()).toBe(70n);
     expect(a.change.note.parents.toString()).toBe(
@@ -97,7 +239,7 @@ describe("assembleWithdraw", () => {
         value: 999n,
         recipient: toFr(1n),
         selfSpendScalar: SPEND,
-        changeEph: eph(2n),
+        changeMint: await preflighted(2n),
       }),
     ).rejects.toThrow(AssemblyError);
   });
@@ -107,7 +249,7 @@ describe("assembleWithdraw", () => {
     // A LYING source: says index 9 while the wallet holds 3. Building on it would derive a nullifier for a
     // leaf the wallet does not own, so assembly must refuse rather than emit an unusable proof.
     const lying: AssemblyContext = {
-      compliancePk: COMPLIANCE_PK,
+      ...ctx(3),
       merkle: {
         witnessFor: async () => ({
           leafIndex: 9,
@@ -122,7 +264,7 @@ describe("assembleWithdraw", () => {
         value: 1n,
         recipient: toFr(1n),
         selfSpendScalar: SPEND,
-        changeEph: eph(2n),
+        changeMint: await preflighted(2n),
       }),
     ).rejects.toThrow(/MERKLE_INDEX_MISMATCH|index/);
   });
@@ -138,7 +280,7 @@ describe("assembleTransfer", () => {
       recipientInKey: toFr(31n),
       selfSpendScalar: SPEND,
       memoEph: toFr(77n),
-      changeEph: eph(78n),
+      changeMint: await preflighted(78n),
     });
     // The circuit asserts this, and it is what hides the sender's leaf index from the recipient.
     expect(a.memo.note.parents.toString()).toBe(PARENTS_HIDDEN.toString());
@@ -156,8 +298,7 @@ describe("assembleSplit", () => {
       input,
       value1: 40n,
       selfSpendScalar: SPEND,
-      eph1: eph(51n),
-      eph2: eph(52n),
+      selfMints: [await preflighted(51n), await preflighted(52n)],
     });
     expect(a.out1.note.value.toBigInt()).toBe(40n);
     expect(a.out2.note.value.toBigInt()).toBe(60n);
@@ -166,15 +307,15 @@ describe("assembleSplit", () => {
 
   it("rejects a reused ephemeral across the two outputs", async () => {
     const input = await spendable(100n, 2);
+    const repeated = await preflighted(51n);
     await expect(
       assembleSplit(ctx(2), {
         input,
         value1: 40n,
         selfSpendScalar: SPEND,
-        eph1: eph(51n),
-        eph2: eph(51n),
+        selfMints: [repeated, repeated],
       }),
-    ).rejects.toThrow(/EPHEMERAL_REUSE|distinct/);
+    ).rejects.toThrow(/duplicate|EPHEMERAL_REUSE|distinct/);
   });
 });
 
@@ -186,7 +327,7 @@ describe("assembleJoin", () => {
       inputA: hi,
       inputB: lo,
       selfSpendScalar: SPEND,
-      ephOut: eph(60n),
+      selfMint: await preflighted(60n),
     });
     expect(a.inputs["indexA"]).toBe(4);
     expect(a.inputs["indexB"]).toBe(9);
@@ -199,7 +340,7 @@ describe("assembleJoin", () => {
         inputA: n,
         inputB: n,
         selfSpendScalar: SPEND,
-        ephOut: eph(60n),
+        selfMint: await preflighted(60n),
       }),
     ).rejects.toThrow(/JOIN_SELF|itself/);
   });
@@ -211,7 +352,7 @@ describe("assembleJoin", () => {
       inputA: a1,
       inputB: b1,
       selfSpendScalar: SPEND,
-      ephOut: eph(60n),
+      selfMint: await preflighted(60n),
     });
     expect(a.out.note.value.toBigInt()).toBe(50n);
   });
@@ -243,7 +384,7 @@ describe("output ownership is independent of input ownership", () => {
       value: 40n,
       recipient: toFr(1n),
       selfSpendScalar: SPEND,
-      changeEph: eph(32n),
+      changeMint: await preflighted(32n),
     });
 
     const selfOwned = await pubkeyOwner(publicKey(SPEND));

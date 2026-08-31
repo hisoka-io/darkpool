@@ -15,6 +15,7 @@ export interface KeyRepoState {
 export interface SelfEphemeral {
   eph: DerivedEph;
   ephPub: Point<bigint>;
+  tag: Fr;
   index: number;
 }
 

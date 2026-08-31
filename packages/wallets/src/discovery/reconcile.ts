@@ -7,8 +7,8 @@ import type { DiscoverySource } from "./types.js";
 // repeats the CEK and publishes a byte-identical `ephemeralPK_x` in two events, which links them for any
 // observer with no cryptography at all.
 //
-// MONOTONE FORWARD throughout. Raven lags the chain and is untrusted, so "I see nothing" carries no
-// information, and lowering on a not-found is how a recoverable gap becomes a reused index.
+// MONOTONE FORWARD throughout. Raven v1 is trusted to answer freshly and correctly, but absence never
+// lowers a durable counter because a later stale snapshot must not make an issued index reusable.
 
 /** A derived self tag paired with the index it came from, which is what makes reconciliation possible. */
 export interface IndexedTag {

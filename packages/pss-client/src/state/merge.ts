@@ -65,14 +65,12 @@ function mergeUnspentNotes(inputs: readonly MergeInput[]): UnspentNote[] {
  * already used, which reuses the CEK and two-time-pads the note DEM. That is the exact failure this
  * whole field exists to prevent, so an intersection here would be worse than having no field at all.
  */
-function mergeEphemeralCounters(
-  inputs: readonly MergeInput[],
+export function mergeEphemeralCounterSnapshots(
+  snapshots: readonly Readonly<Record<string, number>>[],
 ): Record<string, number> {
   const merged: Record<string, number> = {};
-  for (const input of inputs) {
-    for (const [scope, high] of Object.entries(
-      input.payload.known.ephemeralCounters,
-    )) {
+  for (const snapshot of snapshots) {
+    for (const [scope, high] of Object.entries(snapshot)) {
       merged[scope] = Math.max(merged[scope] ?? 0, high);
     }
   }
@@ -131,7 +129,9 @@ export function mergeStatePayloads(
       unspentNotes: mergeUnspentNotes(inputs),
       syncCursor: cursor,
       nullifierCheckedAt: checkedAt,
-      ephemeralCounters: mergeEphemeralCounters(inputs),
+      ephemeralCounters: mergeEphemeralCounterSnapshots(
+        inputs.map((input) => input.payload.known.ephemeralCounters),
+      ),
     },
     extra,
   };

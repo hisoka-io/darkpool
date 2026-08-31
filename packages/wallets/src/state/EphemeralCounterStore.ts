@@ -9,25 +9,16 @@
  *
  * - `reserve(scope, span)` MUST persist the advance BEFORE returning. On return, the durable high-water
  *   is already `base + span`. A backend that returns first and writes later can reissue after a crash.
- * - `commit(usedThrough)` trims the durable high-water to `usedThrough + 1`, giving back the unused
- *   tail so indices stay dense. `usedThrough` must lie in `[base, base + span)`.
- * - `release()` REWINDS the durable high-water to `base`, giving back the whole reservation.
- *
- * **`release()` MUST NOT be called on a path whose derivation is deterministic in the index.** Rewinding
- * makes the next `reserve` return the same base, and a pure derivation then produces the identical
- * ephemeral, so a caller that releases on a failed even-y roll re-derives the same failing index
- * forever: the account can never mint again. Such a path must ABANDON the reservation instead, leaving
- * the high-water advanced, which costs one index and always moves forward.
+ * - `commit(usedThrough)` validates which part of the span was used but never lowers the high-water.
+ * - `release()` abandons the whole span without lowering the high-water.
  *
  * Durability boundary, stated per gap:
  * - crash between `reserve` and `commit`: the whole reserved span is burned. Never reissued.
- * - crash between `commit` and the next `reserve`: the trim is durable, so the next base is
- *   `usedThrough + 1`.
+ * - crash between `commit` and the next `reserve`: the next base remains `base + span`.
  * - crash during `reserve` itself: either the advance is durable or the call rejected. A backend must
  *   never leave a third state where an index was returned but not persisted.
  *
- * Both trims are conditional on the high-water still equalling `base + span`, so a concurrent
- * reservation that already moved it is never clobbered.
+ * Commit and release burn unused indices because no backend may make a reserved index reusable.
  */
 export interface EphemeralReservation {
   readonly base: number;
@@ -69,7 +60,7 @@ export class InMemoryEphemeralCounterStore implements EphemeralCounterStore {
       }
       const base = this.#highWater.get(scope) ?? 0;
       this.#highWater.set(scope, base + span);
-      return this.#makeReservation(scope, base, span);
+      return this.#makeReservation(base, span);
     });
   }
 
@@ -85,11 +76,7 @@ export class InMemoryEphemeralCounterStore implements EphemeralCounterStore {
     this.#failNextWrite = true;
   }
 
-  #makeReservation(
-    scope: string,
-    base: number,
-    span: number,
-  ): EphemeralReservation {
+  #makeReservation(base: number, span: number): EphemeralReservation {
     return {
       base,
       span,
@@ -105,17 +92,10 @@ export class InMemoryEphemeralCounterStore implements EphemeralCounterStore {
             ),
           );
         }
-        return this.#trim(scope, base, span, usedThrough + 1);
+        return Promise.resolve();
       },
-      release: (): Promise<void> => this.#trim(scope, base, span, base),
+      release: (): Promise<void> => Promise.resolve(),
     };
-  }
-
-  #trim(scope: string, base: number, span: number, to: number): Promise<void> {
-    return this.#withLock(async () => {
-      if (this.#highWater.get(scope) === base + span)
-        this.#highWater.set(scope, to);
-    });
   }
 
   #withLock<T>(fn: () => Promise<T>): Promise<T> {

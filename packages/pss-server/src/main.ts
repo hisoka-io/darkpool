@@ -3,9 +3,12 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Server } from "node:http";
 import Database from "better-sqlite3";
-import { type ServerConfig, loadConfig } from "./config.js";
+import {
+  SERVER_MAINTENANCE_INTERVAL_MS,
+  type ServerConfig,
+  loadConfig,
+} from "./config.js";
 import { loadMigrations, runMigrations } from "./db/migrate.js";
-import { SWEEP_INTERVAL_MS, retentionCutoff } from "./db/retention.js";
 import { openSlotStore } from "./db/sqliteSlotStore.js";
 import { createPssServer } from "./http/server.js";
 import { type RequestCounters, createCounters } from "./metrics.js";
@@ -84,22 +87,22 @@ export async function startServer(
   });
   const port = await listen(server, config);
 
-  const sweep = (): void => {
-    store.sweepExpired(retentionCutoff(new Date(), config.retentionDays));
+  const maintenance = (): void => {
     limiter.sweepIdle();
   };
-  // Once at boot, because the interval is a day: a deploy or restart cadence shorter than that would
-  // otherwise mean the sweep never runs, and nothing catches up the backlog built while it was down.
-  sweep();
-  const sweepTimer = setInterval(sweep, SWEEP_INTERVAL_MS);
-  sweepTimer.unref();
+  maintenance();
+  const maintenanceTimer = setInterval(
+    maintenance,
+    SERVER_MAINTENANCE_INTERVAL_MS,
+  );
+  maintenanceTimer.unref();
 
   return {
     port,
     counters,
     close: () =>
       new Promise<void>((done) => {
-        clearInterval(sweepTimer);
+        clearInterval(maintenanceTimer);
         server.close(() => {
           db.close();
           done();

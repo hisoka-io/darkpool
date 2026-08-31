@@ -11,7 +11,11 @@ import {
   newInstallId,
 } from "../state/takeover.js";
 import { VersionFloor } from "../state/floor.js";
-import { MergeInput, mergeStatePayloads } from "../state/merge.js";
+import {
+  MergeInput,
+  mergeEphemeralCounterSnapshots,
+  mergeStatePayloads,
+} from "../state/merge.js";
 import {
   decodeStatePayload,
   emptyStatePayload,
@@ -39,7 +43,7 @@ export interface Degradation {
 export interface SyncState {
   readonly mode: WriteMode;
   readonly heldBy: InstallIdentity | null;
-  /** PSS being unreachable, slow or hostile is a state the wallet reports, never an error it throws. */
+  /** Background sync failures are reported here; protected counter mutation rejects separately. */
   readonly degraded: Degradation | null;
   /** A 404 arriving against a non-zero floor: the blob is missing rather than absent. */
   readonly blobMissing: boolean;
@@ -74,6 +78,16 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function snapshotPayload(payload: ParsedStatePayload): ParsedStatePayload {
+  return decodeStatePayload(serializeStatePayload(payload));
+}
+
+function snapshotPullOutcome(outcome: PullOutcome): PullOutcome {
+  return outcome.kind === "present"
+    ? { kind: "present", payload: snapshotPayload(outcome.payload) }
+    : outcome;
+}
+
 /**
  * Owns one store, one version floor, one install guard, one transport and one spent-note oracle, and
  * keeps the local state and the remote blob in agreement. There is exactly one VersionFloor per account
@@ -93,12 +107,20 @@ export class StateSync {
   #debounceTimer: ReturnType<typeof setTimeout> | null = null;
   #flushTimer: ReturnType<typeof setInterval> | null = null;
   #inFlight: Promise<void> = Promise.resolve();
+  #mutationTail: Promise<void> = Promise.resolve();
+  #localRevision = 0;
+  #pullSequence = 0;
+  #appliedPullSequence = 0;
+  #lastPullOutcome: PullOutcome = { kind: "absent" };
+  #createEligible = false;
 
   private constructor(
     deps: StateSyncDeps,
     guard: InstallGuard,
     backend: CryptoBackend,
     local: ParsedStatePayload,
+    initialMode: WriteMode,
+    heldBy: InstallIdentity | null,
   ) {
     this.#deps = deps;
     this.#guard = guard;
@@ -106,8 +128,8 @@ export class StateSync {
     this.#accountPath = toHexRaw(deps.keys.accountId);
     this.#local = local;
     this.#syncState = {
-      mode: "writer",
-      heldBy: null,
+      mode: initialMode,
+      heldBy,
       degraded: null,
       blobMissing: false,
       pendingWrite: false,
@@ -141,11 +163,31 @@ export class StateSync {
             Math.floor(deps.now() / MS_PER_SECOND),
           )
         : decodeStatePayload(cached);
-    return new StateSync(deps, guard, backend, local);
+    const ownsCachedPayload =
+      cached !== null && local.known.installId === installId;
+    const initialMode: WriteMode = ownsCachedPayload ? "writer" : "readonly";
+    const heldBy =
+      cached !== null && !ownsCachedPayload
+        ? {
+            installId: local.known.installId,
+            platform: local.known.platform,
+          }
+        : null;
+    return new StateSync(deps, guard, backend, local, initialMode, heldBy);
   }
 
   get state(): SyncState {
-    return this.#syncState;
+    return Object.freeze({
+      ...this.#syncState,
+      heldBy:
+        this.#syncState.heldBy === null
+          ? null
+          : Object.freeze({ ...this.#syncState.heldBy }),
+      degraded:
+        this.#syncState.degraded === null
+          ? null
+          : Object.freeze({ ...this.#syncState.degraded }),
+    });
   }
 
   get identity(): InstallIdentity {
@@ -154,7 +196,7 @@ export class StateSync {
 
   /** Local storage is authoritative and this never touches the network. */
   current(): ParsedStatePayload {
-    return this.#local;
+    return snapshotPayload(this.#local);
   }
 
   start(): void {
@@ -166,7 +208,7 @@ export class StateSync {
   }
 
   /** Clears timers and resolves. It deliberately does not write: see `update`. */
-  stop(): Promise<void> {
+  async stop(): Promise<void> {
     if (this.#flushTimer !== null) {
       clearInterval(this.#flushTimer);
       this.#flushTimer = null;
@@ -175,7 +217,12 @@ export class StateSync {
       clearTimeout(this.#debounceTimer);
       this.#debounceTimer = null;
     }
-    return this.#inFlight;
+    await this.#mutationTail;
+    if (this.#debounceTimer !== null) {
+      clearTimeout(this.#debounceTimer);
+      this.#debounceTimer = null;
+    }
+    await this.#inFlight;
   }
 
   /**
@@ -186,10 +233,86 @@ export class StateSync {
   async update(
     change: (current: ParsedStatePayload) => ParsedStatePayload,
   ): Promise<void> {
-    this.#local = change(this.#local);
-    await this.#persistLocal();
-    this.#syncState = { ...this.#syncState, pendingWrite: true };
-    this.#schedule(this.#deps.config.debounceMs);
+    await this.#mutate(async () => {
+      await this.#applyLocalChange(change);
+    });
+  }
+
+  /** Security-state mutation whose authority check and durable local write share one queue turn. */
+  async updateAsWriter(
+    change: (current: ParsedStatePayload) => ParsedStatePayload,
+  ): Promise<void> {
+    await this.#mutate(async () => {
+      if (this.#syncState.mode !== "writer") {
+        throw new PssStateError(
+          `this install is read-only: the account is active on ` +
+            `${this.#syncState.heldBy?.platform ?? "another device"}; confirm takeover before reserving a self ephemeral`,
+        );
+      }
+      await this.#applyLocalChange(change);
+    });
+  }
+
+  /** Commits a writer mutation through remote compare-and-swap before returning its value. */
+  mutateAsWriterDurably<T>(
+    change: (current: ParsedStatePayload) => {
+      readonly payload: ParsedStatePayload;
+      readonly value: T;
+    },
+  ): Promise<T> {
+    const commit = async (): Promise<T> => {
+      let lastConflict: unknown;
+      const maxAttempts = this.#deps.config.conflictRetries < 1 ? 1 : 2;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        await this.pull();
+        const committed = await this.#mutate(async () => {
+          this.#assertWriterOrCreate();
+          const mutation = change(snapshotPayload(this.#local));
+          await this.#applyLocalChange(() => mutation.payload);
+          return mutation.value;
+        });
+        const writtenRevision = this.#localRevision;
+        try {
+          await this.#pushOnce();
+          const noNewerLocalMutation = writtenRevision === this.#localRevision;
+          this.#syncState = {
+            ...this.#syncState,
+            degraded: null,
+            pendingWrite: noNewerLocalMutation
+              ? false
+              : this.#syncState.pendingWrite,
+          };
+          if (noNewerLocalMutation) {
+            if (this.#debounceTimer !== null) {
+              clearTimeout(this.#debounceTimer);
+              this.#debounceTimer = null;
+            }
+          }
+          return committed;
+        } catch (error) {
+          if (!isConflict(error)) {
+            this.#syncState = {
+              ...this.#syncState,
+              degraded: {
+                operation: "writer mutation",
+                message: describe(error),
+              },
+            };
+            throw error;
+          }
+          lastConflict = error;
+        }
+      }
+      throw new PssStateError(
+        `writer mutation lost ${maxAttempts} consecutive state compare-and-swap attempts: ${describe(lastConflict)}`,
+      );
+    };
+    const run = this.#inFlight.then(commit, commit);
+    this.#inFlight = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   /**
@@ -202,19 +325,39 @@ export class StateSync {
       clearTimeout(this.#debounceTimer);
       this.#debounceTimer = null;
     }
-    this.#inFlight = this.#inFlight.then(
-      () => this.#pushGuarded(),
-      () => this.#pushGuarded(),
-    );
+    const flush = async (): Promise<void> => {
+      await this.#mutationTail;
+      if (this.#debounceTimer !== null) {
+        clearTimeout(this.#debounceTimer);
+        this.#debounceTimer = null;
+      }
+      await this.#pushGuarded();
+    };
+    this.#inFlight = this.#inFlight.then(flush, flush);
     return this.#inFlight;
   }
 
   async pull(): Promise<PullOutcome> {
+    const sequence = ++this.#pullSequence;
     const answer = await this.#deps.transport.getBlob(this.#accountPath, STATE);
+    const remote = answer === null ? null : parseGetBlobResponse(answer);
+    return this.#mutate(async () => {
+      if (sequence < this.#appliedPullSequence) {
+        return snapshotPullOutcome(this.#lastPullOutcome);
+      }
+      const outcome = await this.#pullAndMerge(remote);
+      this.#appliedPullSequence = sequence;
+      this.#lastPullOutcome = snapshotPullOutcome(outcome);
+      return snapshotPullOutcome(outcome);
+    });
+  }
+
+  async #pullAndMerge(
+    remote: ReturnType<typeof parseGetBlobResponse> | null,
+  ): Promise<PullOutcome> {
     // Re-parsed here rather than trusted from the transport. The GET response carries no signature, so
     // the transport is not a trust boundary and a hand-written one must not be able to widen what the
     // loop will look at.
-    const remote = answer === null ? null : parseGetBlobResponse(answer);
     if (remote === null) {
       const floor = await this.#deps.floor.current(STATE);
       // A 404 is "fresh account" only when this install has never seen a version. With a non-zero floor
@@ -223,9 +366,16 @@ export class StateSync {
       if (floor === 0) {
         this.#remote = null;
         this.#storedVersion = 0;
-        this.#syncState = { ...this.#syncState, blobMissing: false };
+        this.#createEligible = this.#deps.invite !== undefined;
+        this.#syncState = {
+          ...this.#syncState,
+          mode: "readonly",
+          heldBy: null,
+          blobMissing: false,
+        };
         return { kind: "absent" };
       }
+      this.#createEligible = this.#deps.invite !== undefined;
       this.#syncState = { ...this.#syncState, blobMissing: true };
       return { kind: "missing", floor };
     }
@@ -245,16 +395,17 @@ export class StateSync {
     );
     await this.#deps.floor.accept(STATE, remote.version);
     const payload = decodeStatePayload(new TextDecoder().decode(plaintext));
-    this.#remote = payload;
+    this.#createEligible = false;
+    this.#remote = snapshotPayload(payload);
     this.#storedVersion = remote.version;
     // Merged on every read, not only on conflict. Without this the next write uploads whatever this
     // install happens to hold and drops everything the other device wrote, which is precisely the
     // handover the takeover flow exists to make safe.
-    this.#local = this.#mergeWithRemote(payload);
+    this.#local = this.#mergeWithRemote(this.#remote);
     await this.#persistLocal();
     this.#syncState = { ...this.#syncState, blobMissing: false };
     this.#applyTakeoverDecision();
-    return { kind: "present", payload };
+    return { kind: "present", payload: snapshotPayload(payload) };
   }
 
   /**
@@ -265,13 +416,15 @@ export class StateSync {
   async confirmTakeover(
     chainFloors: Readonly<Record<Collection, number>>,
   ): Promise<void> {
-    if (this.#remote === null) {
-      throw new PssStateError(
-        "takeover needs a remote payload naming the install that currently holds the account",
-      );
-    }
-    await this.#guard.confirmTakeover(this.#remote.known, chainFloors);
-    this.#applyTakeoverDecision();
+    await this.#mutate(async () => {
+      if (this.#remote === null) {
+        throw new PssStateError(
+          "takeover needs a remote payload naming the install that currently holds the account",
+        );
+      }
+      await this.#guard.confirmTakeover(this.#remote.known, chainFloors);
+      this.#applyTakeoverDecision();
+    });
   }
 
   /**
@@ -285,15 +438,17 @@ export class StateSync {
    * `head - finalityDepth` and drop `removed` logs inside the log source.
    */
   async pruneSpent(fromBlock: number, toBlock: number): Promise<number> {
-    const result = await pruneSpentNotes(
-      this.#local,
-      this.#deps.oracle,
-      fromBlock,
-      toBlock,
-    );
-    this.#local = result.payload;
-    await this.#persistLocal();
-    return result.dropped.length;
+    return this.#mutate(async () => {
+      const result = await pruneSpentNotes(
+        this.#local,
+        this.#deps.oracle,
+        fromBlock,
+        toBlock,
+      );
+      this.#local = result.payload;
+      await this.#persistLocal();
+      return result.dropped.length;
+    });
   }
 
   #applyTakeoverDecision(): void {
@@ -312,6 +467,38 @@ export class StateSync {
     );
   }
 
+  async #applyLocalChange(
+    change: (current: ParsedStatePayload) => ParsedStatePayload,
+  ): Promise<void> {
+    const currentCounters = { ...this.#local.known.ephemeralCounters };
+    const proposed = decodeStatePayload(
+      serializeStatePayload(change(snapshotPayload(this.#local))),
+    );
+    this.#local = {
+      known: {
+        ...proposed.known,
+        ephemeralCounters: mergeEphemeralCounterSnapshots([
+          currentCounters,
+          proposed.known.ephemeralCounters,
+        ]),
+      },
+      extra: proposed.extra,
+    };
+    this.#localRevision += 1;
+    await this.#persistLocal();
+    this.#syncState = { ...this.#syncState, pendingWrite: true };
+    this.#schedule(this.#deps.config.debounceMs);
+  }
+
+  #mutate<T>(change: () => Promise<T>): Promise<T> {
+    const run = this.#mutationTail.then(change, change);
+    this.#mutationTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   #schedule(delayMs: number): void {
     if (this.#debounceTimer !== null) clearTimeout(this.#debounceTimer);
     this.#debounceTimer = setTimeout(() => {
@@ -324,8 +511,7 @@ export class StateSync {
     this.#debounceTimer.unref?.();
   }
 
-  // Every PSS failure is caught here and becomes state. Nothing rethrows into a caller, so no PSS
-  // outage can block a spend and no rejection escapes unhandled.
+  // Background push failures become degraded state. Protected counter mutations reject their caller.
   async #pushGuarded(): Promise<void> {
     try {
       await this.#push();
@@ -345,21 +531,10 @@ export class StateSync {
   }
 
   async #push(): Promise<void> {
-    if (this.#syncState.mode !== "writer") {
-      throw new PssStateError(
-        `this install is read-only: the account is active on ` +
-          `${this.#syncState.heldBy?.platform ?? "another device"}`,
-      );
-    }
-    const stamped = this.#stampCurrent();
+    await this.#mutationTail;
+    this.#assertWriterOrCreate();
     try {
-      await this.#writeOnce(
-        stamped,
-        this.#storedVersion + 1,
-        this.#storedVersion,
-      );
-      this.#storedVersion += 1;
-      await this.#acceptOwnWrite(this.#storedVersion);
+      await this.#pushOnce();
       return;
     } catch (error) {
       if (!isConflict(error) || this.#deps.config.conflictRetries < 1) {
@@ -371,16 +546,49 @@ export class StateSync {
     // path, so the bumped version is the version the ciphertext was sealed under; reusing the previous
     // seal would produce a request the server accepts and the owner can never open.
     const outcome = await this.pull();
-    const base =
-      outcome.kind === "present"
-        ? this.#mergeWithRemote(outcome.payload)
-        : this.#local;
-    this.#local = base;
-    await this.#persistLocal();
+    this.#assertWriterOrCreate();
     const next = this.#nextWrite(outcome);
-    await this.#writeOnce(this.#stampCurrent(), next.version, next.prevVersion);
+    const stamped = this.#stampCurrent();
+    await this.#writeOnce(stamped, next.version, next.prevVersion);
     this.#storedVersion = next.version;
     await this.#acceptOwnWrite(next.version);
+    this.#acceptRemoteWrite(stamped);
+  }
+
+  #assertWriter(): void {
+    if (this.#syncState.mode !== "writer") {
+      throw new PssStateError(
+        `this install is read-only: the account is active on ` +
+          `${this.#syncState.heldBy?.platform ?? "another device"}; confirm takeover before mutating security state`,
+      );
+    }
+  }
+
+  #assertWriterOrCreate(): void {
+    if (this.#syncState.mode === "writer" || this.#createEligible) return;
+    this.#assertWriter();
+  }
+
+  async #pushOnce(): Promise<void> {
+    this.#assertWriterOrCreate();
+    const next =
+      this.#lastPullOutcome.kind === "missing"
+        ? this.#nextWrite(this.#lastPullOutcome)
+        : {
+            version: this.#storedVersion + 1,
+            prevVersion: this.#storedVersion,
+          };
+    const stamped = this.#stampCurrent();
+    await this.#writeOnce(stamped, next.version, next.prevVersion);
+    this.#storedVersion = next.version;
+    await this.#acceptOwnWrite(next.version);
+    this.#acceptRemoteWrite(stamped);
+  }
+
+  #acceptRemoteWrite(stamped: StampedPayload): void {
+    this.#remote = snapshotPayload(stamped);
+    this.#createEligible = false;
+    this.#applyTakeoverDecision();
   }
 
   /**

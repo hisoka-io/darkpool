@@ -46,6 +46,7 @@ dairies
 
 # AI context (never commit)
 CLAUDE.md
+AGENTS.md
 CLAUDE.*
 MEMORY.md
 no-commit

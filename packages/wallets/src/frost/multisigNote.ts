@@ -3,13 +3,21 @@
 import { Fr } from "@aztec/foundation/fields";
 import { Point, scalarBaseMul } from "../tss/bjj.js";
 import type { EphemeralCounterStore } from "../state/EphemeralCounterStore.js";
-import { type DerivedEph, asDerivedEph } from "../types/ephemeral.js";
+import {
+  type DerivedEph,
+  asDerivedEph,
+  markDerivedSelfMintCandidate,
+} from "../types/ephemeral.js";
 import { deriveCek, wrapCek, unwrapCek } from "../crypto/kem.js";
 import { Kdf } from "../crypto/Kdf.js";
 import { toBjjScalar } from "../crypto/index.js";
 import { Poseidon } from "../crypto/Poseidon.js";
 import { isEvenY, rollToEvenY } from "../note/keys.js";
 import { multisigOwner } from "./message.js";
+import type { SelfMintAuthorization } from "../discovery/preflight.js";
+import { consumeSelfMints } from "../discovery/preflight.js";
+import type { CompleteComplianceHistory } from "../note/complianceKeys.js";
+import type { SelfMintDomain } from "../discovery/types.js";
 
 export { NOTE_TYPE_MULTISIG, NOTE_TYPE_STANDARD } from "../note/note.js";
 
@@ -48,6 +56,7 @@ export interface MultisigSelfMint {
   readonly tag: Fr;
   readonly j: bigint;
   readonly memberId: bigint;
+  readonly index: number;
   readonly [selfMintBrand]: true;
 }
 
@@ -188,10 +197,24 @@ export interface SelfMultisigNote {
  * x: a scalar that was sampled instead of derived yields a tag no scanner registers, and the note is
  * then invisible and unspendable with no error raised anywhere.
  */
-export function buildSelfNote(
-  mint: MultisigSelfMint,
+export async function buildSelfNote(
+  authorization: SelfMintAuthorization,
   compliancePk: Point,
-): SelfMultisigNote {
+  complianceVersion: number,
+  complianceHistory: CompleteComplianceHistory,
+  domain: SelfMintDomain,
+  gpk: Point,
+): Promise<SelfMultisigNote> {
+  const ownerCommitment = new Fr(await multisigOwner(gpk));
+  const [mint] = consumeSelfMints([authorization], {
+    ownerCommitment,
+    compliancePk,
+    complianceVersion,
+    complianceHistory,
+    chainId: domain.chainId,
+    poolAddress: domain.poolAddress,
+    deploymentAnchor: domain.deploymentAnchor,
+  });
   // Recomputed rather than trusted. The witness carries three fields that must agree, and taking them
   // on faith would let a caller assemble a note whose advertised tag is not the tag its scalar produces,
   // which is the same undiscoverable outcome by a different route.
@@ -226,14 +249,14 @@ export async function memberReadSelf(
  * handed out: a crash skips indices but can never reissue one, because a reissued index reuses the CEK
  * and two-time-pads the DEM keystream, which publicly links both notes to one wallet.
  *
- * It reuses the one self-tag family, so every tag it can produce is a tag the group's own scanner
- * registers. A second family here would mint notes the scanner cannot see, which is the defect this
- * replaces.
+ * It reuses the scanner's self-tag family. `gpk` is trusted local integration input and binds the
+ * candidate to the declared group owner; this function does not prove that `v` belongs to `gpk`.
  */
 export async function multisigDepositEph(
   v: Fr,
   memberId: bigint,
   counters: EphemeralCounterStore,
+  gpk: Point,
 ): Promise<MultisigSelfMint> {
   const scope = await depositScope(v, memberId);
   for (let attempt = 0n; attempt < MAX_INDEX_ROLL; attempt++) {
@@ -241,22 +264,21 @@ export async function multisigDepositEph(
     const j = BigInt(reservation.base);
     const { eph, ephPub } = await deriveSelfEph(v, memberId, j);
     if (!isEvenY(ephPub)) {
-      // Burned deliberately, NOT released. `release` rewinds the high-water to the same base, and the
-      // derivation is a pure function of (v, memberId, j), so a released index is re-derived identically
-      // on the next attempt and the mint could never move past an odd-y index. Abandoning it costs one
-      // index and means the roll always walks forward. The 256-attempt cap below is an escape hatch
-      // against a structurally broken derivation issuing one durable write per iteration forever; a
-      // healthy derivation cannot reach it, since that needs 256 consecutive odd-y indices.
+      // The reservation stays burned so this deterministic derivation cannot revisit an odd-y index.
       continue;
     }
     await reservation.commit(reservation.base);
-    return {
-      eph,
-      ephPub,
-      tag: new Fr(ephPub[0]),
-      j,
-      memberId,
-    } as MultisigSelfMint;
+    return markDerivedSelfMintCandidate(
+      {
+        eph,
+        ephPub,
+        tag: new Fr(ephPub[0]),
+        j,
+        memberId,
+        index: reservation.base,
+      } as MultisigSelfMint,
+      new Fr(await multisigOwner(gpk)),
+    );
   }
   throw new Error(
     `multisig: no even-y self ephemeral within ${MAX_INDEX_ROLL} reservations for member ${memberId}`,

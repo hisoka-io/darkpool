@@ -15,15 +15,17 @@ import {
   MultisigNoteView,
   selfNoteEvent,
   incomingNoteEvent,
+  type MultisigSelfMint,
 } from "../frost/index.js";
 import { Point, scalarBaseMul, randScalar } from "../tss/bjj.js";
 import {
   assertSelfNoteDiscoverable,
-  multisigDepositEph,
+  multisigDepositEph as deriveMultisigDepositEph,
 } from "../frost/index.js";
 import {
   InMemoryEphemeralCounterStore,
   SealedEphemeralCounterStore,
+  type EphemeralCounterStore,
 } from "../state/EphemeralCounterStore.js";
 import { isEvenY } from "../note/keys.js";
 import { Poseidon } from "../crypto/Poseidon.js";
@@ -31,6 +33,50 @@ import { deriveCek } from "../crypto/kem.js";
 import { demEncrypt } from "../crypto/dem.js";
 import { leaf as computeLeaf, Note } from "../note/note.js";
 import { computePsi, computeNullifier } from "../note/nullifier.js";
+import { completeComplianceHistory } from "../note/complianceKeys.js";
+import { SelfMintPreflight } from "../discovery/preflight.js";
+import type { SelfMintAuthorization } from "../discovery/preflight.js";
+import {
+  CIPHERTEXT_KEPT_INDICES,
+  COMMITMENT_PREFIX_BYTES,
+  HOWL_NOTE_LAYOUT_VERSION,
+  RECORD_KIND_INCOMING,
+  type HowlNoteRecord,
+} from "../discovery/types.js";
+
+const DOMAIN = {
+  chainId: 31337n,
+  poolAddress: "0x0000000000000000000000000000000000000001",
+  deploymentAnchor: 1n,
+};
+const MISS_RECORD: HowlNoteRecord = {
+  layoutVersion: HOWL_NOTE_LAYOUT_VERSION,
+  recordKind: RECORD_KIND_INCOMING,
+  leafIndex: 0,
+  commitmentPrefix: new Uint8Array(COMMITMENT_PREFIX_BYTES),
+  ephemeralPkX: Fr.ZERO,
+  cekWrap: Fr.ZERO,
+  ciphertextKept: CIPHERTEXT_KEPT_INDICES.map(() => Fr.ZERO),
+};
+const TEST_GPK = scalarBaseMul(0x12345n);
+
+function multisigDepositEph(
+  v: Fr,
+  memberId: bigint,
+  counters: EphemeralCounterStore,
+  gpk: Point = TEST_GPK,
+) {
+  return deriveMultisigDepositEph(v, memberId, counters, gpk);
+}
+
+function historyFor(compliancePk: Point) {
+  return completeComplianceHistory({
+    genesisPk: compliancePk,
+    rotations: [],
+    currentPk: compliancePk,
+    currentVersion: 1,
+  });
+}
 
 function evenYViewKey(): Fr {
   for (let i = 0; i < 256; i++) {
@@ -38,6 +84,43 @@ function evenYViewKey(): Fr {
     if (isEvenY(scalarBaseMul(v.toBigInt()))) return v;
   }
   throw new Error("no even-y view key sampled");
+}
+
+async function preflighted(
+  mint: MultisigSelfMint,
+  compliancePk: Point,
+  gpk: Point,
+) {
+  const preflight = new SelfMintPreflight({
+    allocator: { next: () => Promise.resolve(mint) },
+    discovery: {
+      probeFirst: (tags) =>
+        Promise.resolve(
+          tags.map((tag) => ({ tag, record: MISS_RECORD, occurrenceCount: 0 })),
+        ),
+      fetchOccurrences: () => Promise.resolve([]),
+      fetchLeafBlock: () => Promise.resolve([]),
+    },
+    history: historyFor(compliancePk),
+    ownerCommitment: new Fr(await multisigOwner(gpk)),
+    domain: DOMAIN,
+  });
+  return (await preflight.take(1))[0];
+}
+
+function buildCheckedSelfNote(
+  authorization: SelfMintAuthorization,
+  compliancePk: Point,
+  gpk: Point,
+) {
+  return buildSelfNote(
+    authorization,
+    compliancePk,
+    1,
+    historyFor(compliancePk),
+    DOMAIN,
+    gpk,
+  );
 }
 
 async function encryptNote(
@@ -384,14 +467,16 @@ describe("multisig deposit ephemerals are derived, not sampled", () => {
     return { v, gpk, compliancePk, ownerCommitment, asset: new Fr(7n) };
   }
 
-  // The test the deleted one should have been: a deposit built the supported way is FOUND by a scanner
-  // that holds only v, on a fresh instance with no prior state. The old helper sampled its ephemeral, so
-  // its tag was in no scanner's map and the note was invisible and unspendable.
+  // A valid derived deposit must be discoverable by a scanner holding only v.
   it("a deposit is discoverable by a v-only scanner with no prior state", async () => {
     const { v, gpk, compliancePk, ownerCommitment, asset } = await group();
     const counters = new InMemoryEphemeralCounterStore();
-    const mint = await multisigDepositEph(v, 3n, counters);
-    const self = buildSelfNote(mint, compliancePk);
+    const mint = await multisigDepositEph(v, 3n, counters, gpk);
+    const self = await buildCheckedSelfNote(
+      await preflighted(mint, compliancePk, gpk),
+      compliancePk,
+      gpk,
+    );
     const enc = await encryptNote(self.cek, ownerCommitment, 250n, asset);
 
     const scanner = await MultisigScanner.create({
@@ -413,6 +498,47 @@ describe("multisig deposit ephemerals are derived, not sampled", () => {
     expect(view!.isIncoming).toBe(false);
     expect(view!.memberId).toBe(3n);
     expect(view!.note.value).toBe(250n);
+  });
+
+  it("binds one-shot authorization to the multisig group", async () => {
+    const { v, gpk, compliancePk } = await group();
+    const mint = await multisigDepositEph(
+      v,
+      4n,
+      new InMemoryEphemeralCounterStore(),
+      gpk,
+    );
+    const authorization = await preflighted(mint, compliancePk, gpk);
+    const wrongGroup = scalarBaseMul(randScalar());
+
+    const mutableMint = await multisigDepositEph(
+      v,
+      5n,
+      new InMemoryEphemeralCounterStore(),
+      gpk,
+    );
+    const sampledEph = evenYViewKey();
+    const sampledPub = scalarBaseMul(sampledEph.toBigInt());
+    Reflect.set(mutableMint, "eph", sampledEph);
+    Reflect.set(mutableMint, "ephPub", sampledPub);
+    Reflect.set(mutableMint, "tag", new Fr(sampledPub[0]));
+    await expect(
+      preflighted(mutableMint, compliancePk, gpk),
+    ).rejects.toMatchObject({ reason: "CANDIDATE_PROVENANCE_MISMATCH" });
+
+    await expect(
+      preflighted(mint, compliancePk, wrongGroup),
+    ).rejects.toMatchObject({ reason: "CANDIDATE_OWNER_MISMATCH" });
+
+    await expect(
+      buildCheckedSelfNote(authorization, compliancePk, wrongGroup),
+    ).rejects.toThrow(/context/);
+    await expect(
+      buildCheckedSelfNote(authorization, compliancePk, gpk),
+    ).resolves.toBeDefined();
+    await expect(
+      buildCheckedSelfNote(authorization, compliancePk, gpk),
+    ).rejects.toThrow(/consumed/);
   });
 
   it("consecutive deposits take different indices, so no ephemeral is reused", async () => {
@@ -451,9 +577,7 @@ describe("multisig deposit ephemerals are derived, not sampled", () => {
     expect(after.eph.equals(first.eph)).toBe(false);
   });
 
-  // A1: an odd-y index must be BURNED, not released. `release` rewinds the high-water to the same base
-  // and the derivation is pure in (v, memberId, j), so a released index is re-derived identically and
-  // the mint can never move past it. This is the regression test for that wedge.
+  // Odd-y indices are burned because derivation is deterministic in (v, memberId, j).
   it("burns an odd-y index so a retry never re-derives it", async () => {
     const { v } = await group();
     const counters = new InMemoryEphemeralCounterStore();
@@ -506,7 +630,7 @@ describe("multisig deposit ephemerals are derived, not sampled", () => {
       memberIds: [1n],
     });
 
-    // A sampled ephemeral, which is exactly what the deleted helper produced.
+    // A sampled self ephemeral has no seed-derived scanner tag.
     const strayEph = new Fr(randScalar());
     const strayPub = scalarBaseMul(strayEph.toBigInt());
     const cek = await memberReadSelf(v, 1n, 0n, compliancePk);
@@ -550,8 +674,7 @@ describe("multisig deposit ephemerals are derived, not sampled", () => {
     expect(await scanner.readNote(event)).not.toBeNull();
   });
 
-  // A crash between reserve and commit now burns exactly ONE index, because each attempt reserves one.
-  // The scanner's window has to cover that, and the note minted after the crash must still be found.
+  // A crash after reserve burns one index; recovery must continue beyond it.
   it("burns one index on a crash, and the next note is still discoverable", async () => {
     const { v, gpk, compliancePk, ownerCommitment, asset } = await group();
     const counters = new InMemoryEphemeralCounterStore();
@@ -561,8 +684,12 @@ describe("multisig deposit ephemerals are derived, not sampled", () => {
     await counters.reserve(scope, 1);
     expect(await counters.highWater(scope)).toBe(1);
 
-    const recovered = await multisigDepositEph(v, 5n, counters);
-    const self = buildSelfNote(recovered, compliancePk);
+    const recovered = await multisigDepositEph(v, 5n, counters, gpk);
+    const self = await buildCheckedSelfNote(
+      await preflighted(recovered, compliancePk, gpk),
+      compliancePk,
+      gpk,
+    );
     const enc = await encryptNote(self.cek, ownerCommitment, 1n, asset);
 
     const scanner = await MultisigScanner.create({
@@ -583,8 +710,7 @@ describe("multisig deposit ephemerals are derived, not sampled", () => {
     expect(view).not.toBeNull();
   });
 
-  // A3: the differential test the phase is actually about. A sampled ephemeral in the self family
-  // produces a note the group's own scanner cannot see, which is the entire defect.
+  // A sampled self ephemeral produces a note the group's scanner cannot see.
   it("a sampled ephemeral yields a note the scanner cannot find", async () => {
     const { v, gpk, compliancePk, ownerCommitment, asset } = await group();
     const scanner = await MultisigScanner.create({
@@ -595,9 +721,15 @@ describe("multisig deposit ephemerals are derived, not sampled", () => {
     });
     const counters = new InMemoryEphemeralCounterStore();
 
-    const derived = await multisigDepositEph(v, 1n, counters);
+    const derived = await multisigDepositEph(v, 1n, counters, gpk);
     const derivedEnc = await encryptNote(
-      buildSelfNote(derived, compliancePk).cek,
+      (
+        await buildCheckedSelfNote(
+          await preflighted(derived, compliancePk, gpk),
+          compliancePk,
+          gpk,
+        )
+      ).cek,
       ownerCommitment,
       10n,
       asset,
@@ -634,21 +766,7 @@ describe("multisig deposit ephemerals are derived, not sampled", () => {
     expect(lost).toBeNull();
   });
 
-  // Pins the brand so a widening refactor of buildSelfNote fails the typecheck rather than silently
-  // re-admitting a bare scalar. If this directive ever becomes unused, the type has been widened.
-  it("refuses a bare scalar where a derived ephemeral is required", async () => {
-    const { compliancePk } = await group();
-    const bare = new Fr(randScalar());
-    expect(() =>
-      buildSelfNote(
-        // @ts-expect-error a sampled Fr is not a DerivedEph and must not reach a self note
-        { eph: bare, ephPub: scalarBaseMul(bare.toBigInt()), tag: new Fr(0n) },
-        compliancePk,
-      ),
-    ).toThrow();
-  });
-
-  // Declared gap, LOW: partitioning is structural (the salt is Poseidon(memberId, j)), but assert it.
+  // memberId participates in the salt, so member scopes must remain disjoint.
   it("never lets two members of one group collide on a tag", async () => {
     const { v } = await group();
     const counters = new InMemoryEphemeralCounterStore();
@@ -662,7 +780,6 @@ describe("multisig deposit ephemerals are derived, not sampled", () => {
     expect(tags.size).toBe(12);
   });
 
-  // Declared gap, MEDIUM: ensureIncomingLookahead shipped with no test and no caller.
   it("grows the incoming map only when it gains a key", async () => {
     const { v, gpk, compliancePk } = await group();
     const scanner = await MultisigScanner.create({
@@ -692,7 +809,7 @@ describe("multisig deposit ephemerals are derived, not sampled", () => {
     ).rejects.toThrow(/lookahead must be an integer of at least 16/);
   });
 
-  // Declared gap: the pre-flight had only a negative case, so an always-throwing implementation passed.
+  // A positive case prevents an always-rejecting preflight from passing.
   it("the pre-flight accepts a note the scanner can open", async () => {
     const { v, gpk, compliancePk, ownerCommitment, asset } = await group();
     const scanner = await MultisigScanner.create({
@@ -702,9 +819,15 @@ describe("multisig deposit ephemerals are derived, not sampled", () => {
       memberIds: [1n],
     });
     const counters = new InMemoryEphemeralCounterStore();
-    const mint = await multisigDepositEph(v, 1n, counters);
+    const mint = await multisigDepositEph(v, 1n, counters, gpk);
     const enc = await encryptNote(
-      buildSelfNote(mint, compliancePk).cek,
+      (
+        await buildCheckedSelfNote(
+          await preflighted(mint, compliancePk, gpk),
+          compliancePk,
+          gpk,
+        )
+      ).cek,
       ownerCommitment,
       42n,
       asset,
@@ -720,14 +843,7 @@ describe("multisig deposit ephemerals are derived, not sampled", () => {
     expect(view.memberId).toBe(1n);
   });
 
-  // 1.7: deterministic, and it fails under revert.
-  //
-  // v is FIXED here, not sampled, because every probabilistic pad in this file hides the mechanism. For
-  // this v, member 1's even-y flags from j=0 are o,o,o,o,o,o,E: a known six-index odd-y run.
-  //
-  // The distinguishing signal is the RESERVE COUNT. Reserving one index per attempt makes seven durable
-  // reserve calls to cross that run; the reverted span-reserve version makes exactly one. Asserting the
-  // resulting j or high-water cannot tell them apart, because both land on 6 and 7.
+  // This fixed v has six odd-y candidates before the first usable index.
   it("reserves one index per odd-y attempt across a known odd-y run", async () => {
     const v = new Fr(0x2f1c9a4bd77e3051n);
     const inner = new InMemoryEphemeralCounterStore();

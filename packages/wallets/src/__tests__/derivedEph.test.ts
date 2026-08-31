@@ -47,8 +47,7 @@ describe("the derived-ephemeral brand", () => {
     expect(a.equals(b)).toBe(true);
   });
 
-  // The differential test the phase is about, on the standard path: a minted self ephemeral is
-  // recognised by the wallet's own tag map, a sampled one is not.
+  // The wallet's tag map recognizes derived self ephemerals only.
   it("a sampled ephemeral is not recognised by the wallet's own tag map", async () => {
     const account = await DarkAccount.fromMnemonic(MNEMONIC);
     const repo = new KeyRepository(

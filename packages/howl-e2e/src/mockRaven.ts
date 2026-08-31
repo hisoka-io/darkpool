@@ -1,9 +1,13 @@
 import { Fr } from "@aztec/foundation/fields";
 import {
+  COMMITMENT_PREFIX_BYTES,
+  CIPHERTEXT_KEPT_INDICES,
   decodeHowlNoteRecord,
   encodeHowlNoteRecord,
+  HOWL_NOTE_LAYOUT_VERSION,
   HOWL_NOTE_CELL_BYTES,
   LEAF_BLOCK_SIZE,
+  RECORD_KIND_SELF,
   type DiscoverySource,
   type FirstOccurrence,
   type HowlNoteRecord,
@@ -96,9 +100,7 @@ export class MockRaven implements DiscoverySource {
     };
   }
 
-  #read(tag: Fr, occurrence: number): HowlNoteRecord | null {
-    const masked = this.#rows.get(MockRaven.key(tag, occurrence));
-    if (masked === undefined) return null;
+  #decode(masked: Uint8Array): HowlNoteRecord {
     const cell = xorMask(masked, this.#generationSeed);
     if (cell.length !== HOWL_NOTE_CELL_BYTES) {
       throw new Error(`stored cell is ${cell.length} bytes`);
@@ -106,12 +108,38 @@ export class MockRaven implements DiscoverySource {
     return decodeHowlNoteRecord(cell);
   }
 
+  #read(
+    tag: Fr,
+    occurrence: number,
+  ): { readonly record: HowlNoteRecord; readonly hit: boolean } {
+    const masked = this.#rows.get(MockRaven.key(tag, occurrence));
+    if (masked !== undefined) {
+      return { record: this.#decode(masked), hit: true };
+    }
+    const decoy = this.#rows.values().next();
+    if (decoy.done === false) {
+      return { record: this.#decode(decoy.value), hit: false };
+    }
+    return {
+      hit: false,
+      record: {
+        layoutVersion: HOWL_NOTE_LAYOUT_VERSION,
+        recordKind: RECORD_KIND_SELF,
+        leafIndex: 0,
+        commitmentPrefix: new Uint8Array(COMMITMENT_PREFIX_BYTES).fill(0xff),
+        ephemeralPkX: Fr.ZERO,
+        cekWrap: Fr.ZERO,
+        ciphertextKept: CIPHERTEXT_KEPT_INDICES.map(() => Fr.ZERO),
+      },
+    };
+  }
+
   async probeFirst(tags: readonly Fr[]): Promise<readonly FirstOccurrence[]> {
     this.#log.roundTrips += 1;
     this.#log.rowsRequested += tags.length;
     return tags.map((tag) => {
-      const record = this.#read(tag, 0);
-      if (record !== null) this.#log.rowsHit += 1;
+      const { record, hit } = this.#read(tag, 0);
+      if (hit) this.#log.rowsHit += 1;
       return {
         tag,
         record,
@@ -129,8 +157,8 @@ export class MockRaven implements DiscoverySource {
       this.#log.rowsRequested += requests.length;
     }
     return requests.map((r) => {
-      const record = this.#read(r.tag, r.occurrence);
-      if (record !== null) this.#log.rowsHit += 1;
+      const { record, hit } = this.#read(r.tag, r.occurrence);
+      if (hit) this.#log.rowsHit += 1;
       return record;
     });
   }

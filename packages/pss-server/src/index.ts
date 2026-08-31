@@ -1,7 +1,6 @@
 export * from "./auth.js";
 export * from "./config.js";
 export * from "./db/migrate.js";
-export * from "./db/retention.js";
 export * from "./db/slotStore.js";
 export * from "./db/sqliteSlotStore.js";
 export * from "./http/server.js";

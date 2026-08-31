@@ -78,8 +78,23 @@ export async function syncViaDiscovery(
 ): Promise<SyncResult> {
   const byTag = new Map(candidates.map((c) => [c.tag.toString(), c]));
   const notes: DiscoveredNote[] = [];
+  const accepted = new Set<string>();
   const truncatedTags: string[] = [];
   let rejected = 0;
+
+  const accept = (opened: DiscoveredNote | null): void => {
+    if (opened === null) {
+      rejected += 1;
+      return;
+    }
+    const key = `${opened.tag.toString()}:${opened.leafIndex}`;
+    if (accepted.has(key)) {
+      rejected += 1;
+      return;
+    }
+    accepted.add(key);
+    notes.push(opened);
+  };
 
   // ROUND 1: occurrence 0 for every candidate, plus the count that makes round 2 exact.
   const first = await source.probeFirst(candidates.map((c) => c.tag));
@@ -90,8 +105,7 @@ export async function syncViaDiscovery(
     if (candidate === undefined) continue;
     if (entry.record !== null) {
       const opened = await open(candidate, entry.record);
-      if (opened) notes.push(opened);
-      else rejected += 1;
+      accept(opened);
     }
     const advertised = entry.occurrenceCount;
     const bounded = Math.min(advertised, MAX_OCCURRENCES_PER_TAG);
@@ -116,8 +130,7 @@ export async function syncViaDiscovery(
     const candidate = byTag.get(follow[i].tag.toString());
     if (candidate === undefined) continue;
     const opened = await open(candidate, record);
-    if (opened) notes.push(opened);
-    else rejected += 1;
+    accept(opened);
   }
 
   return { notes, rejected, truncatedTags };

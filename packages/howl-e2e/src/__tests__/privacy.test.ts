@@ -161,11 +161,7 @@ describe("the property that separates Howl from a trial-decrypt pool", () => {
     expect(Buffer.from(raw).toString("hex")).not.toContain(ownerHex);
   });
 
-  // MOCK DIVERGENCE, stated so nobody reads this as faithful: a real cuckoo probe returns a ROW on a miss,
-  // which is what makes a hit indistinguishable from a miss on the wire. MockRaven returns null instead, so
-  // this can only assert that both probes cost the SAME, not that they are indistinguishable. Closing that
-  // gap needs miss-row support in the mock.
-  it("charges the same for a present tag and an absent one", async () => {
+  it("returns a plausible locally rejected row for a miss without counting a hit", async () => {
     const raven = new MockRaven();
     const owner = await pubkeyOwner(publicKey(new Fr(0x2ab1n)));
     const eph = evenY(0x1000n);
@@ -180,6 +176,18 @@ describe("the property that separates Howl from a trial-decrypt pool", () => {
     expect(raven.queryLog.rowsRequested).toBe(2);
     expect(results).toHaveLength(2);
     expect(results[0].record).not.toBeNull();
+    expect(results[1].record).not.toBeNull();
     expect(results[1].occurrenceCount).toBe(0);
+    expect(raven.queryLog.rowsHit).toBe(1);
+
+    const missed = await syncViaDiscovery(raven, [
+      {
+        tag: absentTag,
+        ownerCommitment: owner,
+        cekFor: async () => deriveCek(evenY(0xabcdef00n), COMPLIANCE_PK),
+      },
+    ]);
+    expect(missed.notes).toHaveLength(0);
+    expect(missed.rejected).toBe(1);
   });
 });

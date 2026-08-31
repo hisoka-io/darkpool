@@ -32,7 +32,6 @@ export const BODY_HEADROOM_BYTES = 4096;
 export const TIMESTAMP_SKEW_SECONDS = 300;
 export const WRITES_PER_HOUR = 60;
 export const WRITE_BURST = 10;
-export const RETENTION_DAYS = 400;
 
 export const INSTALL_ID_BYTES = 16;
 export const INVITE_CODE_MAX_CHARS = 128;

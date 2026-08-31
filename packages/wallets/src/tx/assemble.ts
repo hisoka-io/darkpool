@@ -12,8 +12,12 @@
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
 import type { DerivedEph } from "../types/ephemeral.js";
+import type { SelfMintAuthorization } from "../discovery/preflight.js";
+import { consumeSelfMints } from "../discovery/preflight.js";
+import type { CompleteComplianceHistory } from "../note/complianceKeys.js";
 import { toFr } from "../crypto/fields.js";
 import { packParents, PARENTS_HIDDEN } from "../note/note.js";
+import { publicKey, pubkeyOwner } from "../note/keys.js";
 import {
   mintSelfNote,
   mintIncomingNote,
@@ -37,6 +41,11 @@ export interface SpendableNote {
 
 export interface AssemblyContext {
   readonly compliancePk: Point<bigint>;
+  readonly complianceVersion: number;
+  readonly complianceHistory: CompleteComplianceHistory;
+  readonly chainId: bigint;
+  readonly poolAddress: string;
+  readonly deploymentAnchor: bigint;
   readonly merkle: MerkleWitnessSource;
 }
 
@@ -71,6 +80,18 @@ function assertPositive(value: bigint, what: string): void {
   }
 }
 
+function selfMintContext(ctx: AssemblyContext, ownerCommitment: Fr) {
+  return {
+    ownerCommitment,
+    compliancePk: ctx.compliancePk,
+    complianceVersion: ctx.complianceVersion,
+    complianceHistory: ctx.complianceHistory,
+    chainId: ctx.chainId,
+    poolAddress: ctx.poolAddress,
+    deploymentAnchor: ctx.deploymentAnchor,
+  };
+}
+
 export interface AssembledDeposit {
   readonly inputs: {
     compliancePk: Point<bigint>;
@@ -87,19 +108,28 @@ export async function assembleDeposit(
     readonly value: bigint;
     readonly assetId: Fr;
     readonly spendScalar: Fr;
-    readonly eph: DerivedEph;
+    readonly selfMint: SelfMintAuthorization;
   },
 ): Promise<AssembledDeposit> {
   assertPositive(req.value, "deposit value");
+  const ownerCommitment = await pubkeyOwner(publicKey(req.spendScalar));
+  const [selfMint] = consumeSelfMints(
+    [req.selfMint],
+    selfMintContext(ctx, ownerCommitment),
+  );
   const minted = await mintSelfNote(
-    req.eph,
+    selfMint.eph as DerivedEph,
     req.value,
     req.spendScalar,
     req.assetId,
     ctx.compliancePk,
   );
   return {
-    inputs: { compliancePk: ctx.compliancePk, note: minted.note, eph: req.eph },
+    inputs: {
+      compliancePk: ctx.compliancePk,
+      note: minted.note,
+      eph: selfMint.eph as DerivedEph,
+    },
     minted,
   };
 }
@@ -119,16 +149,21 @@ export async function assembleWithdraw(
     readonly recipient: Fr;
     /** Owns the CHANGE. Distinct from `input.spendScalar` whenever the input was received from someone else. */
     readonly selfSpendScalar: Fr;
-    readonly changeEph: DerivedEph;
+    readonly changeMint: SelfMintAuthorization;
     readonly intentHash?: Fr;
   },
 ): Promise<AssembledWithdraw> {
   const spend = await openSpend(ctx, req.input);
   const changeValue = req.input.note.value.toBigInt() - req.value;
   assertPositive(changeValue, "withdraw change");
+  const ownerCommitment = await pubkeyOwner(publicKey(req.selfSpendScalar));
+  const [changeMint] = consumeSelfMints(
+    [req.changeMint],
+    selfMintContext(ctx, ownerCommitment),
+  );
 
   const change = await mintSelfNote(
-    req.changeEph,
+    changeMint.eph as DerivedEph,
     changeValue,
     req.selfSpendScalar,
     req.input.note.assetId,
@@ -148,7 +183,7 @@ export async function assembleWithdraw(
       oldNoteIndex: spend.index,
       oldNotePath: spend.path,
       changeNote: change.note,
-      changeEph: req.changeEph,
+      changeEph: changeMint.eph,
     },
     change,
     root: spend.root,
@@ -178,12 +213,18 @@ export async function assembleTransfer(
     /** Owns the CHANGE, never the input's key. Spending a received note is the case that separates them. */
     readonly selfSpendScalar: Fr;
     readonly memoEph: Fr;
-    readonly changeEph: DerivedEph;
+    readonly changeMint: SelfMintAuthorization;
   },
 ): Promise<AssembledTransfer> {
   const spend = await openSpend(ctx, req.input);
   const changeValue = req.input.note.value.toBigInt() - req.value;
   assertPositive(changeValue, "transfer change");
+
+  const ownerCommitment = await pubkeyOwner(publicKey(req.selfSpendScalar));
+  const [changeMint] = consumeSelfMints(
+    [req.changeMint],
+    selfMintContext(ctx, ownerCommitment),
+  );
 
   const memo = await mintIncomingNote(
     req.memoEph,
@@ -195,7 +236,7 @@ export async function assembleTransfer(
     PARENTS_HIDDEN,
   );
   const change = await mintSelfNote(
-    req.changeEph,
+    changeMint.eph as DerivedEph,
     changeValue,
     req.selfSpendScalar,
     req.input.note.assetId,
@@ -214,7 +255,7 @@ export async function assembleTransfer(
       memoNote: memo.note,
       memoEph: req.memoEph,
       changeNote: change.note,
-      changeEph: req.changeEph,
+      changeEph: changeMint.eph,
     },
     memo,
     change,
@@ -237,24 +278,22 @@ export async function assembleSplit(
     readonly value1: bigint;
     /** Owns BOTH outputs. */
     readonly selfSpendScalar: Fr;
-    readonly eph1: DerivedEph;
-    readonly eph2: DerivedEph;
+    readonly selfMints: readonly [SelfMintAuthorization, SelfMintAuthorization];
   },
 ): Promise<AssembledSplit> {
   const spend = await openSpend(ctx, req.input);
   const value2 = req.input.note.value.toBigInt() - req.value1;
   assertPositive(req.value1, "split output 1");
   assertPositive(value2, "split output 2");
-  if (req.eph1.equals(req.eph2)) {
-    throw new AssemblyError(
-      "EPHEMERAL_REUSE",
-      "split outputs need distinct ephemerals; a shared one repeats the DEM keystream",
-    );
-  }
+  const ownerCommitment = await pubkeyOwner(publicKey(req.selfSpendScalar));
+  const [mint1, mint2] = consumeSelfMints(
+    req.selfMints,
+    selfMintContext(ctx, ownerCommitment),
+  );
 
   const parents = packParents([{ leafIndex: spend.index }, { leafIndex: 0 }]);
   const out1 = await mintSelfNote(
-    req.eph1,
+    mint1.eph as DerivedEph,
     req.value1,
     req.selfSpendScalar,
     req.input.note.assetId,
@@ -262,7 +301,7 @@ export async function assembleSplit(
     parents,
   );
   const out2 = await mintSelfNote(
-    req.eph2,
+    mint2.eph as DerivedEph,
     value2,
     req.selfSpendScalar,
     req.input.note.assetId,
@@ -278,9 +317,9 @@ export async function assembleSplit(
       indexIn: spend.index,
       pathIn: spend.path,
       noteOut1: out1.note,
-      eph1: req.eph1,
+      eph1: mint1.eph,
       noteOut2: out2.note,
-      eph2: req.eph2,
+      eph2: mint2.eph,
     },
     out1,
     out2,
@@ -305,7 +344,7 @@ export async function assembleJoin(
     readonly inputB: SpendableNote;
     /** Owns the merged output. The two inputs may open with different keys; the output has one owner. */
     readonly selfSpendScalar: Fr;
-    readonly ephOut: DerivedEph;
+    readonly selfMint: SelfMintAuthorization;
   },
 ): Promise<AssembledJoin> {
   if (req.inputA.leafIndex === req.inputB.leafIndex) {
@@ -336,8 +375,13 @@ export async function assembleJoin(
   }
 
   const total = lo.note.value.toBigInt() + hi.note.value.toBigInt();
+  const ownerCommitment = await pubkeyOwner(publicKey(req.selfSpendScalar));
+  const [selfMint] = consumeSelfMints(
+    [req.selfMint],
+    selfMintContext(ctx, ownerCommitment),
+  );
   const out = await mintSelfNote(
-    req.ephOut,
+    selfMint.eph as DerivedEph,
     total,
     req.selfSpendScalar,
     lo.note.assetId,
@@ -357,7 +401,7 @@ export async function assembleJoin(
       indexB: b.index,
       pathB: b.path,
       noteOut: out.note,
-      ephOut: req.ephOut,
+      ephOut: selfMint.eph,
     },
     out,
     root: a.root,

@@ -5,8 +5,17 @@ import {
   Fr,
   toFr,
   addressToFr,
+  completeComplianceHistory,
   isEvenY,
   publicKey,
+  pubkeyOwner,
+  SelfMintPreflight,
+  CIPHERTEXT_KEPT_INDICES,
+  COMMITMENT_PREFIX_BYTES,
+  HOWL_NOTE_LAYOUT_VERSION,
+  RECORD_KIND_INCOMING,
+  type HowlNoteRecord,
+  type SelfMintAuthorization,
 } from "@hisoka/wallets";
 import {
   assembleDeposit,
@@ -49,6 +58,22 @@ import {
 } from "./fixtures";
 import { DarkPool, MockERC20 } from "../../typechain-types";
 
+const TEST_COMPLIANCE_HISTORY = completeComplianceHistory({
+  genesisPk: COMPLIANCE_PK,
+  rotations: [],
+  currentPk: COMPLIANCE_PK,
+  currentVersion: 1,
+});
+const TEST_MISS_RECORD: HowlNoteRecord = {
+  layoutVersion: HOWL_NOTE_LAYOUT_VERSION,
+  recordKind: RECORD_KIND_INCOMING,
+  leafIndex: 0,
+  commitmentPrefix: new Uint8Array(COMMITMENT_PREFIX_BYTES),
+  ephemeralPkX: Fr.ZERO,
+  cekWrap: Fr.ZERO,
+  ciphertextKept: CIPHERTEXT_KEPT_INDICES.map(() => Fr.ZERO),
+};
+
 export interface WithdrawOptions {
   asset?: string;
   recipient?: string;
@@ -68,6 +93,7 @@ export class TestWallet {
   public scanEngine!: ScanEngine;
   public tree!: LeanIMT;
   public fromBlock: number = 0;
+  public chainId: bigint = HARDHAT_CHAIN_ID;
 
   private constructor(
     public readonly signer: ethers.ContractRunner & { address: string },
@@ -92,6 +118,7 @@ export class TestWallet {
     const chainId = provider
       ? (await provider.getNetwork()).chainId
       : HARDHAT_CHAIN_ID;
+    wallet.chainId = chainId;
     wallet.tree = await newSeededTree(chainId);
     wallet.keyRepo = new KeyRepository(
       wallet.account,
@@ -136,7 +163,18 @@ export class TestWallet {
   private assemblyCtx(): AssemblyContext {
     return {
       compliancePk: COMPLIANCE_PK,
+      complianceVersion: 1,
+      complianceHistory: TEST_COMPLIANCE_HISTORY,
+      ...this.selfMintDomain(),
       merkle: new LocalTreeWitnessSource(this.tree),
+    };
+  }
+
+  private selfMintDomain() {
+    return {
+      chainId: this.chainId,
+      poolAddress: this.darkPool.target.toString(),
+      deploymentAnchor: BigInt(this.fromBlock),
     };
   }
 
@@ -156,6 +194,32 @@ export class TestWallet {
     return note;
   }
 
+  private selfMints(count: 1): Promise<readonly [SelfMintAuthorization]>;
+  private selfMints(
+    count: 2,
+  ): Promise<readonly [SelfMintAuthorization, SelfMintAuthorization]>;
+  private async selfMints(count: 1 | 2) {
+    const preflight = new SelfMintPreflight({
+      allocator: { next: () => this.keyRepo.nextSelfEphemeral() },
+      discovery: {
+        probeFirst: (tags) =>
+          Promise.resolve(
+            tags.map((tag) => ({
+              tag,
+              record: TEST_MISS_RECORD,
+              occurrenceCount: 0,
+            })),
+          ),
+        fetchOccurrences: () => Promise.resolve([]),
+        fetchLeafBlock: () => Promise.resolve([]),
+      },
+      history: TEST_COMPLIANCE_HISTORY,
+      ownerCommitment: await pubkeyOwner(await this.keyRepo.getSelfSpendPub()),
+      domain: this.selfMintDomain(),
+    });
+    return count === 1 ? preflight.take(1) : preflight.take(2);
+  }
+
   async getReceiveAddress(): Promise<ReceiveAddress> {
     const addr = await this.keyRepo.nextIncomingAddress();
     return { inKey: addr.inKey, inPub: addr.inPub, index: addr.index };
@@ -163,13 +227,13 @@ export class TestWallet {
 
   async deposit(amount: bigint, asset?: string) {
     const assetFr = await this.assetFr(asset);
-    const { eph } = await this.keyRepo.nextSelfEphemeral();
+    const [selfMint] = await this.selfMints(1);
     const spendScalar = await this.account.getSelfSpendKey();
     const assembled = await assembleDeposit(this.assemblyCtx(), {
       value: amount,
       assetId: assetFr,
       spendScalar,
-      eph,
+      selfMint,
     });
     const built = assembled.minted;
 
@@ -206,7 +270,7 @@ export class TestWallet {
     const intentHash = options.intentHash ?? toFr(0n);
 
     const input = this.pickNote(assetFr, amount);
-    const { eph: changeEph } = await this.keyRepo.nextSelfEphemeral();
+    const [changeMint] = await this.selfMints(1);
 
     // Delegated to the shipped assembler, so this suite grades @hisoka/wallets rather than a parallel copy.
     // Change derivation, parents packing and the merkle-index cross-check all live there now.
@@ -220,7 +284,7 @@ export class TestWallet {
       value: amount,
       recipient: addressToFr(recipient),
       selfSpendScalar: await this.account.getSelfSpendKey(),
-      changeEph,
+      changeMint,
       intentHash,
     });
     const inputs = assembled.inputs as unknown as WithdrawInputs;
@@ -252,7 +316,7 @@ export class TestWallet {
       memoEph = subgroupScalar(ethers.toBigInt(ethers.randomBytes(16)));
     }
 
-    const { eph: changeEph } = await this.keyRepo.nextSelfEphemeral();
+    const [changeMint] = await this.selfMints(1);
     // PARENTS_HIDDEN on the memo and the change parents packing are the assembler's job now.
     const assembled = await assembleTransfer(this.assemblyCtx(), {
       input: {
@@ -266,7 +330,7 @@ export class TestWallet {
       recipientInKey: toFr(0n),
       selfSpendScalar: await this.account.getSelfSpendKey(),
       memoEph,
-      changeEph,
+      changeMint,
     });
     const memo = assembled.memo;
     const change = assembled.change;
@@ -288,8 +352,7 @@ export class TestWallet {
   async split(amountA: bigint, amountB: bigint, asset?: string) {
     const assetFr = await this.assetFr(asset);
     const input = this.pickNote(assetFr, amountA + amountB);
-    const { eph: eph1 } = await this.keyRepo.nextSelfEphemeral();
-    const { eph: eph2 } = await this.keyRepo.nextSelfEphemeral();
+    const selfMints = await this.selfMints(2);
 
     // amountB is implied: the assembler derives output 2 as the remainder, which is what the circuit
     // conserves. Passing both would let a caller state a total that does not add up.
@@ -302,8 +365,7 @@ export class TestWallet {
       },
       value1: amountA,
       selfSpendScalar: await this.account.getSelfSpendKey(),
-      eph1,
-      eph2,
+      selfMints,
     });
     const out1 = assembled.out1;
     const out2 = assembled.out2;
@@ -333,7 +395,7 @@ export class TestWallet {
       throw new Error("join requires >= 2 unspent notes of the asset");
     }
     const [noteA, noteB] = notes;
-    const { eph: ephOut } = await this.keyRepo.nextSelfEphemeral();
+    const [selfMint] = await this.selfMints(1);
     // The assembler sorts the pair ascending itself, so the sort above is belt and braces.
     const assembled = await assembleJoin(this.assemblyCtx(), {
       inputA: {
@@ -349,7 +411,7 @@ export class TestWallet {
         spendScalar: noteB.spendScalar,
       },
       selfSpendScalar: await this.account.getSelfSpendKey(),
-      ephOut,
+      selfMint,
     });
     const out = assembled.out;
     const inputs = assembled.inputs as unknown as JoinInputs;

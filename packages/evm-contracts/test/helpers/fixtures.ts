@@ -24,9 +24,9 @@ import {
   LeanIMT,
   genesisLeaf as walletsGenesisLeaf,
   newSeededTree as walletsNewSeededTree,
-  mintSelfNote as walletsMintSelfNote,
   mintIncomingNote as walletsMintIncomingNote,
 } from "@hisoka/wallets";
+import { mintSelfNote as walletsMintSelfNote } from "@hisoka/wallets/unsafe-sim";
 import type { MintedNote } from "@hisoka/wallets";
 import type { DerivedEph } from "@hisoka/wallets";
 import { Base8, mulPointEscalar, Point, subOrder } from "@zk-kit/baby-jubjub";

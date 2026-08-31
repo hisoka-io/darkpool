@@ -55,6 +55,7 @@ async function rig(
   overrides: Partial<StateSyncDeps> = {},
   store = new MemoryPssStore(),
   transport = new FakeTransport(),
+  activate = true,
 ): Promise<Rig> {
   const keys = await deriveKeys(nobleBackend, K_STATE);
   const floor = new VersionFloor(store, toHexRaw(keys.accountId));
@@ -68,10 +69,13 @@ async function rig(
     config: DEFAULT_SYNC_CONFIG,
     platform: "extension/chrome",
     now: () => NOW_MS,
+    invite: "test-create",
     ...overrides,
   };
+  const sync = await StateSync.open(deps);
+  if (activate) await sync.pull();
   return {
-    sync: await StateSync.open(deps),
+    sync,
     store,
     transport,
     floor,
@@ -247,12 +251,21 @@ describe("install identity and local cache", () => {
   // against the server, which ignores a repeated code on an update and still answers 200, so nothing
   // would notice the code being resent on every write for the life of the account.
   it("sends the invite on the create and never again", async () => {
-    const r = await rig({ invite: "invite-code-1" });
+    const r = await rig(
+      { invite: "invite-code-1" },
+      new MemoryPssStore(),
+      new FakeTransport(),
+      false,
+    );
+    expect(r.sync.state.mode).toBe("readonly");
+    await r.sync.pull();
+    expect(r.sync.state.mode).toBe("readonly");
     await r.sync.update((p) => ({
       known: { ...p.known, selfEphHighwater: 1 },
       extra: p.extra,
     }));
     await r.sync.flushNow();
+    expect(r.sync.state.mode).toBe("writer");
     await r.sync.update((p) => ({
       known: { ...p.known, selfEphHighwater: 2 },
       extra: p.extra,
@@ -293,6 +306,18 @@ describe("takeover through the loop", () => {
     await b.sync.pull();
     expect(b.sync.state.mode).toBe("readonly");
     expect(b.sync.state.heldBy?.installId).toBe(a.sync.identity.installId);
+
+    const exposedIdentity = b.sync.identity;
+    expect(
+      Reflect.set(exposedIdentity, "installId", a.sync.identity.installId),
+    ).toBe(false);
+    expect(b.sync.identity.installId).not.toBe(a.sync.identity.installId);
+    const exposedState = b.sync.state;
+    expect(Reflect.set(exposedState, "mode", "writer")).toBe(false);
+    expect(b.sync.state.mode).toBe("readonly");
+    await expect(b.sync.updateAsWriter((payload) => payload)).rejects.toThrow(
+      /read-only/,
+    );
   });
 
   it("refuses to write while read-only, and reports it rather than throwing", async () => {
@@ -381,7 +406,7 @@ describe("the write path", () => {
     vi.useRealTimers();
   });
 
-  it("writes local storage before any network call and debounces the upload", async () => {
+  it("debounces local writes without losing a newer update behind a durable PUT", async () => {
     const r = await rig();
     await r.sync.update((p) => ({
       known: { ...p.known, selfEphHighwater: 9 },
@@ -400,6 +425,45 @@ describe("the write path", () => {
     await vi.advanceTimersByTimeAsync(2);
     await r.sync.stop();
     expect(r.transport.puts).toHaveLength(1);
+
+    const transport = new FakeTransport();
+    const honestPut = transport.putBlob.bind(transport);
+    let releasePut: (() => void) | undefined;
+    let markPutStarted: (() => void) | undefined;
+    const putStarted = new Promise<void>((resolve) => {
+      markPutStarted = resolve;
+    });
+    const putReleased = new Promise<void>((resolve) => {
+      releasePut = resolve;
+    });
+    transport.putBlob = async (...args) => {
+      markPutStarted?.();
+      await putReleased;
+      await honestPut(...args);
+    };
+    const overlap = await rig({}, new MemoryPssStore(), transport);
+
+    const durable = overlap.sync.mutateAsWriterDurably((payload) => ({
+      payload: {
+        known: { ...payload.known, selfEphHighwater: 1 },
+        extra: payload.extra,
+      },
+      value: null,
+    }));
+    await putStarted;
+    await overlap.sync.update((payload) => ({
+      known: { ...payload.known, incomingIssueHighwater: 9 },
+      extra: payload.extra,
+    }));
+    releasePut?.();
+    await durable;
+
+    expect(overlap.sync.state.pendingWrite).toBe(true);
+    await vi.advanceTimersByTimeAsync(DEFAULT_SYNC_CONFIG.debounceMs + 1);
+    await overlap.sync.stop();
+    expect(transport.puts).toHaveLength(2);
+    expect((await openStored(overlap)).known.incomingIssueHighwater).toBe(9);
+    expect(overlap.sync.state.pendingWrite).toBe(false);
   });
 
   it("flushes on a fixed interval regardless of pending local edits, which is what propagates a prune or a merge", async () => {
@@ -466,7 +530,7 @@ describe("the version-conflict path", () => {
     }));
     await first.sync.flushNow();
     expect(transport.stored(first.accountPath, "state")?.version).toBe(1);
-    return { warm: await rig({}, store, transport), transport };
+    return { warm: await rig({}, store, transport, false), transport };
   }
 
   it("re-reads, merges and retries once, and the retried blob opens", async () => {
@@ -632,7 +696,7 @@ describe("degraded mode", () => {
         ),
     };
     const store = new MemoryPssStore();
-    const r = await rig({ transport: dead }, store);
+    const r = await rig({ transport: dead }, store, undefined, false);
 
     await r.sync.update((p) => ({
       known: { ...p.known, selfEphHighwater: 412 },
@@ -652,7 +716,7 @@ describe("degraded mode", () => {
       putBlob: () => Promise.reject(new Error("no route to host")),
       deleteAccount: () => Promise.reject(new Error("no route to host")),
     };
-    const r = await rig({ transport: dead });
+    const r = await rig({ transport: dead }, undefined, undefined, false);
     await r.sync.update((p) => ({
       known: { ...p.known, unspentNotes: [note(7)] },
       extra: p.extra,
@@ -883,13 +947,41 @@ describe("the ephemeral highwater is a hint, never a source", () => {
     // A warm start reaches 412 locally, then hits the conflict path and merges that old blob in.
     const warm = await rig({}, store, transport);
     await warm.sync.update((p) => ({
-      known: { ...p.known, selfEphHighwater: 412 },
+      known: {
+        ...p.known,
+        selfEphHighwater: 412,
+      },
       extra: p.extra,
     }));
+    const stale = warm.sync.current();
+    await warm.sync.update((p) => ({
+      known: {
+        ...p.known,
+        ephemeralCounters: { ...p.known.ephemeralCounters, self: 73 },
+      },
+      extra: p.extra,
+    }));
+    const exposed = warm.sync.current();
+    Reflect.set(exposed.known.ephemeralCounters, "self", 0);
+    expect(warm.sync.current().known.ephemeralCounters.self).toBe(73);
+    await warm.sync.update((current) => {
+      Reflect.set(current.known.ephemeralCounters, "self", 0);
+      return current;
+    });
+    expect(warm.sync.current().known.ephemeralCounters.self).toBe(73);
+    await warm.sync.mutateAsWriterDurably((current) => {
+      Reflect.set(current.known.ephemeralCounters, "self", 0);
+      return { payload: current, value: null };
+    });
+    expect(warm.sync.current().known.ephemeralCounters.self).toBe(73);
+    await warm.sync.update(() => stale);
     await warm.sync.flushNow();
 
     expect(warm.sync.current().known.selfEphHighwater).toBe(412);
+    expect(warm.sync.current().known.ephemeralCounters.self).toBe(73);
     expect((await openStored(warm)).known.selfEphHighwater).toBe(412);
+    const restarted = await rig({}, store, transport);
+    expect(restarted.sync.current().known.ephemeralCounters.self).toBe(73);
   });
 
   it("keeps the highwater out of every allocation decision", () => {

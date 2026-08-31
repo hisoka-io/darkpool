@@ -10,7 +10,7 @@ import type {
 } from "./slotStore.js";
 
 const SELECT_SLOT =
-  "SELECT version, prev_version, nonce, ciphertext, updated_on FROM slots " +
+  "SELECT version, prev_version, nonce, ciphertext FROM slots " +
   "WHERE account_id = ? AND collection = ?";
 
 const SELECT_ACCOUNT_ROW = "SELECT 1 FROM slots WHERE account_id = ? LIMIT 1";
@@ -20,17 +20,14 @@ const SELECT_ACCOUNT_ROW = "SELECT 1 FROM slots WHERE account_id = ? LIMIT 1";
 // prev_version the signature committed to.
 const UPSERT_SLOT =
   "INSERT INTO slots " +
-  "(account_id, collection, version, prev_version, nonce, ciphertext, updated_on) " +
-  "VALUES (?, ?, ?, ?, ?, ?, ?) " +
+  "(account_id, collection, version, prev_version, nonce, ciphertext) " +
+  "VALUES (?, ?, ?, ?, ?, ?) " +
   "ON CONFLICT(account_id, collection) DO UPDATE SET " +
   "version = excluded.version, prev_version = excluded.prev_version, " +
-  "nonce = excluded.nonce, ciphertext = excluded.ciphertext, " +
-  "updated_on = excluded.updated_on " +
+  "nonce = excluded.nonce, ciphertext = excluded.ciphertext " +
   "WHERE slots.version < excluded.version AND slots.version = excluded.prev_version";
 
 const DELETE_ACCOUNT = "DELETE FROM slots WHERE account_id = ?";
-
-const SWEEP_EXPIRED = "DELETE FROM slots WHERE updated_on < ?";
 
 const SELECT_INVITES_TABLE =
   "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'invites' LIMIT 1";
@@ -43,7 +40,6 @@ interface SlotRow {
   readonly prev_version: number;
   readonly nonce: Buffer;
   readonly ciphertext: Buffer;
-  readonly updated_on: string;
 }
 
 // better-sqlite3 rolls a transaction back only when the body throws, so the rejected-invite arm signals
@@ -73,7 +69,6 @@ class SqliteSlotStore implements SlotStore {
   readonly #selectAccountRow: Statement;
   readonly #upsert: Statement;
   readonly #deleteAccount: Statement;
-  readonly #sweep: Statement;
   #selectInvitesTable: Statement | null = null;
   #spendInvite: Statement | null = null;
 
@@ -83,7 +78,6 @@ class SqliteSlotStore implements SlotStore {
     this.#selectAccountRow = db.prepare(SELECT_ACCOUNT_ROW);
     this.#upsert = db.prepare(UPSERT_SLOT);
     this.#deleteAccount = db.prepare(DELETE_ACCOUNT);
-    this.#sweep = db.prepare(SWEEP_EXPIRED);
   }
 
   get(accountId: Uint8Array, collection: Collection): StoredSlot | null {
@@ -96,7 +90,6 @@ class SqliteSlotStore implements SlotStore {
       prevVersion: row.prev_version,
       nonce: copyOf(row.nonce),
       ciphertext: copyOf(row.ciphertext),
-      updatedOn: row.updated_on,
     };
   }
 
@@ -116,10 +109,6 @@ class SqliteSlotStore implements SlotStore {
     return this.#deleteAccount.run(blob(accountId)).changes;
   }
 
-  sweepExpired(cutoffOn: string): number {
-    return this.#sweep.run(cutoffOn).changes;
-  }
-
   #gatedWrite(write: SlotWrite, code: string | null): WriteOutcome {
     if (this.#hasAccountRow(write.accountId)) {
       return this.#cas(write) ? "written" : "conflict";
@@ -137,7 +126,6 @@ class SqliteSlotStore implements SlotStore {
       write.prevVersion,
       blob(write.nonce),
       blob(write.ciphertext),
-      write.updatedOn,
     ).changes;
     return changes === 1;
   }

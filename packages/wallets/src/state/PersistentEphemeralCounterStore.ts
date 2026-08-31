@@ -11,10 +11,10 @@ import type {
  * binding from outside, and a different backend can supply another without touching the crypto core.
  */
 export interface CounterPersistence {
-  /** The current durable high-water map. Must reflect the last resolved `write`. */
+  /** The current durable high-water map. Must reflect the last resolved `reserve`. */
   read(): CounterSnapshot;
-  /** MUST resolve only once the change is durable, or the two-time-pad guarantee is void. */
-  write(change: (current: CounterSnapshot) => CounterSnapshot): Promise<void>;
+  /** Selects and advances the scope in one durable transaction, returning the selected base. */
+  reserve(scope: string, span: number): Promise<number>;
 }
 
 /**
@@ -26,9 +26,6 @@ export interface CounterPersistence {
  */
 export class PersistentEphemeralCounterStore implements EphemeralCounterStore {
   readonly #persistence: CounterPersistence;
-  // Serialises read-modify-write: the map is one document, so two concurrent reserves would otherwise read
-  // the same high-water and hand out the same base.
-  #lock: Promise<unknown> = Promise.resolve();
 
   constructor(persistence: CounterPersistence) {
     this.#persistence = persistence;
@@ -42,31 +39,25 @@ export class PersistentEphemeralCounterStore implements EphemeralCounterStore {
         ),
       );
     }
-    return this.#withLock(async () => {
-      const base = this.#read(scope);
-      // Persisted BEFORE the reservation is returned: a crash after this burns the span, which is harmless;
-      // a crash before it means no index was ever handed out.
-      await this.#persistence.write((current) => ({
-        ...current,
-        [scope]: base + span,
-      }));
-      return this.#reservation(scope, base, span);
+    return this.#persistence.reserve(scope, span).then((base) => {
+      if (
+        !Number.isSafeInteger(base) ||
+        base < 0 ||
+        !Number.isSafeInteger(base + span)
+      ) {
+        throw new Error(
+          `ephemeral reserve: persistence returned invalid base ${base} for span ${span}`,
+        );
+      }
+      return this.#reservation(base, span);
     });
   }
 
   highWater(scope: string): Promise<number> {
-    return this.#withLock(() => Promise.resolve(this.#read(scope)));
+    return Promise.resolve(this.#persistence.read()[scope] ?? 0);
   }
 
-  #read(scope: string): number {
-    return this.#persistence.read()[scope] ?? 0;
-  }
-
-  #reservation(
-    scope: string,
-    base: number,
-    span: number,
-  ): EphemeralReservation {
+  #reservation(base: number, span: number): EphemeralReservation {
     return {
       base,
       span,
@@ -82,27 +73,9 @@ export class PersistentEphemeralCounterStore implements EphemeralCounterStore {
             ),
           );
         }
-        return this.#trim(scope, base, span, usedThrough + 1);
+        return Promise.resolve();
       },
-      release: (): Promise<void> => this.#trim(scope, base, span, base),
+      release: (): Promise<void> => Promise.resolve(),
     };
-  }
-
-  // Conditional on the high-water still being the one this reservation set, so a concurrent reserve that
-  // already moved it is never clobbered.
-  #trim(scope: string, base: number, span: number, to: number): Promise<void> {
-    return this.#withLock(async () => {
-      if (this.#read(scope) !== base + span) return;
-      await this.#persistence.write((current) => ({ ...current, [scope]: to }));
-    });
-  }
-
-  #withLock<T>(fn: () => Promise<T>): Promise<T> {
-    const run = this.#lock.then(fn, fn);
-    this.#lock = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
   }
 }

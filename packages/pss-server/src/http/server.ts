@@ -19,7 +19,6 @@ import {
   toHexRaw,
 } from "@hisoka/pss-client/wire";
 import type { ServerConfig } from "../config.js";
-import { today } from "../db/migrate.js";
 import type { InviteGate, SlotStore } from "../db/slotStore.js";
 import { ownsAccount, sha256, verifyEd25519, withinSkew } from "../auth.js";
 import type { RequestCounters, RouteName } from "../metrics.js";
@@ -205,7 +204,6 @@ async function handlePut(
       prevVersion: put.prevVersion,
       nonce: put.nonce,
       ciphertext: put.ciphertext,
-      updatedOn: today(new Date(deps.now())),
     },
     inviteGate(deps.config, put.invite),
   );

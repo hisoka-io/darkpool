@@ -5,7 +5,6 @@ export interface StoredSlot {
   readonly prevVersion: number;
   readonly nonce: Uint8Array;
   readonly ciphertext: Uint8Array;
-  readonly updatedOn: string;
 }
 
 export interface SlotWrite {
@@ -15,7 +14,6 @@ export interface SlotWrite {
   readonly prevVersion: number;
   readonly nonce: Uint8Array;
   readonly ciphertext: Uint8Array;
-  readonly updatedOn: string;
 }
 
 // Consulted only when the account owns no row yet, which is why it travels with the write instead of
@@ -31,5 +29,4 @@ export interface SlotStore {
   get(accountId: Uint8Array, collection: Collection): StoredSlot | null;
   upsert(write: SlotWrite, gate: InviteGate): WriteOutcome;
   deleteAccount(accountId: Uint8Array): number;
-  sweepExpired(cutoffOn: string): number;
 }

@@ -24,6 +24,13 @@ export const MAX_OCCURRENCES_PER_TAG = 100_000;
 export const LEAF_BLOCK_LOG2 = 10;
 export const LEAF_BLOCK_SIZE = 1 << LEAF_BLOCK_LOG2;
 
+/** Trusted application/Raven deployment identity; the SDK does not verify it against chain RPC. */
+export interface SelfMintDomain {
+  readonly chainId: bigint;
+  readonly poolAddress: string;
+  readonly deploymentAnchor: bigint;
+}
+
 /** One row of DB1, decoded. `ephemeralPkX` and `cekWrap` are zero on a self row. */
 export interface HowlNoteRecord {
   readonly layoutVersion: number;
@@ -41,7 +48,7 @@ export interface HowlNoteRecord {
 // restore of arbitrary history at two round trips instead of one per note.
 export interface FirstOccurrence {
   readonly tag: Fr;
-  /** Null when the tag has no notes. A probe miss decodes to a record that fails the prefix check. */
+  /** Broad scanners may use null; self-mint preflight requires a padded record on every miss. */
   readonly record: HowlNoteRecord | null;
   readonly occurrenceCount: number;
 }

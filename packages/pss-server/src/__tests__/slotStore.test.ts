@@ -6,8 +6,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import type { Collection } from "@hisoka/pss-client/wire";
 import { defaultMigrationsDir } from "../config.js";
-import { loadMigrations, runMigrations, today } from "../db/migrate.js";
-import { retentionCutoff } from "../db/retention.js";
+import { loadMigrations, runMigrations } from "../db/migrate.js";
 import type { InviteGate, SlotStore, SlotWrite } from "../db/slotStore.js";
 import { openSlotStore } from "../db/sqliteSlotStore.js";
 
@@ -15,7 +14,6 @@ const ACCOUNT = new Uint8Array(32).fill(0xa1);
 const OTHER = new Uint8Array(32).fill(0xb2);
 const NONCE = new Uint8Array(12).fill(0xc3);
 const OPEN: InviteGate = { required: false };
-const DAY = "2026-08-07";
 
 let directory: string;
 
@@ -41,7 +39,6 @@ function write(
     prevVersion,
     nonce: NONCE,
     ciphertext: Uint8Array.of(version),
-    updatedOn: DAY,
     ...overrides,
   };
 }
@@ -69,7 +66,6 @@ describe("compare and swap", () => {
       prevVersion: 0,
       nonce: NONCE,
       ciphertext: Uint8Array.of(1),
-      updatedOn: DAY,
     });
   });
 
@@ -103,7 +99,6 @@ describe("compare and swap", () => {
       prevVersion: 0,
       nonce: NONCE,
       ciphertext: Uint8Array.of(1),
-      updatedOn: DAY,
     });
   });
 
@@ -258,7 +253,7 @@ describe("invite gate", () => {
   });
 });
 
-describe("delete and sweep", () => {
+describe("delete", () => {
   it("erases every collection of one account and leaves the others", () => {
     const { store } = memoryStore();
     store.upsert(write(1, 0), OPEN);
@@ -270,37 +265,5 @@ describe("delete and sweep", () => {
     expect(store.get(ACCOUNT, "labels")).toBeNull();
     expect(store.get(OTHER, "state")?.version).toBe(1);
     expect(store.deleteAccount(ACCOUNT)).toBe(0);
-  });
-
-  it("sweeps only the rows written before the retention cutoff", () => {
-    const { store } = memoryStore();
-    const now = new Date(Date.UTC(2026, 7, 7));
-    const retentionDays = 400;
-    const cutoff = retentionCutoff(now, retentionDays);
-
-    store.upsert(write(1, 0, { updatedOn: cutoff }), OPEN);
-    store.upsert(
-      write(1, 0, {
-        accountId: OTHER,
-        updatedOn: today(new Date(Date.UTC(2024, 0, 1))),
-      }),
-      OPEN,
-    );
-
-    expect(store.sweepExpired(cutoff)).toBe(1);
-    expect(store.get(ACCOUNT, "state")?.version).toBe(1);
-    expect(store.get(OTHER, "state")).toBeNull();
-  });
-
-  it("anchors the cutoff on a date and moves with the injected clock", () => {
-    expect(retentionCutoff(new Date(Date.UTC(2026, 7, 7)), 400)).toBe(
-      "2025-07-03",
-    );
-    expect(retentionCutoff(new Date(Date.UTC(2026, 7, 7, 23, 59, 59)), 1)).toBe(
-      "2026-08-06",
-    );
-    expect(retentionCutoff(new Date(Date.UTC(2026, 7, 7)), 0)).toBe(
-      "2026-08-07",
-    );
   });
 });

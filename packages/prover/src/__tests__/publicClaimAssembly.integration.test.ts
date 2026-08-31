@@ -4,8 +4,17 @@ import {
   buildPublicClaim,
   buildPublicTransfer,
   canonicalPublicAddress,
+  completeComplianceHistory,
   DarkAccount,
   encodeHisokaPublicAddress,
+  Fr,
+  pubkeyOwner,
+  SelfMintPreflight,
+  CIPHERTEXT_KEPT_INDICES,
+  COMMITMENT_PREFIX_BYTES,
+  HOWL_NOTE_LAYOUT_VERSION,
+  RECORD_KIND_INCOMING,
+  type HowlNoteRecord,
 } from "@hisoka/wallets";
 import {
   InMemoryEphemeralCounterStore,
@@ -24,6 +33,26 @@ const COMPLIANCE_PK: Point<bigint> = [
   0x085ed469c9a9f102b6d4f6f909b8ceaf6ca49b39759ac2e0feb7e0aada8b7111n,
   0x245e25ab2bd42f0280a5ade750828dd6868f5225ae798d6b51c676f519c8f4e8n,
 ];
+const DOMAIN = {
+  chainId: 31337n,
+  poolAddress: DARKPOOL,
+  deploymentAnchor: 1n,
+};
+const HISTORY = completeComplianceHistory({
+  genesisPk: COMPLIANCE_PK,
+  rotations: [],
+  currentPk: COMPLIANCE_PK,
+  currentVersion: 1,
+});
+const MISS_RECORD: HowlNoteRecord = {
+  layoutVersion: HOWL_NOTE_LAYOUT_VERSION,
+  recordKind: RECORD_KIND_INCOMING,
+  leafIndex: 0,
+  commitmentPrefix: new Uint8Array(COMMITMENT_PREFIX_BYTES),
+  ephemeralPkX: Fr.ZERO,
+  cekWrap: Fr.ZERO,
+  ciphertextKept: CIPHERTEXT_KEPT_INDICES.map(() => Fr.ZERO),
+};
 
 describe("public transfer -> public_claim (SDK assembly)", () => {
   it("proves the witness the wallet assembles for a posted memo", async () => {
@@ -41,12 +70,39 @@ describe("public transfer -> public_claim (SDK assembly)", () => {
       value: VALUE,
     });
 
+    const keys = new KeyRepository(
+      account,
+      new InMemoryEphemeralCounterStore(),
+    );
+    const preflight = new SelfMintPreflight({
+      allocator: { next: () => keys.nextSelfEphemeral() },
+      discovery: {
+        probeFirst: (tags) =>
+          Promise.resolve(
+            tags.map((tag) => ({
+              tag,
+              record: MISS_RECORD,
+              occurrenceCount: 0,
+            })),
+          ),
+        fetchOccurrences: () => Promise.resolve([]),
+        fetchLeafBlock: () => Promise.resolve([]),
+      },
+      history: HISTORY,
+      ownerCommitment: await pubkeyOwner(await keys.getSelfSpendPub()),
+      domain: DOMAIN,
+    });
+
     const claim = await buildPublicClaim({
       memo: plan.memo,
       viewKey,
       ownerIndex: canonical.index,
       compliancePk: COMPLIANCE_PK,
-      keys: new KeyRepository(account, new InMemoryEphemeralCounterStore()),
+      complianceVersion: 1,
+      complianceHistory: HISTORY,
+      ...DOMAIN,
+      keys,
+      selfMint: (await preflight.take(1))[0],
       currentTimestamp: Math.floor(Date.now() / 1000),
     });
 

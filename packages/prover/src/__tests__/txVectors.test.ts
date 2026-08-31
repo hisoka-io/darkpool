@@ -21,10 +21,21 @@ import { Fr } from "@aztec/foundation/fields";
 import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
 import {
   toFr,
-  mintSelfNote,
   publicKey,
+  pubkeyOwner,
+  completeComplianceHistory,
+  SelfMintPreflight,
   type DerivedEph,
+  CIPHERTEXT_KEPT_INDICES,
+  COMMITMENT_PREFIX_BYTES,
+  HOWL_NOTE_LAYOUT_VERSION,
+  RECORD_KIND_INCOMING,
+  type HowlNoteRecord,
 } from "@hisoka/wallets";
+import {
+  markDerivedSelfMintCandidate,
+  mintSelfNote,
+} from "@hisoka/wallets/unsafe-sim";
 import {
   assembleDeposit,
   assembleWithdraw,
@@ -48,6 +59,60 @@ const ASSET = toFr(0x1234567890123456789012345678901234567890n);
 const SPEND = toFr(789n);
 const RECIPIENT_IN_KEY = toFr(31n);
 const eph = (n: bigint): DerivedEph => toFr(n) as DerivedEph;
+const COMPLIANCE_HISTORY = completeComplianceHistory({
+  genesisPk: COMPLIANCE_PK,
+  rotations: [],
+  currentPk: COMPLIANCE_PK,
+  currentVersion: 1,
+});
+const OWNER_COMMITMENT = await pubkeyOwner(publicKey(SPEND));
+const DOMAIN = {
+  chainId: 31337n,
+  poolAddress: "0x0000000000000000000000000000000000000001",
+  deploymentAnchor: 1n,
+};
+const MISS_RECORD: HowlNoteRecord = {
+  layoutVersion: HOWL_NOTE_LAYOUT_VERSION,
+  recordKind: RECORD_KIND_INCOMING,
+  leafIndex: 0,
+  commitmentPrefix: new Uint8Array(COMMITMENT_PREFIX_BYTES),
+  ephemeralPkX: Fr.ZERO,
+  cekWrap: Fr.ZERO,
+  ciphertextKept: CIPHERTEXT_KEPT_INDICES.map(() => Fr.ZERO),
+};
+
+async function checked(n: bigint) {
+  const scalar = eph(n);
+  const ephPub = publicKey(scalar);
+  const preflight = new SelfMintPreflight({
+    allocator: {
+      next: () =>
+        Promise.resolve(
+          markDerivedSelfMintCandidate(
+            {
+              eph: scalar,
+              ephPub,
+              tag: new Fr(ephPub[0]),
+              index: Number(n),
+            },
+            OWNER_COMMITMENT,
+          ),
+        ),
+    },
+    discovery: {
+      probeFirst: (tags) =>
+        Promise.resolve(
+          tags.map((tag) => ({ tag, record: MISS_RECORD, occurrenceCount: 0 })),
+        ),
+      fetchOccurrences: () => Promise.resolve([]),
+      fetchLeafBlock: () => Promise.resolve([]),
+    },
+    history: COMPLIANCE_HISTORY,
+    ownerCommitment: OWNER_COMMITMENT,
+    domain: DOMAIN,
+  });
+  return (await preflight.take(1))[0];
+}
 
 const byLeaf = new Map<string, number>();
 const SIBLINGS = Array.from({ length: 32 }, (_, i) => toFr(BigInt(i) + 1n));
@@ -60,7 +125,13 @@ const merkle: MerkleWitnessSource = {
     root: ROOT,
   }),
 };
-const ctx: AssemblyContext = { compliancePk: COMPLIANCE_PK, merkle };
+const ctx: AssemblyContext = {
+  compliancePk: COMPLIANCE_PK,
+  complianceVersion: 1,
+  complianceHistory: COMPLIANCE_HISTORY,
+  ...DOMAIN,
+  merkle,
+};
 
 async function spendable(
   value: bigint,
@@ -143,7 +214,7 @@ async function buildVectors(): Promise<Record<string, unknown>> {
     value: 1000n,
     assetId: ASSET,
     spendScalar: SPEND,
-    eph: eph(5n),
+    selfMint: await checked(5n),
   });
 
   const wIn = await spendable(1000n, 1);
@@ -152,7 +223,7 @@ async function buildVectors(): Promise<Record<string, unknown>> {
     value: 300n,
     recipient: toFr(0xbeefn),
     selfSpendScalar: SPEND,
-    changeEph: eph(21n),
+    changeMint: await checked(21n),
   });
 
   const tIn = await spendable(1000n, 2);
@@ -163,7 +234,7 @@ async function buildVectors(): Promise<Record<string, unknown>> {
     recipientInKey: RECIPIENT_IN_KEY,
     selfSpendScalar: SPEND,
     memoEph: toFr(77n),
-    changeEph: eph(78n),
+    changeMint: await checked(78n),
   });
 
   const sIn = await spendable(1000n, 3);
@@ -171,8 +242,7 @@ async function buildVectors(): Promise<Record<string, unknown>> {
     input: sIn,
     value1: 400n,
     selfSpendScalar: SPEND,
-    eph1: eph(51n),
-    eph2: eph(52n),
+    selfMints: [await checked(51n), await checked(52n)],
   });
 
   const jA = await spendable(600n, 4);
@@ -181,7 +251,7 @@ async function buildVectors(): Promise<Record<string, unknown>> {
     inputA: jA,
     inputB: jB,
     selfSpendScalar: SPEND,
-    ephOut: eph(60n),
+    selfMint: await checked(60n),
   });
 
   return {

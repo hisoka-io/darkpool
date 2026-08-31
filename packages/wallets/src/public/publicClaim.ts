@@ -1,7 +1,6 @@
 import { Fr } from "@aztec/foundation/fields";
-import { acquireSelfEphemeral } from "../discovery/guardedMint.js";
-import type { DiscoverySource } from "../discovery/types.js";
-import type { EphemeralCounterStore } from "../state/EphemeralCounterStore.js";
+import type { SelfMintAuthorization } from "../discovery/preflight.js";
+import { consumeSelfMints } from "../discovery/preflight.js";
 import { Point } from "@zk-kit/baby-jubjub";
 import { toFr } from "../crypto/fields.js";
 import { deriveCek } from "../crypto/kem.js";
@@ -19,6 +18,7 @@ import {
 } from "../note/note.js";
 import { computePsi } from "../note/nullifier.js";
 import type { SelfEphemeral } from "../repositories.js";
+import type { CompleteComplianceHistory } from "../note/complianceKeys.js";
 import {
   assertMemoAsset,
   assertMemoTimelock,
@@ -62,10 +62,8 @@ export interface PublicClaimWitness {
   eph: Fr;
 }
 
-/** The two key-repository capabilities a claim needs; `KeyRepository` satisfies it. `nextSelfEphemeral`
- *  MUST reserve from the durable counter: a reused self-ephemeral repeats the DEM keystream. */
+/** The key-repository capability a claim needs after its self ephemeral has been preflighted. */
 export interface SelfNoteKeys {
-  nextSelfEphemeral(): Promise<SelfEphemeral>;
   getSelfSpendPub(): Promise<Point<bigint>>;
 }
 
@@ -76,24 +74,18 @@ export interface PublicClaimRequest {
   /** Index of the public receiving address the memo was posted to; re-derived and re-checked, never trusted. */
   ownerIndex: bigint;
   compliancePk: Point<bigint>;
+  complianceVersion: number;
+  complianceHistory: CompleteComplianceHistory;
+  chainId: bigint;
+  poolAddress: string;
+  deploymentAnchor: bigint;
   keys: SelfNoteKeys;
+  selfMint: SelfMintAuthorization;
   currentTimestamp?: number;
-  /**
-   * Optional collision guard. Supplied, the ephemeral is acquired optimistically: the discovery probe is
-   * fired now and `confirm` on the result must be awaited immediately before broadcast, so proving is never
-   * blocked on a round trip. Omitted, the claim behaves exactly as before and carries no `confirm`.
-   */
-  guard?: {
-    source: DiscoverySource;
-    store: EphemeralCounterStore;
-    scope: string;
-  };
 }
 
 export interface AssembledPublicClaim {
   inputs: PublicClaimWitness;
-  /** Present only when `guard` was supplied. Await before broadcasting; see `acquireSelfEphemeral`. */
-  confirm?: () => Promise<void>;
   /** Plaintext note the claim mints, for the wallet's own bookkeeping. */
   note: Note;
   commitment: Fr;
@@ -148,19 +140,20 @@ export async function buildPublicClaim(
     );
   }
 
-  const guarded = request.guard
-    ? await acquireSelfEphemeral(
-        request.keys,
-        request.guard.source,
-        request.guard.store,
-        request.guard.scope,
-      )
-    : null;
-  const { eph, index: ephemeralIndex } =
-    guarded ?? (await request.keys.nextSelfEphemeral());
+  const owner = await pubkeyOwner(await request.keys.getSelfSpendPub());
+  const [selfMint] = consumeSelfMints([request.selfMint], {
+    ownerCommitment: owner,
+    compliancePk: request.compliancePk,
+    complianceVersion: request.complianceVersion,
+    complianceHistory: request.complianceHistory,
+    chainId: request.chainId,
+    poolAddress: request.poolAddress,
+    deploymentAnchor: request.deploymentAnchor,
+  });
+  const eph = selfMint.eph as SelfEphemeral["eph"];
+  const ephemeralIndex = selfMint.index;
   const cek = deriveCek(eph, request.compliancePk);
   const psi = await computePsi(cek);
-  const owner = await pubkeyOwner(await request.keys.getSelfSpendPub());
 
   const note: Note = {
     noteVersion: NOTE_VERSION,
@@ -175,7 +168,6 @@ export async function buildPublicClaim(
   const commitment = await computeLeaf(note);
 
   return {
-    ...(guarded ? { confirm: guarded.confirm } : {}),
     inputs: {
       memoId: memo.memoId,
       compliancePk: request.compliancePk,

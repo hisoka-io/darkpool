@@ -136,8 +136,8 @@ describe("compliance-key rotation", () => {
   it("recovers a note minted BEFORE a rotation", async () => {
     const { event, repo } = await selfNoteAt(KEY_V0, 4n, 250n, 100);
     const ring = ComplianceKeyRing.from([
-      { version: 0, pk: KEY_V0, fromBlock: 0 },
-      { version: 1, pk: KEY_V1, fromBlock: 500 },
+      { version: 1, pk: KEY_V0, fromBlock: 0 },
+      { version: 2, pk: KEY_V1, fromBlock: 500 },
     ]);
 
     const note = await new NoteProcessor(repo, ring).process(event);
@@ -161,9 +161,9 @@ describe("compliance-key rotation", () => {
 
   it("recovers notes from EVERY version across two rotations", async () => {
     const ring = ComplianceKeyRing.from([
-      { version: 0, pk: KEY_V0, fromBlock: 0 },
-      { version: 1, pk: KEY_V1, fromBlock: 500 },
-      { version: 2, pk: KEY_V2, fromBlock: 900 },
+      { version: 1, pk: KEY_V0, fromBlock: 0 },
+      { version: 2, pk: KEY_V1, fromBlock: 500 },
+      { version: 3, pk: KEY_V2, fromBlock: 900 },
     ]);
     for (const [i, [key, block]] of (
       [
@@ -183,8 +183,8 @@ describe("compliance-key rotation", () => {
   it("works with no block information at all", async () => {
     const { event, repo } = await selfNoteAt(KEY_V0, 7n, 42n, 100);
     const ring = ComplianceKeyRing.from([
-      { version: 0, pk: KEY_V0 },
-      { version: 1, pk: KEY_V1 },
+      { version: 1, pk: KEY_V0 },
+      { version: 2, pk: KEY_V1 },
     ]);
     expect(await new NoteProcessor(repo, ring).process(event)).not.toBeNull();
   });
@@ -243,32 +243,56 @@ describe("ComplianceKeyRing", () => {
     const ring = ComplianceKeyRing.fromRotations(
       KEY_V0,
       [
-        { newVersion: 1, newX: KEY_V1[0], newY: KEY_V1[1], blockNumber: 500 },
-        { newVersion: 2, newX: KEY_V2[0], newY: KEY_V2[1], blockNumber: 900 },
+        {
+          oldVersion: 1,
+          newVersion: 2,
+          newX: KEY_V1[0],
+          newY: KEY_V1[1],
+          blockNumber: 500,
+        },
+        {
+          oldVersion: 2,
+          newVersion: 3,
+          newX: KEY_V2[0],
+          newY: KEY_V2[1],
+          blockNumber: 900,
+        },
       ],
       0,
     );
-    expect(ring.epochs.map((e) => e.version)).toEqual([0, 1, 2]);
-    expect(ring.currentVersion).toBe(2);
+    expect(ring.epochs.map((e) => e.version)).toEqual([1, 2, 3]);
+    expect(ring.currentVersion).toBe(3);
     expect(ring.current).toEqual(KEY_V2);
   });
 
   it("tries the epoch covering the block FIRST, then the rest", () => {
     const ring = ComplianceKeyRing.fromRotations(KEY_V0, [
-      { newVersion: 1, newX: KEY_V1[0], newY: KEY_V1[1], blockNumber: 500 },
-      { newVersion: 2, newX: KEY_V2[0], newY: KEY_V2[1], blockNumber: 900 },
+      {
+        oldVersion: 1,
+        newVersion: 2,
+        newX: KEY_V1[0],
+        newY: KEY_V1[1],
+        blockNumber: 500,
+      },
+      {
+        oldVersion: 2,
+        newVersion: 3,
+        newX: KEY_V2[0],
+        newY: KEY_V2[1],
+        blockNumber: 900,
+      },
     ]);
-    expect(ring.candidatesFor(600).map((e) => e.version)).toEqual([1, 2, 0]);
+    expect(ring.candidatesFor(600).map((e) => e.version)).toEqual([2, 3, 1]);
     // Never a subset: an approximate fromBlock must not be able to hide a version.
     expect(ring.candidatesFor(600)).toHaveLength(3);
   });
 
   it("falls back to newest-first when the block is unknown", () => {
     const ring = ComplianceKeyRing.from([
-      { version: 0, pk: KEY_V0 },
-      { version: 1, pk: KEY_V1 },
+      { version: 1, pk: KEY_V0 },
+      { version: 2, pk: KEY_V1 },
     ]);
-    expect(ring.candidatesFor().map((e) => e.version)).toEqual([1, 0]);
+    expect(ring.candidatesFor().map((e) => e.version)).toEqual([2, 1]);
   });
 
   it("fails CLOSED on an empty ring", () => {
@@ -352,8 +376,8 @@ describe("compliance-key rotation: multisig scanner", () => {
       v,
       gpk,
       compliancePk: ComplianceKeyRing.from([
-        { version: 0, pk: KEY_V0 },
-        { version: 1, pk: KEY_V1 },
+        { version: 1, pk: KEY_V0 },
+        { version: 2, pk: KEY_V1 },
       ]),
       memberIds: [1n, 2n, 3n],
       selfWindow: 16,

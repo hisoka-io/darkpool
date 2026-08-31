@@ -49,9 +49,12 @@ async function victim(
     config: DEFAULT_SYNC_CONFIG,
     platform: "extension/chrome",
     now: () => NOW_MS,
+    invite: "test-create",
   };
+  const sync = await StateSync.open(deps);
+  await sync.pull();
   return {
-    sync: await StateSync.open(deps),
+    sync,
     store,
     transport,
     floor,

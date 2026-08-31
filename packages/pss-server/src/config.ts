@@ -3,7 +3,6 @@ import { dirname, resolve } from "node:path";
 import {
   BODY_HEADROOM_BYTES,
   MAX_CIPHERTEXT_BYTES,
-  RETENTION_DAYS,
   TIMESTAMP_SKEW_SECONDS,
   WRITES_PER_HOUR,
   WRITE_BURST,
@@ -30,6 +29,7 @@ const DEFAULT_MAX_TRACKED_REPLAYS = 100_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_HEADERS_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_CONNECTIONS = 512;
+export const SERVER_MAINTENANCE_INTERVAL_MS = 86_400_000;
 
 export class ConfigError extends Error {
   constructor(detail: string) {
@@ -48,7 +48,6 @@ export interface ServerConfig {
   readonly bodyHeadroomBytes: number;
   readonly writesPerHour: number;
   readonly writeBurst: number;
-  readonly retentionDays: number;
   readonly maxTrackedAccounts: number;
   readonly maxTrackedReplays: number;
   readonly requestTimeoutMs: number;
@@ -97,7 +96,6 @@ export function loadConfig(
     bodyHeadroomBytes: BODY_HEADROOM_BYTES,
     writesPerHour: WRITES_PER_HOUR,
     writeBurst: WRITE_BURST,
-    retentionDays: RETENTION_DAYS,
     maxTrackedAccounts: DEFAULT_MAX_TRACKED_ACCOUNTS,
     maxTrackedReplays: DEFAULT_MAX_TRACKED_REPLAYS,
     requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,

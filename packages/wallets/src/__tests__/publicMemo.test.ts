@@ -21,9 +21,19 @@ import { deriveCek } from "../crypto/kem";
 import { addressToFr, toFr } from "../crypto/fields";
 import { calculatePublicMemoId } from "../crypto/index";
 import { buildPublicTransfer } from "../public/publicTransfer";
-import { buildPublicClaim, SelfNoteKeys } from "../public/publicClaim";
+import { buildPublicClaim } from "../public/publicClaim";
 import { PublicMemo, PublicMemoError } from "../public/memo";
 import type { DiscoveredPublicMemo } from "../sync/types";
+import { completeComplianceHistory } from "../note/complianceKeys";
+import { SelfMintPreflight } from "../discovery/preflight";
+import {
+  CIPHERTEXT_KEPT_INDICES,
+  COMMITMENT_PREFIX_BYTES,
+  HOWL_NOTE_LAYOUT_VERSION,
+  RECORD_KIND_INCOMING,
+  type DiscoverySource,
+  type HowlNoteRecord,
+} from "../discovery/types";
 
 const MNEMONIC = "test test test test test test test test test test test junk";
 const DARKPOOL = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
@@ -76,6 +86,58 @@ function keyRepo(
   store: InMemoryEphemeralCounterStore | SealedEphemeralCounterStore,
 ): KeyRepository {
   return new KeyRepository(account, store);
+}
+
+const emptyDiscovery: DiscoverySource = {
+  probeFirst: (tags) =>
+    Promise.resolve(
+      tags.map((tag) => ({ tag, record: MISS_RECORD, occurrenceCount: 0 })),
+    ),
+  fetchOccurrences: () => Promise.resolve([]),
+  fetchLeafBlock: () => Promise.resolve([]),
+};
+
+const COMPLIANCE_HISTORY = completeComplianceHistory({
+  genesisPk: COMPLIANCE_PK,
+  rotations: [],
+  currentPk: COMPLIANCE_PK,
+  currentVersion: 1,
+});
+const DOMAIN = {
+  chainId: 31337n,
+  poolAddress: DARKPOOL,
+  deploymentAnchor: 1n,
+};
+const CLAIM_CONTEXT = {
+  compliancePk: COMPLIANCE_PK,
+  complianceVersion: 1,
+  complianceHistory: COMPLIANCE_HISTORY,
+  ...DOMAIN,
+};
+const MISS_RECORD: HowlNoteRecord = {
+  layoutVersion: HOWL_NOTE_LAYOUT_VERSION,
+  recordKind: RECORD_KIND_INCOMING,
+  leafIndex: 0,
+  commitmentPrefix: new Uint8Array(COMMITMENT_PREFIX_BYTES),
+  ephemeralPkX: Fr.ZERO,
+  cekWrap: Fr.ZERO,
+  ciphertextKept: CIPHERTEXT_KEPT_INDICES.map(() => Fr.ZERO),
+};
+
+async function preflight(repo: KeyRepository): Promise<
+  SelfMintPreflight<
+    Awaited<ReturnType<KeyRepository["nextSelfEphemeral"]>> & {
+      readonly tag: Fr;
+    }
+  >
+> {
+  return new SelfMintPreflight({
+    allocator: { next: () => repo.nextSelfEphemeral() },
+    discovery: emptyDiscovery,
+    history: COMPLIANCE_HISTORY,
+    ownerCommitment: await pubkeyOwner(await repo.getSelfSpendPub()),
+    domain: DOMAIN,
+  });
 }
 
 describe("buildPublicTransfer (MetaMask-only sender)", () => {
@@ -311,26 +373,60 @@ describe("public claim assembly", () => {
       logIndex: 0,
       txHash: "0x",
     };
+    const repo = keyRepo(new InMemoryEphemeralCounterStore());
     const claim = await buildPublicClaim({
       memo: discovered,
       viewKey,
       ownerIndex: discovered.ownerIndex,
-      compliancePk: COMPLIANCE_PK,
-      keys: keyRepo(new InMemoryEphemeralCounterStore()),
+      ...CLAIM_CONTEXT,
+      keys: repo,
+      selfMint: (await (await preflight(repo)).take(1))[0],
       currentTimestamp: 1_800_000_000,
     });
     expect(claim.inputs.memoId.equals(memo.memoId)).toBe(true);
   });
 
+  it("consumes authorization once and binds the claim owner and compliance version", async () => {
+    const memo = await postedMemo();
+    const repo = keyRepo(new InMemoryEphemeralCounterStore());
+    const authorization = (await (await preflight(repo)).take(1))[0];
+    const request = {
+      memo,
+      viewKey,
+      ownerIndex: addressIndex,
+      ...CLAIM_CONTEXT,
+      keys: repo,
+      selfMint: authorization,
+      currentTimestamp: 1_800_000_000,
+    };
+
+    await expect(
+      buildPublicClaim({ ...request, complianceVersion: 2 }),
+    ).rejects.toThrow(/context/);
+    await expect(
+      buildPublicClaim({
+        ...request,
+        keys: {
+          getSelfSpendPub: () => Promise.resolve(publicKey(new Fr(99n))),
+        },
+      }),
+    ).rejects.toThrow(/context/);
+    await expect(buildPublicClaim(request)).resolves.toBeDefined();
+    await expect(buildPublicClaim(request)).rejects.toThrow(/consumed/);
+  });
+
   it("assembles a witness the public_claim circuit accepts", async () => {
     const memo = await postedMemo();
     const repo = keyRepo(new InMemoryEphemeralCounterStore());
+    const checked = await preflight(repo);
+    const selfMint = (await checked.take(1))[0];
     const claim = await buildPublicClaim({
       memo,
       viewKey,
       ownerIndex: addressIndex,
-      compliancePk: COMPLIANCE_PK,
+      ...CLAIM_CONTEXT,
       keys: repo,
+      selfMint,
       currentTimestamp: 1_800_000_000,
     });
 
@@ -340,6 +436,7 @@ describe("public claim assembly", () => {
     expect(claim.inputs.timelock.equals(toFr(0n))).toBe(true);
     expect(claim.inputs.salt.equals(memo.salt)).toBe(true);
     expect(claim.inputs.currentTimestamp).toBe(1_800_000_000);
+    expect(Object.keys(selfMint)).toEqual([]);
 
     // memo id mismatch / recipient key mismatch are the circuit's first two asserts.
     const expectedSk = await derivePublicIncomingKey(viewKey, addressIndex);
@@ -376,20 +473,23 @@ describe("public claim assembly", () => {
   it("reserves each self ephemeral from the durable counter, never reusing an index", async () => {
     const store = new InMemoryEphemeralCounterStore();
     const repo = keyRepo(store);
+    const checked = await preflight(repo);
     const first = await buildPublicClaim({
       memo: await postedMemo(),
       viewKey,
       ownerIndex: addressIndex,
-      compliancePk: COMPLIANCE_PK,
+      ...CLAIM_CONTEXT,
       keys: repo,
+      selfMint: (await checked.take(1))[0],
       currentTimestamp: 1_800_000_000,
     });
     const second = await buildPublicClaim({
       memo: await postedMemo(),
       viewKey,
       ownerIndex: addressIndex,
-      compliancePk: COMPLIANCE_PK,
+      ...CLAIM_CONTEXT,
       keys: repo,
+      selfMint: (await checked.take(1))[0],
       currentTimestamp: 1_800_000_000,
     });
 
@@ -401,61 +501,58 @@ describe("public claim assembly", () => {
   });
 
   it("refuses to mint without a durable counter (two-time-pad hazard)", async () => {
-    await expect(
-      buildPublicClaim({
-        memo: await postedMemo(),
-        viewKey,
-        ownerIndex: addressIndex,
-        compliancePk: COMPLIANCE_PK,
-        keys: keyRepo(new SealedEphemeralCounterStore()),
-        currentTimestamp: 1_800_000_000,
-      }),
-    ).rejects.toThrow(/durable ephemeral counter/);
+    const repo = keyRepo(new SealedEphemeralCounterStore());
+    await expect((await preflight(repo)).take(1)).rejects.toThrow(
+      /durable ephemeral counter/,
+    );
   });
 
-  it("refuses an index the memo is not addressed to, before burning an ephemeral", async () => {
+  it("refuses an index the memo is not addressed to without allocating inside assembly", async () => {
     const store = new InMemoryEphemeralCounterStore();
+    const repo = keyRepo(store);
+    const checked = await preflight(repo);
+    const selfMint = (await checked.take(1))[0];
+    const highWater = await store.highWater("self");
     await expect(
       buildPublicClaim({
         memo: await postedMemo(),
         viewKey,
         ownerIndex: addressIndex + 1n,
-        compliancePk: COMPLIANCE_PK,
-        keys: keyRepo(store),
+        ...CLAIM_CONTEXT,
+        keys: repo,
+        selfMint,
         currentTimestamp: 1_800_000_000,
       }),
     ).rejects.toThrow(PublicMemoError);
-    expect(await store.highWater("self")).toBe(0);
+    expect(await store.highWater("self")).toBe(highWater);
   });
 
   it("refuses a claim before the timelock expires", async () => {
+    const repo = keyRepo(new InMemoryEphemeralCounterStore());
     await expect(
       buildPublicClaim({
         memo: await postedMemo(1_900_000_000n),
         viewKey,
         ownerIndex: addressIndex,
-        compliancePk: COMPLIANCE_PK,
-        keys: keyRepo(new InMemoryEphemeralCounterStore()),
+        ...CLAIM_CONTEXT,
+        keys: repo,
+        selfMint: (await (await preflight(repo)).take(1))[0],
         currentTimestamp: 1_800_000_000,
       }),
     ).rejects.toThrow(PublicMemoError);
   });
 
   it("accepts the claim once the timelock has passed", async () => {
+    const repo = keyRepo(new InMemoryEphemeralCounterStore());
     const claim = await buildPublicClaim({
       memo: await postedMemo(1_700_000_000n),
       viewKey,
       ownerIndex: addressIndex,
-      compliancePk: COMPLIANCE_PK,
-      keys: keyRepo(new InMemoryEphemeralCounterStore()),
+      ...CLAIM_CONTEXT,
+      keys: repo,
+      selfMint: (await (await preflight(repo)).take(1))[0],
       currentTimestamp: 1_800_000_000,
     });
     expect(claim.inputs.timelock.equals(toFr(1_700_000_000n))).toBe(true);
-  });
-
-  it("satisfies SelfNoteKeys with a plain KeyRepository", async () => {
-    const keys: SelfNoteKeys = keyRepo(new InMemoryEphemeralCounterStore());
-    const reserved = await keys.nextSelfEphemeral();
-    expect(reserved.index).toBeGreaterThanOrEqual(0);
   });
 });

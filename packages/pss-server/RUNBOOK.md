@@ -1,8 +1,9 @@
 # PSS server operator runbook
 
 The private state store holds one encrypted blob per account per collection. It never reads the chain,
-never holds a decryption key, and is advisory: if it is down, stale or lost, wallets resync from the
-chain and keep working. Operate it accordingly.
+never holds a decryption key, and is advisory for existing local state reads. A deposit, claim, or spend that
+needs a fresh self output fails closed while PSS is unavailable because v1 requires remotely confirmed counter
+allocation.
 
 ---
 
@@ -94,14 +95,12 @@ while the migrations still resolve. That looks like a healthy server that has lo
 
 ## 6. Retention
 
-Blobs expire 400 days after their last write, anchored on a date rather than a timestamp so the store
-never holds an exact per-account activity time. The sweep runs once at boot and then daily.
+PSS retains both `state` and `labels` until the account owner sends an authenticated signed deletion.
+There is no automatic expiry and no per-account activity date in `slots`.
 
-Nothing reports sweep counts, so a silently dead sweep is invisible. To check, query the oldest
-`updated_on` in `slots` and confirm it is inside the retention window.
-
-An expired account is not an error. The wallet resyncs from the chain, which is slower and is a
-supported path.
+Storage therefore grows until users delete accounts or the operator adds capacity. Monitor row count,
+database size, WAL size, and free disk. Never reclaim rows by age: expired counter state can reissue a
+self ephemeral, repeat the note DEM keystream, and leave a permanent public link between two notes.
 
 ## 6a. Noticing a failure
 
@@ -114,10 +113,10 @@ Two things to watch:
 - **Free disk on the `PSS_DATABASE_PATH` volume.** SQLite returning `SQLITE_FULL` surfaces only as 5xx
   counters and refused writes.
 
-**Sweep liveness**, per section 6:
+**Storage growth**, per section 6:
 
 ```sh
-sqlite3 "$PSS_DATABASE_PATH" 'SELECT MIN(updated_on) FROM slots;'
+sqlite3 "$PSS_DATABASE_PATH" 'SELECT COUNT(*) AS rows FROM slots;'
 ```
 
 **Client clock skew.** A client seeing persistent 401s on PUT with a key that is otherwise fine has a
@@ -150,5 +149,6 @@ the hope of merging them.
 
 It never reads the chain. It cannot decrypt a blob. It cannot forge one, because every write is signed
 by a key derived from the account owner's wallet root and the account identifier is the hash of that
-signing key. It cannot roll a client back without being detected. If you find yourself adding chain
-access or a decryption key to this service, the design has drifted.
+signing key. A client with a surviving local floor detects authenticated rollback; a reinstalled client does
+not. v1 also trusts the server to serialize CAS honestly and does not prevent equivocation between devices. If
+you find yourself adding chain access or a decryption key to this service, the design has drifted.

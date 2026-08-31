@@ -23,6 +23,7 @@ import {
   startServer,
 } from "@hisoka/pss-server";
 import type { RunningServer } from "@hisoka/pss-server";
+import { PssEphemeralCounterStore } from "../pssEphemeralCounterStore.js";
 
 const MNEMONIC = "test test test test test test test test test test test junk";
 const GCM_NONCE_BYTES = 12;
@@ -124,6 +125,9 @@ describe("two devices against a real server", () => {
   it("runs the full lifecycle, and the takeover preserves the first device's state", async () => {
     insertInvite("invite-lifecycle-1");
     const a = await device("invite-lifecycle-1");
+    expect(a.state.mode).toBe("readonly");
+    await a.pull();
+    expect(a.state.mode).toBe("readonly");
 
     // Create with an invite, then write.
     await a.update((p) => ({
@@ -137,6 +141,7 @@ describe("two devices against a real server", () => {
       extra: p.extra,
     }));
     await a.flushNow();
+    expect(a.state.mode).toBe("writer");
     expect(a.state.degraded).toBeNull();
 
     // Read it back over HTTP and decrypt.
@@ -146,13 +151,38 @@ describe("two devices against a real server", () => {
     expect(reread.payload.known.unspentNotes.map((n) => n.leafIndex)).toEqual([
       5, 6,
     ]);
+    const aReservation = await new PssEphemeralCounterStore(a).reserve(
+      "self",
+      1,
+    );
+    await aReservation.commit(aReservation.base);
+    const [parallelLeft, parallelRight] = await Promise.all([
+      new PssEphemeralCounterStore(a).reserve("self", 2),
+      new PssEphemeralCounterStore(a).reserve("self", 2),
+    ]);
+    expect(parallelLeft.base).not.toBe(parallelRight.base);
+    expect(Math.abs(parallelLeft.base - parallelRight.base)).toBe(2);
+    await a.flushNow();
 
     // Device B, same account, different install. It must be read-only until the user confirms.
-    const b = await device();
+    const b = await device("valid-looking-but-unrelated");
     expect(b.identity.installId).not.toBe(a.identity.installId);
+    expect(b.state.mode).toBe("readonly");
+    await expect(
+      new PssEphemeralCounterStore(b).reserve("self", 1),
+    ).rejects.toThrow(/read-only/);
     await b.pull();
     expect(b.state.mode).toBe("readonly");
     expect(b.state.heldBy?.installId).toBe(a.identity.installId);
+    const beforeRejectedReservation = {
+      ...b.current().known.ephemeralCounters,
+    };
+    await expect(
+      new PssEphemeralCounterStore(b).reserve("self", 1),
+    ).rejects.toThrow(/read-only/);
+    expect(b.current().known.ephemeralCounters).toEqual(
+      beforeRejectedReservation,
+    );
 
     // A read-only write is refused and reported, and the server still holds A's blob.
     await b.update((p) => ({
@@ -162,10 +192,15 @@ describe("two devices against a real server", () => {
     await b.flushNow();
     expect(b.state.degraded?.message).toContain("read-only");
 
-    // Takeover, then B writes. This is the case that silently destroyed A's state before the
-    // merge-on-read fix, and it is asserted here over real HTTP rather than in a unit test.
+    // B's takeover write must retain A's state.
     await b.confirmTakeover({ state: 0, labels: 0 });
     expect(b.state.mode).toBe("writer");
+    const reservation = await new PssEphemeralCounterStore(b).reserve(
+      "self",
+      1,
+    );
+    expect(reservation.base).toBeGreaterThan(aReservation.base);
+    await reservation.commit(reservation.base);
     await b.update((p) => ({
       known: {
         ...p.known,
@@ -186,8 +221,11 @@ describe("two devices against a real server", () => {
     expect(afterTakeover.payload.known.selfEphHighwater).toBe(999);
     expect(afterTakeover.payload.known.installId).toBe(b.identity.installId);
 
-    // A now reads a blob it does not hold, and is demoted in turn.
-    await a.pull();
+    // The reservation itself revalidates remote authority, so the former writer cannot allocate in
+    // the interval before its next background pull.
+    await expect(
+      new PssEphemeralCounterStore(a).reserve("self", 1),
+    ).rejects.toThrow(/read-only/);
     expect(a.state.mode).toBe("readonly");
     expect(a.state.heldBy?.installId).toBe(b.identity.installId);
   });
@@ -215,8 +253,9 @@ describe("two devices against a real server", () => {
   });
 
   it("needs a fresh invite to recreate the account, and the spent one is refused", async () => {
-    // No tombstone, no recovery: the account is gone and the old code is spent.
+    // No tombstone, no recovery: the account is gone and the invite is spent.
     const stale = await device("invite-lifecycle-1");
+    await stale.pull();
     await stale.update((p) => ({
       known: { ...p.known, selfEphHighwater: 1 },
       extra: p.extra,
@@ -226,6 +265,7 @@ describe("two devices against a real server", () => {
 
     insertInvite("invite-lifecycle-2");
     const fresh = await device("invite-lifecycle-2");
+    await fresh.pull();
     await fresh.update((p) => ({
       known: { ...p.known, selfEphHighwater: 2 },
       extra: p.extra,

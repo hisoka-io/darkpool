@@ -82,10 +82,14 @@ describe("entry point", () => {
     );
   });
 
-  it("sweeps expired rows at boot, not only on the interval", async () => {
+  it("preserves rows written under the former retention schema across startup", async () => {
     const databasePath = join(directory, "stale.db");
     const seed = new Database(databasePath);
-    runMigrations(seed, loadMigrations(defaultMigrationsDir()));
+    const initial = loadMigrations(defaultMigrationsDir()).find((migration) =>
+      migration.name.startsWith("001_"),
+    );
+    expect(initial).toBeDefined();
+    runMigrations(seed, [initial!]);
     seed
       .prepare(
         "INSERT INTO slots (account_id, collection, version, prev_version, nonce, ciphertext, updated_on) " +
@@ -94,7 +98,6 @@ describe("entry point", () => {
       .run(Buffer.alloc(32, 7), Buffer.alloc(12), Buffer.of(1));
     seed.close();
 
-    // The interval is a day, so a restart cadence shorter than that would otherwise never sweep.
     running = await startServer({ ...loadConfig(), port: 0, databasePath });
     await running.close();
     running = null;
@@ -104,7 +107,7 @@ describe("entry point", () => {
       n: number;
     };
     after.close();
-    expect(rows.n).toBe(0);
+    expect(rows.n).toBe(1);
   });
 
   // synchronous is per connection and never persisted, so this can only be read from the connection the
