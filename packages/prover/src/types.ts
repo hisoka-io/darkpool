@@ -113,6 +113,8 @@ export interface ProofData {
 }
 
 export interface SwapIntentInputs {
+  chainId: Fr;
+  darkPoolAddress: Fr;
   compliancePk: Point<bigint>;
 
   noteIn: NoteInput;

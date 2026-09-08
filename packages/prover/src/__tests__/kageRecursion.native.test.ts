@@ -92,6 +92,8 @@ const flip = (arr: string[], i: number): string[] => {
       pathB[0] = leafA;
 
       const intentInputs: SwapIntentInputs = {
+        chainId: new Fr(31337n),
+        darkPoolAddress: new Fr(0x3aa5ebb10dc797cac828524e59a333d0a371443cn),
         compliancePk: C,
         noteIn: proverNote(FROM_ASSET, 100n, A_IN_PSI, 0n),
         spendScalar: new Fr(789n),
@@ -125,7 +127,8 @@ const flip = (arr: string[], i: number): string[] => {
 
       const happy = await proveSwapSettle({ ...mb, intent });
       expect(happy.verified).toBe(true);
-      expect(happy.publicInputs.length).toBe(42);
+      expect(happy.publicInputs.length).toBe(44);
+      expect(happy.publicInputs[43]).toBe(intent.publicInputs[9]);
 
       await expect(
         proveSwapSettle({

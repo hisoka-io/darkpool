@@ -47,6 +47,8 @@ describe("Kage recursion pin: vkHash + width parity", () => {
     const changePsi = await computePsi(deriveCek(new Fr(9n), C));
     const receivedPsi = await computePsi(deriveCek(new Fr(15n), C));
     const inputs: SwapIntentInputs = {
+      chainId: new Fr(31337n),
+      darkPoolAddress: new Fr(0x3aa5ebb10dc797cac828524e59a333d0a371443cn),
       compliancePk: C,
       noteIn: note(FROM_ASSET, 100n, A_IN_PSI, 0n),
       spendScalar: new Fr(789n),
@@ -69,9 +71,12 @@ describe("Kage recursion pin: vkHash + width parity", () => {
     expect(r.proofAsFields.length).toBe(INTENT_PROOF_LEN);
     expect(r.publicInputs.length).toBe(INTENT_PI_LEN);
     expect(BigInt(r.publicInputs[0])).toBe(
-      0x2761654f0b4e9f47ac9bafe900c723ead042a888da718a34b6ecc8036850755en,
+      0x218015d81e0358e2a28413bf26e312ca3535f4a771d81637c331d30847afa078n,
     );
     expect(BigInt(r.publicInputs[1])).toBe(
+      0x2761654f0b4e9f47ac9bafe900c723ead042a888da718a34b6ecc8036850755en,
+    );
+    expect(BigInt(r.publicInputs[2])).toBe(
       0x09b087f618ba26b56f02ad1438a08cf9681445de37e85771c2e77f3058e0a551n,
     );
   }, 180000);

@@ -188,21 +188,21 @@ describe("public-input layout freeze (Noir ABI order)", () => {
     });
   });
 
-  it("swap_intent: no pub params, 27-field return = 27", () => {
+  it("swap_intent: no pub params, 28-field return = 28", () => {
     expect(layout(swapIntent as { abi: Abi })).toEqual({
       pub: [],
-      ret: 27,
-      shape: "[F;27]",
-      total: 27,
+      ret: 28,
+      shape: "[F;28]",
+      total: 28,
     });
   });
 
-  it("swap_settle: compliance + timestamp, 39-field return = 42", () => {
+  it("swap_settle: compliance + timestamp, 41-field return = 44", () => {
     expect(layout(swapSettle as { abi: Abi })).toEqual({
       pub: [...COMPLIANCE, "current_timestamp:F"],
-      ret: 39,
-      shape: "(F,F,F,F,F,[F;7],F,F,[F;7],F,F,[F;7],F,F,[F;7])",
-      total: 42,
+      ret: 41,
+      shape: "(F,F,F,F,F,F,[F;7],F,F,[F;7],F,F,[F;7],F,F,[F;7],F)",
+      total: 44,
     });
   });
 

@@ -23,11 +23,13 @@ fn main(
     maker_received_eph: Field,
     maker_change: Note,
     maker_change_eph: Field,
-) -> pub (Field, Field, Field, // taker_nullifier, maker_nullifier, root
+) -> pub (Field, // domain_hash
+Field, Field, Field, // taker_nullifier, maker_nullifier, root
 Field, Field, [Field; 7], // taker_change (relayed): leaf, eph.x, ct
 Field, Field, [Field; 7], // taker_received (relayed): leaf, eph.x, ct
 Field, Field, [Field; 7], // maker_received: leaf, eph.x, ct
-Field, Field, [Field; 7] // maker_change: leaf, eph.x, ct
+Field, Field, [Field; 7], // maker_change: leaf, eph.x, ct
+Field // taker-authenticated expiry (appended to preserve every existing PI index)
 ) {
     // verification_key is an untrusted solver witness; pinned only by INTENT_VK_HASH.
     std::verify_proof_with_type(
@@ -56,10 +58,10 @@ Field, Field, [Field; 7] // maker_change: leaf, eph.x, ct
     );
 
     (
-        o.taker_nullifier, o.maker_nullifier, o.root, o.taker_change.leaf, o.taker_change.eph_pub_x,
-        o.taker_change.ciphertext, o.taker_received.leaf, o.taker_received.eph_pub_x,
-        o.taker_received.ciphertext, o.maker_received.leaf, o.maker_received.eph_pub.x,
-        o.maker_received.ciphertext, o.maker_change.leaf, o.maker_change.eph_pub.x,
-        o.maker_change.ciphertext,
+        o.domain_hash, o.taker_nullifier, o.maker_nullifier, o.root, o.taker_change.leaf,
+        o.taker_change.eph_pub_x, o.taker_change.ciphertext, o.taker_received.leaf,
+        o.taker_received.eph_pub_x, o.taker_received.ciphertext, o.maker_received.leaf,
+        o.maker_received.eph_pub.x, o.maker_received.ciphertext, o.maker_change.leaf,
+        o.maker_change.eph_pub.x, o.maker_change.ciphertext, o.expiry,
     )
 }

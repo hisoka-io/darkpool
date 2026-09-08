@@ -20,6 +20,8 @@ export async function proveSwapIntent(
 ): Promise<SwapIntentProof> {
   const c = pointHex(inputs.compliancePk);
   const noirInputs: InputMap = {
+    chain_id: inputs.chainId.toString(),
+    darkpool_address: inputs.darkPoolAddress.toString(),
     compliance_pubkey_x: c.x,
     compliance_pubkey_y: c.y,
     note_in: marshalNote("swap_intent", inputs.noteIn),

@@ -3,19 +3,21 @@ import { circuit } from "../generated/swap_settle_circuit.js";
 import { SETTLE_PI_LEN } from "../config.js";
 
 const DARKPOOL_KAGE = {
-  inputsLength: 42,
+  inputsLength: 44,
   complianceX: 0,
   complianceY: 1,
   timestamp: 2,
-  takerNullifier: 3,
-  makerNullifier: 4,
-  root: 5,
+  domain: 3,
+  takerNullifier: 4,
+  makerNullifier: 5,
+  root: 6,
+  expiry: 43,
   // _insertNote(_publicInputs, leaf, ephX, ctStart) in call order.
   notes: [
-    [6, 7, 8],
-    [15, 16, 17],
-    [24, 25, 26],
-    [33, 34, 35],
+    [7, 8, 9],
+    [16, 17, 18],
+    [25, 26, 27],
+    [34, 35, 36],
   ],
 };
 
@@ -89,8 +91,9 @@ describe("Kage Noir<->Sol layout parity", () => {
 
   it("the return's scalar prefix lands on the nullifier and root reads", () => {
     const prefixEnd = ctElements[0] - 2;
-    expect(elemWidth.slice(0, prefixEnd)).toEqual([1, 1, 1]);
+    expect(elemWidth.slice(0, prefixEnd)).toEqual([1, 1, 1, 1]);
     expect(elemOffset.slice(0, prefixEnd)).toEqual([
+      DARKPOOL_KAGE.domain,
       DARKPOOL_KAGE.takerNullifier,
       DARKPOOL_KAGE.makerNullifier,
       DARKPOOL_KAGE.root,
@@ -115,9 +118,15 @@ describe("Kage Noir<->Sol layout parity", () => {
     ).toEqual(DARKPOOL_KAGE.notes);
   });
 
+  it("appends the authenticated expiry after every existing note index", () => {
+    expect(elemWidth.at(-1)).toBe(1);
+    expect(elemOffset.at(-1)).toBe(DARKPOOL_KAGE.expiry);
+  });
+
   it("the derived width equals the DarkPool length gate, and SETTLE_PI_LEN follows from it", () => {
     const lastNote = DARKPOOL_KAGE.notes[DARKPOOL_KAGE.notes.length - 1];
-    expect(lastNote[2] + CIPHERTEXT_WORDS).toBe(DARKPOOL_KAGE.inputsLength);
+    expect(lastNote[2] + CIPHERTEXT_WORDS).toBe(DARKPOOL_KAGE.expiry);
+    expect(DARKPOOL_KAGE.expiry + 1).toBe(DARKPOOL_KAGE.inputsLength);
     expect(totalWidth).toBe(DARKPOOL_KAGE.inputsLength);
     expect(SETTLE_PI_LEN).toBe(totalWidth);
   });

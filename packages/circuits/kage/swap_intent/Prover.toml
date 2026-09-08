@@ -1,6 +1,8 @@
 change_eph = ""
+chain_id = ""
 compliance_pubkey_x = ""
 compliance_pubkey_y = ""
+darkpool_address = ""
 expiry = ""
 from_amount = ""
 index_in = ""

@@ -5,6 +5,7 @@
 //!   fromAsset:  A_in == from_amount + A_change (taker)   AND   B_received == from_amount (maker)
 //!   toAsset:    B_in == expected_return + B_change (maker, over the taker's exposed expected_return)
 use ecdh::Point;
+use poseidon::poseidon2::Poseidon2;
 use shared::conservation;
 use shared::mint;
 use shared::note::{assert_parents_bound, Note};
@@ -18,17 +19,23 @@ global CT_LEN: u32 = 7;
 // own circuit to forge the taker's half (`0` = not pinned = total forgery). hash(vk) == key_hash is enforced by
 // barretenberg, not the stdlib, so this must stay a compile-time constant.
 pub global INTENT_VK_HASH: Field =
-    0x2e0b51ed4736571c1daa939f67d50684aa262bab910d8971e77c0d65f89efc50;
+    0x03226d5c217d872b9485096243b63d0560408c7aa2f4c93b75e6ffc5d62c1617;
 pub global PROOF_TYPE: u32 = 6;
 // Compiled swap_intent recursion widths; regenerate with INTENT_VK_HASH on any swap_intent change.
 pub global INTENT_VK_LEN: u32 = 115;
 pub global INTENT_PROOF_LEN: u32 = 458;
 
-pub global INTENT_PI_LEN: u32 = 27;
+pub global INTENT_PI_LEN: u32 = 28;
+
+// keccak256("kage.proof.domain.v1") reduced modulo BN254 Fr.
+pub global PROOF_DOMAIN_TAG: Field =
+    0x27292fa2b9b30043b8be0ab89e2a46252e589bc7bb090d6ff4359c39b5efad5c;
+pub global PROTOCOL_VERSION: Field = 1;
 
 // The taker's public interface: consumed as WITNESS by the maker's recursion, never on-chain. The amount fields
 // are the swap terms; the note blocks are relayed on-chain for insertion + events.
 pub struct SwapIntent {
+    pub domain_hash: Field,
     pub nullifier: Field,
     pub root: Field,
     pub compliance_x: Field, // C the taker used (the maker binds his C to it)
@@ -48,6 +55,7 @@ pub struct SwapIntent {
 
 pub fn pack_intent(pi: SwapIntent) -> [Field; INTENT_PI_LEN] {
     [
+        pi.domain_hash,
         pi.nullifier,
         pi.root,
         pi.compliance_x,
@@ -81,27 +89,35 @@ pub fn pack_intent(pi: SwapIntent) -> [Field; INTENT_PI_LEN] {
 // Range-assert the amounts even though the recursion constrains them to u128: guards against a silent `as u128`
 // narrowing.
 pub fn unpack_intent(a: [Field; INTENT_PI_LEN]) -> SwapIntent {
-    let from_amount = a[6] as u128;
-    assert(from_amount as Field == a[6], "from_amount exceeds u128 range");
-    let expected_return = a[7] as u128;
-    assert(expected_return as Field == a[7], "expected_return exceeds u128 range");
+    let from_amount = a[7] as u128;
+    assert(from_amount as Field == a[7], "from_amount exceeds u128 range");
+    let expected_return = a[8] as u128;
+    assert(expected_return as Field == a[8], "expected_return exceeds u128 range");
     SwapIntent {
-        nullifier: a[0],
-        root: a[1],
-        compliance_x: a[2],
-        compliance_y: a[3],
-        from_asset: a[4],
-        to_asset: a[5],
+        domain_hash: a[0],
+        nullifier: a[1],
+        root: a[2],
+        compliance_x: a[3],
+        compliance_y: a[4],
+        from_asset: a[5],
+        to_asset: a[6],
         from_amount,
         expected_return,
-        expiry: a[8],
-        change_leaf: a[9],
-        change_eph_x: a[10],
-        change_ct: [a[11], a[12], a[13], a[14], a[15], a[16], a[17]],
-        received_leaf: a[18],
-        received_eph_x: a[19],
-        received_ct: [a[20], a[21], a[22], a[23], a[24], a[25], a[26]],
+        expiry: a[9],
+        change_leaf: a[10],
+        change_eph_x: a[11],
+        change_ct: [a[12], a[13], a[14], a[15], a[16], a[17], a[18]],
+        received_leaf: a[19],
+        received_eph_x: a[20],
+        received_ct: [a[21], a[22], a[23], a[24], a[25], a[26], a[27]],
     }
+}
+
+pub fn proof_domain(chain_id: Field, darkpool_address: Field) -> Field {
+    Poseidon2::hash(
+        [PROOF_DOMAIN_TAG, PROTOCOL_VERSION, chain_id, darkpool_address],
+        4,
+    )
 }
 
 pub struct MintedOutput {
@@ -115,6 +131,7 @@ pub struct RelayOutput {
     pub ciphertext: [Field; CT_LEN],
 }
 pub struct KageOutputs {
+    pub domain_hash: Field,
     pub taker_nullifier: Field,
     pub maker_nullifier: Field,
     pub root: Field,
@@ -122,10 +139,13 @@ pub struct KageOutputs {
     pub taker_received: RelayOutput, // relayed from the taker's proof
     pub maker_received: MintedOutput, // minted by the maker
     pub maker_change: MintedOutput, // minted by the maker
+    pub expiry: Field, // taker-authenticated deadline, enforced exactly by DarkPool
 }
 
 // swap_intent (taker): spend A_in + mint her two self-notes (change + received). Client-provable.
 pub fn build_intent(
+    chain_id: Field,
+    darkpool_address: Field,
     compliance_pk: Point,
     note_in: Note, // A_in (fromAsset)
     spend_scalar: Field,
@@ -160,6 +180,7 @@ pub fn build_intent(
     let received = mint::mint_self_note(received_note, received_eph, compliance_pk);
 
     SwapIntent {
+        domain_hash: proof_domain(chain_id, darkpool_address),
         nullifier,
         root: computed_root,
         compliance_x: compliance_pk.x,
@@ -239,6 +260,7 @@ pub fn settle_swap(
     assert(e2 != e3, "output ephemerals must be distinct");
 
     KageOutputs {
+        domain_hash: intent.domain_hash,
         taker_nullifier: intent.nullifier,
         maker_nullifier,
         root: intent.root,
@@ -262,6 +284,7 @@ pub fn settle_swap(
             eph_pub: bchange.eph_pub,
             ciphertext: bchange.ciphertext,
         },
+        expiry: intent.expiry,
     }
 }
 
@@ -281,6 +304,8 @@ mod tests {
 
     global FROM_ASSET: Field = 0x1234567890123456789012345678901234567890;
     global TO_ASSET: Field = 0xabcdefabcdefabcdefabcdefabcdefabcdefabcd;
+    global CHAIN_ID: Field = 31337;
+    global DARKPOOL: Field = 0x3aa5ebb10dc797cac828524e59a333d0a371443c;
     // fixture spend key 789 -> owner; reused for A_in, B_in, and every self-note owner in the test.
     global SELF_OWNER: Field = 0x2874ae964d8b283e2f521a7f14125fc92747bb9770139b8d4b70ee09e2d83785;
     global SPEND: Field = 789;
@@ -393,6 +418,8 @@ mod tests {
 
     fn taker_intent(s: Scenario) -> SwapIntent {
         build_intent(
+            CHAIN_ID,
+            DARKPOOL,
             compliance(),
             s.taker_note_in,
             SPEND,
@@ -433,6 +460,7 @@ mod tests {
         assert(out.root == intent.root);
         assert(out.taker_received.leaf == intent.received_leaf);
         assert(out.taker_change.leaf == intent.change_leaf);
+        assert(out.expiry == intent.expiry);
     }
 
     #[test(should_fail_with = "value not conserved")]

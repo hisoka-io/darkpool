@@ -37,7 +37,9 @@ describe("kage constant parity (TS config.ts <-> Noir kage_lib)", () => {
       "INTENT_PROOF_LEN",
       "INTENT_VK_HASH",
       "INTENT_VK_LEN",
+      "PROOF_DOMAIN_TAG",
       "PROOF_TYPE",
+      "PROTOCOL_VERSION",
     ]);
   });
 
@@ -76,6 +78,13 @@ describe("kage constant parity (TS config.ts <-> Noir kage_lib)", () => {
     const raw = globals.get("INTENT_VK_HASH");
     expect(raw).toBeDefined();
     expect(BigInt(raw!)).toBe(BigInt(INTENT_VK_HASH));
+  });
+
+  it("proof domain constants are pinned", () => {
+    expect(BigInt(globals.get("PROOF_DOMAIN_TAG")!)).toBe(
+      0x27292fa2b9b30043b8be0ab89e2a46252e589bc7bb090d6ff4359c39b5efad5cn,
+    );
+    expect(BigInt(globals.get("PROTOCOL_VERSION")!)).toBe(1n);
   });
 
   // 6 = HONK_ZK; 7 (HN_FINAL) is rejected by UltraBuilder.
