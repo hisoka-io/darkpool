@@ -21,12 +21,8 @@ interface IHonkVerifier {
     ) external view returns (bool);
 }
 
-/**
- * @title Hisoka DarkPool
- * @notice Verifies ZK spend proofs and manages the note tree, nullifiers, and compliance key.
- * @dev A standard spend and its FROST-multisig twin share one public-input layout, hence one helper per
- *      op-family, parameterized by circuitId.
- */
+/// @title Hisoka DarkPool
+/// @notice Holds shielded assets, verifies proofs, and manages notes, nullifiers, public memos, and compliance.
 contract DarkPool is
     Initializable,
     UUPSUpgradeable,
@@ -59,11 +55,10 @@ contract DarkPool is
     uint256 private constant NOT_ENTERED = 1;
     uint256 private constant ENTERED = 2;
 
-    /// @dev BabyJubJub twisted Edwards params a*x^2 + y^2 == 1 + d*x^2*y^2 over BN254 Fr
-    /// (noir-edwards v0.2.5 src/bjj.nr).
+    // BabyJubJub: a*x^2 + y^2 == 1 + d*x^2*y^2 over BN254 Fr.
     uint256 private constant BJJ_A = 168700;
     uint256 private constant BJJ_D = 168696;
-    /// @dev BN254 scalar field order; matches Poseidon/Field.sol PRIME and verifiers/*.sol MODULUS.
+    // BN254 scalar field order.
     uint256 private constant BN254_FR =
         21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
@@ -103,7 +98,6 @@ contract DarkPool is
         bytes32[7] packedCiphertext
     );
 
-    /// @dev `tag` is the recipient discovery key (view key .x).
     event NewPrivateMemo(
         uint256 indexed leafIndex,
         bytes32 indexed commitment,
@@ -171,28 +165,21 @@ contract DarkPool is
         uint256 version;
     }
 
-    /// @dev Inlined OZ ReentrancyGuard on OZ's canonical namespace, for storage-compat if the base returns.
     /// @custom:storage-location erc7201:openzeppelin.storage.ReentrancyGuard
     struct ReentrancyStorage {
         uint256 status;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.tree")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant TREE_LOCATION =
         0xbdd00c81e71bd165e3ff2099ca204334ffd58a8d7225a33b4761542b7a86e200;
-    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.nullifiers")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant NULLIFIERS_LOCATION =
         0xcb1d3464d85c75a880c4f95a3cfd4a5cd80b39c53862d4987d9ec14bb8af6700;
-    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.memos")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant MEMOS_LOCATION =
         0x79ab9646d487c514cf680928de0290895c9ad6720afd1f87136f293781b7ea00;
-    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.verifiers")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant VERIFIERS_LOCATION =
         0x204927e2223572a19571462c2dfb374afbbdb39e695632d6477721409dfb0b00;
-    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.compliance")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant COMPLIANCE_LOCATION =
         0x4c6336ddd730b3b6886dcf6c397e5676dac845842540c4592f4e52cea8e9ae00;
-    // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ReentrancyGuard")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant REENTRANCY_LOCATION =
         0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
 
@@ -284,7 +271,7 @@ contract DarkPool is
         _disableInitializers();
     }
 
-    /// @notice One-time proxy init. Seeds the genesis leaf at index 0, so real notes start at index 1.
+    /// @notice Initializes the proxy and seeds index 0 with the chain-bound genesis leaf.
     function initialize(InitParams calldata p) external initializer {
         if (p.pauser == address(0)) revert ZeroPauser();
         if (p.upgrader == address(0)) revert ZeroUpgrader();
@@ -322,8 +309,7 @@ contract DarkPool is
         emit GenesisSeeded(block.chainid, genesis);
     }
 
-    /// @dev Poseidon2(domain, chainid) chain-binds every root against cross-chain replay, and is a
-    /// non-spendable sentinel so a spend with packed parents 0 is unambiguously a deposit.
+    // Chain-bound, non-spendable sentinel; real notes start at index 1.
     function _genesisLeaf() private view returns (bytes32) {
         uint256 domain = uint256(GENESIS_DOMAIN_TAG) % BN254_FR;
         Field.Type[] memory inputs = new Field.Type[](2);
@@ -338,17 +324,15 @@ contract DarkPool is
     ) internal override onlyRole(UPGRADER_ROLE) {}
     // solhint-enable no-empty-blocks
 
-    /// @notice Halt every spend, deposit, and memo entrypoint. Compliance-key rotation stays open.
     function pause() external onlyRole(PAUSER_ROLE) {
         _pause();
     }
 
-    /// @notice Resume the halted entrypoints.
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
 
-    /// @notice Point a circuit's verifier at a new address; a replacement MUST accept all pre-existing notes.
+    /// @notice Replaces a circuit verifier. Existing-note compatibility depends on the replacement semantics.
     function setVerifier(
         uint256 circuitId,
         address newVerifier
@@ -356,8 +340,7 @@ contract DarkPool is
         _setVerifier(circuitId, newVerifier);
     }
 
-    /// @notice Rotate the compliance public key (versioned; old notes stay spendable). Callable while
-    ///         paused so a compromised key can be replaced during a halt.
+    /// @notice Rotates the versioned compliance key; callable while paused.
     function rotateComplianceKey(
         uint256 newX,
         uint256 newY
@@ -372,7 +355,6 @@ contract DarkPool is
         emit ComplianceKeyRotated(oldVersion, newVersion, newX, newY);
     }
 
-    /// @notice Current compliance public key and its version; notes must mint against this pair.
     function complianceKey()
         external
         view
@@ -407,7 +389,6 @@ contract DarkPool is
         _insertNote(_publicInputs, 2, 3, 6);
     }
 
-    /// @notice Withdraw private assets to a public address.
     function withdraw(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -415,7 +396,6 @@ contract DarkPool is
         _withdraw(_proof, _publicInputs, CIRCUIT_WITHDRAW);
     }
 
-    /// @notice FROST-multisig withdraw, authorized by a group signature.
     function withdrawMultisig(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -423,7 +403,6 @@ contract DarkPool is
         _withdraw(_proof, _publicInputs, CIRCUIT_WITHDRAW_MULTISIG);
     }
 
-    /// @notice Spend one note into a private memo to a recipient plus self change.
     function privateTransfer(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -431,7 +410,6 @@ contract DarkPool is
         _transfer(_proof, _publicInputs, CIRCUIT_TRANSFER);
     }
 
-    /// @notice FROST-multisig private transfer, authorized by a group signature.
     function transferMultisig(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -439,7 +417,6 @@ contract DarkPool is
         _transfer(_proof, _publicInputs, CIRCUIT_TRANSFER_MULTISIG);
     }
 
-    /// @notice Join two notes into one.
     function join(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -447,7 +424,6 @@ contract DarkPool is
         _join(_proof, _publicInputs, CIRCUIT_JOIN);
     }
 
-    /// @notice FROST-multisig join, authorized by a group signature per input.
     function joinMultisig(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -455,7 +431,6 @@ contract DarkPool is
         _join(_proof, _publicInputs, CIRCUIT_JOIN_MULTISIG);
     }
 
-    /// @notice Split one note into two.
     function split(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -463,7 +438,6 @@ contract DarkPool is
         _split(_proof, _publicInputs, CIRCUIT_SPLIT);
     }
 
-    /// @notice FROST-multisig split, authorized by a group signature.
     function splitMultisig(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -471,8 +445,7 @@ contract DarkPool is
         _split(_proof, _publicInputs, CIRCUIT_SPLIT_MULTISIG);
     }
 
-    /// @notice Kage private in-pool swap: one recursive proof settles a two-party swap. No ERC20 movement --
-    ///         four self-notes are inserted (two per party) and two input nullifiers spent.
+    /// @notice Settles a recursive two-party in-pool swap without ERC-20 movement.
     function kageSwap(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
@@ -480,9 +453,7 @@ contract DarkPool is
         _kage(_proof, _publicInputs);
     }
 
-    /// @dev A contract recipient must affirm THIS pull. Proving it is merely the caller is not enough: an
-    ///      adaptor induced to call the pool with attacker calldata satisfies that weaker test while pulling
-    ///      a withdraw it never asked for. Failing to implement the interface is a rejection, by design.
+    /// @dev A contract recipient must affirm the specific nullifier and intent hash.
     function _requireRecipientAccepts(
         address recipient,
         bytes32 nullifierHash,
@@ -525,9 +496,7 @@ contract DarkPool is
         bytes32 nullifierHash = _publicInputs[5];
         _spendNullifier(nullifierHash);
 
-        // After the proof verifies and the nullifier is spent, so a recipient that reenters cannot double
-        // spend, and before any token moves, so a rejection costs nothing. The code check also covers
-        // EIP-7702-delegated EOAs, which is why it is a code-length test rather than a registry lookup.
+        // A callback rejection reverts the nullifier update; code.length also covers delegated EOAs.
         if (recipient.code.length > 0) {
             _requireRecipientAccepts(
                 recipient,
@@ -634,7 +603,7 @@ contract DarkPool is
         _insertNote(_publicInputs, 33, 34, 35); // maker_change
     }
 
-    /// @notice Post a public memo redeemable by a designated key into the shielded pool.
+    /// @notice Escrows assets in a public memo for a designated BabyJubJub key.
     /// @dev memoId = Poseidon2(value, asset, timelock, ownerX, ownerY, salt) matches the public_claim circuit.
     function publicTransfer(
         uint256 _ownerX,
@@ -646,9 +615,8 @@ contract DarkPool is
     ) external nonReentrant whenNotPaused {
         if (_value == 0) revert ValueZero();
         if (_value > type(uint128).max) revert ValueTooLarge();
-        // public_claim compares the timelock `as u64`; an unbounded value truncates in-circuit and voids the lock.
+        // public_claim compares timelock as u64.
         if (_timelock > type(uint64).max) revert TimelockTooLarge();
-        // The memo stores no depositor, so an off-curve/identity owner burns the escrow unrecoverably.
         if (!_isValidBjjPoint(_ownerX, _ownerY)) revert InvalidMemoOwnerPoint();
 
         Field.Type[] memory inputs = new Field.Type[](6);
@@ -724,7 +692,7 @@ contract DarkPool is
         bytes32 commitment = _publicInputs[leafIndex];
         uint256 insertedAt = _treeStorage().tree.insert(commitment);
 
-        // The caller's length check keeps this unchecked copy in range.
+        // The caller's length check bounds this copy.
         bytes32[7] memory ct;
         assembly {
             calldatacopy(
@@ -742,8 +710,7 @@ contract DarkPool is
         );
     }
 
-    /// @dev Memo inputs are contiguous from `leafIndex`: leaf, eph_x, tag, cek_wrap, 7-word ciphertext. The
-    /// caller's length check keeps the unchecked copy in range.
+    /// @dev From leafIndex: leaf, eph_x, tag, cek_wrap, then seven ciphertext fields.
     function _insertMemoAt(
         bytes32[] calldata _publicInputs,
         uint256 leafIndex
@@ -777,8 +744,7 @@ contract DarkPool is
         }
     }
 
-    /// @dev On-curve + non-identity + coord-range, NOT a subgroup check (no BJJ scalar-mul lib in-repo); the
-    /// circuit's assert_valid_compliance_pk (shared/src/mint.nr) is the backstop, so a bad key gets no notes.
+    /// @dev Checks canonical, on-curve, non-identity coordinates; not prime-subgroup membership.
     function _isValidBjjPoint(
         uint256 x,
         uint256 y
@@ -800,14 +766,13 @@ contract DarkPool is
         if (!_isValidBjjPoint(x, y)) revert InvalidComplianceKeyPoint();
     }
 
-    /// @dev Ceilings a prover timestamp near now so a claimer cannot forge a future one to clear the timelock.
+    /// @dev Upper-bounds the public-claim timestamp near block time.
     function _verifyProofTimestamp(uint256 timestamp) internal view {
         if (timestamp > block.timestamp + PROOF_TIMESTAMP_TOLERANCE)
             revert TimestampInvalid();
     }
 
-    /// @dev The OPPOSITE bound from _verifyProofTimestamp: the Kage circuit asserts current_timestamp < expiry,
-    ///      so an unfloored small timestamp settles an expired swap against the taker's stale price.
+    /// @dev Lower-bounds the Kage timestamp near block time.
     function _verifyProofTimestampFloor(uint256 timestamp) internal view {
         if (timestamp + PROOF_TIMESTAMP_TOLERANCE < block.timestamp)
             revert TimestampInvalid();
@@ -820,40 +785,32 @@ contract DarkPool is
         emit NullifierSpent(_nullifierHash);
     }
 
-    /// @notice Verifier bound to a circuit id; zero means spends of that circuit revert VerifierUnset.
     function verifier(uint256 circuitId) external view returns (address) {
         return _verifierStorage().verifiers[circuitId];
     }
 
-    /// @notice Whether a nullifier has been spent; the double-spend guard.
     function isNullifierSpent(
         bytes32 nullifierHash
     ) external view returns (bool) {
         return _nullifierStorage().isNullifierSpent[nullifierHash];
     }
 
-    /// @notice Whether a public memo was ever posted; stays true after a claim, so claimability is this
-    /// AND NOT isPublicMemoSpent.
     function isValidPublicMemo(bytes32 memoId) external view returns (bool) {
         return _memoStorage().isValidPublicMemo[memoId];
     }
 
-    /// @notice Whether a public memo has already been claimed.
     function isPublicMemoSpent(bytes32 memoId) external view returns (bool) {
         return _memoStorage().isPublicMemoSpent[memoId];
     }
 
-    /// @notice Whether a root was ever current; any historical root is spendable.
     function isKnownRoot(bytes32 _root) external view returns (bool) {
         return _treeStorage().tree.isKnownRoot[_root];
     }
 
-    /// @notice Latest note-tree root.
     function getCurrentRoot() external view returns (bytes32) {
         return _treeStorage().tree.getCurrentRoot();
     }
 
-    /// @notice Index the next inserted note will occupy.
     function getNextLeafIndex() external view returns (uint256) {
         return _treeStorage().tree.nextLeafIndex;
     }
