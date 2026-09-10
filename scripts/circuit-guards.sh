@@ -5,7 +5,7 @@ CIRCUITS_DIR="${CIRCUITS_DIR:-packages/circuits}"
 CIRCUITS_ABS="$(realpath -m "$CIRCUITS_DIR")"
 BASELINE_MUL_SITES=44          # guard 4: .mul( / derive_* / assert_subgroup_scalar / check_subgroup /
                                # assert_in_prime_subgroup surface
-BASELINE_POS_SITES=25          # guard 5: Poseidon2::hash( call surface
+BASELINE_POS_SITES=26          # guard 5: includes Kage proof_domain (4 fields, message length 4)
 BASELINE_SCALARFIELD_SITES=2   # guard 9: ScalarField occurrences (alias / generic-propagation tripwire)
 BASELINE_HINT_SITES=2          # guard 11: `unconstrained`/`unsafe` sites outside vendor; each must be bound
                                # by a following constraint
