@@ -17,13 +17,15 @@ contract ReentrantBundleAttacker {
         bytes32[] memory publicInputs = new bytes32[](18);
         BundleExecutor.BundleCall[]
             memory calls = new BundleExecutor.BundleCall[](0);
-        address[] memory assetsToClear = new address[](0);
+        address[] memory trackedAssets = new address[](0);
+        address[] memory recipients = new address[](0);
         executor.execute(
             proof,
             publicInputs,
             calls,
             type(uint256).max,
-            assetsToClear
+            trackedAssets,
+            recipients
         );
     }
 }

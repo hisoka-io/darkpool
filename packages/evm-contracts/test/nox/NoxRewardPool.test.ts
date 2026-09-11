@@ -102,6 +102,20 @@ describe("NoxRewardPool (Treasury)", function () {
         pool.connect(admin).setAssetStatus(ethers.ZeroAddress, true),
       ).to.be.revertedWithCustomError(pool, "ZeroAddress");
     });
+
+    it("hands operational administration over without leaving the caller privileged", async function () {
+      const { pool, admin, attacker } = await loadFixture(deployFixture);
+      const role = await pool.ADMIN_ROLE();
+      expect(await pool.getRoleAdmin(await pool.ENTRYPOINT_ROLE())).to.equal(
+        role,
+      );
+      await pool.connect(admin).transferOperationalAdmin(attacker.address);
+      expect(await pool.hasRole(role, admin.address)).to.equal(false);
+      expect(await pool.hasRole(role, attacker.address)).to.equal(true);
+      await expect(
+        pool.connect(admin).transferOperationalAdmin(admin.address),
+      ).to.be.revertedWithCustomError(pool, "AccessControlUnauthorizedAccount");
+    });
   });
 
   describe("Deposits (Inflow)", function () {
@@ -282,6 +296,11 @@ describe("NoxRewardPool (Treasury)", function () {
         pool.connect(admin).distributeRewards(asset, [relayer1.address], [500]),
       ).to.emit(pool, "RewardsDistributed");
       expect(await token.balanceOf(relayer1.address)).to.equal(500n);
+
+      await registry.connect(admin).freeze(relayer1.address);
+      await expect(
+        pool.connect(admin).distributeRewards(asset, [relayer1.address], [100]),
+      ).to.be.revertedWithCustomError(pool, "RecipientNotRegistered");
 
       await expect(
         pool.connect(admin).distributeRewards(asset, [user.address], [100]),

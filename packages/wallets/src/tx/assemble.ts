@@ -25,6 +25,13 @@ import {
 } from "../note/mint.js";
 import type { ProverNoteInput } from "../public/publicClaim.js";
 import type { MerkleWitnessSource } from "./ports.js";
+import type {
+  AssembledTransferWitness,
+  DepositWitness,
+  JoinWitness,
+  SplitWitness,
+  WithdrawWitness,
+} from "./protocol.js";
 
 /** A note the wallet holds and can spend, with everything needed to open it. */
 export interface SpendableNote {
@@ -93,11 +100,7 @@ function selfMintContext(ctx: AssemblyContext, ownerCommitment: Fr) {
 }
 
 export interface AssembledDeposit {
-  readonly inputs: {
-    compliancePk: Point<bigint>;
-    note: ProverNoteInput;
-    eph: DerivedEph;
-  };
+  readonly inputs: DepositWitness;
   readonly minted: MintedNote;
 }
 
@@ -135,7 +138,7 @@ export async function assembleDeposit(
 }
 
 export interface AssembledWithdraw {
-  readonly inputs: Record<string, unknown>;
+  readonly inputs: WithdrawWitness;
   readonly change: MintedNote;
   readonly root: Fr;
 }
@@ -191,7 +194,7 @@ export async function assembleWithdraw(
 }
 
 export interface AssembledTransfer {
-  readonly inputs: Record<string, unknown>;
+  readonly inputs: AssembledTransferWitness;
   readonly memo: MintedNote;
   readonly change: MintedNote;
   readonly root: Fr;
@@ -264,7 +267,7 @@ export async function assembleTransfer(
 }
 
 export interface AssembledSplit {
-  readonly inputs: Record<string, unknown>;
+  readonly inputs: SplitWitness;
   readonly out1: MintedNote;
   readonly out2: MintedNote;
   readonly root: Fr;
@@ -328,7 +331,7 @@ export async function assembleSplit(
 }
 
 export interface AssembledJoin {
-  readonly inputs: Record<string, unknown>;
+  readonly inputs: JoinWitness;
   readonly out: MintedNote;
   readonly root: Fr;
 }

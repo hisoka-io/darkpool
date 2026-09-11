@@ -18,4 +18,24 @@ contract MockTarget {
     function failNoReason() external payable {
         revert();
     }
+
+    function hugeReturn(uint256 size) external pure {
+        assembly {
+            let ptr := mload(0x40)
+            return(ptr, size)
+        }
+    }
+
+    function hugeRevert(uint256 size) external pure {
+        assembly {
+            let ptr := mload(0x40)
+            revert(ptr, size)
+        }
+    }
+
+    function exhaustGas() external pure {
+        assembly {
+            for {} 1 {} {}
+        }
+    }
 }

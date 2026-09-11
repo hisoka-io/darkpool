@@ -945,7 +945,10 @@ describe("NoxRegistry (Identity & Staking)", function () {
       await registry.connect(relayer).requestUnstake();
       await time.increase(UNSTAKE_DELAY + 1);
 
+      expect(await registry.isActiveRelayer(relayer.address)).to.equal(true);
+
       await registry.connect(slasher).freeze(relayer.address);
+      expect(await registry.isActiveRelayer(relayer.address)).to.equal(false);
       await expect(
         registry.connect(relayer).executeUnstake(),
       ).to.be.revertedWithCustomError(registry, "NodeFrozen");
@@ -954,6 +957,7 @@ describe("NoxRegistry (Identity & Staking)", function () {
       ).to.be.revertedWithCustomError(registry, "NodeFrozen");
 
       await registry.connect(slasher).unfreeze(relayer.address);
+      expect(await registry.isActiveRelayer(relayer.address)).to.equal(true);
       await expect(registry.connect(relayer).executeUnstake()).to.emit(
         registry,
         "Unstaked",

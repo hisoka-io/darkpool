@@ -33,6 +33,8 @@ contract NoxRewardPool is
 
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
+    bytes32 public constant ENTRYPOINT_ROLE = keccak256("ENTRYPOINT_ROLE");
+
     uint256 private constant NOT_ENTERED = 1;
     uint256 private constant ENTERED = 2;
 
@@ -42,6 +44,14 @@ contract NoxRewardPool is
         mapping(address => bool) isSupportedAsset;
         mapping(address => uint256) totalCollected;
         mapping(address => uint256) totalDistributed;
+        mapping(address => uint256) legacyNetworkLiability;
+        mapping(address => bool) legacyClassified;
+        mapping(address => uint256) newNetworkCollected;
+        mapping(address => uint256) newNetworkDistributed;
+        mapping(address => uint256) totalExitCredited;
+        mapping(address => uint256) totalExitClaimed;
+        mapping(address => mapping(address => uint256)) claimableExit;
+        mapping(bytes32 => bool) settledExecution;
     }
 
     /// @dev Inlined on OZ's canonical namespace; contracts-upgradeable 5.6.1 dropped ReentrancyGuardUpgradeable.
@@ -97,6 +107,21 @@ contract NoxRewardPool is
         address indexed to,
         uint256 amount
     );
+    event AssetClassified(address indexed asset, uint256 legacyLiability);
+    event ExecutionFeeRecorded(
+        bytes32 indexed executionId,
+        bytes32 indexed paymentId,
+        address indexed exit,
+        address asset,
+        uint256 exitAmount,
+        uint256 networkAmount
+    );
+    event ExitCreditClaimed(
+        address indexed exit,
+        address indexed recipient,
+        address indexed asset,
+        uint256 amount
+    );
 
     error InvalidAsset();
     error AssetNotSupported();
@@ -108,6 +133,12 @@ contract NoxRewardPool is
     error ExceedsRescuableBalance();
     error FeeOnTransferUnsupported();
     error ReentrancyGuardReentrantCall();
+    error AssetAlreadyClassified();
+    error AssetNotClassified();
+    error ExecutionAlreadySettled();
+    error InsufficientExitCredit();
+    error AccountingOverflow();
+    error InvalidIdentifier();
 
     struct InitParams {
         uint48 initialAdminDelay;
@@ -141,6 +172,7 @@ contract NoxRewardPool is
         _grantRole(ADMIN_ROLE, p.admin);
         _grantRole(DISTRIBUTOR_ROLE, p.distributor);
         _grantRole(UPGRADER_ROLE, p.upgrader);
+        _setRoleAdmin(ENTRYPOINT_ROLE, ADMIN_ROLE);
 
         _rewardPool().noxRegistry = INoxRegistry(p.noxRegistry);
     }
@@ -159,6 +191,27 @@ contract NoxRewardPool is
         if (_asset == address(0)) revert ZeroAddress();
         _rewardPool().isSupportedAsset[_asset] = _status;
         emit AssetStatusChanged(_asset, _status);
+    }
+
+    /// @notice Atomically hand the operational admin role to a replacement account.
+    function transferOperationalAdmin(
+        address newAdmin
+    ) external onlyRole(ADMIN_ROLE) {
+        if (newAdmin == address(0)) revert ZeroAddress();
+        _grantRole(ADMIN_ROLE, newAdmin);
+        _revokeRole(ADMIN_ROLE, msg.sender);
+    }
+
+    /// @notice Snapshot an asset's outstanding legacy network liability before EntryPoint accounting begins.
+    function classifyAsset(address _asset) external onlyRole(ADMIN_ROLE) {
+        if (_asset == address(0)) revert ZeroAddress();
+        RewardPoolStorage storage $ = _rewardPool();
+        if ($.legacyClassified[_asset]) revert AssetAlreadyClassified();
+        uint256 legacyLiability = $.totalCollected[_asset] -
+            $.totalDistributed[_asset];
+        $.legacyNetworkLiability[_asset] = legacyLiability;
+        $.legacyClassified[_asset] = true;
+        emit AssetClassified(_asset, legacyLiability);
     }
 
     /// @notice Emergency pause for deposits and distributions.
@@ -187,7 +240,16 @@ contract NoxRewardPool is
         if (IERC20(_asset).balanceOf(address(this)) - bal0 != _amount)
             revert FeeOnTransferUnsupported();
 
-        $.totalCollected[_asset] += _amount;
+        $.totalCollected[_asset] = _checkedAdd(
+            $.totalCollected[_asset],
+            _amount
+        );
+        if ($.legacyClassified[_asset]) {
+            $.newNetworkCollected[_asset] = _checkedAdd(
+                $.newNetworkCollected[_asset],
+                _amount
+            );
+        }
 
         emit RewardsDeposited(_asset, msg.sender, _amount);
     }
@@ -210,12 +272,21 @@ contract NoxRewardPool is
             if (to == address(0)) revert ZeroAddress();
             if (!$.noxRegistry.isActiveRelayer(to))
                 revert RecipientNotRegistered();
-            batchTotal += _amounts[i];
+            batchTotal = _checkedAdd(batchTotal, _amounts[i]);
         }
 
-        if (batchTotal > $.totalCollected[_asset] - $.totalDistributed[_asset])
+        if (batchTotal > _networkOutstanding($, _asset))
             revert InsufficientCollected();
-        $.totalDistributed[_asset] += batchTotal;
+        $.totalDistributed[_asset] = _checkedAdd(
+            $.totalDistributed[_asset],
+            batchTotal
+        );
+        if ($.legacyClassified[_asset]) {
+            $.newNetworkDistributed[_asset] = _checkedAdd(
+                $.newNetworkDistributed[_asset],
+                batchTotal
+            );
+        }
 
         for (uint256 i = 0; i < _recipients.length; i++) {
             if (_amounts[i] > 0) {
@@ -237,14 +308,111 @@ contract NoxRewardPool is
         if (_amount == 0) revert ZeroAmount();
 
         RewardPoolStorage storage $ = _rewardPool();
-        uint256 committed = $.totalCollected[_asset] -
-            $.totalDistributed[_asset];
+        uint256 committed = _networkOutstanding($, _asset) +
+            ($.totalExitCredited[_asset] - $.totalExitClaimed[_asset]);
         uint256 liveBalance = IERC20(_asset).balanceOf(address(this));
         uint256 free = liveBalance > committed ? liveBalance - committed : 0;
         if (_amount > free) revert ExceedsRescuableBalance();
 
         IERC20(_asset).safeTransfer(_to, _amount);
         emit FundsRescued(_asset, _to, _amount);
+    }
+
+    /// @notice Record one EntryPoint settlement and reserve the selected exit's credit.
+    function recordExecutionFee(
+        bytes32 executionId,
+        bytes32 paymentId,
+        address exit,
+        address asset,
+        uint256 exitAmount,
+        uint256 networkAmount
+    ) external nonReentrant whenNotPaused onlyRole(ENTRYPOINT_ROLE) {
+        if (executionId == bytes32(0) || paymentId == bytes32(0))
+            revert InvalidIdentifier();
+        if (exit == address(0) || asset == address(0)) revert ZeroAddress();
+        uint256 total = _checkedAdd(exitAmount, networkAmount);
+        if (total == 0) revert ZeroAmount();
+
+        RewardPoolStorage storage $ = _rewardPool();
+        if (!$.isSupportedAsset[asset]) revert AssetNotSupported();
+        if (!$.legacyClassified[asset]) revert AssetNotClassified();
+        if ($.settledExecution[executionId]) revert ExecutionAlreadySettled();
+
+        uint256 balanceBefore = IERC20(asset).balanceOf(address(this));
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), total);
+        if (IERC20(asset).balanceOf(address(this)) - balanceBefore != total)
+            revert FeeOnTransferUnsupported();
+
+        $.settledExecution[executionId] = true;
+        $.totalCollected[asset] = _checkedAdd($.totalCollected[asset], total);
+        $.newNetworkCollected[asset] = _checkedAdd(
+            $.newNetworkCollected[asset],
+            networkAmount
+        );
+        $.totalExitCredited[asset] = _checkedAdd(
+            $.totalExitCredited[asset],
+            exitAmount
+        );
+        $.claimableExit[exit][asset] = _checkedAdd(
+            $.claimableExit[exit][asset],
+            exitAmount
+        );
+
+        emit ExecutionFeeRecorded(
+            executionId,
+            paymentId,
+            exit,
+            asset,
+            exitAmount,
+            networkAmount
+        );
+    }
+
+    /// @notice Claim credit earned by the caller while it served as the selected exit.
+    function claimExitCredit(
+        address asset,
+        address recipient,
+        uint256 amount
+    ) external nonReentrant whenNotPaused {
+        if (recipient == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+        RewardPoolStorage storage $ = _rewardPool();
+        uint256 credit = $.claimableExit[msg.sender][asset];
+        if (amount > credit) revert InsufficientExitCredit();
+        $.claimableExit[msg.sender][asset] = credit - amount;
+        $.totalExitClaimed[asset] = _checkedAdd(
+            $.totalExitClaimed[asset],
+            amount
+        );
+        $.totalDistributed[asset] = _checkedAdd(
+            $.totalDistributed[asset],
+            amount
+        );
+        IERC20(asset).safeTransfer(recipient, amount);
+        emit ExitCreditClaimed(msg.sender, recipient, asset, amount);
+    }
+
+    function _networkOutstanding(
+        RewardPoolStorage storage $,
+        address asset
+    ) private view returns (uint256) {
+        if (!$.legacyClassified[asset]) {
+            return $.totalCollected[asset] - $.totalDistributed[asset];
+        }
+        return
+            $.legacyNetworkLiability[asset] +
+            $.newNetworkCollected[asset] -
+            $.newNetworkDistributed[asset];
+    }
+
+    function _checkedAdd(
+        uint256 left,
+        uint256 right
+    ) private pure returns (uint256 sum) {
+        unchecked {
+            sum = left + right;
+        }
+        if (sum < left) revert AccountingOverflow();
     }
 
     /// @notice Registry used to confirm reward recipients are network relayers.
@@ -265,5 +433,32 @@ contract NoxRewardPool is
     /// @notice Lifetime payouts of an asset to relayers.
     function totalDistributed(address _asset) external view returns (uint256) {
         return _rewardPool().totalDistributed[_asset];
+    }
+
+    function isAssetClassified(address asset) external view returns (bool) {
+        return _rewardPool().legacyClassified[asset];
+    }
+
+    function networkOutstanding(address asset) external view returns (uint256) {
+        RewardPoolStorage storage $ = _rewardPool();
+        return _networkOutstanding($, asset);
+    }
+
+    function exitOutstanding(address asset) external view returns (uint256) {
+        RewardPoolStorage storage $ = _rewardPool();
+        return $.totalExitCredited[asset] - $.totalExitClaimed[asset];
+    }
+
+    function claimableExit(
+        address exit,
+        address asset
+    ) external view returns (uint256) {
+        return _rewardPool().claimableExit[exit][asset];
+    }
+
+    function isExecutionSettled(
+        bytes32 executionId
+    ) external view returns (bool) {
+        return _rewardPool().settledExecution[executionId];
     }
 }

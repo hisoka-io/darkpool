@@ -18,9 +18,16 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Fr } from "@aztec/foundation/fields";
-import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
+import { Base8, mulPointEscalar, subOrder } from "@zk-kit/baby-jubjub";
+import { BN254_FR_MODULUS, fieldHexFromBigInt } from "@hisoka/howl-protocol";
+import { standardWitnessDtoToNoirInput } from "@hisoka/howl-protocol/proving";
 import {
+  buildPublicClaim,
+  buildPublicTransfer,
+  canonicalPublicAddress,
+  encodeHisokaPublicAddress,
   toFr,
+  toBjjScalar,
   publicKey,
   pubkeyOwner,
   completeComplianceHistory,
@@ -42,11 +49,11 @@ import {
   assembleTransfer,
   assembleSplit,
   assembleJoin,
+  toStandardWitnessDto,
   type AssemblyContext,
   type SpendableNote,
   type MerkleWitnessSource,
 } from "@hisoka/wallets/tx";
-import { marshalNote, marshalU128, pointHex } from "../marshal.js";
 
 const VECTORS = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -56,6 +63,7 @@ const VECTORS = join(
 // Every input is fixed. A vector that moves because of a clock, a counter or a CSPRNG is not a vector.
 const COMPLIANCE_PK = mulPointEscalar(Base8, 987654321n);
 const ASSET = toFr(0x1234567890123456789012345678901234567890n);
+const ASSET_ADDRESS = "0x1234567890123456789012345678901234567890";
 const SPEND = toFr(789n);
 const RECIPIENT_IN_KEY = toFr(31n);
 const eph = (n: bigint): DerivedEph => toFr(n) as DerivedEph;
@@ -153,62 +161,6 @@ async function spendable(
   };
 }
 
-/** Marshal exactly as the prover does. Divergence here IS the bug this file exists to catch. */
-function marshalWithdraw(i: Record<string, unknown>): unknown {
-  const c = pointHex(i["compliancePk"] as [bigint, bigint]);
-  return {
-    withdraw_value: marshalU128(
-      "withdraw",
-      "withdraw_value",
-      i["withdrawValue"] as Fr,
-    ),
-    _recipient: (i["recipient"] as Fr).toString(),
-    _intent_hash: (i["intentHash"] as Fr).toString(),
-    compliance_pubkey_x: c.x,
-    compliance_pubkey_y: c.y,
-    old_note: marshalNote("withdraw", i["oldNote"] as never),
-    spend_scalar: (i["spendScalar"] as Fr).toString(),
-    old_note_index: String(i["oldNoteIndex"]),
-    old_note_path: (i["oldNotePath"] as Fr[]).map((p) => p.toString()),
-    change_note: marshalNote("withdraw", i["changeNote"] as never),
-    change_eph: (i["changeEph"] as Fr).toString(),
-  };
-}
-
-function marshalSplit(i: Record<string, unknown>): unknown {
-  const c = pointHex(i["compliancePk"] as [bigint, bigint]);
-  return {
-    compliance_pubkey_x: c.x,
-    compliance_pubkey_y: c.y,
-    note_in: marshalNote("split", i["noteIn"] as never),
-    spend_scalar: (i["spendScalar"] as Fr).toString(),
-    index_in: String(i["indexIn"]),
-    path_in: (i["pathIn"] as Fr[]).map((p) => p.toString()),
-    note_out_1: marshalNote("split", i["noteOut1"] as never),
-    eph_1: (i["eph1"] as Fr).toString(),
-    note_out_2: marshalNote("split", i["noteOut2"] as never),
-    eph_2: (i["eph2"] as Fr).toString(),
-  };
-}
-
-function marshalJoin(i: Record<string, unknown>): unknown {
-  const c = pointHex(i["compliancePk"] as [bigint, bigint]);
-  return {
-    compliance_pubkey_x: c.x,
-    compliance_pubkey_y: c.y,
-    note_a: marshalNote("join", i["noteA"] as never),
-    spend_scalar_a: (i["spendScalarA"] as Fr).toString(),
-    index_a: String(i["indexA"]),
-    path_a: (i["pathA"] as Fr[]).map((p) => p.toString()),
-    note_b: marshalNote("join", i["noteB"] as never),
-    spend_scalar_b: (i["spendScalarB"] as Fr).toString(),
-    index_b: String(i["indexB"]),
-    path_b: (i["pathB"] as Fr[]).map((p) => p.toString()),
-    note_out: marshalNote("join", i["noteOut"] as never),
-    eph_out: (i["ephOut"] as Fr).toString(),
-  };
-}
-
 async function buildVectors(): Promise<Record<string, unknown>> {
   const dep = await assembleDeposit(ctx, {
     value: 1000n,
@@ -254,16 +206,62 @@ async function buildVectors(): Promise<Record<string, unknown>> {
     selfMint: await checked(60n),
   });
 
+  const publicViewKey = toFr(1234n);
+  const publicAddress = await canonicalPublicAddress(publicViewKey, 0n);
+  const publicTransfer = await buildPublicTransfer({
+    darkPool: DOMAIN.poolAddress,
+    recipient: encodeHisokaPublicAddress({
+      ownerPub: publicAddress.pub,
+      index: publicAddress.index,
+    }),
+    asset: ASSET_ADDRESS,
+    value: 125n,
+    timelock: 1_700_000_000n,
+    salt: toFr(444n),
+  });
+  const publicClaim = await buildPublicClaim({
+    memo: publicTransfer.memo,
+    viewKey: publicViewKey,
+    ownerIndex: publicAddress.index,
+    compliancePk: COMPLIANCE_PK,
+    complianceVersion: 1,
+    complianceHistory: COMPLIANCE_HISTORY,
+    ...DOMAIN,
+    keys: { getSelfSpendPub: () => Promise.resolve(publicKey(SPEND)) },
+    selfMint: await checked(70n),
+    currentTimestamp: 1_800_000_000,
+  });
+
+  const depositWitness = standardWitnessDtoToNoirInput(
+    "deposit",
+    toStandardWitnessDto("deposit", dep.inputs),
+  );
+  const withdrawWitness = standardWitnessDtoToNoirInput(
+    "withdraw",
+    toStandardWitnessDto("withdraw", wd.inputs),
+  );
+  const transferWitness = standardWitnessDtoToNoirInput(
+    "transfer",
+    toStandardWitnessDto("transfer", tr.inputs),
+  );
+  const splitWitness = standardWitnessDtoToNoirInput(
+    "split",
+    toStandardWitnessDto("split", sp.inputs),
+  );
+  const joinWitness = standardWitnessDtoToNoirInput(
+    "join",
+    toStandardWitnessDto("join", jn.inputs),
+  );
+  const publicClaimWitness = standardWitnessDtoToNoirInput(
+    "public_claim",
+    toStandardWitnessDto("public_claim", publicClaim.inputs),
+  );
+
   return {
     // Bump when the witness SHAPE changes, so a stale foreign implementation fails loudly not silently.
-    schema: 1,
+    schema: 2,
     deposit: {
-      witness: {
-        compliance_pubkey_x: pointHex(COMPLIANCE_PK).x,
-        compliance_pubkey_y: pointHex(COMPLIANCE_PK).y,
-        note: marshalNote("deposit", dep.inputs.note as never),
-        eph: dep.inputs.eph.toString(),
-      },
+      witness: depositWitness,
       derived: {
         commitment: dep.minted.commitment.toString(),
         tag: dep.minted.tag.toString(),
@@ -271,7 +269,7 @@ async function buildVectors(): Promise<Record<string, unknown>> {
       },
     },
     withdraw: {
-      witness: marshalWithdraw(wd.inputs),
+      witness: withdrawWitness,
       derived: {
         root: wd.root.toString(),
         changeCommitment: wd.change.commitment.toString(),
@@ -279,20 +277,7 @@ async function buildVectors(): Promise<Record<string, unknown>> {
       },
     },
     transfer: {
-      witness: {
-        compliance_pubkey_x: pointHex(COMPLIANCE_PK).x,
-        compliance_pubkey_y: pointHex(COMPLIANCE_PK).y,
-        old_note: marshalNote("transfer", tr.inputs["oldNote"] as never),
-        spend_scalar: (tr.inputs["spendScalar"] as Fr).toString(),
-        old_note_index: String(tr.inputs["oldNoteIndex"]),
-        old_note_path: (tr.inputs["oldNotePath"] as Fr[]).map((p) =>
-          p.toString(),
-        ),
-        memo_note: marshalNote("transfer", tr.inputs["memoNote"] as never),
-        memo_eph: (tr.inputs["memoEph"] as Fr).toString(),
-        change_note: marshalNote("transfer", tr.inputs["changeNote"] as never),
-        change_eph: (tr.inputs["changeEph"] as Fr).toString(),
-      },
+      witness: transferWitness,
       derived: {
         root: tr.root.toString(),
         memoCommitment: tr.memo.commitment.toString(),
@@ -302,7 +287,7 @@ async function buildVectors(): Promise<Record<string, unknown>> {
       },
     },
     split: {
-      witness: marshalSplit(sp.inputs),
+      witness: splitWitness,
       derived: {
         root: sp.root.toString(),
         out1: sp.out1.commitment.toString(),
@@ -310,17 +295,115 @@ async function buildVectors(): Promise<Record<string, unknown>> {
       },
     },
     join: {
-      witness: marshalJoin(jn.inputs),
+      witness: joinWitness,
       derived: {
         root: jn.root.toString(),
         out: jn.out.commitment.toString(),
         outValue: jn.out.note.value.toString(),
       },
     },
+    public_claim: {
+      witness: publicClaimWitness,
+      derived: {
+        memoId: publicTransfer.memo.memoId.toString(),
+        commitment: publicClaim.commitment.toString(),
+        tag: new Fr(publicKey(publicClaim.inputs.eph)[0]).toString(),
+      },
+    },
   };
 }
 
 describe("transaction golden vectors", () => {
+  it("pins the protocol modulus to the installed field implementation", () => {
+    expect(BigInt(BN254_FR_MODULUS)).toBe(Fr.MODULUS);
+  });
+
+  it("preserves public-claim subgroup reduction through the Noir map", () => {
+    const oversized = new Fr(subOrder + 7n);
+    const zero = Fr.ZERO;
+    const dto = toStandardWitnessDto("public_claim", {
+      memoId: zero,
+      compliancePk: COMPLIANCE_PK,
+      currentTimestamp: 0,
+      val: zero,
+      assetId: zero,
+      timelock: zero,
+      ownerX: zero,
+      ownerY: zero,
+      salt: zero,
+      recipientSk: oversized,
+      noteOut: {
+        noteVersion: zero,
+        assetId: zero,
+        noteType: zero,
+        conditionsHash: zero,
+        value: zero,
+        owner: zero,
+        psi: zero,
+        parents: zero,
+      },
+      eph: eph(1n),
+    });
+    const witness = standardWitnessDtoToNoirInput("public_claim", dto);
+
+    expect(dto.recipient_sk).toBe(fieldHexFromBigInt(7n));
+    expect(witness.recipient_sk).toBe(toBjjScalar(oversized).toString());
+  });
+
+  it("preserves standard and multisig transfer recipient points", () => {
+    const spendPub = publicKey(toFr(81n));
+    const viewPub = publicKey(toFr(82n));
+    const zeroNote = {
+      noteVersion: Fr.ZERO,
+      assetId: Fr.ZERO,
+      noteType: Fr.ZERO,
+      conditionsHash: Fr.ZERO,
+      value: Fr.ZERO,
+      owner: Fr.ZERO,
+      psi: Fr.ZERO,
+      parents: Fr.ZERO,
+    };
+    const transfer = {
+      compliancePk: COMPLIANCE_PK,
+      oldNote: zeroNote,
+      spendScalar: Fr.ZERO,
+      oldNoteIndex: 0,
+      oldNotePath: SIBLINGS,
+      memoNote: zeroNote,
+      memoEph: Fr.ZERO,
+      changeNote: zeroNote,
+      changeEph: eph(1n),
+    };
+
+    const standard = toStandardWitnessDto("transfer", {
+      ...transfer,
+      recipientInPub: spendPub,
+    });
+    expect(standard.recipient_spend_pub).toEqual(standard.recipient_view_pub);
+
+    const multisig = toStandardWitnessDto("transfer", {
+      ...transfer,
+      recipientMultisig: { gpk: spendPub, viewPub },
+      memoNote: { ...zeroNote, noteType: toFr(1n) },
+    });
+    expect(multisig.recipient_spend_pub.x).toBe(
+      fieldHexFromBigInt(spendPub[0]),
+    );
+    expect(multisig.recipient_view_pub.x).toBe(fieldHexFromBigInt(viewPub[0]));
+  });
+
+  it("contains every schema-2 standard witness", () => {
+    const frozen = JSON.parse(readFileSync(VECTORS, "utf8")) as {
+      schema?: number;
+      transfer?: { witness?: Record<string, unknown> };
+      public_claim?: unknown;
+    };
+    expect(frozen.schema).toBe(2);
+    expect(frozen.transfer?.witness).toHaveProperty("recipient_spend_pub");
+    expect(frozen.transfer?.witness).toHaveProperty("recipient_view_pub");
+    expect(frozen.public_claim).toBeDefined();
+  });
+
   it("assembly marshals byte-identically to the frozen contract", async () => {
     const built = await buildVectors();
 

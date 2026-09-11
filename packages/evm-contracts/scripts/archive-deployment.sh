@@ -16,6 +16,40 @@ CONTRACTS_DIR="$(dirname "$SCRIPT_DIR")"
 CIRCUITS_DIR="$(dirname "$CONTRACTS_DIR")/circuits"
 ARCHIVE_BASE="${CONTRACTS_DIR}/deployments/archives"
 ARCHIVE_DIR="${ARCHIVE_BASE}/${DEPLOYMENT_NAME}"
+DEPLOYMENT_FILE="${CONTRACTS_DIR}/deployments/${DEPLOYMENT_NAME}.json"
+CIRCUITS=(deposit withdraw transfer join split public_claim withdraw_multisig transfer_multisig split_multisig join_multisig swap_intent swap_settle)
+VERIFIERS=(DepositVerifier WithdrawVerifier TransferVerifier JoinVerifier SplitVerifier PublicClaimVerifier WithdrawMultisigVerifier TransferMultisigVerifier SplitMultisigVerifier JoinMultisigVerifier KageVerifier)
+ABIS=(DarkPool NoxRegistry NoxRewardPool NoxExecutionSandbox NoxEntryPoint HowlPaymentAdapter BundleExecutor ComplianceRegistry MockERC20)
+
+if [ ! -f "${DEPLOYMENT_FILE}" ]; then
+  echo "ERROR: deployment record not found: ${DEPLOYMENT_FILE}" >&2
+  exit 1
+fi
+if [ -e "${ARCHIVE_DIR}" ]; then
+  echo "ERROR: archive target already exists: ${ARCHIVE_DIR}" >&2
+  exit 1
+fi
+for circuit in "${CIRCUITS[@]}"; do
+  src="${CIRCUITS_DIR}/target/${circuit}.json"
+  if [ ! -f "${src}" ]; then
+    echo "ERROR: required circuit artifact not found: ${src}" >&2
+    exit 1
+  fi
+done
+for verifier in "${VERIFIERS[@]}"; do
+  src="${CONTRACTS_DIR}/contracts/verifiers/${verifier}.sol"
+  if [ ! -f "${src}" ]; then
+    echo "ERROR: required verifier source not found: ${src}" >&2
+    exit 1
+  fi
+done
+for abi in "${ABIS[@]}"; do
+  found=$(find "${CONTRACTS_DIR}/artifacts" -name "${abi}.json" -not -name "*.dbg.json" -not -path "*/build-info/*" -print -quit)
+  if [ -z "${found}" ]; then
+    echo "ERROR: required ABI artifact not found for ${abi}; run hardhat compile first" >&2
+    exit 1
+  fi
+done
 
 echo "Archiving deployment: ${DEPLOYMENT_NAME}"
 echo "  Contracts dir: ${CONTRACTS_DIR}"
@@ -27,7 +61,7 @@ mkdir -p "${ARCHIVE_DIR}/circuits" "${ARCHIVE_DIR}/verifiers" "${ARCHIVE_DIR}/ab
 
 # 1. Copy deployment JSON + secrets
 echo "[1/6] Copying deployment records..."
-cp "${CONTRACTS_DIR}/deployments/${DEPLOYMENT_NAME}.json" "${ARCHIVE_DIR}/deployment.json" 2>/dev/null || true
+cp "${DEPLOYMENT_FILE}" "${ARCHIVE_DIR}/deployment.json"
 if [ -f "${CONTRACTS_DIR}/deployments/${DEPLOYMENT_NAME}.secrets.json" ]; then
   cp "${CONTRACTS_DIR}/deployments/${DEPLOYMENT_NAME}.secrets.json" "${ARCHIVE_DIR}/secrets.json"
   chmod 600 "${ARCHIVE_DIR}/secrets.json"
@@ -36,34 +70,26 @@ fi
 
 # 2. Copy circuit artifacts
 echo "[2/6] Copying circuit artifacts..."
-for circuit in deposit withdraw transfer join split public_claim; do
+for circuit in "${CIRCUITS[@]}"; do
   src="${CIRCUITS_DIR}/target/${circuit}.json"
-  if [ -f "$src" ]; then
-    cp "$src" "${ARCHIVE_DIR}/circuits/${circuit}.json"
-    echo "  ${circuit}.json ($(wc -c < "$src") bytes)"
-  else
-    echo "  WARNING: ${circuit}.json not found at ${src}"
-  fi
+  cp "$src" "${ARCHIVE_DIR}/circuits/${circuit}.json"
+  echo "  ${circuit}.json ($(wc -c < "$src") bytes)"
 done
 
 # 3. Copy verifier Solidity sources
 echo "[3/6] Copying verifier sources..."
-for verifier in DepositVerifier WithdrawVerifier TransferVerifier JoinVerifier SplitVerifier PublicClaimVerifier; do
+for verifier in "${VERIFIERS[@]}"; do
   src="${CONTRACTS_DIR}/contracts/verifiers/${verifier}.sol"
-  if [ -f "$src" ]; then
-    cp "$src" "${ARCHIVE_DIR}/verifiers/${verifier}.sol"
-    echo "  ${verifier}.sol"
-  fi
+  cp "$src" "${ARCHIVE_DIR}/verifiers/${verifier}.sol"
+  echo "  ${verifier}.sol"
 done
 
 # 4. Copy ABIs
 echo "[4/6] Copying ABIs..."
-for abi in DarkPool NoxRegistry NoxRewardPool MockERC20; do
-  found=$(find "${CONTRACTS_DIR}/artifacts" -name "${abi}.json" -not -name "*.dbg.json" -not -path "*/build-info/*" | head -1)
-  if [ -n "$found" ]; then
-    cp "$found" "${ARCHIVE_DIR}/abis/${abi}.json"
-    echo "  ${abi}.json"
-  fi
+for abi in "${ABIS[@]}"; do
+  found=$(find "${CONTRACTS_DIR}/artifacts" -name "${abi}.json" -not -name "*.dbg.json" -not -path "*/build-info/*" -print -quit)
+  cp "$found" "${ARCHIVE_DIR}/abis/${abi}.json"
+  echo "  ${abi}.json"
 done
 
 # 5. Record versions
@@ -71,8 +97,8 @@ echo "[5/6] Recording version metadata..."
 cat > "${ARCHIVE_DIR}/versions.json" << EOF
 {
   "archived_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "solidity": "0.8.25",
-  "optimizer": { "enabled": true, "runs": 1 },
+  "solidity": "0.8.28",
+  "compiler_settings": "resolved per contract in deployment.json versions.solidity and versions.solidityOverrides",
   "noir": "1.0.0-beta.22",
   "bb_js": "5.0.0",
   "hardhat": "$(npx hardhat --version 2>/dev/null || echo 'unknown')",

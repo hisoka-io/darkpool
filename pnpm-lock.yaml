@@ -94,12 +94,6 @@ importers:
       '@aztec/foundation':
         specifier: 2.1.11
         version: 2.1.11
-      '@hisoka-io/nox-client':
-        specifier: ^0.1.9
-        version: 0.1.9
-      '@hisoka-io/nox-wasm':
-        specifier: ^0.1.4
-        version: 0.1.4
       '@hisoka/howl-e2e':
         specifier: workspace:*
         version: link:../howl-e2e
@@ -218,6 +212,21 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@24.12.2)
 
+  packages/howl-protocol:
+    devDependencies:
+      esbuild:
+        specifier: 0.27.7
+        version: 0.27.7
+      tsup:
+        specifier: 8.5.1
+        version: 8.5.1(postcss@8.5.10)(tsx@4.21.0)(typescript@5.9.2)(yaml@2.8.3)
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: 1.6.1
+        version: 1.6.1(@types/node@24.12.2)
+
   packages/prover:
     dependencies:
       '@aztec/bb.js':
@@ -226,6 +235,9 @@ importers:
       '@aztec/foundation':
         specifier: 2.1.11
         version: 2.1.11
+      '@hisoka/howl-protocol':
+        specifier: workspace:*
+        version: link:../howl-protocol
       '@hisoka/wallets':
         specifier: workspace:*
         version: link:../wallets
@@ -328,6 +340,9 @@ importers:
       '@aztec/foundation':
         specifier: 2.1.11
         version: 2.1.11
+      '@hisoka/howl-protocol':
+        specifier: workspace:*
+        version: link:../howl-protocol
       '@zk-kit/baby-jubjub':
         specifier: ^1.0.3
         version: 1.0.3
@@ -887,13 +902,6 @@ packages:
 
   '@hapi/bourne@3.0.0':
     resolution: {integrity: sha512-Waj1cwPXJDucOib4a3bAISsKJVb15MKi9IvmTI/7ssVEm6sywXGjVJDhl6/umt1pK1ZS7PacXU3A1PmFKHEZ2w==}
-
-  '@hisoka-io/nox-client@0.1.9':
-    resolution: {integrity: sha512-G2yhgHvTXFItmlJ90p06vHFuthRpuoUop7RKMeBB6miTpxzKUDCW+TyWa67MrFgOoCXL7d/b5B2wE29dqTmThA==}
-    engines: {node: '>=18'}
-
-  '@hisoka-io/nox-wasm@0.1.4':
-    resolution: {integrity: sha512-FmPEA+5oLlNOyaM9w4qbMZur1+S1B2N8rqpB2/u8mDD8gtRUSv5UQM/5cIesCfUP8jZOM3tI9r0WleLtwoQnxg==}
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -3022,9 +3030,6 @@ packages:
 
   js-sha3@0.8.0:
     resolution: {integrity: sha512-gF1cRrHhIzNfToc802P800N8PpXS+evLLXfsVpowqmAFR9uwbi89WvXg2QspOmXL8QL86J4T1EpFu+yUkwJY3Q==}
-
-  js-sha3@0.9.3:
-    resolution: {integrity: sha512-BcJPCQeLg6WjEx3FE591wVAevlli8lxsxm9/FzV4HXkV49TmBH38Yvrpce6fjbADGMKFrBMGTqrVz3qPIZ88Gg==}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -5221,13 +5226,6 @@ snapshots:
       '@ethersproject/strings': 5.8.0
 
   '@hapi/bourne@3.0.0': {}
-
-  '@hisoka-io/nox-client@0.1.9':
-    dependencies:
-      '@hisoka-io/nox-wasm': 0.1.4
-      js-sha3: 0.9.3
-
-  '@hisoka-io/nox-wasm@0.1.4': {}
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -7598,8 +7596,6 @@ snapshots:
   js-cookie@3.0.8: {}
 
   js-sha3@0.8.0: {}
-
-  js-sha3@0.9.3: {}
 
   js-tokens@4.0.0: {}
 

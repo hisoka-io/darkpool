@@ -27,7 +27,9 @@
  * Optional env:
  *   COMPLIANCE_SECRET_KEY  reuse an existing compliance BJJ secret (else one is generated and written
  *                          to the sibling .secrets.json before any deploy transaction)
+ *   LOCAL_TEST_COMPLIANCE_SECRET_KEY  deterministic fixture accepted only by hardhat/localhost
  *   SWAP_ROUTER            deploy UniswapAdaptor against this router
+ *   FEE_ASSETS             comma-separated ERC20 addresses accepted for Nox execution fees; required off local
  *
  * Usage:
  *   GOV_SAFE=0x.. GUARDIAN_SAFE=0x.. npx hardhat run scripts/deploy.ts --network <net>
@@ -73,10 +75,77 @@ function requireSafeAddress(name: string): string {
   return addr;
 }
 
+function optionalAddress(name: string): string | null {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return null;
+  if (!ethers.isAddress(raw)) {
+    throw new Error(`${name} is not a valid address: ${raw}`);
+  }
+  const address = ethers.getAddress(raw);
+  if (address === ethers.ZeroAddress) {
+    throw new Error(`${name} must be non-zero.`);
+  }
+  return address;
+}
+
+function configuredFeeAssets(isLocal: boolean): string[] | null {
+  const raw = process.env.FEE_ASSETS;
+  if (raw === undefined || raw.trim() === "") {
+    if (!isLocal) {
+      throw new Error(
+        `FEE_ASSETS is required on network ${network.name}; supply the supported fee-token addresses explicitly.`,
+      );
+    }
+    return null;
+  }
+  const assets = raw.split(",").map((asset) => {
+    const candidate = asset.trim();
+    if (!ethers.isAddress(candidate)) {
+      throw new Error(
+        `FEE_ASSETS contains an invalid ERC20 address: ${candidate}`,
+      );
+    }
+    const address = ethers.getAddress(candidate);
+    if (address === ethers.ZeroAddress) {
+      throw new Error(
+        `FEE_ASSETS contains an invalid ERC20 address: ${candidate}`,
+      );
+    }
+    return address;
+  });
+  const seen = new Set<string>();
+  for (const asset of assets) {
+    const key = asset.toLowerCase();
+    if (seen.has(key)) {
+      throw new Error(
+        `FEE_ASSETS contains a duplicate ERC20 address: ${asset}`,
+      );
+    }
+    seen.add(key);
+  }
+  return assets;
+}
+
+function positiveUint256(name: string, fallback: string): bigint {
+  let value: bigint;
+  try {
+    value = BigInt(process.env[name] ?? fallback);
+  } catch {
+    throw new Error(`${name} must be an unsigned decimal integer.`);
+  }
+  if (value <= 0n) throw new Error(`${name} must be positive.`);
+  if (value > ethers.MaxUint256) {
+    throw new Error(`${name} exceeds uint256.`);
+  }
+  return value;
+}
+
 function generateComplianceKeypair(): { sk: bigint; pk: Point<bigint> } {
-  const rawSk = BigInt("0x" + crypto.randomBytes(32).toString("hex"));
-  const sk = rawSk % BJJ_SUBGROUP_ORDER;
-  return { sk, pk: mulPointEscalar(Base8, sk) };
+  for (;;) {
+    const rawSk = BigInt("0x" + crypto.randomBytes(32).toString("hex"));
+    const sk = rawSk % BJJ_SUBGROUP_ORDER;
+    if (sk !== 0n) return { sk, pk: mulPointEscalar(Base8, sk) };
+  }
 }
 
 async function deployVerifier(
@@ -225,6 +294,54 @@ export async function deploy(
 
   const govSafe = requireSafeAddress("GOV_SAFE");
   const guardianSafe = requireSafeAddress("GUARDIAN_SAFE");
+  const stakingToken = optionalAddress("STAKING_TOKEN");
+  const swapRouter = optionalAddress("SWAP_ROUTER");
+  const explicitFeeAssets = configuredFeeAssets(isLocal);
+  const committeeThreshold = positiveUint256("COMPLIANCE_THRESHOLD", "3");
+  const committeeSize = positiveUint256("COMPLIANCE_COMMITTEE_SIZE", "5");
+  if (committeeThreshold > committeeSize) {
+    throw new Error(
+      "COMPLIANCE_THRESHOLD must not exceed COMPLIANCE_COMMITTEE_SIZE.",
+    );
+  }
+  const configuredSk = process.env.COMPLIANCE_SECRET_KEY;
+  const localFixtureSk = process.env.LOCAL_TEST_COMPLIANCE_SECRET_KEY;
+  if (configuredSk !== undefined && localFixtureSk !== undefined) {
+    throw new Error(
+      "Set only one of COMPLIANCE_SECRET_KEY or LOCAL_TEST_COMPLIANCE_SECRET_KEY.",
+    );
+  }
+  if (localFixtureSk !== undefined && !isLocal) {
+    throw new Error(
+      "LOCAL_TEST_COMPLIANCE_SECRET_KEY is accepted only on hardhat or localhost.",
+    );
+  }
+  const suppliedSk = configuredSk ?? localFixtureSk;
+  const suppliedSkName =
+    configuredSk === undefined
+      ? "LOCAL_TEST_COMPLIANCE_SECRET_KEY"
+      : "COMPLIANCE_SECRET_KEY";
+  let compliance: { sk: bigint; pk: Point<bigint> };
+  if (suppliedSk !== undefined) {
+    let rawSk: bigint;
+    try {
+      rawSk = BigInt(suppliedSk);
+    } catch {
+      throw new Error(
+        `${suppliedSkName} must be an unsigned decimal or hexadecimal integer.`,
+      );
+    }
+    if (rawSk <= 0n) {
+      throw new Error(`${suppliedSkName} must be positive.`);
+    }
+    const sk = rawSk % BJJ_SUBGROUP_ORDER;
+    if (sk === 0n) {
+      throw new Error(`${suppliedSkName} reduces to zero.`);
+    }
+    compliance = { sk, pk: mulPointEscalar(Base8, sk) };
+  } else {
+    compliance = generateComplianceKeypair();
+  }
   // One address holding both roles collapses the separation the wiring assertions exist to enforce, and
   // every one of them would still pass.
   if (govSafe === guardianSafe) {
@@ -257,6 +374,22 @@ export async function deploy(
       );
     }
   }
+  const dependencies = [
+    ...(stakingToken === null
+      ? []
+      : ([["STAKING_TOKEN", stakingToken]] as const)),
+    ...(swapRouter === null ? [] : ([["SWAP_ROUTER", swapRouter]] as const)),
+    ...(explicitFeeAssets ?? []).map(
+      (asset) => ["FEE_ASSETS entry", asset] as const,
+    ),
+  ];
+  for (const [label, address] of dependencies) {
+    if ((await ethers.provider.getCode(address)) === "0x") {
+      throw new Error(
+        `${label} ${address} has no deployed code on network ${network.name}.`,
+      );
+    }
+  }
   console.log();
 
   const startBlock = await ethers.provider.getBlockNumber();
@@ -272,14 +405,11 @@ export async function deploy(
     `${network.name}-${timestamp}.secrets.json`,
   );
 
-  const existingSk = process.env.COMPLIANCE_SECRET_KEY;
-  let compliance: { sk: bigint; pk: Point<bigint> };
-  if (existingSk) {
-    const sk = BigInt(existingSk) % BJJ_SUBGROUP_ORDER;
-    compliance = { sk, pk: mulPointEscalar(Base8, sk) };
+  if (localFixtureSk !== undefined) {
+    console.log("Step 0: Using deterministic local test compliance keypair.");
+  } else if (configuredSk !== undefined) {
     console.log("Step 0: Reusing supplied compliance keypair.");
   } else {
-    compliance = generateComplianceKeypair();
     console.log("Step 0: Generated a fresh compliance keypair.");
   }
 
@@ -287,7 +417,7 @@ export async function deploy(
   // any throw after the first deploy, and by then the pool is deployed and bound to its public key, so
   // every note encrypted to it would be permanently undecryptable. The file is gitignored alongside the
   // record and is owner-read-only.
-  if (!existingSk) {
+  if (suppliedSk === undefined) {
     fs.writeFileSync(
       secretsFile,
       JSON.stringify(
@@ -377,9 +507,8 @@ export async function deploy(
 
   console.log("Step 3: Staking token...");
   let stakingTokenAddr: string;
-  const existingToken = process.env.STAKING_TOKEN;
-  if (existingToken && ethers.isAddress(existingToken)) {
-    stakingTokenAddr = ethers.getAddress(existingToken);
+  if (stakingToken !== null) {
+    stakingTokenAddr = stakingToken;
     console.log(`  Using supplied staking token: ${stakingTokenAddr}`);
   } else {
     // MockERC20 has an unpermissioned public mint, and NoxRegistry writes the staking token only in
@@ -446,7 +575,7 @@ export async function deploy(
         ADMIN_TRANSFER_DELAY,
         timelockAddr,
         noxRegistryAddr,
-        guardianSafe, // admin (pause / asset status / rescue)
+        deployer.address, // temporary admin for atomic EntryPoint and asset wiring
         guardianSafe, // distributor (governance can reassign)
         timelockAddr, // upgrader
       ],
@@ -492,9 +621,51 @@ export async function deploy(
   console.log(`  DarkPool: ${darkPoolAddr}`);
   console.log();
 
+  console.log("Step 7a: Nox paid execution contracts...");
+  const sandboxImplementation = await (
+    await ethers.getContractFactory("NoxExecutionSandbox")
+  ).deploy();
+  await sandboxImplementation.waitForDeployment();
+  const sandboxImplementationAddr = await sandboxImplementation.getAddress();
+
+  const noxEntryPoint = await (
+    await ethers.getContractFactory("NoxEntryPoint")
+  ).deploy(rewardPoolAddr, sandboxImplementationAddr);
+  await noxEntryPoint.waitForDeployment();
+  const noxEntryPointAddr = await noxEntryPoint.getAddress();
+
+  const howlPaymentAdapter = await (
+    await ethers.getContractFactory("HowlPaymentAdapter")
+  ).deploy(darkPoolAddr, noxEntryPointAddr);
+  await howlPaymentAdapter.waitForDeployment();
+  const howlPaymentAdapterAddr = await howlPaymentAdapter.getAddress();
+
+  const bundleExecutor = await (
+    await ethers.getContractFactory("BundleExecutor")
+  ).deploy(darkPoolAddr);
+  await bundleExecutor.waitForDeployment();
+  const bundleExecutorAddr = await bundleExecutor.getAddress();
+
+  const feeAssets = explicitFeeAssets ?? [stakingTokenAddr];
+  for (const asset of feeAssets) {
+    await (await rewardPool.setAssetStatus(asset, true)).wait();
+    await (await rewardPool.classifyAsset(asset)).wait();
+  }
+  const ENTRYPOINT_ROLE = await rewardPool.ENTRYPOINT_ROLE();
+  const POOL_ADMIN_ROLE = await rewardPool.ADMIN_ROLE();
+  await (await rewardPool.grantRole(ENTRYPOINT_ROLE, noxEntryPointAddr)).wait();
+  await (await rewardPool.transferOperationalAdmin(guardianSafe)).wait();
+
+  console.log(
+    `  NoxExecutionSandbox implementation: ${sandboxImplementationAddr}`,
+  );
+  console.log(`  NoxEntryPoint: ${noxEntryPointAddr}`);
+  console.log(`  HowlPaymentAdapter: ${howlPaymentAdapterAddr}`);
+  console.log(`  BundleExecutor: ${bundleExecutorAddr}`);
+  console.log(`  Classified fee assets: ${feeAssets.join(", ")}`);
+  console.log();
+
   console.log("Step 7b: ComplianceRegistry (social audit log)...");
-  const committeeThreshold = BigInt(process.env.COMPLIANCE_THRESHOLD ?? "3");
-  const committeeSize = BigInt(process.env.COMPLIANCE_COMMITTEE_SIZE ?? "5");
   const complianceRegistry = await (
     await ethers.getContractFactory("ComplianceRegistry")
   ).deploy(timelockAddr, committeeThreshold, committeeSize);
@@ -504,6 +675,61 @@ export async function deploy(
     `  ComplianceRegistry: ${complianceRegistryAddr} (t=${committeeThreshold}, n=${committeeSize}, admin=${timelockAddr})`,
   );
   console.log();
+
+  const recordedCoreContracts = {
+    poseidon2: poseidon2Addr,
+    depositVerifier: verifiers[0].verifier,
+    withdrawVerifier: verifiers[1].verifier,
+    transferVerifier: verifiers[2].verifier,
+    joinVerifier: verifiers[3].verifier,
+    splitVerifier: verifiers[4].verifier,
+    publicClaimVerifier: verifiers[5].verifier,
+    withdrawMultisigVerifier: verifiers[6].verifier,
+    transferMultisigVerifier: verifiers[7].verifier,
+    splitMultisigVerifier: verifiers[8].verifier,
+    joinMultisigVerifier: verifiers[9].verifier,
+    kageVerifier: verifiers[10].verifier,
+    complianceRegistry: complianceRegistryAddr,
+    noxRegistry: noxRegistryAddr,
+    noxRewardPool: rewardPoolAddr,
+    noxSandboxImplementation: sandboxImplementationAddr,
+    noxEntryPoint: noxEntryPointAddr,
+    howlPaymentAdapter: howlPaymentAdapterAddr,
+    bundleExecutor: bundleExecutorAddr,
+    darkPool: darkPoolAddr,
+    stakingToken: stakingTokenAddr,
+  };
+  const coreContractCodeHashes = Object.fromEntries(
+    await Promise.all(
+      Object.entries(recordedCoreContracts).map(async ([name, address]) => {
+        const code = await ethers.provider.getCode(address);
+        if (code === "0x") {
+          throw new Error(
+            `${name} has no deployed code before governance preflight`,
+          );
+        }
+        return [name, ethers.keccak256(code)];
+      }),
+    ),
+  );
+  const proxySlots: Record<string, { impl: string; admin: string }> = {};
+  const proxyImplementationCodeHashes: Record<string, string> = {};
+  for (const [name, address] of [
+    ["darkPool", darkPoolAddr],
+    ["noxRegistry", noxRegistryAddr],
+    ["noxRewardPool", rewardPoolAddr],
+  ] as const) {
+    const implementation = await slot(address, IMPL_SLOT);
+    const admin = await slot(address, ADMIN_SLOT);
+    const implementationCode = await ethers.provider.getCode(implementation);
+    if (implementationCode === "0x") {
+      throw new Error(
+        `${name} implementation has no code before governance preflight`,
+      );
+    }
+    proxySlots[name] = { impl: implementation, admin };
+    proxyImplementationCodeHashes[name] = ethers.keccak256(implementationCode);
+  }
 
   console.log("Step 8: Governance wiring...");
   // CANCELLER must NOT go to the DarkPool PAUSER holder. OZ TimelockController is its own DEFAULT_ADMIN
@@ -591,6 +817,10 @@ export async function deploy(
       has: () => rewardPool.hasRole(POOL_UPGRADER, deployer.address),
     },
     {
+      label: "NoxRewardPool.ADMIN",
+      has: () => rewardPool.hasRole(POOL_ADMIN_ROLE, deployer.address),
+    },
+    {
       label: "Timelock.PROPOSER",
       has: () => timelock.hasRole(PROPOSER_ROLE, deployer.address),
     },
@@ -638,6 +868,47 @@ export async function deploy(
     {
       label: "Timelock is NoxRewardPool DEFAULT_ADMIN",
       ok: await rewardPool.hasRole(DEFAULT_ADMIN_ROLE, timelockAddr),
+    },
+    {
+      label: "Guardian is NoxRewardPool ADMIN",
+      ok: await rewardPool.hasRole(POOL_ADMIN_ROLE, guardianSafe),
+    },
+    {
+      label: "NoxEntryPoint holds RewardPool ENTRYPOINT_ROLE",
+      ok: await rewardPool.hasRole(ENTRYPOINT_ROLE, noxEntryPointAddr),
+    },
+    {
+      label: "NoxEntryPoint is linked to NoxRewardPool",
+      ok: (await noxEntryPoint.REWARD_POOL()) === rewardPoolAddr,
+    },
+    {
+      label: "NoxEntryPoint is linked to its sandbox implementation",
+      ok:
+        (await noxEntryPoint.SANDBOX_IMPLEMENTATION()) ===
+        sandboxImplementationAddr,
+    },
+    {
+      label: "HowlPaymentAdapter is linked to DarkPool and NoxEntryPoint",
+      ok:
+        (await howlPaymentAdapter.DARK_POOL()) === darkPoolAddr &&
+        (await howlPaymentAdapter.ENTRY_POINT()) === noxEntryPointAddr,
+    },
+    {
+      label: "BundleExecutor is linked to DarkPool",
+      ok: (await bundleExecutor.DARK_POOL()) === darkPoolAddr,
+    },
+    {
+      label: "Every configured Nox fee asset is supported and classified",
+      ok: (
+        await Promise.all(
+          feeAssets.map(async (asset) =>
+            Boolean(
+              (await rewardPool.isSupportedAsset(asset)) &&
+              (await rewardPool.isAssetClassified(asset)),
+            ),
+          ),
+        )
+      ).every(Boolean),
     },
     {
       label: "Gov Safe is Timelock PROPOSER",
@@ -696,27 +967,19 @@ export async function deploy(
   console.log();
 
   console.log("Step 11: EIP-1967 proxy slots...");
-  const proxySlots: Record<string, { impl: string; admin: string }> = {};
-  for (const [name, addr] of [
-    ["darkPool", darkPoolAddr],
-    ["noxRegistry", noxRegistryAddr],
-    ["noxRewardPool", rewardPoolAddr],
-  ] as const) {
-    const impl = await slot(addr, IMPL_SLOT);
-    const admin = await slot(addr, ADMIN_SLOT);
-    proxySlots[name] = { impl, admin };
+  for (const [name, slots] of Object.entries(proxySlots)) {
     console.log(
-      `  ${name}: impl=${impl} admin=${admin} (UUPS admin slot is 0)`,
+      `  ${name}: impl=${slots.impl} admin=${slots.admin} (UUPS admin slot is 0)`,
     );
   }
   console.log();
 
-  const swapRouter = process.env.SWAP_ROUTER;
   let adaptorAddr = "";
+  let adaptorCodeHash = "";
   // The adaptor is optional and its deploy can revert on a bad router. Persist everything known so far
   // first, so a failure here costs the adaptor rather than the whole record.
   await writeRecord();
-  if (swapRouter && ethers.isAddress(swapRouter)) {
+  if (swapRouter !== null) {
     console.log("Step 12: UniswapAdaptor...");
     const adaptor = await (
       await ethers.getContractFactory("UniswapAdaptor", {
@@ -725,6 +988,9 @@ export async function deploy(
     ).deploy(darkPoolAddr, swapRouter);
     await adaptor.waitForDeployment();
     adaptorAddr = await adaptor.getAddress();
+    adaptorCodeHash = ethers.keccak256(
+      await ethers.provider.getCode(adaptorAddr),
+    );
     console.log(`  UniswapAdaptor: ${adaptorAddr}`);
     console.log();
   }
@@ -745,6 +1011,13 @@ export async function deploy(
       [govSafe],
       deployer.address,
     ]);
+    await tryVerify(sandboxImplementationAddr, []);
+    await tryVerify(noxEntryPointAddr, [
+      rewardPoolAddr,
+      sandboxImplementationAddr,
+    ]);
+    await tryVerify(howlPaymentAdapterAddr, [darkPoolAddr, noxEntryPointAddr]);
+    await tryVerify(bundleExecutorAddr, [darkPoolAddr]);
     console.log();
   }
 
@@ -752,6 +1025,14 @@ export async function deploy(
   // the optional adaptor step, then refreshed after it. A record that only exists at the very end is a
   // record that a late failure destroys.
   function buildRecord(endBlock: number): Record<string, unknown> {
+    const deployedContracts = {
+      ...recordedCoreContracts,
+      uniswapAdaptor: adaptorAddr,
+    };
+    const contractCodeHashes = {
+      ...coreContractCodeHashes,
+      ...(adaptorCodeHash === "" ? {} : { uniswapAdaptor: adaptorCodeHash }),
+    };
     return {
       meta: {
         network: network.name,
@@ -771,27 +1052,21 @@ export async function deploy(
         publicKeyX: compliance.pk[0].toString(),
         publicKeyY: compliance.pk[1].toString(),
       },
-      contracts: {
-        poseidon2: poseidon2Addr,
-        depositVerifier: verifiers[0].verifier,
-        withdrawVerifier: verifiers[1].verifier,
-        transferVerifier: verifiers[2].verifier,
-        joinVerifier: verifiers[3].verifier,
-        splitVerifier: verifiers[4].verifier,
-        publicClaimVerifier: verifiers[5].verifier,
-        withdrawMultisigVerifier: verifiers[6].verifier,
-        transferMultisigVerifier: verifiers[7].verifier,
-        splitMultisigVerifier: verifiers[8].verifier,
-        joinMultisigVerifier: verifiers[9].verifier,
-        kageVerifier: verifiers[10].verifier,
-        complianceRegistry: complianceRegistryAddr,
-        noxRegistry: noxRegistryAddr,
-        noxRewardPool: rewardPoolAddr,
-        darkPool: darkPoolAddr,
-        stakingToken: stakingTokenAddr,
-        uniswapAdaptor: adaptorAddr,
+      contracts: deployedContracts,
+      constructorArgs: {
+        noxSandboxImplementation: [],
+        noxEntryPoint: [rewardPoolAddr, sandboxImplementationAddr],
+        howlPaymentAdapter: [darkPoolAddr, noxEntryPointAddr],
+        bundleExecutor: [darkPoolAddr],
+        complianceRegistry: [
+          timelockAddr,
+          committeeThreshold.toString(),
+          committeeSize.toString(),
+        ],
       },
+      contractCodeHashes,
       proxySlots,
+      proxyImplementationCodeHashes,
       versions: {
         // Resolved from the loaded config, not restated. The hardcoded values drifted: the record claimed
         // optimizer runs 1 for every contract regardless of what was actually compiled.
@@ -813,6 +1088,7 @@ export async function deploy(
       circuitHashes,
       vkHashes,
       openzeppelinManifest,
+      feeAssets,
     };
   }
 
@@ -833,36 +1109,43 @@ export async function deploy(
   console.log(`  DarkPool:      ${darkPoolAddr}`);
   console.log(`  NoxRegistry:   ${noxRegistryAddr}`);
   console.log(`  NoxRewardPool: ${rewardPoolAddr}`);
+  console.log(`  NoxEntryPoint: ${noxEntryPointAddr}`);
+  console.log(`  Howl Adapter:  ${howlPaymentAdapterAddr}`);
+  console.log(`  BundleExecutor:${bundleExecutorAddr}`);
   console.log(`  Staking Token: ${stakingTokenAddr}`);
   if (adaptorAddr) console.log(`  UniswapAdaptor:${adaptorAddr}`);
   console.log();
 
-  console.log("REQUIRED BACKUP - push these to the private backup repo now:");
-  console.log(
-    `  - ${deployFile} (addresses, proxy slots, circuit hashes, VK hashes, storage manifest)`,
-  );
-  if (!existingSk) {
-    console.log(
-      `  - ${secretsFile} (COMPLIANCE SECRET KEY, written before any transaction, mode 0600)`,
-    );
-    console.log(
-      "    Move it into the secrets vault and remove the local copy. Losing it makes every note",
-    );
-    console.log(
-      "    encrypted to the compliance key permanently undecryptable.",
-    );
+  if (isLocal) {
+    console.log("Local ephemeral deployment; no private backup is required.");
   } else {
+    console.log("REQUIRED BACKUP - push these to the private backup repo now:");
     console.log(
-      "  - COMPLIANCE_SECRET_KEY was supplied via env; ensure it is already backed up.",
+      `  - ${deployFile} (addresses, proxy slots, circuit hashes, VK hashes, storage manifest)`,
     );
+    if (suppliedSk === undefined) {
+      console.log(
+        `  - ${secretsFile} (COMPLIANCE SECRET KEY, written before any transaction, mode 0600)`,
+      );
+      console.log(
+        "    Move it into the secrets vault and remove the local copy. Losing it makes every note",
+      );
+      console.log(
+        "    encrypted to the compliance key permanently undecryptable.",
+      );
+    } else {
+      console.log(
+        "  - COMPLIANCE_SECRET_KEY was supplied via env; ensure it is already backed up.",
+      );
+    }
+    console.log();
+    console.log("The deployment is not done until the backup is pushed.");
   }
-  console.log();
-  console.log("The deployment is not done until the backup is pushed.");
 
   return {
     deployment: buildRecord(await ethers.provider.getBlockNumber()),
     deployFile,
-    secretsFile: existingSk ? null : secretsFile,
+    secretsFile: suppliedSk === undefined ? secretsFile : null,
   };
 }
 

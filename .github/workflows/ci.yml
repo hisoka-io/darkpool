@@ -73,20 +73,31 @@ jobs:
         run: bash scripts/check-node.sh
       - run: pnpm install --frozen-lockfile
       - name: Build packages
-        run: pnpm turbo run build --filter=@hisoka/wallets --filter=@hisoka/adaptors --filter=@hisoka/prover --filter=@hisoka/pss-client --filter=@hisoka/pss-server
+        run: pnpm turbo run build --filter=@hisoka/wallets --filter=@hisoka/adaptors --filter=@hisoka/prover --filter=@hisoka/pss-client --filter=@hisoka/pss-server --filter=@hisoka/howl-protocol
       - name: Typecheck TS packages
         run: |
-          out="$(pnpm turbo run typecheck --filter=@hisoka/pss-client --filter=@hisoka/pss-server --filter=@hisoka/pss-integration --filter=@hisoka/wallets --filter=@hisoka/prover --filter=@hisoka/howl-e2e --force 2>&1)" || rc=$?
+          out="$(pnpm turbo run typecheck --filter=@hisoka/pss-client --filter=@hisoka/pss-server --filter=@hisoka/pss-integration --filter=@hisoka/wallets --filter=@hisoka/prover --filter=@hisoka/howl-e2e --filter=@hisoka/howl-protocol --force 2>&1)" || rc=$?
           echo "$out"
           test "${rc:-0}" -eq 0 || { echo "::error::typecheck exited ${rc}"; exit 1; }
-          # turbo exits 0 when a package lacks the task, so assert the measured count instead. Six
+          # turbo exits 0 when a package lacks the task, so assert the measured count instead. Seven
           # typecheck tasks plus the builds their ^build dependency pulls in. The wallets entry covers
           # its TESTS, which is the only enforcement of the derived-ephemeral brand pin: the package
           # tsconfig excludes test files and vitest strips types.
           # The filter names every package that HAS a typecheck script except evm-contracts, which the
           # evm-tests job runs itself. Adding a script without adding it here leaves it unenforced.
-          echo "$out" | grep -qE "Tasks: +10 successful, 10 total" \
-            || { echo "::error::expected 10 typecheck tasks; a filter or a package script is missing"; exit 1; }
+          echo "$out" | grep -qE "Tasks: +12 successful, 12 total" \
+            || { echo "::error::expected 12 typecheck tasks; a filter or a package script is missing"; exit 1; }
+      - name: Test howl-protocol
+        run: |
+          out="$(pnpm --filter @hisoka/howl-protocol run test 2>&1)" || rc=$?
+          echo "$out"
+          test "${rc:-0}" -eq 0 || { echo "::error::howl-protocol tests exited ${rc}"; exit 1; }
+          echo "$out" | grep -qE "Tests +276 passed \(276\)" \
+            || { echo "::error::howl-protocol did not report exactly 276 passing tests"; exit 1; }
+      - name: Test howl-protocol exports
+        run: pnpm --filter @hisoka/howl-protocol run test:exports
+      - name: Browser bundle gate (howl-protocol)
+        run: pnpm --filter @hisoka/howl-protocol run test:bundle
       - name: Test wallets
         run: pnpm --filter @hisoka/wallets run test
       - name: Test adaptors

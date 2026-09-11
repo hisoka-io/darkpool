@@ -7,21 +7,9 @@
  */
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
+import type { CircuitId } from "@hisoka/howl-protocol/proving";
 
-/** Circuits an implementation may be asked for. Mirrors the on-chain circuit ids. */
-export type CircuitId =
-  | "deposit"
-  | "withdraw"
-  | "transfer"
-  | "split"
-  | "join"
-  | "public_claim"
-  | "withdraw_multisig"
-  | "transfer_multisig"
-  | "split_multisig"
-  | "join_multisig"
-  | "swap_intent"
-  | "swap_settle";
+export type { CircuitId } from "@hisoka/howl-protocol/proving";
 
 export interface ProofData {
   readonly proof: Uint8Array;
@@ -43,6 +31,7 @@ export interface ProverPort {
     readonly recursive: boolean;
     readonly environment: "native" | "wasm";
   }>;
+  /** Legacy generic seam retained until standard and non-standard local adapters are complete. */
   prove(circuit: CircuitId, witness: unknown): Promise<ProofData>;
 }
 

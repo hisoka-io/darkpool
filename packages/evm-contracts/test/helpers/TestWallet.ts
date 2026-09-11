@@ -40,10 +40,6 @@ import {
   proveSplit,
   proveJoin,
   provePublicClaim,
-  WithdrawInputs,
-  TransferInputs,
-  SplitInputs,
-  JoinInputs,
   PublicClaimInputs,
   ProofData,
 } from "@hisoka/prover";
@@ -287,9 +283,7 @@ export class TestWallet {
       changeMint,
       intentHash,
     });
-    const inputs = assembled.inputs as unknown as WithdrawInputs;
-
-    const proof = await proveWithdraw(inputs);
+    const proof = await proveWithdraw(assembled.inputs);
 
     if (!intentHash.isZero()) {
       return proof;
@@ -334,9 +328,7 @@ export class TestWallet {
     });
     const memo = assembled.memo;
     const change = assembled.change;
-    const inputs = assembled.inputs as unknown as TransferInputs;
-
-    const proof = await proveTransfer(inputs);
+    const proof = await proveTransfer(assembled.inputs);
     const tx = await this.darkPool
       .connect(this.signer)
       .privateTransfer(proof.proof, proof.publicInputs);
@@ -374,9 +366,7 @@ export class TestWallet {
         `split remainder ${out2.note.value.toBigInt()} does not match requested ${amountB}`,
       );
     }
-    const inputs = assembled.inputs as unknown as SplitInputs;
-
-    const proof = await proveSplit(inputs);
+    const proof = await proveSplit(assembled.inputs);
     const tx = await this.darkPool
       .connect(this.signer)
       .split(proof.proof, proof.publicInputs);
@@ -414,9 +404,7 @@ export class TestWallet {
       selfMint,
     });
     const out = assembled.out;
-    const inputs = assembled.inputs as unknown as JoinInputs;
-
-    const proof = await proveJoin(inputs);
+    const proof = await proveJoin(assembled.inputs);
     const tx = await this.darkPool
       .connect(this.signer)
       .join(proof.proof, proof.publicInputs);

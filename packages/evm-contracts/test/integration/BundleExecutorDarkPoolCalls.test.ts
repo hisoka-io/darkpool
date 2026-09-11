@@ -101,9 +101,18 @@ describe("BundleExecutor: permitted DarkPool calls inside a bundle", function ()
         requireSuccess: true,
         approveToken: tokenAddr,
         approveAmount: VALUE,
+        gasLimit: 3_000_000n,
+        returnDataLimit: 0n,
       },
     ];
-    const intent = await executor.intentHashOf(calls, deadline, []);
+    const trackedAssets = [tokenAddr];
+    const recipients: string[] = [];
+    const intent = await executor.intentHashOf(
+      calls,
+      deadline,
+      trackedAssets,
+      recipients,
+    );
     const withdrawProof = await proveWithdrawTo(
       ctx,
       tree,
@@ -125,7 +134,8 @@ describe("BundleExecutor: permitted DarkPool calls inside a bundle", function ()
           withdrawProof.publicInputs,
           calls,
           deadline,
-          [],
+          trackedAssets,
+          recipients,
         ),
     ).to.emit(darkPool, "Deposited");
 
@@ -176,6 +186,8 @@ describe("BundleExecutor: permitted DarkPool calls inside a bundle", function ()
         requireSuccess: true,
         approveToken: ZERO,
         approveAmount: 0n,
+        gasLimit: 3_000_000n,
+        returnDataLimit: 0n,
       },
       {
         target: tokenAddr,
@@ -187,9 +199,18 @@ describe("BundleExecutor: permitted DarkPool calls inside a bundle", function ()
         requireSuccess: true,
         approveToken: ZERO,
         approveAmount: 0n,
+        gasLimit: 200_000n,
+        returnDataLimit: 32n,
       },
     ];
-    const intent = await executor.intentHashOf(calls, deadline, []);
+    const trackedAssets = [tokenAddr];
+    const recipients = [bob.address, alice.address];
+    const intent = await executor.intentHashOf(
+      calls,
+      deadline,
+      trackedAssets,
+      recipients,
+    );
     const outerProof = await proveWithdrawTo(
       ctx,
       tree,
@@ -206,7 +227,14 @@ describe("BundleExecutor: permitted DarkPool calls inside a bundle", function ()
     const bobBefore = await token.balanceOf(bob.address);
     await executor
       .connect(alice)
-      .execute(outerProof.proof, outerProof.publicInputs, calls, deadline, []);
+      .execute(
+        outerProof.proof,
+        outerProof.publicInputs,
+        calls,
+        deadline,
+        trackedAssets,
+        recipients,
+      );
 
     expect(await token.balanceOf(bob.address)).to.equal(bobBefore + INNER);
     expect(await token.balanceOf(executorAddr)).to.equal(0n);

@@ -21,8 +21,6 @@
   "devDependencies": {
     "@aztec/bb.js": "5.0.0",
     "@aztec/foundation": "2.1.11",
-    "@hisoka-io/nox-client": "^0.1.9",
-    "@hisoka-io/nox-wasm": "^0.1.4",
     "@hisoka/howl-e2e": "workspace:*",
     "@hisoka/prover": "workspace:^",
     "@hisoka/wallets": "workspace:^",

@@ -57,7 +57,22 @@ lint:
 
 circular:
   @echo "Checking circular dependencies..."
-  pnpm exec dpdm --no-warning --no-tree --exit-code circular:1 packages/wallets/src/index.ts packages/adaptors/src/index.ts packages/prover/src/index.ts
+  pnpm exec dpdm --no-warning --no-tree --exit-code circular:1 \
+    packages/howl-protocol/src/index.ts \
+    packages/howl-protocol/src/proving/index.ts \
+    packages/wallets/src/index.ts \
+    packages/wallets/src/reference.ts \
+    packages/wallets/src/frost/index.ts \
+    packages/wallets/src/threshold/index.ts \
+    packages/wallets/src/unsafe-sim/index.ts \
+    packages/wallets/src/tx/index.ts \
+    packages/adaptors/src/index.ts \
+    packages/prover/src/index.ts \
+    packages/pss-client/src/index.ts \
+    packages/pss-client/src/wire/index.ts \
+    packages/pss-server/src/index.ts \
+    packages/pss-server/src/main.ts \
+    packages/howl-e2e/src/index.ts
 
 audit:
   pnpm audit
@@ -80,4 +95,3 @@ dev:
 
 nargo-check:
   cd packages/circuits && nargo check
-

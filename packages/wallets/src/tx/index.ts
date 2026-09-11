@@ -8,5 +8,6 @@
  */
 export * from "./plan.js";
 export * from "./ports.js";
+export * from "./protocol.js";
 export * from "./assemble.js";
 export * from "./witnessSources.js";

@@ -146,38 +146,50 @@ describe("Adversarial: BundleExecutor affirmation window", function () {
         "BundleExecutor",
       )) as unknown as BundleExecutor__factory
     ).deploy(await probe.getAddress());
-    return { probe, executor };
+    const token = await (
+      await ethers.getContractFactory("MockERC20")
+    ).deploy("Probe", "PRB", 18);
+    return { probe, executor, token };
   }
 
   async function pullArgs(
     executor: Awaited<ReturnType<typeof deployProbeFixture>>["executor"],
+    token: Awaited<ReturnType<typeof deployProbeFixture>>["token"],
   ) {
     const deadline = BigInt((await time.latest()) + 3600);
-    const intent = await executor.intentHashOf([], deadline, []);
+    const tokenAddr = await token.getAddress();
+    const intent = await executor.intentHashOf([], deadline, [tokenAddr], []);
     const publicInputs = Array(17).fill(ethers.ZeroHash);
     publicInputs[1] = ethers.zeroPadValue(await executor.getAddress(), 32);
-    return { deadline, intent, publicInputs };
+    publicInputs[7] = ethers.zeroPadValue(tokenAddr, 32);
+    return { deadline, intent, publicInputs, tokenAddr };
   }
 
   it("affirms the pull its own execute opened", async function () {
-    const { probe, executor } = await loadFixture(deployProbeFixture);
-    const { deadline, intent, publicInputs } = await pullArgs(executor);
+    const { probe, executor, token } = await loadFixture(deployProbeFixture);
+    const { deadline, intent, publicInputs, tokenAddr } = await pullArgs(
+      executor,
+      token,
+    );
 
     await probe.setProbe(ethers.ZeroHash, intent);
 
     await expect(
-      executor.execute("0x", publicInputs, [], deadline, []),
+      executor.execute("0x", publicInputs, [], deadline, [tokenAddr], []),
     ).to.emit(executor, "BundleExecuted");
   });
 
   it("refuses a second pull raised inside that window on intent mismatch", async function () {
-    const { probe, executor } = await loadFixture(deployProbeFixture);
-    const { deadline, intent, publicInputs } = await pullArgs(executor);
+    const { probe, executor, token } = await loadFixture(deployProbeFixture);
+    const { deadline, intent, publicInputs, tokenAddr } = await pullArgs(
+      executor,
+      token,
+    );
 
     await probe.setProbe(ethers.ZeroHash, intent + 1n);
 
     await expect(
-      executor.execute("0x", publicInputs, [], deadline, []),
+      executor.execute("0x", publicInputs, [], deadline, [tokenAddr], []),
     ).to.be.revertedWithCustomError(executor, "IntentMismatch");
   });
 

@@ -439,7 +439,7 @@ contract NoxRegistry is
         emit Unstaked(msg.sender, amount);
     }
 
-    /// @notice Freeze a node so it cannot cancel its unstake or exit. Intentionally pause-exempt.
+    /// @notice Freeze a node out of topology and rewards while preserving its slashable registration.
     function freeze(address _relayer) external onlyRole(SLASHER_ROLE) {
         RelayerProfile storage profile = _registry().relayers[_relayer];
         if (!profile.isRegistered) revert NotRegistered();
@@ -533,9 +533,10 @@ contract NoxRegistry is
         _unpause();
     }
 
-    /// @notice True for any registered relayer, including one mid-unstake.
+    /// @notice True for an unfrozen registered relayer, including one mid-unstake.
     function isActiveRelayer(address _relayer) external view returns (bool) {
-        return _registry().relayers[_relayer].isRegistered;
+        RelayerProfile storage profile = _registry().relayers[_relayer];
+        return profile.isRegistered && !profile.frozen;
     }
 
     /// @notice Unset (0) reads as ROLE_FULL.

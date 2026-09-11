@@ -14,24 +14,24 @@ export interface NoteInput {
 }
 
 export interface DepositInputs {
-  compliancePk: Point<bigint>;
-  note: NoteInput;
-  eph: DerivedEph;
+  readonly compliancePk: Point<bigint>;
+  readonly note: NoteInput;
+  readonly eph: DerivedEph;
 }
 
 export interface WithdrawInputs {
-  withdrawValue: Fr;
-  recipient: Fr;
-  intentHash: Fr;
-  compliancePk: Point<bigint>;
+  readonly withdrawValue: Fr;
+  readonly recipient: Fr;
+  readonly intentHash: Fr;
+  readonly compliancePk: Point<bigint>;
 
-  oldNote: NoteInput;
-  spendScalar: Fr;
-  oldNoteIndex: number;
-  oldNotePath: Fr[];
+  readonly oldNote: NoteInput;
+  readonly spendScalar: Fr;
+  readonly oldNoteIndex: number;
+  readonly oldNotePath: readonly Fr[];
 
-  changeNote: NoteInput;
-  changeEph: DerivedEph;
+  readonly changeNote: NoteInput;
+  readonly changeEph: DerivedEph;
 }
 
 // gpk's scalar is t-of-n shared and cannot ECDH, so viewPub carries discovery and decryption.
@@ -41,69 +41,69 @@ export interface MultisigMemoRecipient {
 }
 
 export interface TransferInputs {
-  compliancePk: Point<bigint>;
-  recipientInPub?: Point<bigint>;
-  recipientMultisig?: MultisigMemoRecipient;
+  readonly compliancePk: Point<bigint>;
+  readonly recipientInPub?: Point<bigint>;
+  readonly recipientMultisig?: MultisigMemoRecipient;
 
-  oldNote: NoteInput;
-  spendScalar: Fr;
-  oldNoteIndex: number;
-  oldNotePath: Fr[];
+  readonly oldNote: NoteInput;
+  readonly spendScalar: Fr;
+  readonly oldNoteIndex: number;
+  readonly oldNotePath: readonly Fr[];
 
-  memoNote: NoteInput;
-  memoEph: Fr;
+  readonly memoNote: NoteInput;
+  readonly memoEph: Fr;
 
-  changeNote: NoteInput;
-  changeEph: DerivedEph;
+  readonly changeNote: NoteInput;
+  readonly changeEph: DerivedEph;
 }
 
 export interface SplitInputs {
-  compliancePk: Point<bigint>;
+  readonly compliancePk: Point<bigint>;
 
-  noteIn: NoteInput;
-  spendScalar: Fr;
-  indexIn: number;
-  pathIn: Fr[];
+  readonly noteIn: NoteInput;
+  readonly spendScalar: Fr;
+  readonly indexIn: number;
+  readonly pathIn: readonly Fr[];
 
-  noteOut1: NoteInput;
-  eph1: DerivedEph;
+  readonly noteOut1: NoteInput;
+  readonly eph1: DerivedEph;
 
-  noteOut2: NoteInput;
-  eph2: DerivedEph;
+  readonly noteOut2: NoteInput;
+  readonly eph2: DerivedEph;
 }
 
 export interface JoinInputs {
-  compliancePk: Point<bigint>;
+  readonly compliancePk: Point<bigint>;
 
-  noteA: NoteInput;
-  spendScalarA: Fr;
-  indexA: number;
-  pathA: Fr[];
+  readonly noteA: NoteInput;
+  readonly spendScalarA: Fr;
+  readonly indexA: number;
+  readonly pathA: readonly Fr[];
 
-  noteB: NoteInput;
-  spendScalarB: Fr;
-  indexB: number;
-  pathB: Fr[];
+  readonly noteB: NoteInput;
+  readonly spendScalarB: Fr;
+  readonly indexB: number;
+  readonly pathB: readonly Fr[];
 
-  noteOut: NoteInput;
-  ephOut: DerivedEph;
+  readonly noteOut: NoteInput;
+  readonly ephOut: DerivedEph;
 }
 
 export interface PublicClaimInputs {
-  memoId: Fr;
-  compliancePk: Point<bigint>;
-  currentTimestamp: number;
+  readonly memoId: Fr;
+  readonly compliancePk: Point<bigint>;
+  readonly currentTimestamp: number;
 
-  val: Fr;
-  assetId: Fr;
-  timelock: Fr;
-  ownerX: Fr;
-  ownerY: Fr;
-  salt: Fr;
+  readonly val: Fr;
+  readonly assetId: Fr;
+  readonly timelock: Fr;
+  readonly ownerX: Fr;
+  readonly ownerY: Fr;
+  readonly salt: Fr;
 
-  recipientSk: Fr;
-  noteOut: NoteInput;
-  eph: DerivedEph;
+  readonly recipientSk: Fr;
+  readonly noteOut: NoteInput;
+  readonly eph: DerivedEph;
 }
 
 export interface ProofData {

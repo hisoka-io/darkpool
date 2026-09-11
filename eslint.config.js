@@ -58,7 +58,7 @@ export default tseslint.config(
   // `no-explicit-any` is off repo-wide, so it has to be re-enabled per package. Scoped by glob rather
   // than repeated per block, because a new pss-* package otherwise silently opts out of it.
   {
-    files: ["packages/pss-*/**/*.ts"],
+    files: ["packages/howl-protocol/**/*.ts", "packages/pss-*/**/*.ts"],
     rules: { "@typescript-eslint/no-explicit-any": "error" },
   },
 

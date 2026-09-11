@@ -252,6 +252,13 @@ describe("Nox UUPS: ERC-7201 slots + proxy init + upgrade auth", function () {
 
       await pool.connect(admin).setAssetStatus(asset, true);
       expect(await pool.isSupportedAsset(asset)).to.equal(true);
+      await mockRegistry.setActive(admin.address, true);
+      await token.mint(admin.address, 1000n);
+      await token.connect(admin).approve(proxy, 1000n);
+      await pool.connect(admin).depositRewards(asset, 1000n);
+      await pool
+        .connect(admin)
+        .distributeRewards(asset, [admin.address], [400n]);
       const registryLinkBefore = await pool.noxRegistry();
       expect(registryLinkBefore).to.equal(await mockRegistry.getAddress());
 
@@ -267,6 +274,10 @@ describe("Nox UUPS: ERC-7201 slots + proxy init + upgrade auth", function () {
       expect(await upgraded.version()).to.equal(2n);
       expect(await upgraded.isSupportedAsset(asset)).to.equal(true);
       expect(await upgraded.noxRegistry()).to.equal(registryLinkBefore);
+      expect(await upgraded.totalCollected(asset)).to.equal(1000n);
+      expect(await upgraded.totalDistributed(asset)).to.equal(400n);
+      await upgraded.connect(admin).classifyAsset(asset);
+      expect(await upgraded.networkOutstanding(asset)).to.equal(600n);
     });
   });
 });

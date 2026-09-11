@@ -1,4 +1,5 @@
 import { Fr } from "@aztec/foundation/fields";
+import type { DerivedEph } from "../types/ephemeral.js";
 import type { SelfMintAuthorization } from "../discovery/preflight.js";
 import { consumeSelfMints } from "../discovery/preflight.js";
 import { Point } from "@zk-kit/baby-jubjub";
@@ -34,32 +35,32 @@ const MAX_TIMESTAMP = (1n << 64n) - 1n;
 /** The prover's `NoteInput` shape (value as a field, range-checked at its marshal boundary). Mirrored
  *  rather than imported: `@hisoka/prover` depends on this package, so importing it back would cycle. */
 export interface ProverNoteInput {
-  noteVersion: Fr;
-  assetId: Fr;
-  noteType: Fr;
-  conditionsHash: Fr;
-  value: Fr;
-  owner: Fr;
-  psi: Fr;
-  parents: Fr;
+  readonly noteVersion: Fr;
+  readonly assetId: Fr;
+  readonly noteType: Fr;
+  readonly conditionsHash: Fr;
+  readonly value: Fr;
+  readonly owner: Fr;
+  readonly psi: Fr;
+  readonly parents: Fr;
 }
 
 /** Structurally the prover's `PublicClaimInputs`; pass straight to `provePublicClaim`. */
 export interface PublicClaimWitness {
-  memoId: Fr;
-  compliancePk: Point<bigint>;
-  currentTimestamp: number;
+  readonly memoId: Fr;
+  readonly compliancePk: Point<bigint>;
+  readonly currentTimestamp: number;
 
-  val: Fr;
-  assetId: Fr;
-  timelock: Fr;
-  ownerX: Fr;
-  ownerY: Fr;
-  salt: Fr;
+  readonly val: Fr;
+  readonly assetId: Fr;
+  readonly timelock: Fr;
+  readonly ownerX: Fr;
+  readonly ownerY: Fr;
+  readonly salt: Fr;
 
-  recipientSk: Fr;
-  noteOut: ProverNoteInput;
-  eph: Fr;
+  readonly recipientSk: Fr;
+  readonly noteOut: ProverNoteInput;
+  readonly eph: DerivedEph;
 }
 
 /** The key-repository capability a claim needs after its self ephemeral has been preflighted. */

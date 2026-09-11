@@ -16,6 +16,10 @@ interface Record {
   governance: { timelock: string; govSafe: string; guardianSafe: string };
   compliance: { publicKeyX: string; publicKeyY: string };
   contracts: Record_<string>;
+  constructorArgs: Record_<unknown[]>;
+  contractCodeHashes: Record_<string>;
+  proxySlots: Record_<{ impl: string; admin: string }>;
+  proxyImplementationCodeHashes: Record_<string>;
   vkHashes: Record_<string>;
   circuitHashes: Record_<string>;
   versions: { solidity: unknown[]; solidityOverrides: Record_<unknown> };
@@ -60,6 +64,25 @@ async function runDeploy(
   }
 }
 
+async function expectPreTransactionFailure(
+  env: Record_<string>,
+  expectedMessage: string,
+): Promise<void> {
+  const [deployer] = await ethers.getSigners();
+  const blockBefore = await ethers.provider.getBlockNumber();
+  const nonceBefore = await ethers.provider.getTransactionCount(
+    deployer.address,
+  );
+  const result = await runDeploy({ GOV_SAFE, GUARDIAN_SAFE, ...env });
+  expect(result.ok).to.equal(false);
+  expect(result.output).to.contain(expectedMessage);
+  expect(result.output).to.not.contain("Step 1: Poseidon2");
+  expect(await ethers.provider.getBlockNumber()).to.equal(blockBefore);
+  expect(await ethers.provider.getTransactionCount(deployer.address)).to.equal(
+    nonceBefore,
+  );
+}
+
 function latestRecord(): Record {
   return JSON.parse(
     fs.readFileSync(path.join(DEPLOY_DIR, "hardhat-latest.json"), "utf8"),
@@ -82,6 +105,11 @@ describe("deploy script", function () {
     expect(result.output).to.contain("DEPLOYMENT COMPLETE");
   });
 
+  it("does not label an ephemeral local deployment as requiring a private backup", function () {
+    expect(result.output).to.contain("Local ephemeral deployment");
+    expect(result.output).to.not.contain("REQUIRED BACKUP");
+  });
+
   it("checks the governance topology BEFORE the irreversible renounce", function () {
     const preflight = result.output.indexOf("Step 9: Preflight");
     const renounce = result.output.indexOf("Renouncing deployer's Timelock");
@@ -98,6 +126,10 @@ describe("deploy script", function () {
       "darkPool",
       "noxRegistry",
       "noxRewardPool",
+      "noxSandboxImplementation",
+      "noxEntryPoint",
+      "howlPaymentAdapter",
+      "bundleExecutor",
       "complianceRegistry",
       "stakingToken",
     ]) {
@@ -106,6 +138,80 @@ describe("deploy script", function () {
     for (const key of Object.keys(record.contracts)) {
       if (key === "uniswapAdaptor") continue;
       expect(record.contracts[key], key).to.not.equal(ethers.ZeroAddress);
+    }
+  });
+
+  it("wires the immutable paid-execution contracts and classifies the local fee asset", async function () {
+    const pool = await ethers.getContractAt(
+      "NoxRewardPool",
+      record.contracts.noxRewardPool,
+    );
+    const entryPoint = await ethers.getContractAt(
+      "NoxEntryPoint",
+      record.contracts.noxEntryPoint,
+    );
+    const adapter = await ethers.getContractAt(
+      "HowlPaymentAdapter",
+      record.contracts.howlPaymentAdapter,
+    );
+    const executor = await ethers.getContractAt(
+      "BundleExecutor",
+      record.contracts.bundleExecutor,
+    );
+
+    expect(await entryPoint.REWARD_POOL()).to.equal(
+      record.contracts.noxRewardPool,
+    );
+    expect(await entryPoint.SANDBOX_IMPLEMENTATION()).to.equal(
+      record.contracts.noxSandboxImplementation,
+    );
+    expect(await adapter.DARK_POOL()).to.equal(record.contracts.darkPool);
+    expect(await adapter.ENTRY_POINT()).to.equal(
+      record.contracts.noxEntryPoint,
+    );
+    expect(await executor.DARK_POOL()).to.equal(record.contracts.darkPool);
+    expect(
+      await pool.hasRole(
+        await pool.ENTRYPOINT_ROLE(),
+        record.contracts.noxEntryPoint,
+      ),
+    ).to.equal(true);
+    expect(await pool.isSupportedAsset(record.contracts.stakingToken)).to.equal(
+      true,
+    );
+    expect(
+      await pool.isAssetClassified(record.contracts.stakingToken),
+    ).to.equal(true);
+  });
+
+  it("records constructor arguments and deployed code hashes for every current contract", async function () {
+    expect(record.constructorArgs.noxEntryPoint).to.deep.equal([
+      record.contracts.noxRewardPool,
+      record.contracts.noxSandboxImplementation,
+    ]);
+    expect(record.constructorArgs.howlPaymentAdapter).to.deep.equal([
+      record.contracts.darkPool,
+      record.contracts.noxEntryPoint,
+    ]);
+    expect(record.constructorArgs.bundleExecutor).to.deep.equal([
+      record.contracts.darkPool,
+    ]);
+
+    for (const [name, address] of Object.entries(record.contracts)) {
+      if (address === "") continue;
+      const code = await ethers.provider.getCode(address);
+      expect(code, name).to.not.equal("0x");
+      expect(record.contractCodeHashes[name], name).to.equal(
+        ethers.keccak256(code),
+      );
+    }
+    for (const [name, slots] of Object.entries(record.proxySlots)) {
+      const implementationCode = await ethers.provider.getCode(slots.impl);
+      expect(implementationCode, `${name} implementation`).to.not.equal("0x");
+      expect(record.proxyImplementationCodeHashes[name], name).to.equal(
+        ethers.keccak256(implementationCode),
+      );
+      expect(slots.admin).to.equal(ethers.ZeroAddress);
     }
   });
 
@@ -286,6 +392,63 @@ describe("deploy script preconditions", function () {
     const r = await runDeploy({ GOV_SAFE: "", GUARDIAN_SAFE });
     expect(r.ok).to.equal(false);
     expect(r.output).to.contain("GOV_SAFE is not set");
+  });
+
+  it("rejects malformed and duplicate fee assets before any transaction", async function () {
+    await expectPreTransactionFailure(
+      { FEE_ASSETS: "not-an-address" },
+      "FEE_ASSETS contains an invalid ERC20 address",
+    );
+    const duplicate = "0x1111111111111111111111111111111111111111";
+    await expectPreTransactionFailure(
+      { FEE_ASSETS: `${duplicate},${duplicate}` },
+      "FEE_ASSETS contains a duplicate ERC20 address",
+    );
+  });
+
+  it("rejects an invalid swap router before any transaction", async function () {
+    await expectPreTransactionFailure(
+      { SWAP_ROUTER: "not-an-address" },
+      "SWAP_ROUTER is not a valid address",
+    );
+  });
+
+  it("rejects an invalid staking token before any transaction", async function () {
+    await expectPreTransactionFailure(
+      { STAKING_TOKEN: "not-an-address" },
+      "STAKING_TOKEN is not a valid address",
+    );
+  });
+
+  it("rejects invalid compliance committee bounds before any transaction", async function () {
+    await expectPreTransactionFailure(
+      { COMPLIANCE_THRESHOLD: "0", COMPLIANCE_COMMITTEE_SIZE: "5" },
+      "COMPLIANCE_THRESHOLD must be positive",
+    );
+    await expectPreTransactionFailure(
+      { COMPLIANCE_THRESHOLD: "6", COMPLIANCE_COMMITTEE_SIZE: "5" },
+      "COMPLIANCE_THRESHOLD must not exceed COMPLIANCE_COMMITTEE_SIZE",
+    );
+  });
+
+  it("rejects a compliance secret that reduces to zero before any transaction", async function () {
+    await expectPreTransactionFailure(
+      {
+        COMPLIANCE_SECRET_KEY:
+          "2736030358979909402780800718157159386076813972158567259200215660948447373041",
+      },
+      "COMPLIANCE_SECRET_KEY reduces to zero",
+    );
+  });
+
+  it("rejects ambiguous production and local compliance keys before any transaction", async function () {
+    await expectPreTransactionFailure(
+      {
+        COMPLIANCE_SECRET_KEY: "1",
+        LOCAL_TEST_COMPLIANCE_SECRET_KEY: "2",
+      },
+      "Set only one of COMPLIANCE_SECRET_KEY or LOCAL_TEST_COMPLIANCE_SECRET_KEY",
+    );
   });
 });
 

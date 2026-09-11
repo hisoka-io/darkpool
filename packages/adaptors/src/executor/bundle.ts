@@ -1,23 +1,40 @@
 import { Fr } from "@hisoka/wallets";
 import { AbiCoder, Interface, keccak256 } from "ethers";
-import { BundleCall, BuiltBundle } from "./types.js";
+import { BundleCall, BundleDomain, BuiltBundle } from "./types.js";
+
+const BUNDLE_VERSION = 2n;
 
 /** Field order MUST match the Solidity `BundleExecutor.BundleCall` struct, or the intent hash diverges. */
 const BUNDLE_CALL_TUPLE =
-  "tuple(address target, bytes data, uint256 value, bool requireSuccess, address approveToken, uint256 approveAmount)[]";
+  "tuple(address target, bytes data, uint256 value, bool requireSuccess, address approveToken, uint256 approveAmount, uint256 gasLimit, uint256 returnDataLimit)[]";
 
 const REWARD_POOL_IFACE = new Interface([
   "function depositRewards(address asset, uint256 amount)",
 ]);
 
 function encodeBundle(
-  boundCalls: BundleCall[],
+  domain: BundleDomain,
+  boundCalls: readonly BundleCall[],
   deadline: bigint,
-  assetsToClear: string[],
+  trackedAssets: readonly string[],
+  recipients: readonly string[],
 ): string {
   return AbiCoder.defaultAbiCoder().encode(
-    [BUNDLE_CALL_TUPLE, "uint256", "address[]"],
     [
+      "uint256",
+      "uint256",
+      "address",
+      "address",
+      BUNDLE_CALL_TUPLE,
+      "uint256",
+      "address[]",
+      "address[]",
+    ],
+    [
+      BUNDLE_VERSION,
+      domain.chainId,
+      domain.executor,
+      domain.darkPool,
       boundCalls.map((c) => [
         c.target,
         c.data,
@@ -25,27 +42,47 @@ function encodeBundle(
         c.requireSuccess,
         c.approveToken,
         c.approveAmount,
+        c.gasLimit,
+        c.returnDataLimit,
       ]),
       deadline,
-      assetsToClear,
+      trackedAssets,
+      recipients,
     ],
   );
 }
 
 export function buildBundle(
-  boundCalls: BundleCall[],
+  domain: BundleDomain,
+  boundCalls: readonly BundleCall[],
   deadline: bigint,
-  assetsToClear: string[],
+  trackedAssets: readonly string[],
+  recipients: readonly string[],
 ): BuiltBundle {
-  const encodedBundle = encodeBundle(boundCalls, deadline, assetsToClear);
+  const encodedBundle = encodeBundle(
+    domain,
+    boundCalls,
+    deadline,
+    trackedAssets,
+    recipients,
+  );
   const intentHash = new Fr(BigInt(keccak256(encodedBundle)) % Fr.MODULUS);
-  return { intentHash, boundCalls, deadline, assetsToClear, encodedBundle };
+  return {
+    intentHash,
+    domain,
+    boundCalls: [...boundCalls],
+    deadline,
+    trackedAssets: [...trackedAssets],
+    recipients: [...recipients],
+    encodedBundle,
+  };
 }
 
 export function treasuryDepositCall(
   treasury: string,
   feeAsset: string,
   feeAmount: bigint,
+  gasLimit: bigint,
 ): BundleCall {
   return {
     target: treasury,
@@ -57,33 +94,43 @@ export function treasuryDepositCall(
     requireSuccess: true,
     approveToken: feeAsset,
     approveAmount: feeAmount,
+    gasLimit,
+    returnDataLimit: 0n,
   };
 }
 
-export function buildGasPaymentBundle(
+export function buildFeePaymentBundle(
+  domain: BundleDomain,
   feeAsset: string,
   feeAmount: bigint,
   treasury: string,
   deadline: bigint,
+  feeCallGasLimit: bigint,
 ): BuiltBundle {
   return buildBundle(
-    [treasuryDepositCall(treasury, feeAsset, feeAmount)],
+    domain,
+    [treasuryDepositCall(treasury, feeAsset, feeAmount, feeCallGasLimit)],
     deadline,
+    [feeAsset],
     [],
   );
 }
 
 export interface SwapFeeBundleParams {
-  router: string;
-  swapCalldata: string;
-  tokenIn: string;
-  amountIn: bigint;
-  tokenOut: string;
-  treasury: string;
-  feeAmount: bigint;
+  readonly domain: BundleDomain;
+  readonly router: string;
+  readonly swapCalldata: string;
+  readonly tokenIn: string;
+  readonly amountIn: bigint;
+  readonly tokenOut: string;
+  readonly treasury: string;
+  readonly feeAmount: bigint;
+  readonly swapGasLimit: bigint;
+  readonly feeCallGasLimit: bigint;
   /** MUST zero the remaining `tokenOut` or the residual assert reverts. */
-  distributionCalls?: BundleCall[];
-  deadline: bigint;
+  readonly distributionCalls?: readonly BundleCall[];
+  readonly recipients: readonly string[];
+  readonly deadline: bigint;
 }
 
 export function buildSwapFeeBundle(params: SwapFeeBundleParams): BuiltBundle {
@@ -94,15 +141,21 @@ export function buildSwapFeeBundle(params: SwapFeeBundleParams): BuiltBundle {
     requireSuccess: true,
     approveToken: params.tokenIn,
     approveAmount: params.amountIn,
+    gasLimit: params.swapGasLimit,
+    returnDataLimit: 32n,
   };
   const feeCall = treasuryDepositCall(
     params.treasury,
     params.tokenOut,
     params.feeAmount,
+    params.feeCallGasLimit,
   );
   const boundCalls = [swapCall, feeCall, ...(params.distributionCalls ?? [])];
-  return buildBundle(boundCalls, params.deadline, [
-    params.tokenIn,
-    params.tokenOut,
-  ]);
+  return buildBundle(
+    params.domain,
+    boundCalls,
+    params.deadline,
+    [params.tokenIn, params.tokenOut],
+    params.recipients,
+  );
 }

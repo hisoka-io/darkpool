@@ -89,9 +89,17 @@ describe("Adversarial: BundleExecutor nested-withdraw confused deputy", function
         requireSuccess: true,
         approveToken: tokenAddr,
         approveAmount: VICTIM_VALUE,
+        gasLimit: 200_000n,
+        returnDataLimit: 0n,
       },
     ];
-    const victimIntent = await executor.intentHashOf(victimCalls, deadline, []);
+    const trackedAssets = [tokenAddr];
+    const victimIntent = await executor.intentHashOf(
+      victimCalls,
+      deadline,
+      trackedAssets,
+      [],
+    );
     const victimProof = await proveToExecutor(
       ctx,
       treeAfterVictim,
@@ -122,6 +130,8 @@ describe("Adversarial: BundleExecutor nested-withdraw confused deputy", function
         requireSuccess: true,
         approveToken: ZERO,
         approveAmount: 0n,
+        gasLimit: 3_000_000n,
+        returnDataLimit: 256n,
       },
       {
         target: tokenAddr,
@@ -133,12 +143,15 @@ describe("Adversarial: BundleExecutor nested-withdraw confused deputy", function
         requireSuccess: true,
         approveToken: ZERO,
         approveAmount: 0n,
+        gasLimit: 200_000n,
+        returnDataLimit: 32n,
       },
     ];
     const attackerIntent = await executor.intentHashOf(
       attackerCalls,
       deadline,
-      [],
+      trackedAssets,
+      [attacker.address],
     );
     const attackerProof = await proveToExecutor(
       ctx,
@@ -163,7 +176,8 @@ describe("Adversarial: BundleExecutor nested-withdraw confused deputy", function
           attackerProof.publicInputs,
           attackerCalls,
           deadline,
-          [],
+          trackedAssets,
+          [attacker.address],
         ),
     )
       .to.be.revertedWithCustomError(executor, "NestedWithdrawToSelf")
@@ -183,6 +197,7 @@ describe("Adversarial: BundleExecutor nested-withdraw confused deputy", function
         victimProof.publicInputs,
         victimCalls,
         deadline,
+        trackedAssets,
         [],
       );
     expect(await token.balanceOf(executorAddr)).to.equal(0n);
@@ -213,9 +228,17 @@ describe("Adversarial: BundleExecutor nested-withdraw confused deputy", function
         requireSuccess: true,
         approveToken: ZERO,
         approveAmount: 0n,
+        gasLimit: 200_000n,
+        returnDataLimit: 256n,
       },
     ];
-    const intent = await executor.intentHashOf(calls, deadline, []);
+    const trackedAssets = [await token.getAddress()];
+    const intent = await executor.intentHashOf(
+      calls,
+      deadline,
+      trackedAssets,
+      [],
+    );
     const proof = await proveToExecutor(
       ctx,
       tree,
@@ -231,7 +254,14 @@ describe("Adversarial: BundleExecutor nested-withdraw confused deputy", function
     await expect(
       executor
         .connect(attacker)
-        .execute(proof.proof, proof.publicInputs, calls, deadline, []),
+        .execute(
+          proof.proof,
+          proof.publicInputs,
+          calls,
+          deadline,
+          trackedAssets,
+          [],
+        ),
     )
       .to.be.revertedWithCustomError(executor, "UnsupportedDarkPoolCall")
       .withArgs(0, joinData.slice(0, 10));
@@ -258,9 +288,14 @@ describe("Adversarial: BundleExecutor nested-withdraw confused deputy", function
         requireSuccess: true,
         approveToken: ZERO,
         approveAmount: 0n,
+        gasLimit: 200_000n,
+        returnDataLimit: 32n,
       },
     ];
-    const intent = await executor.intentHashOf(calls, deadline, []);
+    const trackedAssets = [tokenAddr];
+    const intent = await executor.intentHashOf(calls, deadline, trackedAssets, [
+      attacker.address,
+    ]);
     const proof = await proveToExecutor(
       ctx,
       tree,
@@ -276,7 +311,14 @@ describe("Adversarial: BundleExecutor nested-withdraw confused deputy", function
     await expect(
       executor
         .connect(attacker)
-        .execute(proof.proof, proof.publicInputs, calls, deadline, []),
+        .execute(
+          proof.proof,
+          proof.publicInputs,
+          calls,
+          deadline,
+          trackedAssets,
+          [attacker.address],
+        ),
     )
       .to.be.revertedWithCustomError(executor, "AllowanceCallForbidden")
       .withArgs(0);
