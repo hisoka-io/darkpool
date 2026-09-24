@@ -1,8 +1,10 @@
 /**
  * Guardian Safe actions on NoxRegistry: freeze or unfreeze nodes (SLASHER_ROLE, held directly by the
- * Guardian Safe, so no Timelock). A frozen node drops out of the topology and rewards but stays registered and
- * slashable. Several nodes go out in one atomic Safe transaction; nodes already in the target state are
- * skipped, so a re-run is a no-op.
+ * Guardian Safe, so no Timelock). A frozen node stays registered and slashable; isActiveRelayer turns false, so
+ * it loses reward eligibility and the indexer reports it offline. Nodes that build their topology from registry
+ * events do not read the flag and keep routing through it: to take a node out of routing, forceUnregister it
+ * through the Gov Safe and the Timelock (scripts/gov/safe-exec.ts). Several nodes go out in one atomic Safe
+ * transaction; nodes already in the target state are skipped, so a re-run is a no-op.
  *
  * Required env:
  *   GUARDIAN_ACTION  freeze | unfreeze
@@ -136,6 +138,11 @@ async function main(): Promise<void> {
       );
     }
     console.log(`  [ok] ${address} frozen=${row.frozen} active=${active}`);
+  }
+  if (wantFrozen) {
+    console.log(
+      "  NOTE: nodes keep routing through a frozen node; forceUnregister it through the Gov Safe and the Timelock to remove it from routing.",
+    );
   }
 }
 
