@@ -3,7 +3,9 @@ import { ethers, network } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
+import * as os from "os";
 import {
+  assertNoPriorDeployment,
   deploy,
   governanceDelays,
   type DeployOptions,
@@ -129,6 +131,22 @@ describe("deploy script", function () {
     // Ordering is the property. Validating after the renounce leaves a failure nobody can repair.
     expect(preflight).to.be.lessThan(verified);
     expect(verified).to.be.lessThan(renounce);
+  });
+
+  it("pins every holder of every role before the renounce and again after it", function () {
+    const preflight = result.output.indexOf(
+      "[ok] Every role on Timelock, DarkPool, NoxRegistry, NoxRewardPool and ComplianceRegistry is held by exactly",
+    );
+    const renounce = result.output.indexOf("Renouncing deployer's Timelock");
+    const recheck = result.output.indexOf(
+      "[ok] Every role on Timelock, DarkPool, NoxRegistry, NoxRewardPool and ComplianceRegistry is still held",
+    );
+    expect(preflight).to.be.greaterThan(-1);
+    expect(preflight).to.be.lessThan(renounce);
+    expect(recheck).to.be.greaterThan(renounce);
+    expect(result.output).to.contain(
+      "[ok] Timelock has no scheduled or executed operation; proxy implementations are unchanged",
+    );
   });
 
   it("deploys every contract and records an address for each", function () {
@@ -535,6 +553,126 @@ describe("preflight aborts a mis-wired topology before the renounce", function (
       "[FAIL] DarkPool PAUSER does NOT hold Timelock CANCELLER",
     );
     expect(r.output).to.not.contain("Renouncing");
+  });
+
+  it("catches a third party holding Timelock PROPOSER, which only the full holder-set scan sees", async function () {
+    const r = await runDeploy(
+      { GOV_SAFE, GUARDIAN_SAFE, STAKING_TOKEN: "" },
+      {
+        afterGovernanceWiring: async ({ grantTimelockRole, proposerRole }) => {
+          await grantTimelockRole(proposerRole, THIRD_PARTY);
+        },
+      },
+    );
+    expect(r.ok).to.equal(false);
+    expect(r.output).to.contain(
+      `[FAIL] Timelock.PROPOSER_ROLE is held by {govSafe, ${THIRD_PARTY}}, expected {govSafe}`,
+    );
+    expect(r.output).to.contain("[ok] Gov Safe is Timelock PROPOSER");
+    expect(r.output).to.not.contain("Renouncing");
+  });
+});
+
+describe("post-renounce re-check", function () {
+  this.timeout(600000);
+
+  it("refuses the deployment when the deployer key granted a role between the preflight and the renounce", async function () {
+    const r = await runDeploy(
+      { GOV_SAFE, GUARDIAN_SAFE, STAKING_TOKEN: "" },
+      {
+        beforeRenounce: async ({ grantTimelockRole, executorRole }) => {
+          await grantTimelockRole(executorRole, THIRD_PARTY);
+        },
+      },
+    );
+    expect(r.ok).to.equal(false);
+    expect(r.output).to.contain("Governance topology verified");
+    expect(r.output).to.contain("Deployer renounced Timelock DEFAULT_ADMIN");
+    expect(r.output).to.contain(
+      `[FAIL] Timelock.EXECUTOR_ROLE is held by {govSafe, ${THIRD_PARTY}}, expected {govSafe}`,
+    );
+    expect(r.output).to.contain("SECURITY: after the renounce");
+    expect(r.output).to.not.contain("DEPLOYMENT COMPLETE");
+  });
+
+  it("refuses the deployment when a Timelock operation ran in that window, even with every grant revoked", async function () {
+    const r = await runDeploy(
+      {
+        GOV_SAFE,
+        GUARDIAN_SAFE,
+        STAKING_TOKEN: "",
+        TIMELOCK_MIN_DELAY_SECS: "0",
+        ADMIN_TRANSFER_DELAY_SECS: "0",
+      },
+      {
+        beforeRenounce: async ({
+          grantTimelockRole,
+          proposerRole,
+          executorRole,
+          deployer,
+        }) => {
+          await grantTimelockRole(proposerRole, deployer);
+          await grantTimelockRole(executorRole, deployer);
+          const [grant] = await ethers.provider.getLogs({
+            fromBlock: await ethers.provider.getBlockNumber(),
+            topics: [
+              ethers.id("RoleGranted(bytes32,address,address)"),
+              executorRole,
+              ethers.zeroPadValue(deployer, 32),
+            ],
+          });
+          const timelock = await ethers.getContractAt(
+            "TimelockController",
+            grant.address,
+          );
+          const call = [
+            grant.address,
+            0,
+            timelock.interface.encodeFunctionData("updateDelay", [0]),
+            ethers.ZeroHash,
+            ethers.id("window"),
+          ] as const;
+          await (await timelock.schedule(...call, 0)).wait();
+          await (await timelock.execute(...call)).wait();
+          await (await timelock.revokeRole(proposerRole, deployer)).wait();
+          await (await timelock.revokeRole(executorRole, deployer)).wait();
+        },
+      },
+    );
+    expect(r.ok).to.equal(false);
+    expect(r.output).to.contain("Deployer renounced Timelock DEFAULT_ADMIN");
+    expect(r.output).to.contain("logged 2 scheduled or executed call(s)");
+    expect(r.output).to.not.contain("[FAIL] Timelock.PROPOSER_ROLE");
+    expect(r.output).to.not.contain("DEPLOYMENT COMPLETE");
+  });
+});
+
+describe("deploy script redeploy guard", function () {
+  let dir: string;
+  let saved: string | undefined;
+
+  beforeEach(function () {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "deploy-guard-"));
+    saved = process.env.ALLOW_REDEPLOY;
+    delete process.env.ALLOW_REDEPLOY;
+  });
+
+  afterEach(function () {
+    fs.rmSync(dir, { recursive: true, force: true });
+    if (saved === undefined) delete process.env.ALLOW_REDEPLOY;
+    else process.env.ALLOW_REDEPLOY = saved;
+  });
+
+  it("refuses to repoint an existing latest record off local unless ALLOW_REDEPLOY=true", function () {
+    const latest = path.join(dir, "arbitrumSepolia-latest.json");
+    expect(() => assertNoPriorDeployment(latest, false)).to.not.throw();
+    fs.writeFileSync(latest, "{}");
+    expect(() => assertNoPriorDeployment(latest, false)).to.throw(
+      "already records a deployment",
+    );
+    expect(() => assertNoPriorDeployment(latest, true)).to.not.throw();
+    process.env.ALLOW_REDEPLOY = "true";
+    expect(() => assertNoPriorDeployment(latest, false)).to.not.throw();
   });
 });
 

@@ -36,6 +36,7 @@
  *                              DarkPool, NoxRegistry and NoxRewardPool (default 172800 = 48h)
  *                          Either may be 0, but a value below 48h is refused outside SHORT_DELAY_CHAIN_IDS.
  *   SKIP_EXPLORER_VERIFY   "true" skips block-explorer verification (forks and rehearsals)
+ *   ALLOW_REDEPLOY         "true" deploys even though <network>-latest.json exists; refused otherwise off local
  *   DEPLOYMENTS_DIR        where the record, the latest pointer and the secrets land (default deployments/)
  *
  * Usage:
@@ -48,6 +49,7 @@ import * as path from "path";
 import * as crypto from "crypto";
 import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
 import { Manifest } from "@openzeppelin/upgrades-core";
+import type { BaseContract } from "ethers";
 
 const BJJ_SUBGROUP_ORDER =
   2736030358979909402780800718157159386076813972158567259200215660948447373041n;
@@ -310,20 +312,118 @@ async function slot(addr: string, s: string): Promise<string> {
   return ethers.getAddress("0x" + raw.slice(-40));
 }
 
+export interface RoleExpectation {
+  readonly name: string;
+  readonly role: string;
+  readonly holders: readonly string[];
+}
+
+/**
+ * Compares every current holder of every role on an AccessControl contract with `expected`. The candidates are
+ * every account a RoleGranted event since `fromBlock` names, plus the expected holders and `probe`, each confirmed
+ * with hasRole: a revoked grant drops out, a lagging log index cannot hide an expected holder, and a role missing
+ * from `expected` must have no holder at all.
+ */
+export async function roleHolderProblems(
+  label: string,
+  contract: BaseContract,
+  fromBlock: number,
+  expected: readonly RoleExpectation[],
+  probe: ReadonlyMap<string, string>,
+): Promise<string[]> {
+  const candidates = new Map<string, Set<string>>();
+  const add = (role: string, account: string): void => {
+    const accounts = candidates.get(role) ?? new Set<string>();
+    accounts.add(ethers.getAddress(account));
+    candidates.set(role, accounts);
+  };
+  for (const entry of expected) {
+    for (const holder of entry.holders) add(entry.role, holder);
+    for (const account of probe.keys()) add(entry.role, account);
+  }
+  for (const event of await contract.queryFilter(
+    contract.getEvent("RoleGranted"),
+    fromBlock,
+  )) {
+    if ("args" in event) {
+      add(
+        String(event.args.getValue("role")),
+        String(event.args.getValue("account")),
+      );
+    }
+  }
+  const hasRole = contract.getFunction("hasRole");
+  const describe = (accounts: ReadonlySet<string>): string =>
+    `{${[...accounts].map((a) => probe.get(a) ?? a).join(", ") || "nobody"}}`;
+  const problems: string[] = [];
+  for (const [role, accounts] of candidates) {
+    const entry = expected.find((e) => e.role === role);
+    const want = new Set(
+      (entry?.holders ?? []).map((a) => ethers.getAddress(a)),
+    );
+    const held = await Promise.all(
+      [...accounts].map(
+        async (account) =>
+          [account, Boolean(await hasRole(role, account))] as const,
+      ),
+    );
+    const holders = new Set(held.filter(([, has]) => has).map(([a]) => a));
+    const same =
+      holders.size === want.size && [...want].every((a) => holders.has(a));
+    if (!same) {
+      problems.push(
+        `${label}.${entry?.name ?? `role ${role}`} is held by ${describe(holders)}, expected ${describe(want)}`,
+      );
+    }
+  }
+  return problems;
+}
+
+/**
+ * Off local, a second run would deploy a separate contract set and repoint `<network>-latest.json`, which the
+ * governance scripts and every downstream config read by default. Refused unless ALLOW_REDEPLOY=true.
+ */
+export function assertNoPriorDeployment(
+  latestFile: string,
+  isLocal: boolean,
+): void {
+  if (isLocal || !fs.existsSync(latestFile)) return;
+  if (process.env.ALLOW_REDEPLOY === "true") {
+    console.log(
+      `  WARNING: ${latestFile} exists; ALLOW_REDEPLOY=true deploys a second contract set and repoints it.`,
+    );
+    return;
+  }
+  throw new Error(
+    `${latestFile} already records a deployment on ${network.name}. Running again deploys a second, separate ` +
+      "contract set and repoints the latest record at it. Set ALLOW_REDEPLOY=true to do that deliberately.",
+  );
+}
+
+/** Narrowed to what a mis-wiring needs, so the test seams cannot be used to reach anything else. */
+export interface MisWiringContext {
+  readonly grantCanceller: (account: string) => Promise<void>;
+  readonly grantTimelockRole: (role: string, account: string) => Promise<void>;
+  readonly cancellerRole: string;
+  readonly proposerRole: string;
+  readonly executorRole: string;
+  readonly govSafe: string;
+  readonly guardianSafe: string;
+  readonly deployer: string;
+}
+
 export interface DeployOptions {
   /**
    * Runs after governance wiring and before the preflight. It exists so a test can deliberately
    * mis-wire the topology and prove the preflight aborts AHEAD of the renounce, which is the property
    * the preflight exists for and which cannot be observed from the outside any other way.
    */
-  readonly afterGovernanceWiring?: (context: {
-    /** Narrowed to what a mis-wiring needs, so the seam cannot be used to reach anything else. */
-    readonly grantCanceller: (account: string) => Promise<void>;
-    readonly cancellerRole: string;
-    readonly govSafe: string;
-    readonly guardianSafe: string;
-    readonly deployer: string;
-  }) => Promise<void>;
+  readonly afterGovernanceWiring?: (context: MisWiringContext) => Promise<void>;
+  /**
+   * Runs after the preflight and before the renounce: the window in which the deployer key still administers
+   * the Timelock. A test uses it to prove the post-renounce re-check catches a grant made in that window.
+   */
+  readonly beforeRenounce?: (context: MisWiringContext) => Promise<void>;
 }
 
 export interface DeployResult {
@@ -468,6 +568,7 @@ export async function deploy(
   fs.mkdirSync(deployDir, { recursive: true });
   const deployFile = path.join(deployDir, `${network.name}-${timestamp}.json`);
   const latestFile = path.join(deployDir, `${network.name}-latest.json`);
+  assertNoPriorDeployment(latestFile, isLocal);
   const secretsFile = path.join(
     deployDir,
     `${network.name}-${timestamp}.secrets.json`,
@@ -812,16 +913,24 @@ export async function deploy(
   // DarkPool PAUSER was granted to the guardian in initialize (deployer cannot grant it post-init).
   console.log();
 
+  const PROPOSER_ROLE = await timelock.PROPOSER_ROLE();
+  const EXECUTOR_ROLE = await timelock.EXECUTOR_ROLE();
+  const misWiring: MisWiringContext = {
+    grantCanceller: async (account: string) => {
+      await (await timelock.grantRole(CANCELLER_ROLE, account)).wait();
+    },
+    grantTimelockRole: async (role: string, account: string) => {
+      await (await timelock.grantRole(role, account)).wait();
+    },
+    cancellerRole: CANCELLER_ROLE,
+    proposerRole: PROPOSER_ROLE,
+    executorRole: EXECUTOR_ROLE,
+    govSafe,
+    guardianSafe,
+    deployer: deployer.address,
+  };
   if (options.afterGovernanceWiring !== undefined) {
-    await options.afterGovernanceWiring({
-      grantCanceller: async (account: string) => {
-        await (await timelock.grantRole(CANCELLER_ROLE, account)).wait();
-      },
-      cancellerRole: CANCELLER_ROLE,
-      govSafe,
-      guardianSafe,
-      deployer: deployer.address,
-    });
+    await options.afterGovernanceWiring(misWiring);
   }
 
   console.log("Step 9: Preflight, before the point of no return...");
@@ -832,8 +941,6 @@ export async function deploy(
   const DP_UPGRADER = await darkPool.UPGRADER_ROLE();
   const REG_UPGRADER = await noxRegistry.UPGRADER_ROLE();
   const POOL_UPGRADER = await rewardPool.UPGRADER_ROLE();
-  const PROPOSER_ROLE = await timelock.PROPOSER_ROLE();
-  const EXECUTOR_ROLE = await timelock.EXECUTOR_ROLE();
 
   // The complete CANCELLER holder set, read from the log rather than probed address by address. The
   // Timelock was deployed in this run, so scanning from its deploy block sees every grant that exists,
@@ -1020,6 +1127,170 @@ export async function deploy(
     console.log(`  [${w.ok ? "ok" : "FAIL"}] ${w.label}`);
     if (!w.ok) throw new Error(`SECURITY: wiring check failed: ${w.label}`);
   }
+
+  // The wiring checks pin named holders. The deployer key administers the Timelock until the renounce, so it
+  // could grant any Timelock role, or run an operation, for anyone; with a zero delay that operation lands at
+  // once. This pins every holder of every role on every governed contract, the Timelock's operation log and
+  // the proxy implementations, before the renounce and again after it.
+  const integrityProbe = new Map<string, string>([
+    [deployer.address, "deployer"],
+    [timelockAddr, "timelock"],
+    [govSafe, "govSafe"],
+    [guardianSafe, "guardianSafe"],
+    [noxEntryPointAddr, "noxEntryPoint"],
+  ]);
+  const roleTables = [
+    {
+      label: "DarkPool",
+      contract: darkPool,
+      roles: [
+        { name: "PAUSER_ROLE", role: PAUSER_ROLE, holders: [guardianSafe] },
+        { name: "UPGRADER_ROLE", role: DP_UPGRADER, holders: [timelockAddr] },
+      ],
+    },
+    {
+      label: "NoxRegistry",
+      contract: noxRegistry,
+      roles: [
+        {
+          name: "CONFIG_ROLE",
+          role: await noxRegistry.CONFIG_ROLE(),
+          holders: [timelockAddr],
+        },
+        {
+          name: "SLASHER_ROLE",
+          role: await noxRegistry.SLASHER_ROLE(),
+          holders: [guardianSafe],
+        },
+        { name: "UPGRADER_ROLE", role: REG_UPGRADER, holders: [timelockAddr] },
+      ],
+    },
+    {
+      label: "NoxRewardPool",
+      contract: rewardPool,
+      roles: [
+        { name: "ADMIN_ROLE", role: POOL_ADMIN_ROLE, holders: [guardianSafe] },
+        {
+          name: "DISTRIBUTOR_ROLE",
+          role: await rewardPool.DISTRIBUTOR_ROLE(),
+          holders: [guardianSafe],
+        },
+        {
+          name: "ENTRYPOINT_ROLE",
+          role: ENTRYPOINT_ROLE,
+          holders: [noxEntryPointAddr],
+        },
+        {
+          name: "UPGRADER_ROLE",
+          role: POOL_UPGRADER,
+          holders: [timelockAddr],
+        },
+      ],
+    },
+    {
+      label: "ComplianceRegistry",
+      contract: complianceRegistry,
+      roles: [
+        {
+          name: "COMMITTEE_ADMIN_ROLE",
+          role: await complianceRegistry.COMMITTEE_ADMIN_ROLE(),
+          holders: [timelockAddr],
+        },
+        {
+          name: "MEMBER_ROLE",
+          role: await complianceRegistry.MEMBER_ROLE(),
+          holders: [],
+        },
+      ],
+    },
+  ];
+  const governanceIntegrity = async (
+    timelockAdmins: readonly string[],
+  ): Promise<string[]> => {
+    const problems = await roleHolderProblems(
+      "Timelock",
+      timelock,
+      startBlock,
+      [
+        {
+          name: "DEFAULT_ADMIN_ROLE",
+          role: DEFAULT_ADMIN_ROLE,
+          holders: timelockAdmins,
+        },
+        { name: "PROPOSER_ROLE", role: PROPOSER_ROLE, holders: [govSafe] },
+        { name: "EXECUTOR_ROLE", role: EXECUTOR_ROLE, holders: [govSafe] },
+        { name: "CANCELLER_ROLE", role: CANCELLER_ROLE, holders: [govSafe] },
+      ],
+      integrityProbe,
+    );
+    for (const table of roleTables) {
+      problems.push(
+        ...(await roleHolderProblems(
+          table.label,
+          table.contract,
+          startBlock,
+          [
+            {
+              name: "DEFAULT_ADMIN_ROLE",
+              role: DEFAULT_ADMIN_ROLE,
+              holders: [timelockAddr],
+            },
+            ...table.roles,
+          ],
+          integrityProbe,
+        )),
+      );
+    }
+    const operations =
+      (
+        await timelock.queryFilter(
+          timelock.filters.CallScheduled(),
+          timelockDeployBlock,
+        )
+      ).length +
+      (
+        await timelock.queryFilter(
+          timelock.filters.CallExecuted(),
+          timelockDeployBlock,
+        )
+      ).length;
+    if (operations > 0) {
+      problems.push(
+        `Timelock ${timelockAddr} logged ${operations} scheduled or executed call(s); a fresh deployment has none`,
+      );
+    }
+    for (const [name, address] of [
+      ["darkPool", darkPoolAddr],
+      ["noxRegistry", noxRegistryAddr],
+      ["noxRewardPool", rewardPoolAddr],
+    ] as const) {
+      const implementation = await slot(address, IMPL_SLOT);
+      if (implementation !== proxySlots[name].impl) {
+        problems.push(
+          `${name} implementation is ${implementation}, deployed ${proxySlots[name].impl}`,
+        );
+      }
+    }
+    return problems;
+  };
+  const integrityScope =
+    "Timelock, DarkPool, NoxRegistry, NoxRewardPool and ComplianceRegistry";
+  const preflightProblems = await governanceIntegrity([
+    timelockAddr,
+    deployer.address,
+  ]);
+  for (const problem of preflightProblems) console.log(`  [FAIL] ${problem}`);
+  if (preflightProblems.length > 0) {
+    throw new Error(
+      `SECURITY: governance integrity check failed: ${preflightProblems.join("; ")}`,
+    );
+  }
+  console.log(
+    `  [ok] Every role on ${integrityScope} is held by exactly its intended holders`,
+  );
+  console.log(
+    "  [ok] Timelock has no scheduled or executed operation; proxy implementations are unchanged",
+  );
   // Read here, before the renounce, so a missing or malformed manifest aborts while the deployer can
   // still fix the topology rather than after it has given up admin.
   const openzeppelinManifest = await readManifest(
@@ -1031,6 +1302,10 @@ export async function deploy(
   );
   console.log("  Governance topology verified; proceeding to renounce.");
   console.log();
+
+  if (options.beforeRenounce !== undefined) {
+    await options.beforeRenounce(misWiring);
+  }
 
   console.log("Step 9b: Renouncing deployer's Timelock admin...");
   await (
@@ -1048,6 +1323,20 @@ export async function deploy(
       "SECURITY: deployer EOA still holds Timelock.DEFAULT_ADMIN after renouncing; aborting.",
     );
   }
+  // Re-run over the window between the preflight and the renounce, in which the deployer key could still act.
+  const postRenounceProblems = await governanceIntegrity([timelockAddr]);
+  for (const problem of postRenounceProblems) {
+    console.log(`  [FAIL] ${problem}`);
+  }
+  if (postRenounceProblems.length > 0) {
+    throw new Error(
+      `SECURITY: after the renounce, ${postRenounceProblems.join("; ")}. Do not use this deployment; ` +
+        "redeploy from a fresh deployer key.",
+    );
+  }
+  console.log(
+    `  [ok] Every role on ${integrityScope} is still held by exactly its intended holders`,
+  );
 
   console.log("  No EOA holds any privileged role.");
   console.log();
