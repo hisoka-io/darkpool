@@ -3,7 +3,8 @@
  *
  * All stateful contracts are UUPS proxies initialized atomically (impl + initialize in one tx).
  * Governance:
- *   - OZ TimelockController (48h min delay) holds DEFAULT_ADMIN + UPGRADER on every contract.
+ *   - OZ TimelockController (TIMELOCK_MIN_DELAY_SECS, default 48h) holds DEFAULT_ADMIN + UPGRADER on every
+ *     contract.
  *   - Governance Safe (3-of-5, out-of-band) is the sole proposer, executor and canceller on the
  *     Timelock. OZ grants CANCELLER to every proposer in the constructor, so the holder set is asserted
  *     exhaustively rather than probed address by address.
@@ -30,6 +31,11 @@
  *   LOCAL_TEST_COMPLIANCE_SECRET_KEY  deterministic fixture accepted only by hardhat/localhost
  *   SWAP_ROUTER            deploy UniswapAdaptor against this router
  *   FEE_ASSETS             comma-separated ERC20 addresses accepted for Nox execution fees; required off local
+ *   TIMELOCK_MIN_DELAY_SECS    Timelock minimum delay in seconds (default 172800 = 48h)
+ *   ADMIN_TRANSFER_DELAY_SECS  AccessControlDefaultAdminRules DEFAULT_ADMIN transfer delay in seconds on
+ *                              DarkPool, NoxRegistry and NoxRewardPool (default 172800 = 48h)
+ *                          Either may be 0, but a value below 48h is refused outside SHORT_DELAY_CHAIN_IDS.
+ *   SKIP_EXPLORER_VERIFY   "true" skips block-explorer verification (forks and rehearsals)
  *
  * Usage:
  *   GOV_SAFE=0x.. GUARDIAN_SAFE=0x.. npx hardhat run scripts/deploy.ts --network <net>
@@ -45,9 +51,17 @@ import { Manifest } from "@openzeppelin/upgrades-core";
 const BJJ_SUBGROUP_ORDER =
   2736030358979909402780800718157159386076813972158567259200215660948447373041n;
 
-// 48h timelock; the 2-step DEFAULT_ADMIN transfer delay (AccessControlDefaultAdminRules) matches it.
-const TIMELOCK_MIN_DELAY = 48n * 60n * 60n;
-const ADMIN_TRANSFER_DELAY = 48 * 60 * 60;
+// Production default: a 48h timelock, and a 2-step DEFAULT_ADMIN transfer delay (AccessControlDefaultAdminRules)
+// that matches it.
+const DEFAULT_GOVERNANCE_DELAY = 48n * 60n * 60n;
+const UINT48_MAX = 2n ** 48n - 1n;
+// A delay below the production default is a testnet affordance: the in-process chain, Arbitrum Sepolia and
+// Sepolia. Anywhere else it would hand governance an instant path around the review window.
+const SHORT_DELAY_CHAIN_IDS: ReadonlySet<bigint> = new Set([
+  31337n,
+  421614n,
+  11155111n,
+]);
 
 const MIN_STAKE = ethers.parseEther("1");
 const UNSTAKE_DELAY = 86400n; // contract minimum (1 day)
@@ -139,6 +153,49 @@ function positiveUint256(name: string, fallback: string): bigint {
     throw new Error(`${name} exceeds uint256.`);
   }
   return value;
+}
+
+function governanceDelay(name: string, max: bigint): bigint {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return DEFAULT_GOVERNANCE_DELAY;
+  if (!/^[0-9]+$/.test(raw.trim())) {
+    throw new Error(
+      `${name}=${raw} must be an unsigned decimal number of seconds.`,
+    );
+  }
+  const value = BigInt(raw.trim());
+  if (value > max) throw new Error(`${name}=${raw} exceeds ${max}.`);
+  return value;
+}
+
+/** Reads TIMELOCK_MIN_DELAY_SECS and ADMIN_TRANSFER_DELAY_SECS, refusing a short delay off SHORT_DELAY_CHAIN_IDS. */
+export function governanceDelays(chainId: bigint): {
+  timelockMinDelay: bigint;
+  adminTransferDelay: bigint;
+} {
+  const timelockMinDelay = governanceDelay(
+    "TIMELOCK_MIN_DELAY_SECS",
+    ethers.MaxUint256,
+  );
+  const adminTransferDelay = governanceDelay(
+    "ADMIN_TRANSFER_DELAY_SECS",
+    UINT48_MAX,
+  );
+  for (const [name, value] of [
+    ["TIMELOCK_MIN_DELAY_SECS", timelockMinDelay],
+    ["ADMIN_TRANSFER_DELAY_SECS", adminTransferDelay],
+  ] as const) {
+    if (
+      value < DEFAULT_GOVERNANCE_DELAY &&
+      !SHORT_DELAY_CHAIN_IDS.has(chainId)
+    ) {
+      throw new Error(
+        `${name}=${value} is below the ${DEFAULT_GOVERNANCE_DELAY}s production default, which is accepted ` +
+          `only on chain ids ${[...SHORT_DELAY_CHAIN_IDS].join(", ")} (this is ${chainId}).`,
+      );
+    }
+  }
+  return { timelockMinDelay, adminTransferDelay };
 }
 
 function generateComplianceKeypair(): { sk: bigint; pk: Point<bigint> } {
@@ -288,6 +345,8 @@ export async function deploy(
 
   const isLocal = network.name === "hardhat" || network.name === "localhost";
 
+  const { timelockMinDelay, adminTransferDelay } = governanceDelays(chainId);
+
   const govSafe = requireSafeAddress("GOV_SAFE");
   const guardianSafe = requireSafeAddress("GUARDIAN_SAFE");
   const stakingToken = optionalAddress("STAKING_TOKEN");
@@ -352,6 +411,17 @@ export async function deploy(
   console.log(`  Balance:       ${ethers.formatEther(balance)} ETH`);
   console.log(`  Gov Safe:      ${govSafe}`);
   console.log(`  Guardian Safe: ${guardianSafe}`);
+  console.log(`  Timelock min delay:    ${timelockMinDelay}s`);
+  console.log(`  Admin transfer delay:  ${adminTransferDelay}s`);
+  if (
+    timelockMinDelay < DEFAULT_GOVERNANCE_DELAY ||
+    adminTransferDelay < DEFAULT_GOVERNANCE_DELAY
+  ) {
+    console.log(
+      `  WARNING: governance delay below the ${DEFAULT_GOVERNANCE_DELAY}s production default; queued ` +
+        "actions get no review window.",
+    );
+  }
   for (const [label, addr] of [
     ["GOV_SAFE", govSafe],
     ["GUARDIAN_SAFE", guardianSafe],
@@ -525,10 +595,10 @@ export async function deploy(
   }
   console.log();
 
-  console.log("Step 4: TimelockController (48h)...");
+  console.log(`Step 4: TimelockController (min delay ${timelockMinDelay}s)...`);
   const timelock = await (
     await ethers.getContractFactory("TimelockController")
-  ).deploy(TIMELOCK_MIN_DELAY, [govSafe], [govSafe], deployer.address);
+  ).deploy(timelockMinDelay, [govSafe], [govSafe], deployer.address);
   await timelock.waitForDeployment();
   const timelockAddr = await timelock.getAddress();
   // The scan floor for the CANCELLER holder-set check. The timelock is deployed here, so this block is
@@ -544,7 +614,7 @@ export async function deploy(
     NoxRegistryFactory,
     [
       [
-        ADMIN_TRANSFER_DELAY,
+        adminTransferDelay,
         timelockAddr,
         stakingTokenAddr,
         MIN_STAKE,
@@ -568,7 +638,7 @@ export async function deploy(
     RewardPoolFactory,
     [
       [
-        ADMIN_TRANSFER_DELAY,
+        adminTransferDelay,
         timelockAddr,
         noxRegistryAddr,
         deployer.address, // temporary admin for atomic EntryPoint and asset wiring
@@ -604,7 +674,7 @@ export async function deploy(
         verifiers[10].verifier,
         compliance.pk[0],
         compliance.pk[1],
-        ADMIN_TRANSFER_DELAY,
+        adminTransferDelay,
         timelockAddr, // initialAdmin
         guardianSafe, // pauser
         timelockAddr, // upgrader
@@ -928,6 +998,21 @@ export async function deploy(
       label: "Timelock self-administers",
       ok: await timelock.hasRole(DEFAULT_ADMIN_ROLE, timelockAddr),
     },
+    {
+      label: `Timelock min delay is ${timelockMinDelay}s`,
+      ok: (await timelock.getMinDelay()) === timelockMinDelay,
+    },
+    {
+      label: `DEFAULT_ADMIN transfer delay is ${adminTransferDelay}s on DarkPool, NoxRegistry and NoxRewardPool`,
+      ok: (
+        await Promise.all(
+          [darkPool, noxRegistry, rewardPool].map(
+            async (contract) =>
+              (await contract.defaultAdminDelay()) === adminTransferDelay,
+          ),
+        )
+      ).every(Boolean),
+    },
   ];
   for (const w of wiring) {
     console.log(`  [${w.ok ? "ok" : "FAIL"}] ${w.label}`);
@@ -994,7 +1079,7 @@ export async function deploy(
     console.log();
   }
 
-  if (network.name !== "hardhat" && network.name !== "localhost") {
+  if (!isLocal && process.env.SKIP_EXPLORER_VERIFY !== "true") {
     console.log("Step 13: Block-explorer verification (best-effort)...");
     await tryVerify(poseidon2Addr, []);
     for (let i = 0; i < verifiers.length; i++) {
@@ -1005,7 +1090,7 @@ export async function deploy(
       );
     }
     await tryVerify(timelockAddr, [
-      TIMELOCK_MIN_DELAY.toString(),
+      timelockMinDelay.toString(),
       [govSafe],
       [govSafe],
       deployer.address,
@@ -1043,7 +1128,8 @@ export async function deploy(
       },
       governance: {
         timelock: timelockAddr,
-        timelockMinDelaySeconds: Number(TIMELOCK_MIN_DELAY),
+        timelockMinDelaySeconds: Number(timelockMinDelay),
+        adminTransferDelaySeconds: Number(adminTransferDelay),
         govSafe,
         guardianSafe,
       },

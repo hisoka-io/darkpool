@@ -3,17 +3,28 @@ import { ethers, network } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
-import { deploy, type DeployOptions } from "../../scripts/deploy";
+import {
+  deploy,
+  governanceDelays,
+  type DeployOptions,
+} from "../../scripts/deploy";
 
 const DEPLOY_DIR = path.join(__dirname, "../../deployments");
 const GOV_SAFE = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 const GUARDIAN_SAFE = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
 const THIRD_PARTY = "0x90F79bf6EB2c4f870365E785982E1f101E93b906";
 const DEFAULT_ADMIN_ROLE = ethers.ZeroHash;
+const FORTY_EIGHT_HOURS = 48n * 60n * 60n;
 
 interface Record {
   meta: { network: string; chainId: number; deployer: string };
-  governance: { timelock: string; govSafe: string; guardianSafe: string };
+  governance: {
+    timelock: string;
+    timelockMinDelaySeconds: number;
+    adminTransferDelaySeconds: number;
+    govSafe: string;
+    guardianSafe: string;
+  };
   compliance: { publicKeyX: string; publicKeyY: string };
   contracts: Record_<string>;
   constructorArgs: Record_<unknown[]>;
@@ -339,6 +350,31 @@ describe("deploy script", function () {
     }
   });
 
+  it("defaults both governance delays to the 48h production value", async function () {
+    const timelock = await ethers.getContractAt(
+      "TimelockController",
+      record.governance.timelock,
+    );
+    expect(await timelock.getMinDelay()).to.equal(FORTY_EIGHT_HOURS);
+    for (const [name, key] of [
+      ["DarkPool", "darkPool"],
+      ["NoxRegistry", "noxRegistry"],
+      ["NoxRewardPool", "noxRewardPool"],
+    ] as const) {
+      const contract = await ethers.getContractAt(name, record.contracts[key]);
+      expect(await contract.defaultAdminDelay(), name).to.equal(
+        FORTY_EIGHT_HOURS,
+      );
+    }
+    expect(record.governance.timelockMinDelaySeconds).to.equal(
+      Number(FORTY_EIGHT_HOURS),
+    );
+    expect(record.governance.adminTransferDelaySeconds).to.equal(
+      Number(FORTY_EIGHT_HOURS),
+    );
+    expect(result.output).to.not.contain("below the");
+  });
+
   it("writes a record with real circuit provenance and resolved compiler settings", function () {
     expect(Object.keys(record.circuitHashes)).to.have.length(12);
     for (const [name, hash] of Object.entries(record.circuitHashes)) {
@@ -499,5 +535,96 @@ describe("preflight aborts a mis-wired topology before the renounce", function (
       "[FAIL] DarkPool PAUSER does NOT hold Timelock CANCELLER",
     );
     expect(r.output).to.not.contain("Renouncing");
+  });
+});
+
+describe("deploy script governance delays", function () {
+  this.timeout(600000);
+
+  it("deploys with zero delays when both are configured to 0, and warns about it", async function () {
+    const r = await runDeploy({
+      GOV_SAFE,
+      GUARDIAN_SAFE,
+      STAKING_TOKEN: "",
+      TIMELOCK_MIN_DELAY_SECS: "0",
+      ADMIN_TRANSFER_DELAY_SECS: "0",
+    });
+    expect(r.ok, r.output.slice(-2000)).to.equal(true);
+    expect(r.output).to.contain("WARNING: governance delay below the");
+    expect(r.output).to.contain("[ok] Timelock min delay is 0s");
+    const record = latestRecord();
+    expect(record.governance.timelockMinDelaySeconds).to.equal(0);
+    expect(record.governance.adminTransferDelaySeconds).to.equal(0);
+
+    const timelock = await ethers.getContractAt(
+      "TimelockController",
+      record.governance.timelock,
+    );
+    expect(await timelock.getMinDelay()).to.equal(0n);
+    for (const [name, key] of [
+      ["DarkPool", "darkPool"],
+      ["NoxRegistry", "noxRegistry"],
+      ["NoxRewardPool", "noxRewardPool"],
+    ] as const) {
+      const contract = await ethers.getContractAt(name, record.contracts[key]);
+      expect(await contract.defaultAdminDelay(), name).to.equal(0n);
+    }
+  });
+
+  it("rejects malformed and out-of-range delays before any transaction", async function () {
+    await expectPreTransactionFailure(
+      { TIMELOCK_MIN_DELAY_SECS: "-1" },
+      "TIMELOCK_MIN_DELAY_SECS=-1 must be an unsigned decimal number of seconds",
+    );
+    await expectPreTransactionFailure(
+      { TIMELOCK_MIN_DELAY_SECS: "1.5" },
+      "TIMELOCK_MIN_DELAY_SECS=1.5 must be an unsigned decimal number of seconds",
+    );
+    await expectPreTransactionFailure(
+      { ADMIN_TRANSFER_DELAY_SECS: "0x10" },
+      "ADMIN_TRANSFER_DELAY_SECS=0x10 must be an unsigned decimal number of seconds",
+    );
+    await expectPreTransactionFailure(
+      { ADMIN_TRANSFER_DELAY_SECS: (2n ** 48n).toString() },
+      "ADMIN_TRANSFER_DELAY_SECS=281474976710656 exceeds",
+    );
+  });
+
+  it("refuses a delay below 48h on a chain that is not a testnet", function () {
+    const saved = {
+      timelock: process.env.TIMELOCK_MIN_DELAY_SECS,
+      admin: process.env.ADMIN_TRANSFER_DELAY_SECS,
+    };
+    try {
+      process.env.TIMELOCK_MIN_DELAY_SECS = "0";
+      delete process.env.ADMIN_TRANSFER_DELAY_SECS;
+      for (const mainnet of [1n, 42161n]) {
+        expect(() => governanceDelays(mainnet)).to.throw(
+          "TIMELOCK_MIN_DELAY_SECS=0 is below the 172800s production default",
+        );
+      }
+      expect(governanceDelays(421614n)).to.deep.equal({
+        timelockMinDelay: 0n,
+        adminTransferDelay: FORTY_EIGHT_HOURS,
+      });
+
+      delete process.env.TIMELOCK_MIN_DELAY_SECS;
+      process.env.ADMIN_TRANSFER_DELAY_SECS = "3600";
+      expect(() => governanceDelays(42161n)).to.throw(
+        "ADMIN_TRANSFER_DELAY_SECS=3600 is below the 172800s production default",
+      );
+      process.env.ADMIN_TRANSFER_DELAY_SECS = "604800";
+      expect(governanceDelays(1n)).to.deep.equal({
+        timelockMinDelay: FORTY_EIGHT_HOURS,
+        adminTransferDelay: 604800n,
+      });
+    } finally {
+      if (saved.timelock === undefined)
+        delete process.env.TIMELOCK_MIN_DELAY_SECS;
+      else process.env.TIMELOCK_MIN_DELAY_SECS = saved.timelock;
+      if (saved.admin === undefined)
+        delete process.env.ADMIN_TRANSFER_DELAY_SECS;
+      else process.env.ADMIN_TRANSFER_DELAY_SECS = saved.admin;
+    }
   });
 });
