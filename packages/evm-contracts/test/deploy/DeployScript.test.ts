@@ -322,15 +322,20 @@ describe("deploy script", function () {
     );
   });
 
-  it("carries a storage-layout manifest selected by network, not by sort order", function () {
-    // The in-process chain produces no manifest, so null is correct here. What is asserted is that the
-    // field exists and that selection is network-derived: a machine holding several networks' manifests
-    // must not embed another chain's layout, which the previous readdir().sort().pop() did silently.
-    expect(record).to.have.property("openzeppelinManifest");
-    const manifest = (record as unknown as { openzeppelinManifest: unknown })
-      .openzeppelinManifest;
-    if (manifest !== null) {
-      expect(manifest).to.be.an("object");
+  it("carries the storage-layout manifest that lists this run's proxies", function () {
+    // upgrades-core locates the file itself (a dev-instance file for the in-process chain, its own chain-table
+    // name on a public chain), so the record cannot embed another chain's or another run's layout.
+    const manifest = (
+      record as unknown as {
+        openzeppelinManifest: { proxies: { address: string }[] } | null;
+      }
+    ).openzeppelinManifest;
+    expect(manifest).to.be.an("object");
+    const listed = (manifest?.proxies ?? []).map((proxy) =>
+      ethers.getAddress(proxy.address),
+    );
+    for (const key of ["darkPool", "noxRegistry", "noxRewardPool"]) {
+      expect(listed, key).to.include(record.contracts[key]);
     }
   });
 

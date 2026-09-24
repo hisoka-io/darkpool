@@ -40,6 +40,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
+import { Manifest } from "@openzeppelin/upgrades-core";
 
 const BJJ_SUBGROUP_ORDER =
   2736030358979909402780800718157159386076813972158567259200215660948447373041n;
@@ -214,38 +215,33 @@ async function tryVerify(
 }
 
 /**
- * The UUPS storage-layout manifest for THIS network. upgrades-core names it `unknown-<chainId>.json` for
- * a chain it does not recognise and `<network>.json` for one it does, so the name is derived rather than
- * guessed: picking the alphabetically-last file embeds another chain's layout into this chain's record,
- * and that record is what a future upgrade trusts as its storage-compat anchor.
+ * The UUPS storage-layout manifest for THIS network, located by upgrades-core itself. It names the file from its
+ * own chain table (`arbitrum-sepolia.json` for 421614, `unknown-<chainId>.json` for a chain it does not know) and
+ * keeps an anvil or hardhat instance's manifest in the OS temp dir, so a name derived from the Hardhat network
+ * name misses the file on every chain the table knows. The manifest must list every proxy this run deployed:
+ * the record is what a future upgrade trusts as its storage-compat anchor, and a manifest without these proxies
+ * belongs to some other deployment.
  *
- * Returns null only when the network genuinely produces no manifest, which is the in-process chain.
+ * Returns null only when the manifest is optional and does not list the proxies.
  */
-function readManifest(
-  networkName: string,
-  chainId: bigint,
+async function readManifest(
+  proxies: readonly string[],
   required: boolean,
-): unknown {
-  const dir = path.join(__dirname, "../.openzeppelin");
-  const candidates = [`unknown-${chainId}.json`, `${networkName}.json`];
-  for (const name of candidates) {
-    const file = path.join(dir, name);
-    if (!fs.existsSync(file)) continue;
-    try {
-      return JSON.parse(fs.readFileSync(file, "utf8"));
-    } catch (e) {
-      const detail = e instanceof Error ? e.message : String(e);
-      if (required) {
-        throw new Error(`.openzeppelin/${name} is not valid JSON: ${detail}`);
-      }
-      return null;
-    }
-  }
+): Promise<unknown> {
+  const manifest = await Manifest.forNetwork(network.provider);
+  const data = await manifest.read();
+  const listed = new Set(
+    data.proxies.map((proxy) => ethers.getAddress(proxy.address)),
+  );
+  const missing = proxies.filter(
+    (proxy) => !listed.has(ethers.getAddress(proxy)),
+  );
+  if (missing.length === 0) return data;
   if (required) {
     throw new Error(
-      `no storage-layout manifest for ${networkName} (chainId ${chainId}); expected one of ` +
-        `${candidates.join(" or ")} under .openzeppelin/. The upgrade runbook treats it as the ` +
-        `authoritative pre-upgrade compat anchor, so it must ride in the deployment record.`,
+      `storage-layout manifest ${manifest.file} does not list the proxies deployed in this run ` +
+        `(${missing.join(", ")}). The upgrade runbook treats it as the authoritative pre-upgrade compat ` +
+        `anchor, so it must ride in the deployment record.`,
     );
   }
   return null;
@@ -939,9 +935,12 @@ export async function deploy(
   }
   // Read here, before the renounce, so a missing or malformed manifest aborts while the deployer can
   // still fix the topology rather than after it has given up admin.
-  const openzeppelinManifest = readManifest(network.name, chainId, !isLocal);
+  const openzeppelinManifest = await readManifest(
+    [darkPoolAddr, noxRegistryAddr, rewardPoolAddr],
+    !isLocal,
+  );
   console.log(
-    `  Storage-layout manifest: ${openzeppelinManifest === null ? "none (in-process network)" : "captured"}`,
+    `  Storage-layout manifest: ${openzeppelinManifest === null ? "none (optional on this network)" : "captured"}`,
   );
   console.log("  Governance topology verified; proceeding to renounce.");
   console.log();
