@@ -19,7 +19,12 @@ const DEFAULT_ADMIN_ROLE = ethers.ZeroHash;
 const FORTY_EIGHT_HOURS = 48n * 60n * 60n;
 
 interface Record {
-  meta: { network: string; chainId: number; deployer: string };
+  meta: {
+    network: string;
+    chainId: number;
+    deployer: string;
+    postRenounceVerified: boolean;
+  };
   governance: {
     timelock: string;
     timelockMinDelaySeconds: number;
@@ -147,6 +152,7 @@ describe("deploy script", function () {
     expect(result.output).to.contain(
       "[ok] Timelock has no scheduled or executed operation; proxy implementations are unchanged",
     );
+    expect(record.meta.postRenounceVerified).to.equal(true);
   });
 
   it("deploys every contract and records an address for each", function () {
@@ -593,6 +599,17 @@ describe("post-renounce re-check", function () {
     );
     expect(r.output).to.contain("SECURITY: after the renounce");
     expect(r.output).to.not.contain("DEPLOYMENT COMPLETE");
+
+    // The addresses survive for forensics, marked unverified, and the latest pointer never moves to them.
+    const snapshotPath = /Pre-renounce snapshot: (\S+)/.exec(r.output)?.[1];
+    expect(snapshotPath, "snapshot path").to.be.a("string");
+    const snapshot = JSON.parse(
+      fs.readFileSync(snapshotPath as string, "utf8"),
+    ) as Record;
+    expect(snapshot.meta.postRenounceVerified).to.equal(false);
+    expect(latestRecord().governance.timelock).to.not.equal(
+      snapshot.governance.timelock,
+    );
   });
 
   it("refuses the deployment when a Timelock operation ran in that window, even with every grant revoked", async function () {

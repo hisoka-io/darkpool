@@ -379,6 +379,25 @@ export async function roleHolderProblems(
   return problems;
 }
 
+/** Retries a read-only step on a transient RPC error; a returned result, good or bad, is final. */
+async function withRetries<T>(
+  what: string,
+  body: () => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await body();
+    } catch (e) {
+      if (attempt >= 3) throw e;
+      const detail = e instanceof Error ? e.message : String(e);
+      console.log(
+        `  ${what} failed (attempt ${attempt}/3): ${detail}; retrying in 5s...`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+  }
+}
+
 /**
  * Off local, a second run would deploy a separate contract set and repoint `<network>-latest.json`, which the
  * governance scripts and every downstream config read by default. Refused unless ALLOW_REDEPLOY=true.
@@ -1275,10 +1294,10 @@ export async function deploy(
   };
   const integrityScope =
     "Timelock, DarkPool, NoxRegistry, NoxRewardPool and ComplianceRegistry";
-  const preflightProblems = await governanceIntegrity([
-    timelockAddr,
-    deployer.address,
-  ]);
+  const preflightProblems = await withRetries(
+    "governance integrity check",
+    () => governanceIntegrity([timelockAddr, deployer.address]),
+  );
   for (const problem of preflightProblems) console.log(`  [FAIL] ${problem}`);
   if (preflightProblems.length > 0) {
     throw new Error(
@@ -1301,6 +1320,14 @@ export async function deploy(
     `  Storage-layout manifest: ${openzeppelinManifest === null ? "none (optional on this network)" : "captured"}`,
   );
   console.log("  Governance topology verified; proceeding to renounce.");
+  let adaptorAddr = "";
+  let adaptorCodeHash = "";
+  let postRenounceVerified = false;
+  // Everything after the renounce is past the point where a re-run is safe, so the addresses are on disk
+  // first. Only the timestamped record: the latest pointer the governance scripts read waits for the
+  // post-renounce re-check.
+  await writeRecord(false);
+  console.log(`  Pre-renounce snapshot: ${deployFile}`);
   console.log();
 
   if (options.beforeRenounce !== undefined) {
@@ -1324,7 +1351,10 @@ export async function deploy(
     );
   }
   // Re-run over the window between the preflight and the renounce, in which the deployer key could still act.
-  const postRenounceProblems = await governanceIntegrity([timelockAddr]);
+  const postRenounceProblems = await withRetries(
+    "post-renounce integrity check",
+    () => governanceIntegrity([timelockAddr]),
+  );
   for (const problem of postRenounceProblems) {
     console.log(`  [FAIL] ${problem}`);
   }
@@ -1337,6 +1367,7 @@ export async function deploy(
   console.log(
     `  [ok] Every role on ${integrityScope} is still held by exactly its intended holders`,
   );
+  postRenounceVerified = true;
 
   console.log("  No EOA holds any privileged role.");
   console.log();
@@ -1349,11 +1380,9 @@ export async function deploy(
   }
   console.log();
 
-  let adaptorAddr = "";
-  let adaptorCodeHash = "";
   // The adaptor is optional and its deploy can revert on a bad router. Persist everything known so far
   // first, so a failure here costs the adaptor rather than the whole record.
-  await writeRecord();
+  await writeRecord(true);
   if (swapRouter !== null) {
     console.log("Step 12: UniswapAdaptor...");
     const adaptor = await (
@@ -1416,6 +1445,7 @@ export async function deploy(
         deployedAt: startTime,
         startBlock,
         endBlock,
+        postRenounceVerified,
       },
       governance: {
         timelock: timelockAddr,
@@ -1468,14 +1498,14 @@ export async function deploy(
     };
   }
 
-  async function writeRecord(): Promise<string> {
+  async function writeRecord(latest: boolean): Promise<string> {
     const record = buildRecord(await ethers.provider.getBlockNumber());
     fs.writeFileSync(deployFile, JSON.stringify(record, null, 2));
-    fs.writeFileSync(latestFile, JSON.stringify(record, null, 2));
+    if (latest) fs.writeFileSync(latestFile, JSON.stringify(record, null, 2));
     return deployFile;
   }
 
-  await writeRecord();
+  await writeRecord(true);
   console.log(`Deployment record: ${deployFile}`);
   console.log(`Latest pointer:    ${latestFile}`);
   console.log();
