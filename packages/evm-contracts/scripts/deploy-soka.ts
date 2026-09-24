@@ -8,8 +8,9 @@
  *   SOKA_OWNER     may mint more SOKA later; defaults to SOKA_TREASURY. Renounce ownership to fix the supply.
  *   SOKA_REDEPLOY  "true" deploys a new token even when <network>-soka-latest.json points at live code
  *   SKIP_EXPLORER_VERIFY  "true" skips block-explorer verification (forks and rehearsals)
+ *   DEPLOYMENTS_DIR       output directory (default deployments/)
  *
- * Writes deployments/<network>-soka-<UTC>.json and deployments/<network>-soka-latest.json.
+ * Writes <DEPLOYMENTS_DIR>/<network>-soka-<UTC>.json and <network>-soka-latest.json.
  *
  * Usage:
  *   SOKA_TREASURY=0x.. SOKA_SUPPLY=1000000000 npx hardhat run scripts/deploy-soka.ts --network <net>
@@ -101,7 +102,8 @@ export async function deploySoka(): Promise<SokaDeployResult> {
   const owner = addressFromEnv("SOKA_OWNER", treasury);
   const supply = supplyFromEnv(isLocal ? "1000000000" : null);
 
-  const deployDir = path.join(__dirname, "../deployments");
+  const deployDir =
+    process.env.DEPLOYMENTS_DIR ?? path.join(__dirname, "../deployments");
   fs.mkdirSync(deployDir, { recursive: true });
   const latestFile = path.join(deployDir, `${network.name}-soka-latest.json`);
 

@@ -36,6 +36,7 @@
  *                              DarkPool, NoxRegistry and NoxRewardPool (default 172800 = 48h)
  *                          Either may be 0, but a value below 48h is refused outside SHORT_DELAY_CHAIN_IDS.
  *   SKIP_EXPLORER_VERIFY   "true" skips block-explorer verification (forks and rehearsals)
+ *   DEPLOYMENTS_DIR        where the record, the latest pointer and the secrets land (default deployments/)
  *
  * Usage:
  *   GOV_SAFE=0x.. GUARDIAN_SAFE=0x.. npx hardhat run scripts/deploy.ts --network <net>
@@ -462,7 +463,8 @@ export async function deploy(
   const startTime = new Date().toISOString();
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const deployDir = path.join(__dirname, "../deployments");
+  const deployDir =
+    process.env.DEPLOYMENTS_DIR ?? path.join(__dirname, "../deployments");
   fs.mkdirSync(deployDir, { recursive: true });
   const deployFile = path.join(deployDir, `${network.name}-${timestamp}.json`);
   const latestFile = path.join(deployDir, `${network.name}-latest.json`);

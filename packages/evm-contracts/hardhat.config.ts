@@ -17,6 +17,12 @@ const ARB_PRIV_KEY = process.env.ARB_PRIV_KEY || PRIVATE_KEY;
 const ARB_SEPOLIA_RPC_URL =
   process.env.ARB_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc";
 const ARBISCAN_API_KEY = process.env.ARBISCAN_API_KEY || "";
+// A local anvil fork of Arbitrum Sepolia for rehearsals. Its signer never falls back to ARB_PRIV_KEY, so a
+// rehearsal cannot sign with the live deployer key.
+const ARB_SEPOLIA_FORK_URL =
+  process.env.ARB_SEPOLIA_FORK_URL || "http://127.0.0.1:18545";
+const ARB_SEPOLIA_FORK_PRIVATE_KEY =
+  process.env.ARB_SEPOLIA_FORK_PRIVATE_KEY || "";
 
 // Validation for fork mode
 if (process.env.FORK_MAINNET === "true" && !MAINNET_FORK_URL) {
@@ -207,6 +213,13 @@ const config: HardhatUserConfig = {
     arbitrumSepolia: {
       url: ARB_SEPOLIA_RPC_URL,
       accounts: ARB_PRIV_KEY ? [ARB_PRIV_KEY] : [],
+      chainId: 421614,
+    },
+    arbitrumSepoliaFork: {
+      url: ARB_SEPOLIA_FORK_URL,
+      accounts: ARB_SEPOLIA_FORK_PRIVATE_KEY
+        ? [ARB_SEPOLIA_FORK_PRIVATE_KEY]
+        : [],
       chainId: 421614,
     },
   },
