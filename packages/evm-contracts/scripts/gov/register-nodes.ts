@@ -302,6 +302,12 @@ async function main(): Promise<void> {
     if (result.outcome === "dry-run" || result.outcome === "scheduled") {
       return;
     }
+    if (result.outcome === "already-executed") {
+      throw new Error(
+        `Timelock operation ${result.operationId} already ran earlier with this salt, yet the registry still ` +
+          'needs these calls. Set a fresh TIMELOCK_SALT (e.g. $(cast keccak "register-$(date +%s)")) and re-run.',
+      );
+    }
   }
 
   console.log();

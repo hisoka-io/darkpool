@@ -10,7 +10,11 @@
  * Optional env:
  *   VIA_TIMELOCK     Timelock address: run the calls as one Timelock batch (schedule+execute in one Safe tx
  *                    when the min delay is 0, schedule then execute otherwise)
- *   TIMELOCK_SALT    bytes32 batch salt (default keccak256 of the encoded calls, so a re-run resumes)
+ *   TIMELOCK_SALT    bytes32 batch salt (default keccak256 of the encoded calls, so a re-run resumes). A batch
+ *                    identical to one executed before (pause again after an unpause) needs a fresh salt:
+ *                    TIMELOCK_SALT=$(cast keccak "<action>-$(date +%s)")
+ *   ALLOW_ALREADY_EXECUTED  "true" accepts an operation that already ran; otherwise that exits non-zero, because
+ *                    the calls did not run now
  *   WAIT_FOR_DELAY   "false" leaves a delayed batch scheduled instead of polling until it is ready (default true)
  *   DRY_RUN          "true" signs and simulates with eth_call; nothing is sent
  *
@@ -126,6 +130,16 @@ async function main(): Promise<void> {
       log,
     });
     console.log(`Outcome: ${result.outcome} (operation ${result.operationId})`);
+    if (
+      result.outcome === "already-executed" &&
+      !envFlag("ALLOW_ALREADY_EXECUTED", false)
+    ) {
+      throw new Error(
+        `Timelock operation ${result.operationId} already ran earlier, so these calls did not run now. ` +
+          'Set a fresh TIMELOCK_SALT (e.g. $(cast keccak "<action>-$(date +%s)")) to run them again, or ' +
+          "ALLOW_ALREADY_EXECUTED=true to accept the earlier run.",
+      );
+    }
     return;
   }
 
