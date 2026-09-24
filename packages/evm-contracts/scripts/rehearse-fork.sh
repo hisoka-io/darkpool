@@ -2,18 +2,21 @@
 # Rehearses the Arbitrum Sepolia cutover from scratch on a local anvil fork:
 #   SOKA -> Gov (3-of-5) and Guardian (2-of-3) Safes -> deploy.ts with zero governance delays ->
 #   register-nodes (Gov Safe -> Timelock -> registerPrivileged) -> idempotent re-run ->
-#   guardian freeze/unfreeze -> independent cast checks -> gas priced for the live chain.
+#   guardian freeze/unfreeze -> repeated Timelock action needs a fresh salt -> independent cast checks ->
+#   gas priced for the live chain.
 #
 # Every transaction goes to the local fork, signed with keys derived from the public anvil test mnemonic.
 # Nothing is broadcast to a public chain; public RPCs are only read (fork source, L1 gas pricing).
 #
 # Usage: scripts/rehearse-fork.sh <port> <output.json> <nodes.json>
 # Env:
-#   FORK_RPC_URL  fork source (default https://arbitrum-sepolia-rpc.publicnode.com)
+#   FORK_RPC_URL  fork source (default https://arbitrum-sepolia.gateway.tenderly.co, which serves historical
+#                 state; publicnode prunes it within minutes)
 #   LIVE_RPC_URL  read-only gas pricing source (default FORK_RPC_URL)
 #   FORK_BLOCK    pin the fork block (default latest)
 #   NODE_BIN_DIR  directory holding a Node 20-22 binary, put first on PATH (package engines: >=20 <23)
-#   KEEP_ANVIL    "true" leaves the fork running afterwards
+#   KEEP_ANVIL    "true" leaves the fork running afterwards. anvil loads uncached accounts at the fork block for as
+#                 long as it runs, so this needs a fork source that serves historical state; checked up front.
 #
 # Writes <output.json> (addresses, registry state, gas) and keeps logs, records and the rehearsal-only owner
 # keys in <output>.work-<UTC>/.
@@ -24,7 +27,7 @@ usage="usage: rehearse-fork.sh <port> <output.json> <nodes.json>"
 PORT="${1:?$usage}"
 OUT="${2:?$usage}"
 NODES_FILE="$(realpath "${3:?$usage}")"
-FORK_RPC_URL="${FORK_RPC_URL:-https://arbitrum-sepolia-rpc.publicnode.com}"
+FORK_RPC_URL="${FORK_RPC_URL:-https://arbitrum-sepolia.gateway.tenderly.co}"
 LIVE_RPC_URL="${LIVE_RPC_URL:-$FORK_RPC_URL}"
 CHAIN_ID=421614
 NETWORK=arbitrumSepoliaFork
@@ -48,6 +51,17 @@ done
 if [ ! -f "$NODES_FILE" ]; then
   echo "ERROR: nodes file $NODES_FILE not found" >&2
   exit 1
+fi
+
+if [ "${KEEP_ANVIL:-false}" = "true" ]; then
+  PROBE_BLOCK=$(($(cast block-number --rpc-url "$FORK_RPC_URL") - 5000))
+  if ! cast balance 0x0000000000000000000000000000000000000001 --block "$PROBE_BLOCK" \
+    --rpc-url "$FORK_RPC_URL" >/dev/null 2>&1; then
+    echo "ERROR: KEEP_ANVIL=true needs a fork source that serves historical state, and ${FORK_RPC_URL} has none" \
+      "at block ${PROBE_BLOCK}: a kept fork would fail as soon as it loads an uncached account." \
+      "Use e.g. FORK_RPC_URL=https://arbitrum-sepolia.gateway.tenderly.co" >&2
+    exit 1
+  fi
 fi
 
 RPC="http://127.0.0.1:${PORT}"
@@ -109,7 +123,7 @@ unset GOV_SAFE GUARDIAN_SAFE STAKING_TOKEN FEE_ASSETS SWAP_ROUTER COMPLIANCE_SEC
   LOCAL_TEST_COMPLIANCE_SECRET_KEY COMPLIANCE_THRESHOLD COMPLIANCE_COMMITTEE_SIZE \
   TIMELOCK_MIN_DELAY_SECS ADMIN_TRANSFER_DELAY_SECS NOX_REGISTRY TIMELOCK TIMELOCK_SALT \
   DEPLOYMENT_FILE REREGISTER_MISMATCHED EXPECT_EXACT_SET DRY_RUN WAIT_FOR_DELAY SAFES_OUT \
-  SOKA_TREASURY SOKA_SUPPLY SOKA_OWNER SOKA_REDEPLOY SAFE_SALT_NONCE NODE_OPTIONS
+  SOKA_TREASURY SOKA_SUPPLY SOKA_OWNER SOKA_REDEPLOY SAFE_SALT_NONCE NODE_OPTIONS ALLOW_ALREADY_EXECUTED
 export ARB_SEPOLIA_FORK_URL="$RPC"
 export ARB_SEPOLIA_FORK_PRIVATE_KEY="$DEPLOYER_KEY"
 export SKIP_EXPLORER_VERIFY=true
@@ -209,6 +223,32 @@ step_end "delayed-timelock-check"
 check_delay=$(cast call "$DELAYED_TL" "getMinDelay()(uint256)" --rpc-url "$RPC")
 [ "$check_delay" = "7" ] || fail "delayed Timelock batch did not execute (min delay $check_delay)"
 grep -q "Outcome: executed" "$WORK/delayed-timelock.log" || fail "delayed Timelock outcome"
+
+echo "[8c/9] Repeating a Timelock action: the default salt must refuse, a fresh salt must run it..."
+jq -n --arg r "$REGISTRY" '[{to: $r, signature: "pause()", args: []}]' >"$WORK/pause-calls.json"
+jq -n --arg r "$REGISTRY" '[{to: $r, signature: "unpause()", args: []}]' >"$WORK/unpause-calls.json"
+gov_exec() {
+  SAFE="$GOV" VIA_TIMELOCK="$TIMELOCK_ADDR" OWNER_KEYS_FILE="$WORK/owner-keys.json" CALLS_FILE="$1" \
+    hh scripts/gov/safe-exec.ts
+}
+registry_paused() { cast call "$REGISTRY" "paused()(bool)" --rpc-url "$RPC"; }
+gov_exec "$WORK/pause-calls.json" >"$WORK/repeat-pause-1.log" 2>&1 || fail "pause; see $WORK/repeat-pause-1.log"
+[ "$(registry_paused)" = "true" ] || fail "pause did not land"
+gov_exec "$WORK/unpause-calls.json" >"$WORK/repeat-unpause-1.log" 2>&1 || fail "unpause; see $WORK/repeat-unpause-1.log"
+[ "$(registry_paused)" = "false" ] || fail "unpause did not land"
+if gov_exec "$WORK/pause-calls.json" >"$WORK/repeat-pause-2.log" 2>&1; then
+  fail "a repeated pause with the default salt exited 0; see $WORK/repeat-pause-2.log"
+fi
+grep -q "already ran earlier" "$WORK/repeat-pause-2.log" || fail "repeated pause did not explain the refusal"
+[ "$(registry_paused)" = "false" ] || fail "the refused repeat changed the pause state"
+echo "  [ok] repeated pause with the default salt refused, registry still unpaused"
+TIMELOCK_SALT=$(cast keccak "rehearsal-pause-2") gov_exec "$WORK/pause-calls.json" >"$WORK/repeat-pause-3.log" 2>&1 ||
+  fail "pause with a fresh salt; see $WORK/repeat-pause-3.log"
+[ "$(registry_paused)" = "true" ] || fail "pause with a fresh salt did not land"
+TIMELOCK_SALT=$(cast keccak "rehearsal-unpause-2") gov_exec "$WORK/unpause-calls.json" >"$WORK/repeat-unpause-2.log" 2>&1 ||
+  fail "unpause with a fresh salt; see $WORK/repeat-unpause-2.log"
+[ "$(registry_paused)" = "false" ] || fail "unpause with a fresh salt did not land"
+echo "  [ok] the same pause/unpause ran again under fresh salts"
 
 echo "[9/9] Independent checks and gas pricing..."
 N=$(jq '.nodes | length' "$NODES_FILE")
