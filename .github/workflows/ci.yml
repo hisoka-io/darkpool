@@ -141,14 +141,15 @@ jobs:
         run: |
           # Through turbo, not pnpm --filter, so `test.dependsOn: ["^build"]` rebuilds pss-client and
           # pss-server first. This suite resolves them through dist, so a pnpm --filter run would grade
-          # whatever bundle happened to be on disk.
+          # whatever bundle happened to be on disk. Five tasks: the test plus the pss-client, pss-server,
+          # wallets and howl-protocol builds (wallets imports howl-protocol at runtime).
           out="$(pnpm turbo run test --filter=@hisoka/pss-integration --force 2>&1)" || rc=$?
           echo "$out"
           test "${rc:-0}" -eq 0 || { echo "::error::pss-integration tests exited ${rc}"; exit 1; }
           echo "$out" | grep -qE "Tests +17 passed \(17\)" \
             || { echo "::error::pss-integration did not report exactly 17 passing tests"; exit 1; }
-          echo "$out" | grep -qE "Tasks: +4 successful, 4 total" \
-            || { echo "::error::expected 4 turbo tasks; a build dependency is missing"; exit 1; }
+          echo "$out" | grep -qE "Tasks: +5 successful, 5 total" \
+            || { echo "::error::expected 5 turbo tasks; a build dependency is missing"; exit 1; }
 
   kage-native-gate:
     name: Kage native VK-pin gate

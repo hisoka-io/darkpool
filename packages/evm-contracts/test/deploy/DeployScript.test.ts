@@ -3,17 +3,35 @@ import { ethers, network } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
-import { deploy, type DeployOptions } from "../../scripts/deploy";
+import * as os from "os";
+import {
+  assertNoPriorDeployment,
+  deploy,
+  governanceDelays,
+  type DeployOptions,
+} from "../../scripts/deploy";
 
 const DEPLOY_DIR = path.join(__dirname, "../../deployments");
 const GOV_SAFE = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 const GUARDIAN_SAFE = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
 const THIRD_PARTY = "0x90F79bf6EB2c4f870365E785982E1f101E93b906";
 const DEFAULT_ADMIN_ROLE = ethers.ZeroHash;
+const FORTY_EIGHT_HOURS = 48n * 60n * 60n;
 
 interface Record {
-  meta: { network: string; chainId: number; deployer: string };
-  governance: { timelock: string; govSafe: string; guardianSafe: string };
+  meta: {
+    network: string;
+    chainId: number;
+    deployer: string;
+    postRenounceVerified: boolean;
+  };
+  governance: {
+    timelock: string;
+    timelockMinDelaySeconds: number;
+    adminTransferDelaySeconds: number;
+    govSafe: string;
+    guardianSafe: string;
+  };
   compliance: { publicKeyX: string; publicKeyY: string };
   contracts: Record_<string>;
   constructorArgs: Record_<unknown[]>;
@@ -118,6 +136,23 @@ describe("deploy script", function () {
     // Ordering is the property. Validating after the renounce leaves a failure nobody can repair.
     expect(preflight).to.be.lessThan(verified);
     expect(verified).to.be.lessThan(renounce);
+  });
+
+  it("pins every holder of every role before the renounce and again after it", function () {
+    const preflight = result.output.indexOf(
+      "[ok] Every role on Timelock, DarkPool, NoxRegistry, NoxRewardPool and ComplianceRegistry is held by exactly",
+    );
+    const renounce = result.output.indexOf("Renouncing deployer's Timelock");
+    const recheck = result.output.indexOf(
+      "[ok] Every role on Timelock, DarkPool, NoxRegistry, NoxRewardPool and ComplianceRegistry is still held",
+    );
+    expect(preflight).to.be.greaterThan(-1);
+    expect(preflight).to.be.lessThan(renounce);
+    expect(recheck).to.be.greaterThan(renounce);
+    expect(result.output).to.contain(
+      "[ok] Timelock has no scheduled or executed operation; proxy implementations are unchanged",
+    );
+    expect(record.meta.postRenounceVerified).to.equal(true);
   });
 
   it("deploys every contract and records an address for each", function () {
@@ -322,16 +357,46 @@ describe("deploy script", function () {
     );
   });
 
-  it("carries a storage-layout manifest selected by network, not by sort order", function () {
-    // The in-process chain produces no manifest, so null is correct here. What is asserted is that the
-    // field exists and that selection is network-derived: a machine holding several networks' manifests
-    // must not embed another chain's layout, which the previous readdir().sort().pop() did silently.
-    expect(record).to.have.property("openzeppelinManifest");
-    const manifest = (record as unknown as { openzeppelinManifest: unknown })
-      .openzeppelinManifest;
-    if (manifest !== null) {
-      expect(manifest).to.be.an("object");
+  it("carries the storage-layout manifest that lists this run's proxies", function () {
+    // upgrades-core locates the file itself (a dev-instance file for the in-process chain, its own chain-table
+    // name on a public chain), so the record cannot embed another chain's or another run's layout.
+    const manifest = (
+      record as unknown as {
+        openzeppelinManifest: { proxies: { address: string }[] } | null;
+      }
+    ).openzeppelinManifest;
+    expect(manifest).to.be.an("object");
+    const listed = (manifest?.proxies ?? []).map((proxy) =>
+      ethers.getAddress(proxy.address),
+    );
+    for (const key of ["darkPool", "noxRegistry", "noxRewardPool"]) {
+      expect(listed, key).to.include(record.contracts[key]);
     }
+  });
+
+  it("defaults both governance delays to the 48h production value", async function () {
+    const timelock = await ethers.getContractAt(
+      "TimelockController",
+      record.governance.timelock,
+    );
+    expect(await timelock.getMinDelay()).to.equal(FORTY_EIGHT_HOURS);
+    for (const [name, key] of [
+      ["DarkPool", "darkPool"],
+      ["NoxRegistry", "noxRegistry"],
+      ["NoxRewardPool", "noxRewardPool"],
+    ] as const) {
+      const contract = await ethers.getContractAt(name, record.contracts[key]);
+      expect(await contract.defaultAdminDelay(), name).to.equal(
+        FORTY_EIGHT_HOURS,
+      );
+    }
+    expect(record.governance.timelockMinDelaySeconds).to.equal(
+      Number(FORTY_EIGHT_HOURS),
+    );
+    expect(record.governance.adminTransferDelaySeconds).to.equal(
+      Number(FORTY_EIGHT_HOURS),
+    );
+    expect(result.output).to.not.contain("below the");
   });
 
   it("writes a record with real circuit provenance and resolved compiler settings", function () {
@@ -494,5 +559,227 @@ describe("preflight aborts a mis-wired topology before the renounce", function (
       "[FAIL] DarkPool PAUSER does NOT hold Timelock CANCELLER",
     );
     expect(r.output).to.not.contain("Renouncing");
+  });
+
+  it("catches a third party holding Timelock PROPOSER, which only the full holder-set scan sees", async function () {
+    const r = await runDeploy(
+      { GOV_SAFE, GUARDIAN_SAFE, STAKING_TOKEN: "" },
+      {
+        afterGovernanceWiring: async ({ grantTimelockRole, proposerRole }) => {
+          await grantTimelockRole(proposerRole, THIRD_PARTY);
+        },
+      },
+    );
+    expect(r.ok).to.equal(false);
+    expect(r.output).to.contain(
+      `[FAIL] Timelock.PROPOSER_ROLE is held by {govSafe, ${THIRD_PARTY}}, expected {govSafe}`,
+    );
+    expect(r.output).to.contain("[ok] Gov Safe is Timelock PROPOSER");
+    expect(r.output).to.not.contain("Renouncing");
+  });
+});
+
+describe("post-renounce re-check", function () {
+  this.timeout(600000);
+
+  it("refuses the deployment when the deployer key granted a role between the preflight and the renounce", async function () {
+    const r = await runDeploy(
+      { GOV_SAFE, GUARDIAN_SAFE, STAKING_TOKEN: "" },
+      {
+        beforeRenounce: async ({ grantTimelockRole, executorRole }) => {
+          await grantTimelockRole(executorRole, THIRD_PARTY);
+        },
+      },
+    );
+    expect(r.ok).to.equal(false);
+    expect(r.output).to.contain("Governance topology verified");
+    expect(r.output).to.contain("Deployer renounced Timelock DEFAULT_ADMIN");
+    expect(r.output).to.contain(
+      `[FAIL] Timelock.EXECUTOR_ROLE is held by {govSafe, ${THIRD_PARTY}}, expected {govSafe}`,
+    );
+    expect(r.output).to.contain("SECURITY: after the renounce");
+    expect(r.output).to.not.contain("DEPLOYMENT COMPLETE");
+
+    // The addresses survive for forensics, marked unverified, and the latest pointer never moves to them.
+    const snapshotPath = /Pre-renounce snapshot: (\S+)/.exec(r.output)?.[1];
+    expect(snapshotPath, "snapshot path").to.be.a("string");
+    const snapshot = JSON.parse(
+      fs.readFileSync(snapshotPath as string, "utf8"),
+    ) as Record;
+    expect(snapshot.meta.postRenounceVerified).to.equal(false);
+    expect(latestRecord().governance.timelock).to.not.equal(
+      snapshot.governance.timelock,
+    );
+  });
+
+  it("refuses the deployment when a Timelock operation ran in that window, even with every grant revoked", async function () {
+    const r = await runDeploy(
+      {
+        GOV_SAFE,
+        GUARDIAN_SAFE,
+        STAKING_TOKEN: "",
+        TIMELOCK_MIN_DELAY_SECS: "0",
+        ADMIN_TRANSFER_DELAY_SECS: "0",
+      },
+      {
+        beforeRenounce: async ({
+          grantTimelockRole,
+          proposerRole,
+          executorRole,
+          deployer,
+        }) => {
+          await grantTimelockRole(proposerRole, deployer);
+          await grantTimelockRole(executorRole, deployer);
+          const [grant] = await ethers.provider.getLogs({
+            fromBlock: await ethers.provider.getBlockNumber(),
+            topics: [
+              ethers.id("RoleGranted(bytes32,address,address)"),
+              executorRole,
+              ethers.zeroPadValue(deployer, 32),
+            ],
+          });
+          const timelock = await ethers.getContractAt(
+            "TimelockController",
+            grant.address,
+          );
+          const call = [
+            grant.address,
+            0,
+            timelock.interface.encodeFunctionData("updateDelay", [0]),
+            ethers.ZeroHash,
+            ethers.id("window"),
+          ] as const;
+          await (await timelock.schedule(...call, 0)).wait();
+          await (await timelock.execute(...call)).wait();
+          await (await timelock.revokeRole(proposerRole, deployer)).wait();
+          await (await timelock.revokeRole(executorRole, deployer)).wait();
+        },
+      },
+    );
+    expect(r.ok).to.equal(false);
+    expect(r.output).to.contain("Deployer renounced Timelock DEFAULT_ADMIN");
+    expect(r.output).to.contain("logged 2 scheduled or executed call(s)");
+    expect(r.output).to.not.contain("[FAIL] Timelock.PROPOSER_ROLE");
+    expect(r.output).to.not.contain("DEPLOYMENT COMPLETE");
+  });
+});
+
+describe("deploy script redeploy guard", function () {
+  let dir: string;
+  let saved: string | undefined;
+
+  beforeEach(function () {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "deploy-guard-"));
+    saved = process.env.ALLOW_REDEPLOY;
+    delete process.env.ALLOW_REDEPLOY;
+  });
+
+  afterEach(function () {
+    fs.rmSync(dir, { recursive: true, force: true });
+    if (saved === undefined) delete process.env.ALLOW_REDEPLOY;
+    else process.env.ALLOW_REDEPLOY = saved;
+  });
+
+  it("refuses to repoint an existing latest record off local unless ALLOW_REDEPLOY=true", function () {
+    const latest = path.join(dir, "arbitrumSepolia-latest.json");
+    expect(() => assertNoPriorDeployment(latest, false)).to.not.throw();
+    fs.writeFileSync(latest, "{}");
+    expect(() => assertNoPriorDeployment(latest, false)).to.throw(
+      "already records a deployment",
+    );
+    expect(() => assertNoPriorDeployment(latest, true)).to.not.throw();
+    process.env.ALLOW_REDEPLOY = "true";
+    expect(() => assertNoPriorDeployment(latest, false)).to.not.throw();
+  });
+});
+
+describe("deploy script governance delays", function () {
+  this.timeout(600000);
+
+  it("deploys with zero delays when both are configured to 0, and warns about it", async function () {
+    const r = await runDeploy({
+      GOV_SAFE,
+      GUARDIAN_SAFE,
+      STAKING_TOKEN: "",
+      TIMELOCK_MIN_DELAY_SECS: "0",
+      ADMIN_TRANSFER_DELAY_SECS: "0",
+    });
+    expect(r.ok, r.output.slice(-2000)).to.equal(true);
+    expect(r.output).to.contain("WARNING: governance delay below the");
+    expect(r.output).to.contain("[ok] Timelock min delay is 0s");
+    const record = latestRecord();
+    expect(record.governance.timelockMinDelaySeconds).to.equal(0);
+    expect(record.governance.adminTransferDelaySeconds).to.equal(0);
+
+    const timelock = await ethers.getContractAt(
+      "TimelockController",
+      record.governance.timelock,
+    );
+    expect(await timelock.getMinDelay()).to.equal(0n);
+    for (const [name, key] of [
+      ["DarkPool", "darkPool"],
+      ["NoxRegistry", "noxRegistry"],
+      ["NoxRewardPool", "noxRewardPool"],
+    ] as const) {
+      const contract = await ethers.getContractAt(name, record.contracts[key]);
+      expect(await contract.defaultAdminDelay(), name).to.equal(0n);
+    }
+  });
+
+  it("rejects malformed and out-of-range delays before any transaction", async function () {
+    await expectPreTransactionFailure(
+      { TIMELOCK_MIN_DELAY_SECS: "-1" },
+      "TIMELOCK_MIN_DELAY_SECS=-1 must be an unsigned decimal number of seconds",
+    );
+    await expectPreTransactionFailure(
+      { TIMELOCK_MIN_DELAY_SECS: "1.5" },
+      "TIMELOCK_MIN_DELAY_SECS=1.5 must be an unsigned decimal number of seconds",
+    );
+    await expectPreTransactionFailure(
+      { ADMIN_TRANSFER_DELAY_SECS: "0x10" },
+      "ADMIN_TRANSFER_DELAY_SECS=0x10 must be an unsigned decimal number of seconds",
+    );
+    await expectPreTransactionFailure(
+      { ADMIN_TRANSFER_DELAY_SECS: (2n ** 48n).toString() },
+      "ADMIN_TRANSFER_DELAY_SECS=281474976710656 exceeds",
+    );
+  });
+
+  it("refuses a delay below 48h on a chain that is not a testnet", function () {
+    const saved = {
+      timelock: process.env.TIMELOCK_MIN_DELAY_SECS,
+      admin: process.env.ADMIN_TRANSFER_DELAY_SECS,
+    };
+    try {
+      process.env.TIMELOCK_MIN_DELAY_SECS = "0";
+      delete process.env.ADMIN_TRANSFER_DELAY_SECS;
+      for (const mainnet of [1n, 42161n]) {
+        expect(() => governanceDelays(mainnet)).to.throw(
+          "TIMELOCK_MIN_DELAY_SECS=0 is below the 172800s production default",
+        );
+      }
+      expect(governanceDelays(421614n)).to.deep.equal({
+        timelockMinDelay: 0n,
+        adminTransferDelay: FORTY_EIGHT_HOURS,
+      });
+
+      delete process.env.TIMELOCK_MIN_DELAY_SECS;
+      process.env.ADMIN_TRANSFER_DELAY_SECS = "3600";
+      expect(() => governanceDelays(42161n)).to.throw(
+        "ADMIN_TRANSFER_DELAY_SECS=3600 is below the 172800s production default",
+      );
+      process.env.ADMIN_TRANSFER_DELAY_SECS = "604800";
+      expect(governanceDelays(1n)).to.deep.equal({
+        timelockMinDelay: FORTY_EIGHT_HOURS,
+        adminTransferDelay: 604800n,
+      });
+    } finally {
+      if (saved.timelock === undefined)
+        delete process.env.TIMELOCK_MIN_DELAY_SECS;
+      else process.env.TIMELOCK_MIN_DELAY_SECS = saved.timelock;
+      if (saved.admin === undefined)
+        delete process.env.ADMIN_TRANSFER_DELAY_SECS;
+      else process.env.ADMIN_TRANSFER_DELAY_SECS = saved.admin;
+    }
   });
 });

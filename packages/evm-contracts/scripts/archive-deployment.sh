@@ -5,7 +5,9 @@
 # Example: bash scripts/archive-deployment.sh arbitrumSepolia-2026-03-16T12-00-00
 #
 # Archives: deployment JSON, secrets, circuit artifacts, verifier sources,
-#           ABIs, and version metadata to a local directory.
+#           ABIs, and version metadata to a local directory, plus the network's
+#           SOKA record (<network>-soka-latest.json), Safe record (<network>-safes.json)
+#           and, when REGISTER_RESULT points at one, the register-nodes result.
 #           Optionally pushes to the hisoka-io/nox-deployments private repo.
 
 set -euo pipefail
@@ -17,9 +19,10 @@ CIRCUITS_DIR="$(dirname "$CONTRACTS_DIR")/circuits"
 ARCHIVE_BASE="${CONTRACTS_DIR}/deployments/archives"
 ARCHIVE_DIR="${ARCHIVE_BASE}/${DEPLOYMENT_NAME}"
 DEPLOYMENT_FILE="${CONTRACTS_DIR}/deployments/${DEPLOYMENT_NAME}.json"
+NETWORK_NAME="${DEPLOYMENT_NAME%%-*}"
 CIRCUITS=(deposit withdraw transfer join split public_claim withdraw_multisig transfer_multisig split_multisig join_multisig swap_intent swap_settle)
 VERIFIERS=(DepositVerifier WithdrawVerifier TransferVerifier JoinVerifier SplitVerifier PublicClaimVerifier WithdrawMultisigVerifier TransferMultisigVerifier SplitMultisigVerifier JoinMultisigVerifier KageVerifier)
-ABIS=(DarkPool NoxRegistry NoxRewardPool NoxExecutionSandbox NoxEntryPoint HowlPaymentAdapter BundleExecutor ComplianceRegistry MockERC20)
+ABIS=(DarkPool NoxRegistry NoxRewardPool NoxExecutionSandbox NoxEntryPoint HowlPaymentAdapter BundleExecutor ComplianceRegistry MockERC20 SokaToken TimelockController)
 
 if [ ! -f "${DEPLOYMENT_FILE}" ]; then
   echo "ERROR: deployment record not found: ${DEPLOYMENT_FILE}" >&2
@@ -66,6 +69,17 @@ if [ -f "${CONTRACTS_DIR}/deployments/${DEPLOYMENT_NAME}.secrets.json" ]; then
   cp "${CONTRACTS_DIR}/deployments/${DEPLOYMENT_NAME}.secrets.json" "${ARCHIVE_DIR}/secrets.json"
   chmod 600 "${ARCHIVE_DIR}/secrets.json"
   echo "  Secrets file copied (chmod 600)"
+fi
+for pair in "soka:${NETWORK_NAME}-soka-latest.json" "safes:${NETWORK_NAME}-safes.json"; do
+  src="${CONTRACTS_DIR}/deployments/${pair#*:}"
+  if [ -f "${src}" ]; then
+    cp "${src}" "${ARCHIVE_DIR}/${pair%%:*}.json"
+    echo "  ${pair%%:*}.json copied from ${pair#*:}"
+  fi
+done
+if [ -n "${REGISTER_RESULT:-}" ]; then
+  cp "${REGISTER_RESULT}" "${ARCHIVE_DIR}/registration.json"
+  echo "  registration.json copied from ${REGISTER_RESULT}"
 fi
 
 # 2. Copy circuit artifacts
