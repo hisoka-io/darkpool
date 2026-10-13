@@ -5,8 +5,11 @@ import {
   buildBundle,
   buildFeePaymentBundle,
   buildSwapFeeBundle,
+  bundleActionGasLimit,
+  encodeBundleExecute,
   treasuryDepositCall,
 } from "./bundle.js";
+import { HOWL_WITHDRAW_ACTION_GAS_LIMIT } from "./howl-payment.js";
 import { BundleCall, BundleDomain } from "./types.js";
 
 const TREASURY = "0x1111111111111111111111111111111111111111";
@@ -228,5 +231,117 @@ describe("Executor bundle builder", () => {
         [USER],
       ),
     );
+  });
+
+  describe("encodeBundleExecute", () => {
+    const executeIface = new Interface([
+      `function execute(bytes proof, bytes32[] publicInputs, ${BUNDLE_CALL_TUPLE} boundCalls, uint256 deadline, address[] trackedAssets, address[] recipients)`,
+    ]);
+    const call = treasuryDepositCall(TREASURY, FEE_ASSET, 40n, 200_000n);
+    const bundle = buildBundle(DOMAIN, [call], deadline, [FEE_ASSET], [USER]);
+    const word = (value: bigint | string) =>
+      `0x${BigInt(value).toString(16).padStart(64, "0")}`;
+    const publicInputs = (recipient: string, intent: string) => {
+      const inputs = Array<string>(17).fill(word(0n));
+      inputs[1] = word(recipient);
+      inputs[2] = intent;
+      return inputs;
+    };
+
+    it("encodes the executor call with the proof and the exact bundle", () => {
+      const inputs = publicInputs(EXECUTOR, bundle.intentHash.toString());
+      const calldata = encodeBundleExecute(bundle, {
+        proof: "0x010203",
+        publicInputs: inputs,
+      });
+      expect(calldata.slice(0, 10)).toBe("0xc1ab9754");
+      const decoded = executeIface.decodeFunctionData("execute", calldata);
+      expect(decoded[0]).toBe("0x010203");
+      expect([...decoded[1]]).toEqual(inputs);
+      expect(decoded[2]).toHaveLength(1);
+      expect([...decoded[2][0]]).toEqual([
+        call.target,
+        call.data,
+        call.value,
+        call.requireSuccess,
+        call.approveToken,
+        call.approveAmount,
+        call.gasLimit,
+        call.returnDataLimit,
+      ]);
+      expect(decoded[3]).toBe(deadline);
+      expect([...decoded[4]]).toEqual([FEE_ASSET]);
+      expect([...decoded[5]]).toEqual([USER]);
+    });
+
+    it("rejects a proof that is not the bundle's withdraw to the executor", () => {
+      const intent = bundle.intentHash.toString();
+      expect(() =>
+        encodeBundleExecute(bundle, {
+          proof: "0x01",
+          publicInputs: publicInputs(USER, intent),
+        }),
+      ).toThrow(/recipient/);
+      expect(() =>
+        encodeBundleExecute(bundle, {
+          proof: "0x01",
+          publicInputs: publicInputs(EXECUTOR, word(1n)),
+        }),
+      ).toThrow(/intent/);
+      expect(() =>
+        encodeBundleExecute(bundle, {
+          proof: "0x01",
+          publicInputs: publicInputs(EXECUTOR, intent).slice(1),
+        }),
+      ).toThrow(/17 public inputs/);
+    });
+  });
+
+  describe("bundleActionGasLimit", () => {
+    const plainCall = (gasLimit: bigint, data = "0x"): BundleCall => ({
+      target: USER,
+      data,
+      value: 0n,
+      requireSuccess: true,
+      approveToken: "0x0000000000000000000000000000000000000000",
+      approveAmount: 0n,
+      gasLimit,
+      returnDataLimit: 0n,
+    });
+    const limit = (
+      calls: BundleCall[],
+      trackedAssets: string[] = [FEE_ASSET],
+    ) =>
+      bundleActionGasLimit(
+        buildBundle(DOMAIN, calls, deadline, trackedAssets, [USER]),
+      );
+    const base = HOWL_WITHDRAW_ACTION_GAS_LIMIT + 100_000n + 24_000n;
+
+    it("reserves the withdraw, the executor overhead and one tracked asset", () => {
+      expect(limit([])).toBe(base);
+    });
+
+    it("reserves what the executor demands before forwarding each call", () => {
+      expect(limit([plainCall(100_000n)])).toBe(base + 162_540n + 12_000n);
+      expect(limit([plainCall(100_000n), plainCall(3n)])).toBe(
+        base + 162_540n + 60_956n + 2n * 12_000n,
+      );
+    });
+
+    it("adds approvals, tracked assets and bound calldata", () => {
+      const approving = treasuryDepositCall(TREASURY, FEE_ASSET, 40n, 3n);
+      expect(limit([approving], [FEE_ASSET, TOKEN_OUT])).toBe(
+        base + 24_000n + 60_956n + 12_000n + 60_000n + 68n * 3n,
+      );
+      expect(limit([plainCall(3n, `0x${"11".repeat(1000)}`)])).toBe(
+        base + 60_956n + 12_000n + 3_000n,
+      );
+    });
+
+    it("refuses calldata beyond the size the bound covers", () => {
+      expect(() => limit([plainCall(3n, `0x${"11".repeat(32_001)}`)])).toThrow(
+        /exceeds the 32000 bytes/,
+      );
+    });
   });
 });
