@@ -74,6 +74,8 @@ export interface WithdrawOptions {
   asset?: string;
   recipient?: string;
   intentHash?: Fr;
+  /** Nullifier of the note to spend; without it the first unspent note that covers the amount is used. */
+  inputNullifier?: Fr;
 }
 
 export interface ReceiveAddress {
@@ -90,6 +92,8 @@ export class TestWallet {
   public tree!: LeanIMT;
   public fromBlock: number = 0;
   public chainId: bigint = HARDHAT_CHAIN_ID;
+  private compliancePk: Point<bigint> = COMPLIANCE_PK;
+  private complianceHistory = TEST_COMPLIANCE_HISTORY;
 
   private constructor(
     public readonly signer: ethers.ContractRunner & { address: string },
@@ -105,8 +109,19 @@ export class TestWallet {
     darkPool: DarkPool,
     token: MockERC20,
     fromBlock?: number,
+    /** Version 1 compliance key of the pool; the local fixture key when omitted. */
+    compliancePk?: Point<bigint>,
   ) {
     const wallet = new TestWallet(signer, darkPool, token);
+    if (compliancePk !== undefined) {
+      wallet.compliancePk = compliancePk;
+      wallet.complianceHistory = completeComplianceHistory({
+        genesisPk: compliancePk,
+        rotations: [],
+        currentPk: compliancePk,
+        currentVersion: 1,
+      });
+    }
     const signature = await signer.signMessage("Hisoka Test Login");
     wallet.account = await DarkAccount.fromSignature(signature);
 
@@ -130,7 +145,7 @@ export class TestWallet {
       darkPool as unknown as ethers.Contract,
       wallet.keyRepo,
       wallet.utxoRepo,
-      COMPLIANCE_PK,
+      wallet.compliancePk,
       wallet.tree,
       undefined,
       wallet.fromBlock,
@@ -158,9 +173,9 @@ export class TestWallet {
   /** The assembler's ports, backed by this wallet's own synced tree. */
   private assemblyCtx(): AssemblyContext {
     return {
-      compliancePk: COMPLIANCE_PK,
+      compliancePk: this.compliancePk,
       complianceVersion: 1,
-      complianceHistory: TEST_COMPLIANCE_HISTORY,
+      complianceHistory: this.complianceHistory,
       ...this.selfMintDomain(),
       merkle: new LocalTreeWitnessSource(this.tree),
     };
@@ -178,13 +193,20 @@ export class TestWallet {
     return addressToFr(asset ?? (await this.token.getAddress()));
   }
 
-  private pickNote(assetFr: Fr, minValue: bigint): WalletNote {
+  private pickNote(assetFr: Fr, minValue: bigint, nullifier?: Fr): WalletNote {
     const note = this.utxoRepo
       .getUnspentNotes()
-      .find((n) => n.note.assetId.equals(assetFr) && n.note.value >= minValue);
+      .find(
+        (n) =>
+          n.note.assetId.equals(assetFr) &&
+          n.note.value >= minValue &&
+          (nullifier === undefined || n.nullifier.equals(nullifier)),
+      );
     if (!note) {
       throw new Error(
-        `Insufficient funds: need >= ${minValue} of ${assetFr.toString()}`,
+        nullifier === undefined
+          ? `Insufficient funds: need >= ${minValue} of ${assetFr.toString()}`
+          : `Note ${nullifier.toString()} is not an unspent note holding >= ${minValue} of ${assetFr.toString()}`,
       );
     }
     return note;
@@ -209,7 +231,7 @@ export class TestWallet {
         fetchOccurrences: () => Promise.resolve([]),
         fetchLeafBlock: () => Promise.resolve([]),
       },
-      history: TEST_COMPLIANCE_HISTORY,
+      history: this.complianceHistory,
       ownerCommitment: await pubkeyOwner(await this.keyRepo.getSelfSpendPub()),
       domain: this.selfMintDomain(),
     });
@@ -265,7 +287,7 @@ export class TestWallet {
     const recipient = options.recipient ?? this.signer.address;
     const intentHash = options.intentHash ?? toFr(0n);
 
-    const input = this.pickNote(assetFr, amount);
+    const input = this.pickNote(assetFr, amount, options.inputNullifier);
     const [changeMint] = await this.selfMints(1);
 
     // Delegated to the shipped assembler, so this suite grades @hisoka/wallets rather than a parallel copy.

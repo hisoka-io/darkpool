@@ -2,9 +2,12 @@ import { Fr } from "@hisoka/wallets";
 import {
   AbiCoder,
   concat,
+  dataLength,
+  dataSlice,
   getAddress,
   getBytes,
   hexlify,
+  id,
   isHexString,
   keccak256,
   toUtf8Bytes,
@@ -12,7 +15,45 @@ import {
 import { AdaptorError } from "../errors.js";
 
 const WITHDRAW_PUBLIC_INPUTS = 17;
+const NULLIFIER_INPUT = 5;
+/** Honk ZK proof of the withdraw circuit: (82 + 12 * LOG_N) words at LOG_N = 15, the size its verifier accepts. */
+const WITHDRAW_PROOF_BYTES = (82 + 12 * 15) * 32;
 const ZERO_BYTES32 = `0x${"00".repeat(32)}`;
+const BASIS_POINTS = 10_000n;
+
+/** Entrypoints whose first two arguments are a withdraw proof and its public inputs. */
+const WITHDRAW_CARRYING_SELECTORS: readonly string[] = [
+  "withdraw(bytes,bytes32[])",
+  "execute(bytes,bytes32[],(address,bytes,uint256,bool,address,uint256,uint256,uint256)[],uint256,address[],address[])",
+].map((signature) => dataSlice(id(signature), 0, 4));
+
+/** A withdraw inserts one leaf; each of the 32 tree levels costs at most one Poseidon2 hash_3. */
+const TREE_ALLOWANCE_GAS = 32n * 24_000n;
+/** Highest traced `HowlPaymentAdapter.pay` and `DarkPool.withdraw` frames on the deployed pool. */
+const PAY_FRAME_GAS = 1_010_000n;
+const WITHDRAW_FRAME_GAS = 827_000n;
+/** A payment that runs out of gas reverts uncharged; an action that runs out of gas is charged. */
+const PAYMENT_MARGIN_BPS = 1_000n;
+const ACTION_MARGIN_BPS = 2_000n;
+
+function withMargin(gas: bigint, marginBps: bigint): bigint {
+  return (gas * (BASIS_POINTS + marginBps) + BASIS_POINTS - 1n) / BASIS_POINTS;
+}
+
+/** `paymentGasLimit` for a Howl fee withdraw, valid at every leaf index of the pool tree. */
+export const HOWL_PAYMENT_GAS_LIMIT = withMargin(
+  PAY_FRAME_GAS + TREE_ALLOWANCE_GAS,
+  PAYMENT_MARGIN_BPS,
+);
+/** `actionGasLimit` for `DarkPool.withdraw` as the paid action, valid at every leaf index of the pool tree. */
+export const HOWL_WITHDRAW_ACTION_GAS_LIMIT = withMargin(
+  WITHDRAW_FRAME_GAS + TREE_ALLOWANCE_GAS,
+  ACTION_MARGIN_BPS,
+);
+
+/** Bytes of the ABI-encoded `(bytes proof, bytes32[] publicInputs)` of a fee withdraw. */
+export const HOWL_PAYMENT_DATA_LENGTH =
+  4 * 32 + WITHDRAW_PROOF_BYTES + WITHDRAW_PUBLIC_INPUTS * 32;
 
 export interface HowlWithdrawProof {
   readonly proof: Uint8Array | string;
@@ -92,5 +133,130 @@ export function buildHowlPayment(
       ["bytes", "bytes32[]"],
       [proof, inputs],
     ),
+  };
+}
+
+/** Structurally a nox-client `PaidPaymentSource`: one fee note pays one paid execution. */
+export interface HowlPaymentSource {
+  readonly adapter: string;
+  readonly feeAsset: string;
+  readonly paymentId: Uint8Array;
+  readonly gasLimit: bigint;
+  readonly paymentDataLength: number;
+  checkAction(action: { readonly data: Uint8Array }): void;
+  buildPaymentData(args: {
+    readonly executionId: Uint8Array;
+    readonly amount: bigint;
+    readonly feeAsset: string;
+  }): Promise<Uint8Array>;
+}
+
+export interface HowlPaymentSourceArgs {
+  readonly adapter: string;
+  readonly feeAsset: string;
+  readonly feeNoteNullifier: string;
+  readonly feeNoteValue: bigint;
+  /** Proves a withdraw of `amount` from the fee note to `recipient`, bound to `intentHash`. */
+  readonly proveFeeWithdraw: (
+    amount: bigint,
+    recipient: string,
+    intentHash: Fr,
+  ) => Promise<HowlWithdrawProof>;
+  readonly gasLimit?: bigint;
+}
+
+export function howlPaymentSource(
+  args: HowlPaymentSourceArgs,
+): HowlPaymentSource {
+  const adapter = getAddress(args.adapter);
+  const feeAsset = getAddress(args.feeAsset);
+  if (
+    !isHexString(args.feeNoteNullifier, 32) ||
+    args.feeNoteNullifier.toLowerCase() === ZERO_BYTES32
+  ) {
+    throw new AdaptorError(
+      "Howl fee note nullifier must be a non-zero 32-byte value",
+    );
+  }
+  const feeNoteNullifier = args.feeNoteNullifier.toLowerCase();
+  if (args.feeNoteValue <= 0n) {
+    throw new AdaptorError("Howl fee note value must be positive");
+  }
+  const gasLimit = args.gasLimit ?? HOWL_PAYMENT_GAS_LIMIT;
+  if (gasLimit <= 0n) {
+    throw new AdaptorError("Howl payment gas limit must be positive");
+  }
+
+  return {
+    adapter,
+    feeAsset,
+    paymentId: getBytes(feeNoteNullifier),
+    gasLimit,
+    paymentDataLength: HOWL_PAYMENT_DATA_LENGTH,
+    checkAction(action) {
+      const data = hexlify(action.data);
+      if (
+        dataLength(data) < 4 ||
+        !WITHDRAW_CARRYING_SELECTORS.includes(dataSlice(data, 0, 4))
+      ) {
+        return;
+      }
+      let publicInputs: readonly string[];
+      try {
+        [, publicInputs] = AbiCoder.defaultAbiCoder().decode(
+          ["bytes", "bytes32[]"],
+          dataSlice(data, 4),
+        ) as unknown as [string, string[]];
+      } catch {
+        throw new AdaptorError(
+          "Paid action carries a withdraw whose public inputs do not decode",
+        );
+      }
+      if (publicInputs.length !== WITHDRAW_PUBLIC_INPUTS) {
+        throw new AdaptorError(
+          `Paid action withdraw requires ${WITHDRAW_PUBLIC_INPUTS} public inputs, got ${publicInputs.length}`,
+        );
+      }
+      if (publicInputs[NULLIFIER_INPUT]!.toLowerCase() === feeNoteNullifier) {
+        throw new AdaptorError(
+          "Paid action spends the fee note: the fee withdraw runs first, so the action would fail after the fee is paid",
+        );
+      }
+    },
+    async buildPaymentData({ executionId, amount, feeAsset: quotedAsset }) {
+      if (getAddress(quotedAsset) !== feeAsset) {
+        throw new AdaptorError(
+          `Quoted fee asset ${quotedAsset} is not the fee note asset ${feeAsset}`,
+        );
+      }
+      if (amount > args.feeNoteValue) {
+        throw new AdaptorError(
+          `Quoted fee ${amount} exceeds the fee note value ${args.feeNoteValue}`,
+        );
+      }
+      const execution = hexlify(executionId);
+      const proof = await args.proveFeeWithdraw(
+        amount,
+        adapter,
+        howlPaymentIntent(execution),
+      );
+      const payment = buildHowlPayment(execution, adapter, proof);
+      if (payment.paymentId.toLowerCase() !== feeNoteNullifier) {
+        throw new AdaptorError(
+          "Fee withdraw proof spends a different note than the quoted payment ID",
+        );
+      }
+      if (payment.amount !== amount) {
+        throw new AdaptorError(
+          `Fee withdraw proof pays ${payment.amount}, quoted fee is ${amount}`,
+        );
+      }
+      if (payment.feeAsset !== feeAsset) {
+        throw new AdaptorError(
+          `Fee withdraw proof pays in ${payment.feeAsset}, quoted fee asset is ${feeAsset}`,
+        );
+      }
+      return getBytes(payment.paymentData);
+    },
   };
 }
