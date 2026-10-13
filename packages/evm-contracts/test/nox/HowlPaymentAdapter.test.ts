@@ -16,7 +16,11 @@ import {
   packParents,
   toFr,
 } from "@hisoka/wallets";
-import { proveWithdraw, type WithdrawInputs } from "@hisoka/prover";
+import {
+  proveWithdraw,
+  type ProofData,
+  type WithdrawInputs,
+} from "@hisoka/prover";
 
 const QUOTE_TYPES = {
   ExecutionQuote: [
@@ -125,41 +129,59 @@ describe("HowlPaymentAdapter", function () {
       ) % Fr.MODULUS;
     expect(intent).to.equal(expectedIntent);
     const assetFr = addressToFr(asset);
-    const changeEph = evenYEphemeral(9191n);
-    const change = await mintSelfNote(
-      changeEph,
-      feeNoteValue - totalFee,
-      deposit.spendScalar,
-      assetFr,
-      packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
-    );
-    const inputs: WithdrawInputs = {
-      withdrawValue: toFr(totalFee),
-      recipient: addressToFr(await adapter.getAddress()),
-      intentHash: toFr(intent),
-      compliancePk: COMPLIANCE_PK,
-      oldNote: deposit.built.note,
-      spendScalar: deposit.spendScalar,
-      oldNoteIndex: 1,
-      oldNotePath: tree.getMerklePath(1),
-      changeNote: change.note,
-      changeEph,
+    const proveFeeNoteWithdraw = async (
+      value: bigint,
+      recipient: string,
+      intentHash: bigint,
+      changeSeed: bigint,
+    ) => {
+      const changeEph = evenYEphemeral(changeSeed);
+      const change = await mintSelfNote(
+        changeEph,
+        feeNoteValue - value,
+        deposit.spendScalar,
+        assetFr,
+        packParents([{ leafIndex: 1 }, { leafIndex: 0 }]),
+      );
+      const inputs: WithdrawInputs = {
+        withdrawValue: toFr(value),
+        recipient: addressToFr(recipient),
+        intentHash: toFr(intentHash),
+        compliancePk: COMPLIANCE_PK,
+        oldNote: deposit.built.note,
+        spendScalar: deposit.spendScalar,
+        oldNoteIndex: 1,
+        oldNotePath: tree.getMerklePath(1),
+        changeNote: change.note,
+        changeEph,
+      };
+      return proveWithdraw(inputs);
     };
-    const proof = await proveWithdraw(inputs);
-    const paymentData = ethers.AbiCoder.defaultAbiCoder().encode(
-      ["bytes", "bytes32[]"],
-      [proof.proof, proof.publicInputs],
+    const encodePayment = (proof: ProofData) =>
+      ethers.AbiCoder.defaultAbiCoder().encode(
+        ["bytes", "bytes32[]"],
+        [proof.proof, proof.publicInputs],
+      );
+    const signQuote = async (signed: typeof quote) =>
+      relayer.signTypedData(
+        {
+          name: "NoxEntryPoint",
+          version: "1",
+          chainId,
+          verifyingContract: await entryPoint.getAddress(),
+        },
+        QUOTE_TYPES,
+        signed,
+      );
+    const paymentData = encodePayment(
+      await proveFeeNoteWithdraw(
+        totalFee,
+        await adapter.getAddress(),
+        intent,
+        9191n,
+      ),
     );
-    const signature = await relayer.signTypedData(
-      {
-        name: "NoxEntryPoint",
-        version: "1",
-        chainId,
-        verifyingContract: await entryPoint.getAddress(),
-      },
-      QUOTE_TYPES,
-      quote,
-    );
+    const signature = await signQuote(quote);
 
     return {
       ...base,
@@ -176,6 +198,9 @@ describe("HowlPaymentAdapter", function () {
       paymentData,
       totalFee,
       paymentId,
+      proveFeeNoteWithdraw,
+      encodePayment,
+      signQuote,
     };
   }
 
@@ -211,6 +236,83 @@ describe("HowlPaymentAdapter", function () {
     expect(await adapter.expectedIntent()).to.equal(0n);
     expect(await adapter.pulling()).to.equal(false);
     expect(await token.balanceOf(await adapter.getAddress())).to.equal(0n);
+    expect(await darkPool.getNextLeafIndex()).to.equal(3n);
+  });
+
+  it("keeps the fee and reports a failed action when the action spends the fee note", async function () {
+    const {
+      entryPoint,
+      relayer,
+      alice,
+      quote,
+      adapter,
+      darkPool,
+      rewardPool,
+      token,
+      asset,
+      paymentId,
+      totalFee,
+      proveFeeNoteWithdraw,
+      encodePayment,
+      signQuote,
+    } = await loadFixture(deployFixture);
+
+    const actionProof = await proveFeeNoteWithdraw(
+      1n,
+      alice.address,
+      1n,
+      9292n,
+    );
+    expect(actionProof.publicInputs[5]).to.equal(paymentId);
+    const actionData = darkPool.interface.encodeFunctionData("withdraw", [
+      actionProof.proof,
+      actionProof.publicInputs,
+    ]);
+    const sameNoteQuote = {
+      ...quote,
+      clientIntentId: ethers.id("howl-action-spends-fee-note"),
+      actionTarget: await darkPool.getAddress(),
+      actionCalldataHash: ethers.keccak256(actionData),
+      actionGasLimit: 2_000_000n,
+      maximumTransactionGas: 8_000_000n,
+    };
+    const executionId = await entryPoint.executionId(sameNoteQuote);
+    const paymentData = encodePayment(
+      await proveFeeNoteWithdraw(
+        totalFee,
+        await adapter.getAddress(),
+        await adapter.paymentIntent(executionId),
+        9393n,
+      ),
+    );
+    const aliceBefore = await token.balanceOf(alice.address);
+
+    const tx = await entryPoint
+      .connect(relayer)
+      .execute(
+        sameNoteQuote,
+        await signQuote(sameNoteQuote),
+        actionData,
+        [],
+        paymentData,
+        { gasLimit: sameNoteQuote.maximumTransactionGas },
+      );
+    const receipt = await tx.wait();
+
+    const settlement = receipt?.logs
+      .map((log) => {
+        try {
+          return entryPoint.interface.parseLog(log);
+        } catch {
+          return null;
+        }
+      })
+      .find((log) => log?.name === "PaidExecutionSettled");
+    expect(settlement?.args.executionId).to.equal(executionId);
+    expect(settlement?.args.actionSuccess).to.equal(false);
+    expect(await rewardPool.totalCollected(asset)).to.equal(totalFee);
+    expect(await darkPool.isNullifierSpent(paymentId)).to.equal(true);
+    expect(await token.balanceOf(alice.address)).to.equal(aliceBefore);
     expect(await darkPool.getNextLeafIndex()).to.equal(3n);
   });
 

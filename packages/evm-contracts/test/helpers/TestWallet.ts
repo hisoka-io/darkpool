@@ -74,6 +74,8 @@ export interface WithdrawOptions {
   asset?: string;
   recipient?: string;
   intentHash?: Fr;
+  /** Nullifier of the note to spend; without it the first unspent note that covers the amount is used. */
+  inputNullifier?: Fr;
 }
 
 export interface ReceiveAddress {
@@ -178,13 +180,20 @@ export class TestWallet {
     return addressToFr(asset ?? (await this.token.getAddress()));
   }
 
-  private pickNote(assetFr: Fr, minValue: bigint): WalletNote {
+  private pickNote(assetFr: Fr, minValue: bigint, nullifier?: Fr): WalletNote {
     const note = this.utxoRepo
       .getUnspentNotes()
-      .find((n) => n.note.assetId.equals(assetFr) && n.note.value >= minValue);
+      .find(
+        (n) =>
+          n.note.assetId.equals(assetFr) &&
+          n.note.value >= minValue &&
+          (nullifier === undefined || n.nullifier.equals(nullifier)),
+      );
     if (!note) {
       throw new Error(
-        `Insufficient funds: need >= ${minValue} of ${assetFr.toString()}`,
+        nullifier === undefined
+          ? `Insufficient funds: need >= ${minValue} of ${assetFr.toString()}`
+          : `Note ${nullifier.toString()} is not an unspent note holding >= ${minValue} of ${assetFr.toString()}`,
       );
     }
     return note;
@@ -265,7 +274,7 @@ export class TestWallet {
     const recipient = options.recipient ?? this.signer.address;
     const intentHash = options.intentHash ?? toFr(0n);
 
-    const input = this.pickNote(assetFr, amount);
+    const input = this.pickNote(assetFr, amount, options.inputNullifier);
     const [changeMint] = await this.selfMints(1);
 
     // Delegated to the shipped assembler, so this suite grades @hisoka/wallets rather than a parallel copy.
