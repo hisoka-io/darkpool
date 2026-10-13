@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 env:
-  NOX_PIN: 3ef92f06f8265700b7b07e9e21e8f6dff0f47a09
+  NOX_PIN: 5bafb1f8f4c10db9d8a1f00e1c7b1e796ec3f6d2
   # Has to export executePaid, planPaidGas, paidExecuteCalldata and rpcChainReader.
   NOX_SDK_PIN: bf15beaf9a7ee79a814e403c2b4927fba53341f7
   EXPECTED_PASSING: "4"
