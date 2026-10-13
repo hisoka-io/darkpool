@@ -92,6 +92,8 @@ export class TestWallet {
   public tree!: LeanIMT;
   public fromBlock: number = 0;
   public chainId: bigint = HARDHAT_CHAIN_ID;
+  private compliancePk: Point<bigint> = COMPLIANCE_PK;
+  private complianceHistory = TEST_COMPLIANCE_HISTORY;
 
   private constructor(
     public readonly signer: ethers.ContractRunner & { address: string },
@@ -107,8 +109,19 @@ export class TestWallet {
     darkPool: DarkPool,
     token: MockERC20,
     fromBlock?: number,
+    /** Version 1 compliance key of the pool; the local fixture key when omitted. */
+    compliancePk?: Point<bigint>,
   ) {
     const wallet = new TestWallet(signer, darkPool, token);
+    if (compliancePk !== undefined) {
+      wallet.compliancePk = compliancePk;
+      wallet.complianceHistory = completeComplianceHistory({
+        genesisPk: compliancePk,
+        rotations: [],
+        currentPk: compliancePk,
+        currentVersion: 1,
+      });
+    }
     const signature = await signer.signMessage("Hisoka Test Login");
     wallet.account = await DarkAccount.fromSignature(signature);
 
@@ -132,7 +145,7 @@ export class TestWallet {
       darkPool as unknown as ethers.Contract,
       wallet.keyRepo,
       wallet.utxoRepo,
-      COMPLIANCE_PK,
+      wallet.compliancePk,
       wallet.tree,
       undefined,
       wallet.fromBlock,
@@ -160,9 +173,9 @@ export class TestWallet {
   /** The assembler's ports, backed by this wallet's own synced tree. */
   private assemblyCtx(): AssemblyContext {
     return {
-      compliancePk: COMPLIANCE_PK,
+      compliancePk: this.compliancePk,
       complianceVersion: 1,
-      complianceHistory: TEST_COMPLIANCE_HISTORY,
+      complianceHistory: this.complianceHistory,
       ...this.selfMintDomain(),
       merkle: new LocalTreeWitnessSource(this.tree),
     };
@@ -218,7 +231,7 @@ export class TestWallet {
         fetchOccurrences: () => Promise.resolve([]),
         fetchLeafBlock: () => Promise.resolve([]),
       },
-      history: TEST_COMPLIANCE_HISTORY,
+      history: this.complianceHistory,
       ownerCommitment: await pubkeyOwner(await this.keyRepo.getSelfSpendPub()),
       domain: this.selfMintDomain(),
     });
