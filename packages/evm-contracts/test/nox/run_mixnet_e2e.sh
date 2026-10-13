@@ -45,7 +45,7 @@ cleanup() {
     while IFS= read -r node_log; do
       LOG_PATHS+=("${node_log}")
     done < <(find "${MESH_DATA_DIR}" -path '*/node.log' -type f 2>/dev/null | sort)
-    if [ -n "${EXIT_KEY_SCAN_VALUE}" ] && rg --fixed-strings --quiet "${EXIT_KEY_SCAN_VALUE}" "${LOG_PATHS[@]}"; then
+    if [ -n "${EXIT_KEY_SCAN_VALUE}" ] && grep -F -q "${EXIT_KEY_SCAN_VALUE}" "${LOG_PATHS[@]}"; then
       echo "ERROR: paid mesh log contains the exit private key and was not retained" >&2
     else
       FAILURE_LOG="$(mktemp /tmp/howl-nox-paid-e2e-failure.XXXXXX.log)"
@@ -148,13 +148,17 @@ curl --silent --fail \
   --data "{\"jsonrpc\":\"2.0\",\"method\":\"anvil_setBalance\",\"params\":[\"${EXIT_ADDRESS}\",\"0x8AC7230489E80000\"],\"id\":1}" \
   "http://127.0.0.1:${ANVIL_PORT}" >/dev/null
 
-cargo build --manifest-path "${NOX_REPO_DIR}/Cargo.toml" --release --bin nox
+# Built from inside the checkout so its pinned toolchain and cargo configuration apply.
+(
+  cd "${NOX_REPO_DIR}"
+  cargo build --release --bin nox
+  cargo build --release -p nox-sim --bin nox_paid_mesh_server
+)
 pnpm --dir "${NOX_SDK_DIR}" --filter @hisoka-io/nox-client build
 
 NOX_BINARY="${NOX_REPO_DIR}/target/release/nox"
 export RUST_LOG="${RUST_LOG:-info}"
-setsid cargo run --manifest-path "${NOX_REPO_DIR}/Cargo.toml" \
-  --release -p nox-sim --bin nox_paid_mesh_server -- \
+setsid "${NOX_REPO_DIR}/target/release/nox_paid_mesh_server" \
   --nox-binary "${NOX_BINARY}" \
   --data-dir "${MESH_DATA_DIR}" \
   --base-port "${MESH_BASE_PORT}" \
@@ -230,7 +234,7 @@ if [ ! -f "${MESH_INFO_PATH}" ]; then
   exit 1
 fi
 
-if rg --fixed-strings --quiet "${EXIT_PRIVATE_KEY}" \
+if grep -F -q "${EXIT_PRIVATE_KEY}" \
   "${MESH_LOG}" "${REGISTRATION_MANIFEST_PATH}" "${MESH_INFO_PATH}"; then
   echo "ERROR: exit private key appeared in a public paid-mesh artifact" >&2
   exit 1
