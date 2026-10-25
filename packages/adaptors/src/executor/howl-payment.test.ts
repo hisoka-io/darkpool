@@ -178,8 +178,8 @@ describe("Howl Nox payment source", () => {
   });
 
   it("pins the Howl gas limits", () => {
-    expect(HOWL_PAYMENT_GAS_LIMIT).toBe(1_955_800n);
-    expect(HOWL_WITHDRAW_ACTION_GAS_LIMIT).toBe(1_914_000n);
+    expect(HOWL_PAYMENT_GAS_LIMIT).toBe(1_977_800n);
+    expect(HOWL_WITHDRAW_ACTION_GAS_LIMIT).toBe(1_977_600n);
   });
 
   it("proves the quoted amount to the adapter under the execution intent", async () => {
