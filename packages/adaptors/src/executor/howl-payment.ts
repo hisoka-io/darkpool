@@ -29,9 +29,12 @@ const WITHDRAW_CARRYING_SELECTORS: readonly string[] = [
 
 /** A withdraw inserts one leaf; each of the 32 tree levels costs at most one Poseidon2 hash_3. */
 const TREE_ALLOWANCE_GAS = 32n * 24_000n;
-/** Highest traced `HowlPaymentAdapter.pay` and `DarkPool.withdraw` frames on the deployed pool. */
-const PAY_FRAME_GAS = 1_010_000n;
-const WITHDRAW_FRAME_GAS = 827_000n;
+/**
+ * `HowlPaymentAdapter.pay` and `DarkPool.withdraw` frames on the deployed pool, rounded up from the highest
+ * traced on Arbitrum Sepolia (2026-10-13, leaves 28 to 31): pay 1,027,697, withdraw 879,320.
+ */
+const PAY_FRAME_GAS = 1_030_000n;
+const WITHDRAW_FRAME_GAS = 880_000n;
 /** A payment that runs out of gas reverts uncharged; an action that runs out of gas is charged. */
 const PAYMENT_MARGIN_BPS = 1_000n;
 const ACTION_MARGIN_BPS = 2_000n;
