@@ -264,7 +264,6 @@ describe("deploy script", function () {
     "TransferMultisigVerifier",
     "SplitMultisigVerifier",
     "JoinMultisigVerifier",
-    "KageVerifier",
   ];
 
   it("binds every circuit id to the verifier that circuit's VK_HASH belongs to", async function () {
@@ -291,6 +290,16 @@ describe("deploy script", function () {
         `circuit ${circuitId} should hold ${name} (vkHash ${vkHash})`,
       ).to.equal(true);
     }
+    expect(await darkPool.verifier(EXPECTED_SLOTS.length)).to.equal(
+      ethers.ZeroAddress,
+    );
+  });
+
+  it("deploys the Kage verifier for its settlement module, outside the circuit-id slots", async function () {
+    const code = await ethers.provider.getCode(record.contracts.kageVerifier);
+    const vkHash = record.vkHashes["KageVerifier"];
+    expect(vkHash).to.match(/^0x[0-9a-fA-F]{64}$/);
+    expect(code.includes(vkHash.slice(2).toLowerCase())).to.equal(true);
   });
 
   it("puts every privileged role with its intended holder and nobody else", async function () {

@@ -10,7 +10,7 @@ const ARTIFACTS = resolve(process.cwd(), "artifacts/contracts");
 // Keyed by artifact path: every generated verifier declares `contract HonkVerifier`, so the NAME is not a key.
 const BUDGETS: Record<string, number> = {
   "Poseidon/Poseidon2.sol/Poseidon2.json": 24006,
-  "DarkPool.sol/DarkPool.json": 17610,
+  "DarkPool.sol/DarkPool.json": 19788,
   "verifiers/KageVerifier.sol/HonkVerifier.json": 18185,
   "verifiers/JoinMultisigVerifier.sol/HonkVerifier.json": 17067,
   "verifiers/TransferMultisigVerifier.sol/HonkVerifier.json": 17066,

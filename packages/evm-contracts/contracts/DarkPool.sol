@@ -5,6 +5,8 @@ import {Poseidon2} from "./Poseidon/Poseidon2.sol";
 import {Field} from "./Poseidon/Field.sol";
 import {MerkleTreeLib} from "./libraries/MerkleTreeLib.sol";
 import {IWithdrawRecipient} from "./interfaces/IWithdrawRecipient.sol";
+import {IProofVerifier} from "./interfaces/IProofVerifier.sol";
+import {IDarkPoolSettlement, NO_BOUND} from "./interfaces/IDarkPoolSettlement.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -14,20 +16,15 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-interface IHonkVerifier {
-    function verify(
-        bytes calldata proof,
-        bytes32[] calldata publicInputs
-    ) external view returns (bool);
-}
-
 /**
  * @title Hisoka DarkPool
  * @notice Verifies ZK spend proofs and manages the note tree, nullifiers, and compliance key.
  * @dev A standard spend and its FROST-multisig twin share one public-input layout, hence one helper per
- *      op-family, parameterized by circuitId.
+ *      op-family, parameterized by circuitId. Registered settlement modules spend and mint through `settle`,
+ *      verified by a verifier DarkPool holds per module.
  */
 contract DarkPool is
+    IDarkPoolSettlement,
     Initializable,
     UUPSUpgradeable,
     AccessControlDefaultAdminRulesUpgradeable,
@@ -51,8 +48,13 @@ contract DarkPool is
     uint256 private constant CIRCUIT_TRANSFER_MULTISIG = 7;
     uint256 private constant CIRCUIT_SPLIT_MULTISIG = 8;
     uint256 private constant CIRCUIT_JOIN_MULTISIG = 9;
-    uint256 private constant CIRCUIT_KAGE = 10;
-    uint256 private constant CIRCUIT_COUNT = 11;
+    uint256 private constant CIRCUIT_COUNT = 10;
+
+    uint256 private constant MAX_MODULE_NULLIFIERS = 16;
+    uint256 private constant MAX_MODULE_OUTPUTS = 16;
+    uint256 private constant MAX_MODULE_EXTRAS = 8;
+    /// @dev Words per module output: leaf, eph_pub.x, 7-word ciphertext.
+    uint256 private constant MODULE_OUTPUT_WORDS = 9;
 
     uint32 private constant MERKLE_TREE_DEPTH = 32;
 
@@ -95,6 +97,14 @@ contract DarkPool is
         uint256 currentX,
         uint256 currentY
     );
+    error NonCanonicalField();
+    error UnknownModule(address controller);
+    error ModuleNotActive(address controller);
+    error ModuleAlreadyRegistered(address controller);
+    error ModuleAlreadyEnabled(address controller);
+    error ModuleAlreadyDisabled(address controller);
+    error ControllerHasNoCode();
+    error InvalidModuleLayout();
 
     event NewNote(
         uint256 indexed leafIndex,
@@ -134,7 +144,11 @@ contract DarkPool is
     );
     event NullifierSpent(bytes32 indexed nullifierHash);
     event PublicMemoSpent(bytes32 indexed memoId);
-    event VerifierUpdated(uint256 indexed circuitId, address verifier);
+    event VerifierUpdated(
+        uint256 indexed circuitId,
+        address previousVerifier,
+        address verifier
+    );
     event ComplianceKeyRotated(
         uint256 oldVersion,
         uint256 newVersion,
@@ -142,6 +156,38 @@ contract DarkPool is
         uint256 newY
     );
     event GenesisSeeded(uint256 indexed chainId, bytes32 genesisLeaf);
+    event ModuleRegistered(
+        address indexed controller,
+        address verifier,
+        uint8 nullifierCount,
+        uint8 outputCount,
+        uint8 extraCount,
+        uint32 maxPast,
+        uint32 maxFuture
+    );
+    event ModuleVerifierUpdated(address indexed controller, address verifier);
+    event ModuleEnabled(address indexed controller);
+    event ModuleDisabled(address indexed controller, address by);
+    /// @dev Emitted after the last insert, so it never splits an insert's log group.
+    event ModuleSettled(
+        address indexed controller,
+        uint256 firstLeafIndex,
+        uint256 outputCount
+    );
+
+    /// @notice A settlement module, keyed by its controller contract. Fits one storage slot.
+    /// @dev Public-input layout fixed at registration: [0,1] compliance; [2] timestamp; [3..3+k-1]
+    ///      nullifiers; [3+k] root; then `outputCount` x (leaf, eph_pub.x, ciphertext[7]); then `extraCount`
+    ///      module words that DarkPool verifies but never reads.
+    struct SettlementModule {
+        address verifier;
+        uint8 nullifierCount;
+        uint8 outputCount;
+        uint8 extraCount;
+        uint32 maxPast;
+        uint32 maxFuture;
+        bool active;
+    }
 
     /// @custom:storage-location erc7201:hisoka.darkpool.tree
     struct TreeStorage {
@@ -171,6 +217,11 @@ contract DarkPool is
         uint256 version;
     }
 
+    /// @custom:storage-location erc7201:hisoka.darkpool.settlement
+    struct SettlementStorage {
+        mapping(address => SettlementModule) modules;
+    }
+
     /// @dev Inlined OZ ReentrancyGuard on OZ's canonical namespace, for storage-compat if the base returns.
     /// @custom:storage-location erc7201:openzeppelin.storage.ReentrancyGuard
     struct ReentrancyStorage {
@@ -192,6 +243,9 @@ contract DarkPool is
     // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.compliance")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant COMPLIANCE_LOCATION =
         0x4c6336ddd730b3b6886dcf6c397e5676dac845842540c4592f4e52cea8e9ae00;
+    // keccak256(abi.encode(uint256(keccak256("hisoka.darkpool.settlement")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant SETTLEMENT_LOCATION =
+        0x75aee5824eaef0474f0a9f0cefdca7b78967e2ca8426d4fe1fe0dd6f6af34700;
     // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ReentrancyGuard")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant REENTRANCY_LOCATION =
         0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
@@ -241,6 +295,16 @@ contract DarkPool is
         }
     }
 
+    function _settlementStorage()
+        private
+        pure
+        returns (SettlementStorage storage $)
+    {
+        assembly {
+            $.slot := SETTLEMENT_LOCATION
+        }
+    }
+
     function _reentrancyStorage()
         private
         pure
@@ -270,7 +334,6 @@ contract DarkPool is
         address transferMultisigVerifier;
         address splitMultisigVerifier;
         address joinMultisigVerifier;
-        address kageVerifier;
         uint256 compliancePkX;
         uint256 compliancePkY;
         uint48 initialAdminDelay;
@@ -284,7 +347,8 @@ contract DarkPool is
         _disableInitializers();
     }
 
-    /// @notice One-time proxy init. Seeds the genesis leaf at index 0, so real notes start at index 1.
+    /// @notice One-time proxy init. Seeds the genesis leaf at index 0, so real notes start at index 1, and
+    ///         announces compliance key version 1 with the same event every later rotation uses.
     function initialize(InitParams calldata p) external initializer {
         if (p.pauser == address(0)) revert ZeroPauser();
         if (p.upgrader == address(0)) revert ZeroUpgrader();
@@ -308,13 +372,13 @@ contract DarkPool is
         _setVerifier(CIRCUIT_TRANSFER_MULTISIG, p.transferMultisigVerifier);
         _setVerifier(CIRCUIT_SPLIT_MULTISIG, p.splitMultisigVerifier);
         _setVerifier(CIRCUIT_JOIN_MULTISIG, p.joinMultisigVerifier);
-        _setVerifier(CIRCUIT_KAGE, p.kageVerifier);
 
         _requireValidComplianceKey(p.compliancePkX, p.compliancePkY);
         ComplianceStorage storage c = _complianceStorage();
         c.pkX = p.compliancePkX;
         c.pkY = p.compliancePkY;
         c.version = 1;
+        emit ComplianceKeyRotated(0, 1, p.compliancePkX, p.compliancePkY);
 
         _treeStorage().tree.init(MERKLE_TREE_DEPTH);
         bytes32 genesis = _genesisLeaf();
@@ -356,6 +420,90 @@ contract DarkPool is
         _setVerifier(circuitId, newVerifier);
     }
 
+    /// @notice Register `controller` as a settlement module verified by `moduleVerifier`, with a public-input
+    ///         layout of `nullifierCount` spends, `outputCount` notes and `extraCount` module words, and a
+    ///         timestamp rule (`maxPast`, `maxFuture`; NO_BOUND disables a side). A controller registers once.
+    function registerSettlementModule(
+        address controller,
+        address moduleVerifier,
+        uint8 nullifierCount,
+        uint8 outputCount,
+        uint8 extraCount,
+        uint32 maxPast,
+        uint32 maxFuture
+    ) external onlyRole(UPGRADER_ROLE) {
+        if (controller == address(0)) revert ZeroAddress();
+        // An EOA controller would reduce the module gate to whoever holds that key.
+        if (controller.code.length == 0) revert ControllerHasNoCode();
+        SettlementStorage storage s = _settlementStorage();
+        if (s.modules[controller].verifier != address(0))
+            revert ModuleAlreadyRegistered(controller);
+        _requireVerifierCode(moduleVerifier);
+        // A module that consumes no note would be a pure mint.
+        if (
+            nullifierCount == 0 ||
+            nullifierCount > MAX_MODULE_NULLIFIERS ||
+            outputCount == 0 ||
+            outputCount > MAX_MODULE_OUTPUTS ||
+            extraCount > MAX_MODULE_EXTRAS
+        ) revert InvalidModuleLayout();
+
+        s.modules[controller] = SettlementModule({
+            verifier: moduleVerifier,
+            nullifierCount: nullifierCount,
+            outputCount: outputCount,
+            extraCount: extraCount,
+            maxPast: maxPast,
+            maxFuture: maxFuture,
+            active: true
+        });
+        emit ModuleRegistered(
+            controller,
+            moduleVerifier,
+            nullifierCount,
+            outputCount,
+            extraCount,
+            maxPast,
+            maxFuture
+        );
+    }
+
+    /// @notice Point a module at a new verifier; it must accept the module's registered public-input layout.
+    function setModuleVerifier(
+        address controller,
+        address newVerifier
+    ) external onlyRole(UPGRADER_ROLE) {
+        SettlementModule storage m = _registeredModule(controller);
+        _requireVerifierCode(newVerifier);
+        m.verifier = newVerifier;
+        emit ModuleVerifierUpdated(controller, newVerifier);
+    }
+
+    /// @notice Halt one module's settlements.
+    function disableModule(address controller) external onlyRole(PAUSER_ROLE) {
+        SettlementModule storage m = _registeredModule(controller);
+        if (!m.active) revert ModuleAlreadyDisabled(controller);
+        m.active = false;
+        emit ModuleDisabled(controller, msg.sender);
+    }
+
+    /// @notice Resume a disabled module.
+    function enableModule(
+        address controller
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        SettlementModule storage m = _registeredModule(controller);
+        if (m.active) revert ModuleAlreadyEnabled(controller);
+        m.active = true;
+        emit ModuleEnabled(controller);
+    }
+
+    /// @notice Registration of `controller`; an unregistered address returns a zero verifier.
+    function settlementModule(
+        address controller
+    ) external view returns (SettlementModule memory) {
+        return _settlementStorage().modules[controller];
+    }
+
     /// @notice Rotate the compliance public key (versioned; old notes stay spendable). Callable while
     ///         paused so a compromised key can be replaced during a halt.
     function rotateComplianceKey(
@@ -391,8 +539,7 @@ contract DarkPool is
         if (_publicInputs.length != 13) revert InvalidInputsLength();
         _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
 
-        if (!_verifier(CIRCUIT_DEPOSIT).verify(_proof, _publicInputs))
-            revert InvalidProof();
+        _verifyProof(_verifier(CIRCUIT_DEPOSIT), _proof, _publicInputs);
 
         uint256 value = uint256(_publicInputs[4]);
         address asset = address(uint160(uint256(_publicInputs[5])));
@@ -471,13 +618,42 @@ contract DarkPool is
         _split(_proof, _publicInputs, CIRCUIT_SPLIT_MULTISIG);
     }
 
-    /// @notice Kage private in-pool swap: one recursive proof settles a two-party swap. No ERC20 movement --
-    ///         four self-notes are inserted (two per party) and two input nullifiers spent.
-    function kageSwap(
+    /// @inheritdoc IDarkPoolSettlement
+    /// @dev Effects follow the proof check: nullifiers in vector order, then outputs in vector order. No
+    ///      token moves, so a module can only re-shape value its verifier proved conserved.
+    function settle(
         bytes calldata _proof,
         bytes32[] calldata _publicInputs
     ) external nonReentrant whenNotPaused {
-        _kage(_proof, _publicInputs);
+        SettlementModule memory m = _settlementStorage().modules[msg.sender];
+        if (m.verifier == address(0)) revert UnknownModule(msg.sender);
+        if (!m.active) revert ModuleNotActive(msg.sender);
+
+        uint256 rootIndex = 3 + m.nullifierCount;
+        if (
+            _publicInputs.length !=
+            rootIndex + 1 + MODULE_OUTPUT_WORDS * m.outputCount + m.extraCount
+        ) revert InvalidInputsLength();
+        if (!_treeStorage().tree.isKnownRoot[_publicInputs[rootIndex]])
+            revert InvalidRoot();
+        _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
+        _checkModuleTimestamp(
+            uint256(_publicInputs[2]),
+            m.maxPast,
+            m.maxFuture
+        );
+
+        _verifyProof(m.verifier, _proof, _publicInputs);
+
+        for (uint256 i = 3; i < rootIndex; ++i) {
+            _spendNullifier(_publicInputs[i]);
+        }
+        uint256 firstLeafIndex = _treeStorage().tree.nextLeafIndex;
+        uint256 end = rootIndex + 1 + MODULE_OUTPUT_WORDS * m.outputCount;
+        for (uint256 b = rootIndex + 1; b < end; b += MODULE_OUTPUT_WORDS) {
+            _insertNote(_publicInputs, b, b + 1, b + 2);
+        }
+        emit ModuleSettled(msg.sender, firstLeafIndex, m.outputCount);
     }
 
     /// @dev A contract recipient must affirm THIS pull. Proving it is merely the caller is not enough: an
@@ -519,8 +695,7 @@ contract DarkPool is
 
         _verifyComplianceKey(_publicInputs[3], _publicInputs[4]);
 
-        if (!_verifier(circuitId).verify(_proof, _publicInputs))
-            revert InvalidProof();
+        _verifyProof(_verifier(circuitId), _proof, _publicInputs);
 
         bytes32 nullifierHash = _publicInputs[5];
         _spendNullifier(nullifierHash);
@@ -561,8 +736,7 @@ contract DarkPool is
             revert InvalidRoot();
         _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
 
-        if (!_verifier(circuitId).verify(_proof, _publicInputs))
-            revert InvalidProof();
+        _verifyProof(_verifier(circuitId), _proof, _publicInputs);
 
         _spendNullifier(_publicInputs[2]);
         _insertMemoAt(_publicInputs, 4);
@@ -581,8 +755,7 @@ contract DarkPool is
             revert InvalidRoot();
         _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
 
-        if (!_verifier(circuitId).verify(_proof, _publicInputs))
-            revert InvalidProof();
+        _verifyProof(_verifier(circuitId), _proof, _publicInputs);
 
         _spendNullifier(_publicInputs[2]);
         _spendNullifier(_publicInputs[3]);
@@ -601,37 +774,11 @@ contract DarkPool is
             revert InvalidRoot();
         _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
 
-        if (!_verifier(circuitId).verify(_proof, _publicInputs))
-            revert InvalidProof();
+        _verifyProof(_verifier(circuitId), _proof, _publicInputs);
 
         _spendNullifier(_publicInputs[2]);
         _insertNote(_publicInputs, 4, 5, 6);
         _insertNote(_publicInputs, 13, 14, 15);
-    }
-
-    /// @dev Layout: [0,1] compliance; [2] current_timestamp; [3] taker_nullifier; [4] maker_nullifier;
-    ///      [5] root; [6] taker_change leaf; [7] eph_pub.x; [8..14] ciphertext; [15] taker_received leaf;
-    ///      [16] eph_pub.x; [17..23] ciphertext; [24] maker_received leaf; [25] eph_pub.x; [26..32]
-    ///      ciphertext; [33] maker_change leaf; [34] eph_pub.x; [35..41] ciphertext.
-    function _kage(
-        bytes calldata _proof,
-        bytes32[] calldata _publicInputs
-    ) internal {
-        if (_publicInputs.length != 42) revert InvalidInputsLength();
-        if (!_treeStorage().tree.isKnownRoot[_publicInputs[5]])
-            revert InvalidRoot();
-        _verifyComplianceKey(_publicInputs[0], _publicInputs[1]);
-        _verifyProofTimestampFloor(uint256(_publicInputs[2]));
-
-        if (!_verifier(CIRCUIT_KAGE).verify(_proof, _publicInputs))
-            revert InvalidProof();
-
-        _spendNullifier(_publicInputs[3]);
-        _spendNullifier(_publicInputs[4]);
-        _insertNote(_publicInputs, 6, 7, 8); // taker_change
-        _insertNote(_publicInputs, 15, 16, 17); // taker_received
-        _insertNote(_publicInputs, 24, 25, 26); // maker_received
-        _insertNote(_publicInputs, 33, 34, 35); // maker_change
     }
 
     /// @notice Post a public memo redeemable by a designated key into the shielded pool.
@@ -690,8 +837,7 @@ contract DarkPool is
         _verifyComplianceKey(_publicInputs[1], _publicInputs[2]);
         _verifyProofTimestamp(uint256(_publicInputs[3]));
 
-        if (!_verifier(CIRCUIT_PUBLIC_CLAIM).verify(_proof, _publicInputs))
-            revert InvalidProof();
+        _verifyProof(_verifier(CIRCUIT_PUBLIC_CLAIM), _proof, _publicInputs);
 
         m.isPublicMemoSpent[memoId] = true;
         emit PublicMemoSpent(memoId);
@@ -701,18 +847,57 @@ contract DarkPool is
 
     function _setVerifier(uint256 circuitId, address newVerifier) internal {
         if (circuitId >= CIRCUIT_COUNT) revert UnknownCircuitId();
-        if (newVerifier == address(0)) revert ZeroAddress();
-        if (newVerifier.code.length == 0) revert VerifierHasNoCode();
-        _verifierStorage().verifiers[circuitId] = newVerifier;
-        emit VerifierUpdated(circuitId, newVerifier);
+        _requireVerifierCode(newVerifier);
+        VerifierStorage storage v = _verifierStorage();
+        address previousVerifier = v.verifiers[circuitId];
+        v.verifiers[circuitId] = newVerifier;
+        emit VerifierUpdated(circuitId, previousVerifier, newVerifier);
     }
 
-    function _verifier(
-        uint256 circuitId
-    ) internal view returns (IHonkVerifier) {
+    function _requireVerifierCode(address candidate) private view {
+        if (candidate == address(0)) revert ZeroAddress();
+        if (candidate.code.length == 0) revert VerifierHasNoCode();
+    }
+
+    function _verifier(uint256 circuitId) internal view returns (address) {
         address v = _verifierStorage().verifiers[circuitId];
         if (v == address(0)) revert VerifierUnset(circuitId);
-        return IHonkVerifier(v);
+        return v;
+    }
+
+    function _registeredModule(
+        address controller
+    ) private view returns (SettlementModule storage m) {
+        m = _settlementStorage().modules[controller];
+        if (m.verifier == address(0)) revert UnknownModule(controller);
+    }
+
+    /// @dev Every word DarkPool stores, keys on or forwards is a BN254 field element. The checks run here, not
+    ///      in the verifier, so a replacement verifier that reduces its inputs cannot make one nullifier into
+    ///      two storage keys, one recipient into several addresses, or an unhashable leaf into the tree.
+    function _verifyProof(
+        address proofVerifier,
+        bytes calldata _proof,
+        bytes32[] calldata _publicInputs
+    ) private view {
+        uint256 nonCanonical;
+        // The ABI decoder already bounded offset + 32 * length by calldatasize, so the reads stay in range.
+        assembly ("memory-safe") {
+            let end := add(_publicInputs.offset, shl(5, _publicInputs.length))
+            for {
+                let word := _publicInputs.offset
+            } lt(word, end) {
+                word := add(word, 0x20)
+            } {
+                nonCanonical := or(
+                    nonCanonical,
+                    iszero(lt(calldataload(word), BN254_FR))
+                )
+            }
+        }
+        if (nonCanonical != 0) revert NonCanonicalField();
+        if (!IProofVerifier(proofVerifier).verify(_proof, _publicInputs))
+            revert InvalidProof();
     }
 
     function _insertNote(
@@ -806,11 +991,22 @@ contract DarkPool is
             revert TimestampInvalid();
     }
 
-    /// @dev The OPPOSITE bound from _verifyProofTimestamp: the Kage circuit asserts current_timestamp < expiry,
-    ///      so an unfloored small timestamp settles an expired swap against the taker's stale price.
-    function _verifyProofTimestampFloor(uint256 timestamp) internal view {
-        if (timestamp + PROOF_TIMESTAMP_TOLERANCE < block.timestamp)
-            revert TimestampInvalid();
+    /// @dev `ts` is unverified at this point and may be near 2^256, so the bounds use subtraction only.
+    function _checkModuleTimestamp(
+        uint256 ts,
+        uint32 maxPast,
+        uint32 maxFuture
+    ) private view {
+        if (
+            maxPast != NO_BOUND &&
+            ts < block.timestamp &&
+            block.timestamp - ts > maxPast
+        ) revert TimestampInvalid();
+        if (
+            maxFuture != NO_BOUND &&
+            ts > block.timestamp &&
+            ts - block.timestamp > maxFuture
+        ) revert TimestampInvalid();
     }
 
     function _spendNullifier(bytes32 _nullifierHash) internal {
@@ -820,8 +1016,10 @@ contract DarkPool is
         emit NullifierSpent(_nullifierHash);
     }
 
-    /// @notice Verifier bound to a circuit id; zero means spends of that circuit revert VerifierUnset.
+    /// @notice Verifier bound to a circuit id; zero means spends of that circuit revert VerifierUnset, or that
+    ///         the id is not a circuit.
     function verifier(uint256 circuitId) external view returns (address) {
+        if (circuitId >= CIRCUIT_COUNT) return address(0);
         return _verifierStorage().verifiers[circuitId];
     }
 

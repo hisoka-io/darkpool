@@ -793,7 +793,6 @@ export async function deploy(
         verifiers[7].verifier,
         verifiers[8].verifier,
         verifiers[9].verifier,
-        verifiers[10].verifier,
         compliance.pk[0],
         compliance.pk[1],
         adminTransferDelay,

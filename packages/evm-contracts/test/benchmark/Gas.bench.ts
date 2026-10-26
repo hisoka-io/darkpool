@@ -39,6 +39,8 @@ import {
   proveJoinMultisig,
 } from "@hisoka/prover";
 import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
+import { deployGoldenSettlementFixture } from "../helpers/settlementFixtures";
+import { KAGE_PROOF, KAGE_PUBLIC_INPUTS } from "../integration/kageGolden";
 
 // Standalone and env-gated (its dir is outside the fast globs): GAS_BENCH=1 npx hardhat test test/benchmark/Gas.bench.ts
 const run = process.env.GAS_BENCH ? describe : describe.skip;
@@ -58,6 +60,9 @@ const GAS_BUDGET: Record<string, number> = {
   transferMultisig: 1_105_000,
   splitMultisig: 1_102_000,
   joinMultisig: 1_046_000,
+  // The golden swap_settle proof (k=2, m=4) through a forwarding test controller on a 3-leaf tree; a production
+  // module's own gate adds to this.
+  settle: 1_458_000,
 };
 
 const results: { op: string; gas: bigint }[] = [];
@@ -569,5 +574,13 @@ run("Benchmark: per-entrypoint gas", function () {
         .joinMultisig(proof.proof, proof.publicInputs)
     ).wait();
     record("joinMultisig", receipt?.gasUsed);
+  });
+
+  it("settle", async function () {
+    const { controller } = await loadFixture(deployGoldenSettlementFixture);
+    const receipt = await (
+      await controller.settle(KAGE_PROOF, KAGE_PUBLIC_INPUTS)
+    ).wait();
+    record("settle", receipt?.gasUsed);
   });
 });
