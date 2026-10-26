@@ -7,9 +7,19 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IDarkPool} from "../interfaces/IDarkPool.sol";
 import {IWithdrawRecipient} from "../interfaces/IWithdrawRecipient.sol";
 
+interface IMultisigWithdraw {
+    function withdrawMultisig(
+        bytes calldata _proof,
+        bytes32[] calldata _publicInputs
+    ) external;
+}
+
 /**
  * @title HowlPaymentAdapter
- * @notice Acquires one exact Nox fee from an independently authorized standard Howl withdraw.
+ * @notice Acquires one exact Nox fee from an independently authorized Howl withdraw.
+ * @dev One instance pulls through `withdraw` (standard notes), another through `withdrawMultisig` (FROST
+ *      notes). Both entrypoints share the 17-word public-input layout, and the FROST message signs
+ *      `recipient` and `intent`, so every binding checked here applies unchanged to either source.
  */
 contract HowlPaymentAdapter is IWithdrawRecipient, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -20,6 +30,8 @@ contract HowlPaymentAdapter is IWithdrawRecipient, ReentrancyGuard {
 
     address public immutable DARK_POOL;
     address public immutable ENTRY_POINT;
+    /// @notice True when fees are pulled through `withdrawMultisig`, false for `withdraw`.
+    bool public immutable MULTISIG;
 
     bytes32 public expectedNullifier;
     uint256 public expectedIntent;
@@ -39,13 +51,14 @@ contract HowlPaymentAdapter is IWithdrawRecipient, ReentrancyGuard {
     error IncorrectWithdrawalAmount(uint256 expected, uint256 received);
     error ResidualBalance();
 
-    constructor(address darkPool, address entryPoint) {
+    constructor(address darkPool, address entryPoint, bool multisig) {
         if (darkPool == address(0) || entryPoint == address(0))
             revert ZeroAddress();
         if (darkPool.code.length == 0) revert DependencyHasNoCode(darkPool);
         if (entryPoint.code.length == 0) revert DependencyHasNoCode(entryPoint);
         DARK_POOL = darkPool;
         ENTRY_POINT = entryPoint;
+        MULTISIG = multisig;
     }
 
     /// @notice Domain-separated reduction carried by withdraw public input 2.
@@ -58,7 +71,7 @@ contract HowlPaymentAdapter is IWithdrawRecipient, ReentrancyGuard {
             ) % BN254_P;
     }
 
-    /// @notice Pull the exact quoted fee from a standard withdraw and forward it to EntryPoint.
+    /// @notice Pull the exact quoted fee from a withdraw of this instance's kind and forward it to EntryPoint.
     function pay(
         bytes32 executionId,
         bytes32 paymentId,
@@ -88,7 +101,11 @@ contract HowlPaymentAdapter is IWithdrawRecipient, ReentrancyGuard {
         pulling = true;
         expectedNullifier = paymentId;
         expectedIntent = intent;
-        IDarkPool(DARK_POOL).withdraw(proof, publicInputs);
+        if (MULTISIG) {
+            IMultisigWithdraw(DARK_POOL).withdrawMultisig(proof, publicInputs);
+        } else {
+            IDarkPool(DARK_POOL).withdraw(proof, publicInputs);
+        }
         pulling = false;
         expectedNullifier = bytes32(0);
         expectedIntent = 0;
