@@ -18,7 +18,7 @@ import {
   type AssemblyContext,
   type SpendableNote,
 } from "../tx/assemble.js";
-import { mintSelfNote } from "../note/mint.js";
+import { mintIncomingNote, mintSelfNote } from "../note/mint.js";
 import type { MerkleWitnessSource } from "../tx/ports.js";
 import { completeComplianceHistory } from "../note/complianceKeys.js";
 import { SelfMintPreflight } from "../discovery/preflight.js";
@@ -268,6 +268,33 @@ describe("assembleWithdraw", () => {
       }),
     ).rejects.toThrow(/MERKLE_INDEX_MISMATCH|index/);
   });
+
+  it("asks the merkle source for the wallet's own index, so a duplicated leaf opens the right copy", async () => {
+    const input = await spendable(10n, 6);
+    const asked: number[] = [];
+    const recording: AssemblyContext = {
+      ...ctx(6),
+      merkle: {
+        witnessFor: async (_leaf: Fr, expectedLeafIndex: number) => {
+          asked.push(expectedLeafIndex);
+          return {
+            leafIndex: expectedLeafIndex,
+            siblings: Array.from({ length: 32 }, () => toFr(0n)),
+            root: toFr(0xf00dn),
+          };
+        },
+      },
+    };
+    const a = await assembleWithdraw(recording, {
+      input,
+      value: 1n,
+      recipient: toFr(1n),
+      selfSpendScalar: SPEND,
+      changeMint: await preflighted(3n),
+    });
+    expect(asked).toEqual([6]);
+    expect(a.inputs.oldNoteIndex).toBe(6);
+  });
 });
 
 describe("assembleTransfer", () => {
@@ -277,7 +304,6 @@ describe("assembleTransfer", () => {
       input,
       value: 25n,
       recipientInPub: publicKey(toFr(31n)),
-      recipientInKey: toFr(31n),
       selfSpendScalar: SPEND,
       memoEph: toFr(77n),
       changeMint: await preflighted(78n),
@@ -288,6 +314,33 @@ describe("assembleTransfer", () => {
     // An incoming note's tag is the RECIPIENT's key, never the ephemeral's.
     expect(a.memo.tag.toBigInt()).toBe(publicKey(toFr(31n))[0]);
     expect(a.memo.cekWrap).toBeDefined();
+  });
+
+  it("mints the memo from the recipient's public key alone, matching what the recipient opens", async () => {
+    const recipientInKey = toFr(31n);
+    const input = await spendable(100n, 5);
+    const a = await assembleTransfer(ctx(5), {
+      input,
+      value: 25n,
+      recipientInPub: publicKey(recipientInKey),
+      selfSpendScalar: SPEND,
+      memoEph: toFr(79n),
+      changeMint: await preflighted(80n),
+    });
+    const opened = await mintIncomingNote(
+      toFr(79n),
+      25n,
+      publicKey(recipientInKey),
+      recipientInKey,
+      input.note.assetId,
+      COMPLIANCE_PK,
+      PARENTS_HIDDEN,
+    );
+    expect("spendScalar" in a.memo).toBe(false);
+    expect(a.memo.commitment.toString()).toBe(opened.commitment.toString());
+    expect(a.memo.cekWrap.toString()).toBe(opened.cekWrap?.toString());
+    expect(a.memo.tag.toString()).toBe(opened.tag.toString());
+    expect(a.memo.psi.toString()).toBe(opened.psi.toString());
   });
 });
 

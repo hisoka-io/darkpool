@@ -2,10 +2,12 @@
  * `MerkleWitnessSource` implementations.
  *
  * All of them are UNTRUSTED by construction, and that is a property of the protocol rather than of any
- * adapter: roots are retained on chain forever, so any historical root is provable against, and `leaf_index`
- * is uniquely determined by `(leaf, root)`. A wrong or hostile witness therefore makes a proof FAIL, it can
- * never make one prove something false. Each source below still verifies locally before returning, so a bad
- * answer surfaces here with a typed error instead of as an opaque proving failure minutes later.
+ * adapter: roots are retained on chain forever, so any historical root is provable against, and a path that
+ * folds to one places a real inserted copy of the leaf at its index. A leaf value can sit at several indices
+ * (a replayed identical deposit), so every source returns the path for the caller's expected index or fails.
+ * A wrong or hostile witness therefore makes a proof FAIL, it can never make one prove something false. Each
+ * source below still verifies locally before returning, so a bad answer surfaces here with a typed error
+ * instead of as an opaque proving failure minutes later.
  */
 import { Fr } from "@aztec/foundation/fields";
 import { Poseidon } from "../crypto/Poseidon.js";
@@ -17,6 +19,8 @@ export class WitnessSourceError extends Error {
   constructor(
     readonly reason:
       | "LEAF_NOT_FOUND"
+      | "LEAF_INDEX_MISMATCH"
+      | "INVALID_LEAF_INDEX"
       | "MALFORMED_RESPONSE"
       | "ROOT_MISMATCH"
       | "TRANSPORT",
@@ -30,8 +34,8 @@ export class WitnessSourceError extends Error {
 /**
  * Fold a path exactly as `lean_imt_inclusion_proof` does, INCLUDING the level in every hash.
  *
- * The level is what makes `leaf_index` unique for a `(leaf, root)` pair. Without it a sibling could be
- * relocated between levels to reproduce one root at many indices, which was a live drain until 2026-08-15.
+ * The level binds every sibling to its depth. Without it a sibling could be relocated between levels to
+ * reproduce one root at an index where the leaf was never inserted, which drains the pool.
  * Any change here must land in the Noir and Solidity siblings in the same commit.
  */
 export async function foldPath(
@@ -65,30 +69,52 @@ export async function foldPath(
 export class LocalTreeWitnessSource implements MerkleWitnessSource {
   constructor(private readonly tree: LeanIMT) {}
 
-  async witnessFor(leaf: Fr): Promise<{
+  async witnessFor(
+    leaf: Fr,
+    expectedLeafIndex: number,
+  ): Promise<{
     leafIndex: number;
     siblings: readonly Fr[];
     root: Fr;
   }> {
-    const leafIndex =
-      this.tree.levels[0]?.findIndex((l) => l.equals(leaf)) ?? -1;
-    if (leafIndex < 0) {
+    assertLeafIndex(expectedLeafIndex);
+    const atIndex = this.tree.levels[0]?.[expectedLeafIndex];
+    if (atIndex === undefined) {
       throw new WitnessSourceError(
         "LEAF_NOT_FOUND",
-        `leaf ${leaf.toString()} is not in the local tree (synced to ${this.tree.nextLeafIndex} leaves)`,
+        `leaf index ${expectedLeafIndex} is beyond the local tree (synced to ${this.tree.nextLeafIndex} leaves)`,
+      );
+    }
+    if (!atIndex.equals(leaf)) {
+      throw new WitnessSourceError(
+        "LEAF_INDEX_MISMATCH",
+        `local tree holds ${atIndex.toString()} at index ${expectedLeafIndex}, not leaf ${leaf.toString()}`,
       );
     }
     return {
-      leafIndex,
-      siblings: this.tree.getMerklePath(leafIndex),
+      leafIndex: expectedLeafIndex,
+      siblings: this.tree.getMerklePath(expectedLeafIndex),
       root: this.tree.getRoot(),
     };
   }
 }
 
-/** Minimal transport so a caller can supply fetch, an extension port, or a mixnet round trip. */
+function assertLeafIndex(leafIndex: number): void {
+  if (!Number.isSafeInteger(leafIndex) || leafIndex < 0) {
+    throw new WitnessSourceError(
+      "INVALID_LEAF_INDEX",
+      `expected leaf index ${leafIndex} is not a non-negative integer`,
+    );
+  }
+}
+
+/**
+ * Minimal transport so a caller can supply fetch, an extension port, or a mixnet round trip. The index tells
+ * the server which copy of a duplicated leaf to serve; the leaf already reveals the position to it.
+ */
 export type WitnessTransport = (
   leafHex: string,
+  leafIndex: number,
 ) => Promise<{ leafIndex: number; siblings: string[]; root: string }>;
 
 /**
@@ -105,14 +131,18 @@ export class IndexerWitnessSource implements MerkleWitnessSource {
     private readonly depth = 32,
   ) {}
 
-  async witnessFor(leaf: Fr): Promise<{
+  async witnessFor(
+    leaf: Fr,
+    expectedLeafIndex: number,
+  ): Promise<{
     leafIndex: number;
     siblings: readonly Fr[];
     root: Fr;
   }> {
+    assertLeafIndex(expectedLeafIndex);
     let raw: { leafIndex: number; siblings: string[]; root: string };
     try {
-      raw = await this.transport(leaf.toString());
+      raw = await this.transport(leaf.toString(), expectedLeafIndex);
     } catch (e) {
       throw new WitnessSourceError(
         "TRANSPORT",
@@ -130,6 +160,12 @@ export class IndexerWitnessSource implements MerkleWitnessSource {
       throw new WitnessSourceError(
         "MALFORMED_RESPONSE",
         `indexer returned a witness that is not ${this.depth} siblings plus an index and a root`,
+      );
+    }
+    if (raw.leafIndex !== expectedLeafIndex) {
+      throw new WitnessSourceError(
+        "LEAF_INDEX_MISMATCH",
+        `indexer placed leaf ${leaf.toString()} at index ${raw.leafIndex}, expected ${expectedLeafIndex}`,
       );
     }
 

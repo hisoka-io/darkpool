@@ -20,8 +20,9 @@ import { packParents, PARENTS_HIDDEN } from "../note/note.js";
 import { publicKey, pubkeyOwner } from "../note/keys.js";
 import {
   mintSelfNote,
-  mintIncomingNote,
+  mintMemoNote,
   type MintedNote,
+  type SentMemoNote,
 } from "../note/mint.js";
 import type { ProverNoteInput } from "../public/publicClaim.js";
 import type { MerkleWitnessSource } from "./ports.js";
@@ -68,7 +69,7 @@ export class AssemblyError extends Error {
 
 /** Recompute the root from the returned witness and refuse to build on one that does not reproduce it. */
 async function openSpend(ctx: AssemblyContext, input: SpendableNote) {
-  const w = await ctx.merkle.witnessFor(input.leaf);
+  const w = await ctx.merkle.witnessFor(input.leaf, input.leafIndex);
   if (w.leafIndex !== input.leafIndex) {
     throw new AssemblyError(
       "MERKLE_INDEX_MISMATCH",
@@ -195,7 +196,7 @@ export async function assembleWithdraw(
 
 export interface AssembledTransfer {
   readonly inputs: AssembledTransferWitness;
-  readonly memo: MintedNote;
+  readonly memo: SentMemoNote;
   readonly change: MintedNote;
   readonly root: Fr;
 }
@@ -212,7 +213,6 @@ export async function assembleTransfer(
     readonly input: SpendableNote;
     readonly value: bigint;
     readonly recipientInPub: Point<bigint>;
-    readonly recipientInKey: Fr;
     /** Owns the CHANGE, never the input's key. Spending a received note is the case that separates them. */
     readonly selfSpendScalar: Fr;
     readonly memoEph: Fr;
@@ -229,11 +229,10 @@ export async function assembleTransfer(
     selfMintContext(ctx, ownerCommitment),
   );
 
-  const memo = await mintIncomingNote(
+  const memo = await mintMemoNote(
     req.memoEph,
     req.value,
     req.recipientInPub,
-    req.recipientInKey,
     req.input.note.assetId,
     ctx.compliancePk,
     PARENTS_HIDDEN,

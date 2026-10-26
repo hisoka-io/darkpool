@@ -18,3 +18,14 @@ export class ProofInputError extends Error {
     this.name = "ProofInputError";
   }
 }
+
+/** The proof was generated but failed local verification; submitting it would only revert on chain. */
+export class UnverifiedProofError extends ProofError {
+  constructor(circuit: string) {
+    super(
+      circuit,
+      "the generated proof does not verify against this circuit's verification key, so it was not returned",
+    );
+    this.name = "UnverifiedProofError";
+  }
+}

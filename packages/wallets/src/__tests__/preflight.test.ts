@@ -694,3 +694,143 @@ describe("SelfMintPreflight", () => {
     }
   });
 });
+
+describe("SelfMintPreflight skip rule", () => {
+  const UNKNOWN_COMPLIANCE = publicKey(new Fr(0x4444n));
+
+  async function firstFree(
+    matched: HowlNoteRecord,
+    seed: bigint,
+  ): Promise<{ readonly taken: string; readonly expected: string }> {
+    const values = Array.from({ length: 6 }, (_, index) =>
+      candidate(seed + BigInt(index) * 100n),
+    );
+    const ownerCommitment = await owner();
+    const preflight = new SelfMintPreflight({
+      allocator: new SequenceAllocator(values),
+      discovery: new FixtureDiscovery(
+        new Map([[values[0].tag.toString(), matched]]),
+        await recordFor(candidate(seed + 90_000n), ownerCommitment),
+      ),
+      history: CURRENT_HISTORY,
+      ownerCommitment,
+      domain: DOMAIN,
+    });
+    const [mint] = consume(await preflight.take(1), ownerCommitment);
+    return {
+      taken: mint.tag.toString(),
+      expected: values[1].tag.toString(),
+    };
+  }
+
+  it("skips a candidate whose prefix matched an incoming row", async () => {
+    const ownerCommitment = await owner();
+    const incoming = {
+      ...(await recordFor(candidate(60_500n), ownerCommitment)),
+      recordKind: RECORD_KIND_INCOMING,
+    } as HowlNoteRecord;
+    const { taken, expected } = await firstFree(incoming, 60_000n);
+    expect(taken).toBe(expected);
+  });
+
+  it("skips a matched self row that opens under no epoch of the history", async () => {
+    const seed = 61_000n;
+    const ownerCommitment = await owner();
+    const sealedElsewhere = await recordFor(
+      candidate(seed),
+      ownerCommitment,
+      UNKNOWN_COMPLIANCE,
+    );
+    await expect(
+      opensExistingSelfRecord(
+        candidate(seed),
+        sealedElsewhere,
+        CURRENT_HISTORY,
+        ownerCommitment,
+      ),
+    ).resolves.toBe(false);
+    const { taken, expected } = await firstFree(sealedElsewhere, seed);
+    expect(taken).toBe(expected);
+  });
+
+  it("skips a tag-prefix collision with another wallet's self row", async () => {
+    const collision = await recordFor(candidate(62_500n), new Fr(0xbeefn));
+    const { taken, expected } = await firstFree(collision, 62_000n);
+    expect(taken).toBe(expected);
+  });
+
+  it("skips a matched self row that opens as this wallet's note", async () => {
+    const seed = 63_000n;
+    const ownerCommitment = await owner();
+    const own = await recordFor(candidate(seed), ownerCommitment);
+    const { taken, expected } = await firstFree(own, seed);
+    expect(taken).toBe(expected);
+  });
+
+  it("takes an unmatched candidate on the first query", async () => {
+    const values = [candidate(64_000n)];
+    const ownerCommitment = await owner();
+    const allocator = new SequenceAllocator(values);
+    const discovery = new FixtureDiscovery(
+      new Map(),
+      await recordFor(candidate(64_500n), ownerCommitment),
+    );
+    const preflight = new SelfMintPreflight({
+      allocator,
+      discovery,
+      history: CURRENT_HISTORY,
+      ownerCommitment,
+      domain: DOMAIN,
+    });
+    const [mint] = consume(await preflight.take(1), ownerCommitment);
+    expect(mint.tag.toString()).toBe(values[0].tag.toString());
+    expect(allocator.calls).toBe(1);
+  });
+
+  it("rejects a miss whose record opens as this wallet's note", async () => {
+    const value = candidate(65_000n);
+    const ownerCommitment = await owner();
+    const own = await recordFor(value, ownerCommitment);
+    await expect(
+      new SelfMintPreflight({
+        allocator: new SequenceAllocator([value]),
+        discovery: new FixtureDiscovery(new Map(), own),
+        history: CURRENT_HISTORY,
+        ownerCommitment,
+        domain: DOMAIN,
+      }).take(1),
+    ).rejects.toMatchObject({
+      name: "SelfMintPreflightError",
+      reason: "DISCOVERY_PROTOCOL",
+    });
+  });
+
+  it("exhausts after the candidate cap when every candidate matches an incoming row", async () => {
+    const values = Array.from(
+      { length: MAX_PREFLIGHT_CANDIDATES + 1 },
+      (_, index) => candidate(70_000n + BigInt(index) * 100n),
+    );
+    const ownerCommitment = await owner();
+    const incoming = {
+      ...(await recordFor(candidate(69_000n), ownerCommitment)),
+      recordKind: RECORD_KIND_INCOMING,
+    } as HowlNoteRecord;
+    const allocator = new SequenceAllocator(values);
+    const preflight = new SelfMintPreflight({
+      allocator,
+      discovery: new FixtureDiscovery(
+        new Map(values.map((value) => [value.tag.toString(), incoming])),
+        null,
+      ),
+      history: CURRENT_HISTORY,
+      ownerCommitment,
+      domain: DOMAIN,
+    });
+
+    await expect(preflight.take(1)).rejects.toMatchObject({
+      name: "SelfMintPreflightError",
+      reason: "CANDIDATES_EXHAUSTED",
+    });
+    expect(allocator.calls).toBe(MAX_PREFLIGHT_CANDIDATES);
+  }, 120_000);
+});

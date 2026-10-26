@@ -619,13 +619,23 @@ export class SelfMintPreflight<T extends SelfMintCandidate> {
           `self-mint discovery omitted candidate tag ${candidate.tag.toString()}`,
         );
       }
-      const occupied = await opensExistingSelfRecord(
-        candidate,
-        entry.record,
-        this.#history,
-        this.#context.ownerCommitment,
-      );
-      if (!occupied) this.#ready.push(freezeCandidate(candidate));
+      // A prefix match is used whatever it opens to: an incoming row, a self row under an epoch this history
+      // lacks, and a 48-bit tag-prefix collision are indistinguishable here, and reusing a tag is not undoable.
+      if (entry.occurrenceCount > 0) continue;
+      if (
+        await opensExistingSelfRecord(
+          candidate,
+          entry.record,
+          this.#history,
+          this.#context.ownerCommitment,
+        )
+      ) {
+        throw new SelfMintPreflightError(
+          "DISCOVERY_PROTOCOL",
+          `self-mint discovery reported no match for candidate tag ${candidate.tag.toString()} but served a record that opens as this wallet's note`,
+        );
+      }
+      this.#ready.push(freezeCandidate(candidate));
     }
   }
 }
