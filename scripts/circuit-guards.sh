@@ -17,16 +17,21 @@ src_grep() { grep -rnE "$1" "$CIRCUITS_DIR" --include='*.nr' | grep -vE "^${CIRC
 decomment() { grep -vE '^[^:]*:[0-9]+:[[:space:]]*//'; }
 
 # The counting guards (4, 5, 9, 11) measure the circuit constraint surface, so they skip sealed test leaves: a
-# non-root module file holding at least one #[test], no `pub`, `impl`, `trait`, `mod`, `comptime` or `fn main`,
-# and no attribute other than #[test]. Noir rejects any reference to a private item from another module ("is
-# private and not visible from the current module"), and a trait impl is the only item with effect outside its
-# module, so no code in such a file can reach a circuit. The checks read raw text, so a keyword inside a comment
-# or string only keeps a file counted. The prohibition guards (1-3) still scan every file.
+# non-root module file holding at least one #[test], none of the words `pub`, `impl`, `trait`, `mod`, `comptime`,
+# `quote` or `unquote`, no `fn main` declaration, and no attribute other than #[test]. Noir rejects any reference
+# to a private item from another module ("is private and not visible from the current module"), and a trait impl
+# is the only item with effect outside its module, so no code in such a file can reach a circuit. A file is a
+# crate root only as main.nr/lib.nr or through a Nargo.toml `entry` key, which guard 0 rejects. `fn main` is
+# matched over the whole file, so a newline or comment between `fn` and `main` cannot split the pair. The checks
+# read raw text, so a keyword inside a comment or string only keeps a file counted. The prohibition guards (1-3)
+# still scan every file.
+NL=$'\001'
+FN_MAIN_RE="(^|[^A-Za-z0-9_])fn([[:space:]]|${NL}|/\\*([^*]|\\*+[^*/])*\\*+/|//[^${NL}]*${NL})+main([^A-Za-z0-9_]|$)"
 is_test_leaf() {
   case "$(basename "$1")" in main.nr|lib.nr) return 1 ;; esac
   grep -qE '#\[test' "$1" || return 1
   grep -qwE 'pub|impl|trait|mod|comptime|quote|unquote' "$1" && return 1
-  grep -qE 'fn[[:space:]]+main([^A-Za-z0-9_]|$)' "$1" && return 1
+  tr '\n' "$NL" < "$1" | grep -aqE "$FN_MAIN_RE" && return 1
   grep -oE '#!?\[[^]]*' "$1" | grep -qvE '^#\[test(\(|$)' && return 1
   return 0
 }
@@ -40,6 +45,11 @@ surface_grep() {
 # Guard 0: no remote git dependencies in Nargo.toml (vendor locally instead).
 if grep -rnE '(^|[^A-Za-z_])("|'"'"')?(git|tag|rev|branch|directory)("|'"'"')?[[:space:]]*=' "$CIRCUITS_DIR" --include=Nargo.toml; then
   red 0 "a circuit Nargo.toml uses a git dependency; vendor it under packages/circuits/vendor/."
+fi
+# Guard 0 entry layer: an `entry` key makes an arbitrary file the crate root, so a sealed test leaf could compile
+# as a circuit while the counting guards skip it. Every crate root must be main.nr or lib.nr.
+if grep -rnE '(^|[^A-Za-z0-9_])("|'"'"')?entry("|'"'"')?[[:space:]]*=' "$CIRCUITS_DIR" --include=Nargo.toml | grep -v '/target/'; then
+  red 0 "a circuit Nargo.toml sets an 'entry' key; remove it so the crate root is src/main.nr or src/lib.nr."
 fi
 # Guards 0/8 deep layer: TOML parse proving every path dep resolves inside packages/circuits.
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import tomllib' >/dev/null 2>&1; then
@@ -56,6 +66,9 @@ for toml in glob.glob(os.path.join(root, '**', 'Nargo.toml'), recursive=True):
             data = tomllib.load(fh)
     except Exception as e:
         bad.append(f"{toml}: unparseable TOML ({e})"); continue
+    package = data.get('package', {})
+    if isinstance(package, dict) and 'entry' in package:
+        bad.append(f"{toml}: [package] sets 'entry'; the crate root must be src/main.nr or src/lib.nr")
     for spec_name, spec in (data.get('dependencies', {}) or {}).items():
         if not isinstance(spec, dict):
             bad.append(f"{toml}: dependency '{spec_name}' is not a path table"); continue
@@ -69,7 +82,7 @@ for b in bad:
     print("  guard0/8-deep:", b)
 sys.exit(1 if bad else 0)
 PY
-  then red 0 "dependency allowlist rejected a circuit Nargo.toml (non-path source or escaping path)."; fi
+  then red 0 "TOML allowlist rejected a circuit Nargo.toml (non-path source, escaping path, or an entry key)."; fi
   DEEP_TOML=ok
 else
   DEEP_TOML=skipped
