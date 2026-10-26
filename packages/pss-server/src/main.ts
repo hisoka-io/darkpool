@@ -31,8 +31,11 @@ export function openDatabase(config: ServerConfig): Database.Database {
   }
   const db = new Database(config.databasePath);
   db.pragma("journal_mode = WAL");
-  // Stated rather than inherited from the driver's build flags. NORMAL under WAL can lose the last
-  // acknowledged writes to a power loss, which is the right trade for a store the chain can rebuild.
+  // Stated rather than inherited from the driver's build flags. NORMAL under WAL survives a process crash
+  // but can lose the last acknowledged commits to a power loss, and nothing on chain rebuilds them: a slot
+  // falls back to an older version (an install holding a higher version floor refuses it as a rollback; a
+  // fresh install accepts it and relies on the chain recheck before minting) and a spent invite code
+  // becomes spendable again.
   db.pragma("synchronous = NORMAL");
   runMigrations(db, loadMigrations(config.migrationsDir));
   return db;

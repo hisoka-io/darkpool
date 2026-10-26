@@ -1,14 +1,12 @@
 /**
- * Transaction-level golden vectors: the CROSS-LANGUAGE CONTRACT for assembly.
+ * Transaction-level golden vectors: the marshalled Noir `InputMap` each standard circuit receives.
  *
- * The existing `gen_*.ts` vectors pin primitives (a hash, a KEM, a nullifier). Nothing pinned a whole
- * TRANSACTION, so a second implementation could get every primitive right and still marshal the witness
- * differently. The Nox Rust client already has a complete parallel implementation of exactly this layer, so
- * the contract it needs is the marshalled Noir `InputMap`, not a TypeScript interface it cannot consume.
+ * Primitive vectors pin a hash, a KEM, a nullifier. This pins a whole TRANSACTION, so a change to assembly
+ * or marshalling that keeps every primitive right but moves the witness fails here.
  *
  * What is frozen here: for each circuit family, the marshalled witness the prover would hand to Noir, plus
- * the values the assembler derived (commitments, change, tags). A Rust implementation that produces this
- * JSON byte-for-byte is a differential oracle; one that does not has a real divergence.
+ * the values the assembler derived (commitments, change, tags). Any other implementation of this layer that
+ * reproduces this JSON byte-for-byte agrees with this one; one that does not has a real divergence.
  *
  * REGENERATE (only when the witness shape legitimately changes, and say why in the commit):
  *   GEN_TX_VECTORS=1 npx vitest run src/__tests__/txVectors.test.ts
@@ -26,6 +24,8 @@ import {
   buildPublicTransfer,
   canonicalPublicAddress,
   encodeHisokaPublicAddress,
+  LeanIMT,
+  TREE_DEPTH,
   toFr,
   toBjjScalar,
   publicKey,
@@ -50,6 +50,7 @@ import {
   assembleSplit,
   assembleJoin,
   toStandardWitnessDto,
+  LocalTreeWitnessSource,
   type AssemblyContext,
   type SpendableNote,
   type MerkleWitnessSource,
@@ -122,16 +123,19 @@ async function checked(n: bigint) {
   return (await preflight.take(1))[0];
 }
 
-const byLeaf = new Map<string, number>();
 const SIBLINGS = Array.from({ length: 32 }, (_, i) => toFr(BigInt(i) + 1n));
-const ROOT = toFr(0xf00dn);
 
+/** Every spent note at its index, fixed filler leaves elsewhere, so each witness is a real LeanIMT path. */
+const placed = new Map<number, Fr>();
 const merkle: MerkleWitnessSource = {
-  witnessFor: async (leaf: Fr) => ({
-    leafIndex: byLeaf.get(leaf.toString()) ?? 1,
-    siblings: SIBLINGS,
-    root: ROOT,
-  }),
+  witnessFor: async (leaf: Fr, expectedLeafIndex: number) => {
+    const tree = new LeanIMT(TREE_DEPTH);
+    const top = Math.max(0, ...placed.keys());
+    for (let i = 0; i <= top; i++) {
+      await tree.insert(placed.get(i) ?? toFr(BigInt(0x10000 + i)));
+    }
+    return new LocalTreeWitnessSource(tree).witnessFor(leaf, expectedLeafIndex);
+  },
 };
 const ctx: AssemblyContext = {
   compliancePk: COMPLIANCE_PK,
@@ -152,7 +156,7 @@ async function spendable(
     ASSET,
     COMPLIANCE_PK,
   );
-  byLeaf.set(m.commitment.toString(), leafIndex);
+  placed.set(leafIndex, m.commitment);
   return {
     note: m.note,
     leaf: m.commitment,
@@ -184,7 +188,8 @@ async function buildVectors(): Promise<Record<string, unknown>> {
     value: 250n,
     recipientInPub: publicKey(RECIPIENT_IN_KEY),
     selfSpendScalar: SPEND,
-    memoEph: toFr(77n),
+    // Even-y public key: the circuit publishes only eph_pub.x and asserts even y.
+    memoEph: toFr(76n),
     changeMint: await checked(78n),
   });
 

@@ -67,7 +67,7 @@ async function open(
     if (!commitmentPrefixMatches(record, recomputed)) return null;
     return { tag: candidate.tag, leafIndex: record.leafIndex, plaintext };
   } catch {
-    // A row we cannot open is a miss, not an error: a cuckoo probe returns a row either way.
+    // A row we cannot open is a miss, not an error: a probe returns a row on a miss too.
     return null;
   }
 }

@@ -60,9 +60,10 @@ if src_grep 'ScalarField[[:space:]]*(::)?[[:space:]]*<[[:space:]]*64[[:space:]]*
   red 1 "ScalarField<64> in circuit code (accepts a negative representative); use <63>, or a fixed edwards build."
 fi
 
-# Guard 2: no msm() (it lacks on-curve checks); force mul().
+# Guard 2: no msm(). The vendored msm asserts its points on-curve, but guard 4 counts only `.mul(` sites,
+# so an msm call would skip the review that a subgroup gate dominates every scalar mul.
 if src_grep '(^|[^A-Za-z0-9_])msm[[:space:]]*(::[^(]*)?\(' | decomment | grep .; then
-  red 2 "msm() call site; use mul(), or add an on-curve check before use."
+  red 2 "msm() call site; use mul() so guard 4 counts it and its subgroup gate gets reviewed."
 fi
 
 # Guard 3: no Poseidon2 streaming/Hasher API (diverges from the array API); force Poseidon2::hash.

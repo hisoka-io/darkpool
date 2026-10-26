@@ -13,8 +13,10 @@ index were unbounded, `k` and `2^32 + k` would drive the identical Merkle path (
 bits) while producing two different nullifiers for one committed leaf — a repeatable double-spend of every
 note in the pool.
 
-The sole guard is `leaf_index.to_le_bits::<32>()` inside `lean_imt_inclusion_proof`
-(`packages/circuits/shared/src/lib.nr:33`).
+`leaf_index.to_le_bits::<32>()` inside `lean_imt_inclusion_proof` (`packages/circuits/shared/src/lib.nr:33`)
+closes that aliasing, and this harness pins it. It does not cover aliasing within 32 bits (a sibling moved to
+another level reproducing one root under another index): that is closed by the level absorbed into every node
+hash in `lean_imt_inclusion_proof` and pinned by `packages/circuits/shared/src/index_uniqueness.nr`.
 
 ## Why this harness is shaped differently from the other two
 
@@ -48,15 +50,15 @@ nargo test                   # the differential (7 tests)
 
 ## What the tests establish
 
-| test                                                          | establishes                                                                                                        |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `nullifier_mirror_matches_the_kat`                            | the reproduced nullifier matches the committed production KAT                                                      |
-| `modelled_body_matches_the_real_inclusion_proof`              | the modelled body agrees with the real function on an honest witness, so the ablation differs in exactly one thing |
-| `real_inclusion_proof_rejects_out_of_range_index`             | **production guard**, exercised against the REAL circuit function, not a mirror                                    |
-| `the_parents_cast_aliases`                                    | **the differential**: `assert_parents_bound` accepts the out-of-range index, so the range check is the sole guard  |
-| `unbound_index_yields_two_nullifiers_for_one_leaf`            | **the consequence**: path bits derived from the forged index reproduce the honest root while the nullifier differs |
-| `modelled_body_still_rejects_a_wrong_sibling`                 | membership is genuinely enforced without the index binding (not vacuous)                                           |
-| `modelled_body_still_rejects_a_right_child_at_an_empty_level` | LeanIMT canonicality still enforced                                                                                |
+| test                                                          | establishes                                                                                                                |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `nullifier_mirror_matches_the_kat`                            | the reproduced nullifier matches the committed production KAT                                                              |
+| `modelled_body_matches_the_real_inclusion_proof`              | the modelled body agrees with the real function on an honest witness, so the ablation differs in exactly one thing         |
+| `real_inclusion_proof_rejects_out_of_range_index`             | **production guard**, exercised against the REAL circuit function, not a mirror                                            |
+| `the_parents_cast_aliases`                                    | **the differential**: `assert_parents_bound` accepts the out-of-range index, so only the range check stops `k` vs `2^32+k` |
+| `unbound_index_yields_two_nullifiers_for_one_leaf`            | **the consequence**: path bits derived from the forged index reproduce the honest root while the nullifier differs         |
+| `modelled_body_still_rejects_a_wrong_sibling`                 | membership is genuinely enforced without the index binding (not vacuous)                                                   |
+| `modelled_body_still_rejects_a_right_child_at_an_empty_level` | LeanIMT canonicality still enforced                                                                                        |
 
 ## Anti-drift guard
 

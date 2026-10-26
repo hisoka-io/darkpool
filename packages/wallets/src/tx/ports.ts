@@ -46,8 +46,9 @@ export interface ProverPort {
  *
  * It needs NO TRUST. Roots are retained forever on chain, and a path that folds to a known root places a real
  * inserted copy of the leaf at that index, so a wrong or malicious witness can only make a proof FAIL or name
- * another copy, never make it prove something false. Callers must still verify: recompute the root locally
- * and check it is known on chain.
+ * another copy, never make it prove something false. Assembly folds the returned path and refuses a root it
+ * does not reproduce; checking that the root is known on chain (`ChainView.isKnownRoot`) is the caller's step
+ * before proving.
  */
 export interface MerkleWitnessSource {
   witnessFor(

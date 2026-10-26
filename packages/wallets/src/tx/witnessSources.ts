@@ -63,8 +63,8 @@ export async function foldPath(
 
 /**
  * The local tree. Correct and trust-free, but it costs O(pool) bandwidth to build, because the only way to
- * know every sibling is to have seen every note. Right for tests, for the W7 scenario and for a desktop
- * wallet willing to full-sync; wrong for a phone.
+ * know every sibling is to have seen every note. Right for tests and for a desktop wallet willing to
+ * full-sync; wrong for a phone.
  */
 export class LocalTreeWitnessSource implements MerkleWitnessSource {
   constructor(private readonly tree: LeanIMT) {}

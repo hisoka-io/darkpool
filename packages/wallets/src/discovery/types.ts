@@ -17,7 +17,10 @@ export const COMMITMENT_PREFIX_BYTES = 16;
 /** Ciphertext words the server keeps. Words 0 (note_version) and 5 (owner) are stripped; see reconstruct. */
 export const CIPHERTEXT_KEPT_INDICES = [1, 2, 3, 4, 6] as const;
 
-/** `occurrenceCount` is server-chosen and becomes a batch size, so unbounded it wedges the device. */
+/**
+ * `occurrenceCount` comes from the discovery source and becomes a batch size. Raven's client counts it from
+ * the feed it downloaded, but the port takes any source, so unbounded a bad count wedges the device.
+ */
 export const MAX_OCCURRENCES_PER_TAG = 100_000;
 
 /** DB2 block size, 2^k leaves. k=10 gives a 1-in-1024 anonymity set for a plain, non-PIR fetch. */

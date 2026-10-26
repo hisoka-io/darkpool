@@ -79,7 +79,7 @@ unconstrained fn get_wnaf_slices<let N: u32>(x: Field) -> ([u8; N], bool) {
     nibbles[0] += skew as u8;
     result[N - 1] = (nibbles[0] + 15) / 2;
     for i in 1..N {
-        let mut nibble: u8 = nibbles[i];
+        let nibble: u8 = nibbles[i];
         result[N - 1 - i] = (nibble + 15) / 2;
         if (nibble & 1 == 0) {
             result[N - 1 - i] += 1;

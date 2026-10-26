@@ -3,8 +3,14 @@ import { Point } from "@zk-kit/baby-jubjub";
 import type { DerivedEph } from "../types/ephemeral.js";
 import { deriveCek, wrapCek } from "../crypto/kem.js";
 import { toFr } from "../crypto/fields.js";
+import { BJJ_SUBGROUP_ORDER } from "../crypto/constants.js";
 import { computePsi } from "./nullifier.js";
-import { publicKey, pubkeyOwner } from "./keys.js";
+import {
+  assertBjjSubgroupPoint,
+  isEvenY,
+  publicKey,
+  pubkeyOwner,
+} from "./keys.js";
 import { leaf, NOTE_TYPE_STANDARD, NOTE_VERSION, type Note } from "./note.js";
 import type { ProverNoteInput } from "../public/publicClaim.js";
 
@@ -33,13 +39,13 @@ export interface SentMemoNote extends Omit<MintedNote, "spendScalar"> {
 }
 
 async function finish(
-  eph: DerivedEph,
+  eph: Fr,
   value: bigint,
   owner: Fr,
   assetId: Fr,
   parents: Fr,
   compliancePk: Point<bigint>,
-): Promise<Omit<MintedNote, "spendScalar">> {
+): Promise<Omit<MintedNote, "spendScalar" | "eph">> {
   const cek = deriveCek(eph, compliancePk);
   const psi = await computePsi(cek);
   const plaintext: Note = {
@@ -66,7 +72,6 @@ async function finish(
       parents,
     },
     commitment,
-    eph,
     ephPub,
     cek,
     psi,
@@ -92,16 +97,68 @@ export async function mintSelfNote(
   const owner = await pubkeyOwner(publicKey(spendScalar));
   return {
     ...(await finish(eph, value, owner, assetId, parents, compliancePk)),
+    eph,
     spendScalar,
   };
+}
+
+export class MemoMintError extends Error {
+  constructor(
+    readonly reason:
+      | "MEMO_EPH_RANGE"
+      | "MEMO_EPH_ODD_Y"
+      | "RECIPIENT_KEY_INVALID"
+      | "RECIPIENT_KEY_ODD_Y",
+    message: string,
+  ) {
+    super(message);
+    this.name = "MemoMintError";
+  }
+}
+
+/**
+ * The memo checks `mint_incoming_note` asserts in-circuit, run before any work so a bad memo fails here with
+ * a typed error instead of inside proving. Messages never carry the ephemeral: it opens the note.
+ */
+export function assertMemoInputs(eph: Fr, inPub: Point<bigint>): void {
+  const scalar = eph.toBigInt();
+  if (scalar === 0n || scalar >= BJJ_SUBGROUP_ORDER) {
+    throw new MemoMintError(
+      "MEMO_EPH_RANGE",
+      "memo ephemeral must be a non-zero scalar below the BabyJubJub subgroup order",
+    );
+  }
+  if (!isEvenY(publicKey(eph))) {
+    throw new MemoMintError(
+      "MEMO_EPH_ODD_Y",
+      "memo ephemeral public key has odd y; only eph_pub.x is published, so sample another ephemeral",
+    );
+  }
+  try {
+    assertBjjSubgroupPoint(inPub, "Recipient incoming key");
+  } catch (e) {
+    throw new MemoMintError(
+      "RECIPIENT_KEY_INVALID",
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+  if (!isEvenY(inPub)) {
+    throw new MemoMintError(
+      "RECIPIENT_KEY_ODD_Y",
+      "Recipient incoming key has odd y; its x is the discovery tag, so it is not a canonical address",
+    );
+  }
 }
 
 /**
  * A note paid to someone else's incoming address.
  *
  * `eph` is a bare `Fr` on purpose: a memo ephemeral is legitimately random, because `cek_wrap` travels and
- * the tag is the RECIPIENT's key rather than the ephemeral's. Conflating the two families is what produced
- * the undiscoverable-note defect, so the type system keeps them apart.
+ * the tag is the RECIPIENT's key rather than the ephemeral's. It must be in `[1, subgroup order)` with an
+ * even-y public key, and `inPub` a non-identity, even-y subgroup point; anything else throws
+ * `MemoMintError`. The PARAMETER types keep the two ephemeral families apart (`mintSelfNote` demands a
+ * `DerivedEph`); the returned `eph` field is typed `DerivedEph` only because the result shares `MintedNote`,
+ * so it is a sampled scalar and must never be passed to a self-note sink.
  */
 export async function mintIncomingNote(
   eph: Fr,
@@ -118,7 +175,10 @@ export async function mintIncomingNote(
   };
 }
 
-/** `mintIncomingNote` for the sender, who holds the recipient's public key and nothing behind it. */
+/**
+ * `mintIncomingNote` for the sender, who holds the recipient's public key and nothing behind it. Same input
+ * rules; `SentMemoNote.eph` is the sampled memo ephemeral, never a derived one.
+ */
 export async function mintMemoNote(
   eph: Fr,
   value: bigint,
@@ -127,17 +187,13 @@ export async function mintMemoNote(
   compliancePk: Point<bigint>,
   parents: Fr = ZERO,
 ): Promise<SentMemoNote> {
+  assertMemoInputs(eph, inPub);
   const owner = await pubkeyOwner(inPub);
-  const built = await finish(
-    eph as DerivedEph,
-    value,
-    owner,
-    assetId,
-    parents,
-    compliancePk,
-  );
+  const built = await finish(eph, value, owner, assetId, parents, compliancePk);
   return {
     ...built,
+    // Branded only to fit the shared MintedNote shape; see mintIncomingNote.
+    eph: eph as DerivedEph,
     inPub,
     cekWrap: await wrapCek(built.cek, eph, inPub),
     tag: new Fr(inPub[0]),
