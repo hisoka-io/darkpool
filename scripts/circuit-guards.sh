@@ -5,7 +5,7 @@ CIRCUITS_DIR="${CIRCUITS_DIR:-packages/circuits}"
 CIRCUITS_ABS="$(realpath -m "$CIRCUITS_DIR")"
 BASELINE_MUL_SITES=44          # guard 4: .mul( / derive_* / assert_subgroup_scalar / check_subgroup /
                                # assert_in_prime_subgroup surface
-BASELINE_POS_SITES=25          # guard 5: Poseidon2::hash( call surface
+BASELINE_POS_SITES=23          # guard 5: Poseidon2::hash( call surface
 BASELINE_SCALARFIELD_SITES=2   # guard 9: ScalarField occurrences (alias / generic-propagation tripwire)
 BASELINE_HINT_SITES=2          # guard 11: `unconstrained`/`unsafe` sites outside vendor; each must be bound
                                # by a following constraint
@@ -15,6 +15,27 @@ red() { echo "FAIL (guard $1): $2"; fail=1; }
 
 src_grep() { grep -rnE "$1" "$CIRCUITS_DIR" --include='*.nr' | grep -vE "^${CIRCUITS_DIR}/(vendor|target)/"; }
 decomment() { grep -vE '^[^:]*:[0-9]+:[[:space:]]*//'; }
+
+# The counting guards (4, 5, 9, 11) measure the circuit constraint surface, so they skip sealed test leaves: a
+# non-root module file holding at least one #[test], no `pub`, `impl`, `trait`, `mod`, `comptime` or `fn main`,
+# and no attribute other than #[test]. Noir rejects any reference to a private item from another module ("is
+# private and not visible from the current module"), and a trait impl is the only item with effect outside its
+# module, so no code in such a file can reach a circuit. The checks read raw text, so a keyword inside a comment
+# or string only keeps a file counted. The prohibition guards (1-3) still scan every file.
+is_test_leaf() {
+  case "$(basename "$1")" in main.nr|lib.nr) return 1 ;; esac
+  grep -qE '#\[test' "$1" || return 1
+  grep -qwE 'pub|impl|trait|mod|comptime|quote|unquote' "$1" && return 1
+  grep -qE 'fn[[:space:]]+main([^A-Za-z0-9_]|$)' "$1" && return 1
+  grep -oE '#!?\[[^]]*' "$1" | grep -qvE '^#\[test(\(|$)' && return 1
+  return 0
+}
+TEST_LEAVES="$(find "$CIRCUITS_DIR" -name '*.nr' -not -path "${CIRCUITS_DIR}/vendor/*" -not -path '*/target/*' \
+  | LC_ALL=C sort | while IFS= read -r f; do is_test_leaf "$f" && printf '%s\n' "$f"; done)"
+TEST_LEAF_COUNT=$(printf '%s' "$TEST_LEAVES" | grep -c .)
+surface_grep() {
+  src_grep "$1" | awk -F: 'NR == FNR { if ($0 != "") leaf[$0] = 1; next } !($1 in leaf)' <(printf '%s\n' "$TEST_LEAVES") -
+}
 
 # Guard 0: no remote git dependencies in Nargo.toml (vendor locally instead).
 if grep -rnE '(^|[^A-Za-z_])("|'"'"')?(git|tag|rev|branch|directory)("|'"'"')?[[:space:]]*=' "$CIRCUITS_DIR" --include=Nargo.toml; then
@@ -73,13 +94,13 @@ if src_grep 'Poseidon2Hasher|std::hash::Hasher|perform_duplex|\.absorb[[:space:]
 fi
 
 # Guard 4: pins the scalar-mul surface; a deviation forces manual bounds review.
-MUL=$(src_grep '\.mul[[:space:]]*\(|derive_public_key|derive_shared_key|assert_subgroup_scalar|check_subgroup|assert_in_prime_subgroup' | decomment | wc -l | tr -d ' ')
+MUL=$(surface_grep '\.mul[[:space:]]*\(|derive_public_key|derive_shared_key|assert_subgroup_scalar|check_subgroup|assert_in_prime_subgroup' | decomment | wc -l | tr -d ' ')
 if [ "$MUL" -ne "$BASELINE_MUL_SITES" ]; then
   red 4 "scalar-mul/subgroup-gate surface changed ($MUL vs baseline $BASELINE_MUL_SITES); confirm every non-BASE8 mul/derive is dominated by assert_subgroup_scalar/check_subgroup, then re-baseline."
 fi
 
 # Guard 5: pins the Poseidon2::hash surface; a deviation forces manual array-length review.
-POS=$(src_grep 'Poseidon2::hash[[:space:]]*\(' | decomment | wc -l | tr -d ' ')
+POS=$(surface_grep 'Poseidon2::hash[[:space:]]*\(' | decomment | wc -l | tr -d ' ')
 if [ "$POS" -ne "$BASELINE_POS_SITES" ]; then
   red 5 "Poseidon2::hash surface changed ($POS vs baseline $BASELINE_POS_SITES); confirm each passes message length == array length, then re-baseline."
 fi
@@ -122,18 +143,18 @@ if [ -n "$ESCAPES" ]; then
 fi
 
 # Guard 9: pins ScalarField occurrences so an alias or generic cannot evade guard 1's width check.
-SFCNT=$(src_grep 'ScalarField' | decomment | wc -l | tr -d ' ')
+SFCNT=$(surface_grep 'ScalarField' | decomment | wc -l | tr -d ' ')
 if [ "$SFCNT" -ne "$BASELINE_SCALARFIELD_SITES" ]; then
   red 9 "ScalarField surface changed ($SFCNT vs baseline $BASELINE_SCALARFIELD_SITES); confirm no <64> width (direct, aliased, or generic-propagated) is introduced, then re-baseline."
 fi
 
 # Guard 11: pins the unconstrained-hint surface; a hint is only as safe as the constraint that binds it.
-HINTS=$(src_grep 'unconstrained[[:space:]]+fn|unsafe[[:space:]]*\{' | decomment | wc -l | tr -d ' ')
+HINTS=$(surface_grep 'unconstrained[[:space:]]+fn|unsafe[[:space:]]*\{' | decomment | wc -l | tr -d ' ')
 if [ "$HINTS" -ne "$BASELINE_HINT_SITES" ]; then
   red 11 "unconstrained-hint surface changed ($HINTS vs baseline $BASELINE_HINT_SITES); every hint MUST be bound by a following constraint -- prove it, then re-baseline."
 fi
 
 if [ "$fail" -eq 0 ]; then
-  echo "circuit-guards: all 11 guards pass (git-dep=0, deep-toml=$DEEP_TOML, scalarfield64=0, msm=0, hasher=0, vendor-hash=ok, structural=ok, path-escape=0, mul-sites=$MUL, poseidon-sites=$POS, scalarfield-sites=$SFCNT, hint-sites=$HINTS)."
+  echo "circuit-guards: all 11 guards pass (git-dep=0, deep-toml=$DEEP_TOML, scalarfield64=0, msm=0, hasher=0, vendor-hash=ok, structural=ok, path-escape=0, mul-sites=$MUL, poseidon-sites=$POS, scalarfield-sites=$SFCNT, hint-sites=$HINTS, test-leaves-skipped=$TEST_LEAF_COUNT)."
 fi
 exit "$fail"
