@@ -16,44 +16,109 @@ import { AdaptorError } from "../errors.js";
 
 const WITHDRAW_PUBLIC_INPUTS = 17;
 const NULLIFIER_INPUT = 5;
-/** Honk ZK proof of the withdraw circuit: (82 + 12 * LOG_N) words at LOG_N = 15, the size its verifier accepts. */
-const WITHDRAW_PROOF_BYTES = (82 + 12 * 15) * 32;
 const ZERO_BYTES32 = `0x${"00".repeat(32)}`;
 const BASIS_POINTS = 10_000n;
 
 /** Entrypoints whose first two arguments are a withdraw proof and its public inputs. */
 const WITHDRAW_CARRYING_SELECTORS: readonly string[] = [
   "withdraw(bytes,bytes32[])",
+  "withdrawMultisig(bytes,bytes32[])",
   "execute(bytes,bytes32[],(address,bytes,uint256,bool,address,uint256,uint256,uint256)[],uint256,address[],address[])",
 ].map((signature) => dataSlice(id(signature), 0, 4));
 
 /** A withdraw inserts one leaf; each of the 32 tree levels costs at most one Poseidon2 hash_3. */
 const TREE_ALLOWANCE_GAS = 32n * 24_000n;
-/** Highest traced `HowlPaymentAdapter.pay` and `DarkPool.withdraw` frames on the deployed pool. */
-const PAY_FRAME_GAS = 1_010_000n;
-const WITHDRAW_FRAME_GAS = 827_000n;
 /** A payment that runs out of gas reverts uncharged; an action that runs out of gas is charged. */
 const PAYMENT_MARGIN_BPS = 1_000n;
 const ACTION_MARGIN_BPS = 2_000n;
+
+/**
+ * Size and gas of one withdraw circuit as its deployed verifier accepts it. Re-measure whenever that
+ * verifier is replaced: a larger proof fails the payment-data bound, and a costlier verifier makes a paid
+ * withdraw action run out of gas while its fee is still charged.
+ */
+export interface HowlWithdrawProfile {
+  /** Exact byte length of one proof accepted by the deployed verifier. */
+  readonly proofBytes: number;
+  /** Highest traced `HowlPaymentAdapter.pay` frame; the tree allowance is added on top. */
+  readonly payFrameGas: bigint;
+  /** Highest traced DarkPool withdraw frame as a paid action; the tree allowance is added on top. */
+  readonly withdrawFrameGas: bigint;
+}
+
+/**
+ * `withdraw`: proof length read from the deployed `WithdrawVerifier` (LOG_N 15); frames traced on the
+ * deployed pool.
+ */
+export const HOWL_WITHDRAW_PROFILE: HowlWithdrawProfile = {
+  proofBytes: 8_384,
+  payFrameGas: 1_010_000n,
+  withdrawFrameGas: 827_000n,
+};
+
+/**
+ * `withdrawMultisig`: proof length read from the deployed `WithdrawMultisigVerifier` (LOG_N 15). Its pay and
+ * action frames measure a few dozen gas below the standard ones at equal pool state, so the standard traced
+ * frames bound it.
+ */
+export const HOWL_WITHDRAW_MULTISIG_PROFILE: HowlWithdrawProfile = {
+  proofBytes: 8_384,
+  payFrameGas: 1_010_000n,
+  withdrawFrameGas: 827_000n,
+};
 
 function withMargin(gas: bigint, marginBps: bigint): bigint {
   return (gas * (BASIS_POINTS + marginBps) + BASIS_POINTS - 1n) / BASIS_POINTS;
 }
 
 /** `paymentGasLimit` for a Howl fee withdraw, valid at every leaf index of the pool tree. */
-export const HOWL_PAYMENT_GAS_LIMIT = withMargin(
-  PAY_FRAME_GAS + TREE_ALLOWANCE_GAS,
-  PAYMENT_MARGIN_BPS,
-);
-/** `actionGasLimit` for `DarkPool.withdraw` as the paid action, valid at every leaf index of the pool tree. */
-export const HOWL_WITHDRAW_ACTION_GAS_LIMIT = withMargin(
-  WITHDRAW_FRAME_GAS + TREE_ALLOWANCE_GAS,
-  ACTION_MARGIN_BPS,
-);
+export function howlPaymentGasLimit(profile: HowlWithdrawProfile): bigint {
+  if (profile.payFrameGas <= 0n) {
+    throw new AdaptorError(
+      `Howl pay frame gas must be positive, got ${profile.payFrameGas}`,
+    );
+  }
+  return withMargin(
+    profile.payFrameGas + TREE_ALLOWANCE_GAS,
+    PAYMENT_MARGIN_BPS,
+  );
+}
 
-/** Bytes of the ABI-encoded `(bytes proof, bytes32[] publicInputs)` of a fee withdraw. */
-export const HOWL_PAYMENT_DATA_LENGTH =
-  4 * 32 + WITHDRAW_PROOF_BYTES + WITHDRAW_PUBLIC_INPUTS * 32;
+/** `actionGasLimit` for a DarkPool withdraw as the paid action, valid at every leaf index of the pool tree. */
+export function howlWithdrawActionGasLimit(
+  profile: HowlWithdrawProfile,
+): bigint {
+  if (profile.withdrawFrameGas <= 0n) {
+    throw new AdaptorError(
+      `Howl withdraw frame gas must be positive, got ${profile.withdrawFrameGas}`,
+    );
+  }
+  return withMargin(
+    profile.withdrawFrameGas + TREE_ALLOWANCE_GAS,
+    ACTION_MARGIN_BPS,
+  );
+}
+
+/** Bytes of the ABI-encoded `(bytes proof, bytes32[] publicInputs)` carrying a proof of `proofBytes`. */
+export function howlPaymentDataLength(proofBytes: number): number {
+  if (!Number.isSafeInteger(proofBytes) || proofBytes <= 0) {
+    throw new AdaptorError(
+      `Howl withdraw proof size must be a positive integer, got ${proofBytes}`,
+    );
+  }
+  const paddedProof = Math.ceil(proofBytes / 32) * 32;
+  return 4 * 32 + paddedProof + WITHDRAW_PUBLIC_INPUTS * 32;
+}
+
+export const HOWL_PAYMENT_GAS_LIMIT = howlPaymentGasLimit(
+  HOWL_WITHDRAW_PROFILE,
+);
+export const HOWL_WITHDRAW_ACTION_GAS_LIMIT = howlWithdrawActionGasLimit(
+  HOWL_WITHDRAW_PROFILE,
+);
+export const HOWL_PAYMENT_DATA_LENGTH = howlPaymentDataLength(
+  HOWL_WITHDRAW_PROFILE.proofBytes,
+);
 
 export interface HowlWithdrawProof {
   readonly proof: Uint8Array | string;
@@ -163,10 +228,31 @@ export interface HowlPaymentSourceArgs {
     intentHash: Fr,
   ) => Promise<HowlWithdrawProof>;
   readonly gasLimit?: bigint;
+  /** Overrides the size and gas profile of the deployed withdraw verifier. */
+  readonly profile?: HowlWithdrawProfile;
 }
 
+/** Pays from a standard note through the `HowlPaymentAdapter` instance built on `withdraw`. */
 export function howlPaymentSource(
   args: HowlPaymentSourceArgs,
+): HowlPaymentSource {
+  return createHowlPaymentSource(args, HOWL_WITHDRAW_PROFILE);
+}
+
+/**
+ * Pays from a FROST multisig note through the `HowlPaymentAdapter` instance built on `withdrawMultisig`.
+ * `proveFeeWithdraw` runs the quorum signing over `msgWithdraw` (which signs `recipient` and `intentHash`)
+ * and proves `withdraw_multisig`; `adapter` must be the instance whose `MULTISIG()` is true.
+ */
+export function howlMultisigPaymentSource(
+  args: HowlPaymentSourceArgs,
+): HowlPaymentSource {
+  return createHowlPaymentSource(args, HOWL_WITHDRAW_MULTISIG_PROFILE);
+}
+
+function createHowlPaymentSource(
+  args: HowlPaymentSourceArgs,
+  defaultProfile: HowlWithdrawProfile,
 ): HowlPaymentSource {
   const adapter = getAddress(args.adapter);
   const feeAsset = getAddress(args.feeAsset);
@@ -182,7 +268,9 @@ export function howlPaymentSource(
   if (args.feeNoteValue <= 0n) {
     throw new AdaptorError("Howl fee note value must be positive");
   }
-  const gasLimit = args.gasLimit ?? HOWL_PAYMENT_GAS_LIMIT;
+  const profile = args.profile ?? defaultProfile;
+  const paymentDataLength = howlPaymentDataLength(profile.proofBytes);
+  const gasLimit = args.gasLimit ?? howlPaymentGasLimit(profile);
   if (gasLimit <= 0n) {
     throw new AdaptorError("Howl payment gas limit must be positive");
   }
@@ -192,7 +280,7 @@ export function howlPaymentSource(
     feeAsset,
     paymentId: getBytes(feeNoteNullifier),
     gasLimit,
-    paymentDataLength: HOWL_PAYMENT_DATA_LENGTH,
+    paymentDataLength,
     checkAction(action) {
       const data = hexlify(action.data);
       if (
@@ -256,7 +344,13 @@ export function howlPaymentSource(
           `Fee withdraw proof pays in ${payment.feeAsset}, quoted fee asset is ${feeAsset}`,
         );
       }
-      return getBytes(payment.paymentData);
+      const paymentData = getBytes(payment.paymentData);
+      if (paymentData.length > paymentDataLength) {
+        throw new AdaptorError(
+          `Fee withdraw payment data is ${paymentData.length} bytes, above the declared ${paymentDataLength}: the withdraw profile does not match the deployed verifier`,
+        );
+      }
+      return paymentData;
     },
   };
 }
