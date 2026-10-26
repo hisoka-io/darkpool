@@ -32,6 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-nargo
+      - uses: ./.github/actions/setup-bb
       - name: Check circuit formatting
         working-directory: packages/circuits
         run: nargo fmt --check
@@ -40,6 +41,8 @@ jobs:
         run: nargo test
       - name: Circuit regression guards
         run: bash scripts/circuit-guards.sh
+      - name: VK byte-identity (recompile, re-derive every VK, compare to the committed pins)
+        run: bash scripts/check-vk-identity.sh
       - name: Witness-injection soundness harnesses
         run: |
           for h in frost-forgery psi-cek-forgery leaf-index-forgery; do
@@ -162,12 +165,7 @@ jobs:
           node-version: "20"
           cache: "pnpm"
       - uses: ./.github/actions/setup-nargo
-      - name: Install native bb 5.0.0
-        run: |
-          curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/master/barretenberg/bbup/install | bash
-          export PATH="$HOME/.bb:$PATH"
-          bbup -v 5.0.0
-          echo "$HOME/.bb" >> $GITHUB_PATH
+      - uses: ./.github/actions/setup-bb
       - run: pnpm install --frozen-lockfile
       - name: Build prover
         run: pnpm turbo run build --filter=@hisoka/wallets --filter=@hisoka/prover
