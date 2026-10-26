@@ -821,11 +821,23 @@ export async function deploy(
   await noxEntryPoint.waitForDeployment();
   const noxEntryPointAddr = await noxEntryPoint.getAddress();
 
-  const howlPaymentAdapter = await (
-    await ethers.getContractFactory("HowlPaymentAdapter")
-  ).deploy(darkPoolAddr, noxEntryPointAddr);
+  const howlPaymentAdapterFactory =
+    await ethers.getContractFactory("HowlPaymentAdapter");
+  const howlPaymentAdapter = await howlPaymentAdapterFactory.deploy(
+    darkPoolAddr,
+    noxEntryPointAddr,
+    false,
+  );
   await howlPaymentAdapter.waitForDeployment();
   const howlPaymentAdapterAddr = await howlPaymentAdapter.getAddress();
+  const howlMultisigPaymentAdapter = await howlPaymentAdapterFactory.deploy(
+    darkPoolAddr,
+    noxEntryPointAddr,
+    true,
+  );
+  await howlMultisigPaymentAdapter.waitForDeployment();
+  const howlMultisigPaymentAdapterAddr =
+    await howlMultisigPaymentAdapter.getAddress();
 
   const bundleExecutor = await (
     await ethers.getContractFactory("BundleExecutor")
@@ -848,6 +860,9 @@ export async function deploy(
   );
   console.log(`  NoxEntryPoint: ${noxEntryPointAddr}`);
   console.log(`  HowlPaymentAdapter: ${howlPaymentAdapterAddr}`);
+  console.log(
+    `  HowlPaymentAdapter (multisig): ${howlMultisigPaymentAdapterAddr}`,
+  );
   console.log(`  BundleExecutor: ${bundleExecutorAddr}`);
   console.log(`  Classified fee assets: ${feeAssets.join(", ")}`);
   console.log();
@@ -882,6 +897,7 @@ export async function deploy(
     noxSandboxImplementation: sandboxImplementationAddr,
     noxEntryPoint: noxEntryPointAddr,
     howlPaymentAdapter: howlPaymentAdapterAddr,
+    howlMultisigPaymentAdapter: howlMultisigPaymentAdapterAddr,
     bundleExecutor: bundleExecutorAddr,
     darkPool: darkPoolAddr,
     stakingToken: stakingTokenAddr,
@@ -1084,7 +1100,17 @@ export async function deploy(
       label: "HowlPaymentAdapter is linked to DarkPool and NoxEntryPoint",
       ok:
         (await howlPaymentAdapter.DARK_POOL()) === darkPoolAddr &&
-        (await howlPaymentAdapter.ENTRY_POINT()) === noxEntryPointAddr,
+        (await howlPaymentAdapter.ENTRY_POINT()) === noxEntryPointAddr &&
+        !(await howlPaymentAdapter.MULTISIG()),
+    },
+    {
+      label:
+        "Multisig HowlPaymentAdapter is linked to DarkPool and NoxEntryPoint and pulls through withdrawMultisig",
+      ok:
+        (await howlMultisigPaymentAdapter.DARK_POOL()) === darkPoolAddr &&
+        (await howlMultisigPaymentAdapter.ENTRY_POINT()) ===
+          noxEntryPointAddr &&
+        (await howlMultisigPaymentAdapter.MULTISIG()),
     },
     {
       label: "BundleExecutor is linked to DarkPool",
@@ -1419,7 +1445,16 @@ export async function deploy(
       rewardPoolAddr,
       sandboxImplementationAddr,
     ]);
-    await tryVerify(howlPaymentAdapterAddr, [darkPoolAddr, noxEntryPointAddr]);
+    await tryVerify(howlPaymentAdapterAddr, [
+      darkPoolAddr,
+      noxEntryPointAddr,
+      false,
+    ]);
+    await tryVerify(howlMultisigPaymentAdapterAddr, [
+      darkPoolAddr,
+      noxEntryPointAddr,
+      true,
+    ]);
     await tryVerify(bundleExecutorAddr, [darkPoolAddr]);
     console.log();
   }
@@ -1461,7 +1496,8 @@ export async function deploy(
       constructorArgs: {
         noxSandboxImplementation: [],
         noxEntryPoint: [rewardPoolAddr, sandboxImplementationAddr],
-        howlPaymentAdapter: [darkPoolAddr, noxEntryPointAddr],
+        howlPaymentAdapter: [darkPoolAddr, noxEntryPointAddr, false],
+        howlMultisigPaymentAdapter: [darkPoolAddr, noxEntryPointAddr, true],
         bundleExecutor: [darkPoolAddr],
         complianceRegistry: [
           timelockAddr,
@@ -1516,6 +1552,7 @@ export async function deploy(
   console.log(`  NoxRewardPool: ${rewardPoolAddr}`);
   console.log(`  NoxEntryPoint: ${noxEntryPointAddr}`);
   console.log(`  Howl Adapter:  ${howlPaymentAdapterAddr}`);
+  console.log(`  Howl Multisig Adapter: ${howlMultisigPaymentAdapterAddr}`);
   console.log(`  BundleExecutor:${bundleExecutorAddr}`);
   console.log(`  Staking Token: ${stakingTokenAddr}`);
   if (adaptorAddr) console.log(`  UniswapAdaptor:${adaptorAddr}`);

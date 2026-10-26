@@ -164,6 +164,7 @@ describe("deploy script", function () {
       "noxSandboxImplementation",
       "noxEntryPoint",
       "howlPaymentAdapter",
+      "howlMultisigPaymentAdapter",
       "bundleExecutor",
       "complianceRegistry",
       "stakingToken",
@@ -189,6 +190,10 @@ describe("deploy script", function () {
       "HowlPaymentAdapter",
       record.contracts.howlPaymentAdapter,
     );
+    const multisigAdapter = await ethers.getContractAt(
+      "HowlPaymentAdapter",
+      record.contracts.howlMultisigPaymentAdapter,
+    );
     const executor = await ethers.getContractAt(
       "BundleExecutor",
       record.contracts.bundleExecutor,
@@ -204,6 +209,14 @@ describe("deploy script", function () {
     expect(await adapter.ENTRY_POINT()).to.equal(
       record.contracts.noxEntryPoint,
     );
+    expect(await adapter.MULTISIG()).to.equal(false);
+    expect(await multisigAdapter.DARK_POOL()).to.equal(
+      record.contracts.darkPool,
+    );
+    expect(await multisigAdapter.ENTRY_POINT()).to.equal(
+      record.contracts.noxEntryPoint,
+    );
+    expect(await multisigAdapter.MULTISIG()).to.equal(true);
     expect(await executor.DARK_POOL()).to.equal(record.contracts.darkPool);
     expect(
       await pool.hasRole(
@@ -227,6 +240,12 @@ describe("deploy script", function () {
     expect(record.constructorArgs.howlPaymentAdapter).to.deep.equal([
       record.contracts.darkPool,
       record.contracts.noxEntryPoint,
+      false,
+    ]);
+    expect(record.constructorArgs.howlMultisigPaymentAdapter).to.deep.equal([
+      record.contracts.darkPool,
+      record.contracts.noxEntryPoint,
+      true,
     ]);
     expect(record.constructorArgs.bundleExecutor).to.deep.equal([
       record.contracts.darkPool,
