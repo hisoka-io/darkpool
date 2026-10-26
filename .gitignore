@@ -82,3 +82,6 @@ foundry-out/
 foundry-cache/
 packages/*/foundry-out/
 packages/*/foundry-cache/
+
+# OpenZeppelin upgrades manifests: the deployed-network manifest is kept with the deployment backups
+.openzeppelin/

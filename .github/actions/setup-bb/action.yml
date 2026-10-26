@@ -1,0 +1,21 @@
+name: Setup bb
+description: Install the pinned native Barretenberg CLI at ~/.bb/bb.
+
+# Native bb is needed wherever bb.js cannot go: --optimized verifier generation (and the VK identity check that
+# re-derives those verifiers) and the Kage outer recursive prove. The version must equal BB_VERSION in
+# packages/prover/scripts/generate_verifier.js; the consumers check it and fail on a mismatch.
+inputs:
+  version:
+    description: bb version to install
+    required: false
+    default: 5.0.0
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/master/barretenberg/bbup/install | bash
+        export PATH="$HOME/.bb:$PATH"
+        bbup -v ${{ inputs.version }}
+        echo "$HOME/.bb" >> $GITHUB_PATH
