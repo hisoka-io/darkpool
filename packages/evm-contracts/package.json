@@ -1,6 +1,7 @@
 {
   "name": "evm-contracts",
   "version": "1.0.0",
+  "private": true,
   "type": "commonjs",
   "author": "hisoka-io",
   "license": "Apache-2.0",
