@@ -23,7 +23,10 @@ export interface ComplianceKeyEpoch {
   readonly fromBlock?: number;
 }
 
-/** Shape of one `ComplianceKeyRotated` log, as the scanner needs it. */
+/**
+ * Shape of one `ComplianceKeyRotated` log, as the scanner needs it. `initialize` emits the first one,
+ * `(0, 1, genesis x, genesis y)`; every later one is a `rotateComplianceKey`.
+ */
 export interface ComplianceKeyRotation {
   readonly oldVersion: number;
   readonly newVersion: number;
@@ -100,21 +103,28 @@ export class ComplianceKeyRing {
     return new ComplianceKeyRing(epochs);
   }
 
-  /** Build from the genesis key plus the `ComplianceKeyRotated` logs read off the pool. */
+  /**
+   * Build from the genesis key plus the `ComplianceKeyRotated` logs read off the pool, in log order. The
+   * log may start with the initialization event `(0 -> 1)`; it must then carry `genesis`, and its block
+   * stands in for an omitted `genesisBlock`.
+   */
   static fromRotations(
     genesis: Point<bigint>,
     rotations: readonly ComplianceKeyRotation[],
     genesisBlock?: number,
   ): ComplianceKeyRing {
+    const init = splitInitialization(genesis, rotations, genesisBlock);
     const epochs: ComplianceKeyEpoch[] = [
       {
         version: COMPLIANCE_INITIAL_VERSION,
         pk: genesis,
-        ...(genesisBlock !== undefined ? { fromBlock: genesisBlock } : {}),
+        ...(init.genesisBlock !== undefined
+          ? { fromBlock: init.genesisBlock }
+          : {}),
       },
     ];
     let expectedOld = COMPLIANCE_INITIAL_VERSION;
-    for (const r of rotations) {
+    for (const r of init.rotations) {
       if (r.oldVersion !== expectedOld || r.newVersion !== expectedOld + 1) {
         throw new ComplianceKeyError(
           "INVALID_VERSION_SEQUENCE",
@@ -169,6 +179,51 @@ export class ComplianceKeyRing {
   }
 }
 
+/**
+ * Consumes a leading initialization event `(0 -> 1)`. It is accepted only as the first log and only when it
+ * carries the genesis key and agrees with any `genesisBlock` given; a version-0 log anywhere else, or one
+ * naming a different key, fails the sequence check exactly as an unknown rotation does.
+ */
+function splitInitialization(
+  genesis: Point<bigint>,
+  rotations: readonly ComplianceKeyRotation[],
+  genesisBlock: number | undefined,
+): {
+  readonly rotations: readonly ComplianceKeyRotation[];
+  readonly genesisBlock: number | undefined;
+} {
+  const first = rotations[0];
+  if (first === undefined || first.oldVersion !== 0) {
+    return { rotations, genesisBlock };
+  }
+  if (first.newVersion !== COMPLIANCE_INITIAL_VERSION) {
+    throw new ComplianceKeyError(
+      "INVALID_VERSION_SEQUENCE",
+      `the initialization event ComplianceKeyRotated(0, ${first.newVersion}) must set version ${COMPLIANCE_INITIAL_VERSION}`,
+    );
+  }
+  if (first.newX !== genesis[0] || first.newY !== genesis[1]) {
+    throw new ComplianceKeyError(
+      "INVALID_VERSION_SEQUENCE",
+      "the initialization event ComplianceKeyRotated(0, 1) carries a key other than the configured genesis key; the genesis key or the pool address is wrong",
+    );
+  }
+  if (
+    first.blockNumber !== undefined &&
+    genesisBlock !== undefined &&
+    first.blockNumber !== genesisBlock
+  ) {
+    throw new ComplianceKeyError(
+      "INVALID_VERSION_SEQUENCE",
+      `the initialization event is at block ${first.blockNumber}, but the genesis block given is ${genesisBlock}`,
+    );
+  }
+  return {
+    rotations: rotations.slice(1),
+    genesisBlock: genesisBlock ?? first.blockNumber,
+  };
+}
+
 /** Trusted application/Raven history, validated for internal sequence and current-key consistency. */
 export interface CompleteComplianceHistory {
   readonly ring: ComplianceKeyRing;
@@ -191,6 +246,10 @@ function assertVersion(value: number, label: string): void {
   }
 }
 
+/**
+ * `rotations` is the pool's `ComplianceKeyRotated` log in order, with or without the leading
+ * initialization event `(0 -> 1)`; when present it must carry `genesisPk`.
+ */
 export function completeComplianceHistory(input: {
   readonly genesisPk: Point<bigint>;
   readonly rotations: readonly ComplianceKeyRotation[];
@@ -198,12 +257,28 @@ export function completeComplianceHistory(input: {
   readonly currentVersion: number;
 }): CompleteComplianceHistory {
   assertVersion(input.currentVersion, "current compliance version");
+  const init = splitInitialization(input.genesisPk, input.rotations, undefined);
+  let previousBlock = -1;
+  if (init.genesisBlock !== undefined) {
+    if (!Number.isSafeInteger(init.genesisBlock) || init.genesisBlock < 0) {
+      throw new ComplianceKeyError(
+        "INVALID_VERSION_SEQUENCE",
+        `compliance initialization block ${init.genesisBlock} is not a block number`,
+      );
+    }
+    previousBlock = init.genesisBlock;
+  }
   const epochs: ComplianceKeyEpoch[] = [
-    { version: COMPLIANCE_INITIAL_VERSION, pk: input.genesisPk },
+    {
+      version: COMPLIANCE_INITIAL_VERSION,
+      pk: input.genesisPk,
+      ...(init.genesisBlock === undefined
+        ? {}
+        : { fromBlock: init.genesisBlock }),
+    },
   ];
   let expectedOld = COMPLIANCE_INITIAL_VERSION;
-  let previousBlock = -1;
-  for (const rotation of input.rotations) {
+  for (const rotation of init.rotations) {
     assertVersion(rotation.oldVersion, "rotation oldVersion");
     assertVersion(rotation.newVersion, "rotation newVersion");
     if (
