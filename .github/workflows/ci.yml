@@ -41,6 +41,18 @@ jobs:
         run: nargo test
       - name: Circuit regression guards
         run: bash scripts/circuit-guards.sh
+      - name: Vendored noir-edwards tests
+        run: |
+          # nargo refuses a package that is not a workspace member ("Selected package `edwards` was not
+          # found"), so test a copy outside the workspace. The guards step above has already pinned the
+          # vendored bytes to VENDOR-HASHES.sha256, so the copy is the reviewed source.
+          cp -r packages/circuits/vendor/noir-edwards "$RUNNER_TEMP/noir-edwards"
+          out="$(nargo test --program-dir "$RUNNER_TEMP/noir-edwards" 2>&1)" || rc=$?
+          echo "$out"
+          test "${rc:-0}" -eq 0 || { echo "::error::vendored noir-edwards tests exited ${rc}"; exit 1; }
+          # The crate is frozen by hash, so its count moves only with a reviewed re-vendor.
+          echo "$out" | grep -qE "[^0-9]17 tests passed" \
+            || { echo "::error::vendored noir-edwards did not report exactly 17 passing tests"; exit 1; }
       - name: VK byte-identity (recompile, re-derive every VK, compare to the committed pins)
         run: bash scripts/check-vk-identity.sh
       - name: Witness-injection soundness harnesses
