@@ -25,6 +25,7 @@ const NS = {
   memos: "hisoka.darkpool.memos",
   verifiers: "hisoka.darkpool.verifiers",
   compliance: "hisoka.darkpool.compliance",
+  settlement: "hisoka.darkpool.settlement",
 } as const;
 
 // Values hardcoded as the *_LOCATION constants in DarkPool.sol; the JS formula must reproduce them.
@@ -37,9 +38,11 @@ const EXPECTED: Record<keyof typeof NS, string> = {
     "0x204927e2223572a19571462c2dfb374afbbdb39e695632d6477721409dfb0b00",
   compliance:
     "0x4c6336ddd730b3b6886dcf6c397e5676dac845842540c4592f4e52cea8e9ae00",
+  settlement:
+    "0x75aee5824eaef0474f0a9f0cefdca7b78967e2ca8426d4fe1fe0dd6f6af34700",
 };
 
-const VERIFIER_COUNT = 11;
+const VERIFIER_COUNT = 10;
 
 const REENTRANCY_LOCATION =
   "0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00";
@@ -66,6 +69,7 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
   let upgrader: string;
   let outsider: Awaited<ReturnType<typeof ethers.getSigners>>[number];
   let initParams: DarkPool.InitParamsStruct;
+  let deployTxHash: string;
 
   async function deploy() {
     const signers = await ethers.getSigners();
@@ -100,7 +104,6 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
       transferMultisigVerifier: stubAddr,
       splitMultisigVerifier: stubAddr,
       joinMultisigVerifier: stubAddr,
-      kageVerifier: stubAddr,
       compliancePkX: BASE8_X,
       compliancePkY: BASE8_Y,
       initialAdminDelay: 172800,
@@ -117,6 +120,9 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
     });
     await proxy.waitForDeployment();
     const addr = await proxy.getAddress();
+    const deployTx = proxy.deploymentTransaction();
+    if (deployTx === null)
+      throw new Error("proxy deployment has no transaction");
 
     return {
       darkpool: DarkPool__factory.connect(addr, adminS),
@@ -128,6 +134,7 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
       upgrader: upgraderS.address,
       outsider: outsiderS,
       params,
+      deployTxHash: deployTx.hash,
     };
   }
 
@@ -142,9 +149,10 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
     upgrader = d.upgrader;
     outsider = d.outsider;
     initParams = d.params;
+    deployTxHash = d.deployTxHash;
   });
 
-  it("computes the 5 namespace slot constants from the ERC-7201 formula", function () {
+  it("computes the 6 namespace slot constants from the ERC-7201 formula", function () {
     for (const key of Object.keys(NS) as (keyof typeof NS)[]) {
       expect(erc7201(NS[key]), `${NS[key]} slot`).to.equal(EXPECTED[key]);
     }
@@ -171,7 +179,112 @@ describe("DarkPool UUPS: ERC-7201 slots + proxy init", function () {
     expect(await slotValue(proxyAddr, REENTRANCY_LOCATION)).to.equal(1n);
   });
 
-  it("initialize set compliance key at version 1 and all 11 verifiers (init-path)", async function () {
+  it("stores a registered settlement module as one packed word at its mapping slot in the settlement namespace", async function () {
+    const controller = await (
+      await ethers.getContractFactory("SettlementControllerHarness")
+    ).deploy(proxyAddr);
+    const controllerAddr = await controller.getAddress();
+    const slot = mappingSlot("address", controllerAddr, EXPECTED.settlement);
+    expect(await slotValue(proxyAddr, slot)).to.equal(0n);
+
+    const maxPast = 300n;
+    const maxFuture = 2n ** 32n - 1n;
+    await darkpool
+      .connect(await ethers.getSigner(upgrader))
+      .registerSettlementModule(
+        controllerAddr,
+        verifiers[0],
+        2,
+        4,
+        1,
+        maxPast,
+        maxFuture,
+      );
+    const packed =
+      BigInt(verifiers[0]) |
+      (2n << 160n) |
+      (4n << 168n) |
+      (1n << 176n) |
+      (maxPast << 184n) |
+      (maxFuture << 216n) |
+      (1n << 248n);
+    expect(await slotValue(proxyAddr, slot)).to.equal(packed);
+    expect(await slotValue(proxyAddr, addSlot(slot, 1n))).to.equal(0n);
+  });
+
+  it("initialize announces compliance key version 1 as ComplianceKeyRotated(0, 1, x, y)", async function () {
+    const receipt = await ethers.provider.getTransactionReceipt(deployTxHash);
+    const rotations = receipt!.logs
+      .filter((l) => l.address === proxyAddr)
+      .map((l) => darkpool.interface.parseLog(l))
+      .filter((p) => p?.name === "ComplianceKeyRotated");
+    expect(rotations.length).to.equal(1);
+    expect(rotations[0]!.args.oldVersion).to.equal(0n);
+    expect(rotations[0]!.args.newVersion).to.equal(1n);
+    expect(rotations[0]!.args.newX).to.equal(BASE8_X);
+    expect(rotations[0]!.args.newY).to.equal(BASE8_Y);
+  });
+
+  it("initialize records each verifier with a zero previous address; ids past the last circuit read as zero", async function () {
+    const receipt = await ethers.provider.getTransactionReceipt(deployTxHash);
+    const updates = receipt!.logs
+      .filter((l) => l.address === proxyAddr)
+      .map((l) => darkpool.interface.parseLog(l))
+      .filter((p) => p?.name === "VerifierUpdated");
+    expect(updates.map((u) => u!.args.circuitId)).to.deep.equal(
+      Array.from({ length: VERIFIER_COUNT }, (_, i) => BigInt(i)),
+    );
+    for (const u of updates) {
+      expect(u!.args.previousVerifier).to.equal(ethers.ZeroAddress);
+      expect(u!.args.verifier).to.equal(verifiers[Number(u!.args.circuitId)]);
+    }
+    expect(await darkpool.verifier(VERIFIER_COUNT)).to.equal(
+      ethers.ZeroAddress,
+    );
+    await expect(
+      darkpool
+        .connect(await ethers.getSigner(upgrader))
+        .setVerifier(VERIFIER_COUNT, verifiers[0]),
+    ).to.be.revertedWithCustomError(darkpool, "UnknownCircuitId");
+  });
+
+  it("reads a stale verifier left at a retired circuit id as zero", async function () {
+    // A proxy upgraded from an implementation with an eleventh circuit keeps that address in storage.
+    const retired = mappingSlot("uint256", VERIFIER_COUNT, EXPECTED.verifiers);
+    await ethers.provider.send("hardhat_setStorageAt", [
+      proxyAddr,
+      retired,
+      ethers.zeroPadValue(verifiers[0], 32),
+    ]);
+    expect(await slotValue(proxyAddr, retired)).to.equal(BigInt(verifiers[0]));
+    expect(await darkpool.verifier(VERIFIER_COUNT)).to.equal(
+      ethers.ZeroAddress,
+    );
+    await ethers.provider.send("hardhat_setStorageAt", [
+      proxyAddr,
+      retired,
+      ZeroHash,
+    ]);
+  });
+
+  it("setVerifier reports the verifier it replaces", async function () {
+    const replacement = await (
+      await ethers.getContractFactory("StubVerifier")
+    ).deploy();
+    const replacementAddr = await replacement.getAddress();
+    await expect(
+      darkpool
+        .connect(await ethers.getSigner(upgrader))
+        .setVerifier(3, replacementAddr),
+    )
+      .to.emit(darkpool, "VerifierUpdated")
+      .withArgs(3n, verifiers[3], replacementAddr);
+    await darkpool
+      .connect(await ethers.getSigner(upgrader))
+      .setVerifier(3, verifiers[3]);
+  });
+
+  it("initialize set compliance key at version 1 and all 10 verifiers (init-path)", async function () {
     const [x, y, version] = await darkpool.complianceKey();
     expect(x).to.equal(BASE8_X);
     expect(y).to.equal(BASE8_Y);
