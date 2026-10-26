@@ -96,8 +96,9 @@ export interface GoldenSettlement extends StubbedPool {
 
 /**
  * The golden swap_settle proof was proven against [genesis(31337), leaf_A@1, leaf_B@2]; seeding those two leaves
- * makes its root known. The controller is registered with the real KageVerifier and the Kage layout (k=2, m=4,
- * e=0) under today's timestamp rule (5-minute floor, no ceiling).
+ * makes its root known. The forwarding test controller is registered with the real KageVerifier and the Kage
+ * layout (k=2, m=4, e=0) under a generic 5-minute floor; the production KageSettlement registers maxPast = 0,
+ * which test/kage exercises.
  */
 export async function deployGoldenSettlementFixture(): Promise<GoldenSettlement> {
   const pool = await deployStubbedPool();
