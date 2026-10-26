@@ -57,7 +57,6 @@ task("test:fast", "Runs core logic tests (no fork)")
       "test/behaviors",
       "test/deploy",
       "test/integration",
-      "test/kage",
       "test/nox",
       "test/upgrade",
     ];
