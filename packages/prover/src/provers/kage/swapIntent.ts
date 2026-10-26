@@ -15,6 +15,17 @@ import {
 // noir-recursive emits the proof + VK that swap_settle's std::verify_proof_with_type consumes.
 const RECURSIVE = { verifierTarget: "noir-recursive" } as const;
 
+/** The intent proof was generated but failed local verification; no solver could settle it. */
+export class UnverifiedIntentProofError extends ProofError {
+  constructor() {
+    super(
+      "swap_intent",
+      "the generated intent proof does not verify against the swap_intent verification key, so it was not returned",
+    );
+    this.name = "UnverifiedIntentProofError";
+  }
+}
+
 export async function proveSwapIntent(
   inputs: SwapIntentInputs,
 ): Promise<SwapIntentProof> {
@@ -53,6 +64,7 @@ export async function proveSwapIntent(
       { proof, publicInputs },
       RECURSIVE,
     );
+    if (!verified) throw new UnverifiedIntentProofError();
     const art = await backend.generateRecursiveProofArtifacts(
       proof,
       publicInputs.length,
@@ -86,6 +98,7 @@ export async function proveSwapIntent(
       verified,
     };
   } catch (err) {
+    if (err instanceof ProofError) throw err;
     throw new ProofError(
       "swap_intent",
       err instanceof Error ? err.message : String(err),
