@@ -15,8 +15,15 @@ import {
   HOWL_PAYMENT_DATA_LENGTH,
   HOWL_PAYMENT_GAS_LIMIT,
   HOWL_WITHDRAW_ACTION_GAS_LIMIT,
+  HOWL_WITHDRAW_MULTISIG_PROFILE,
+  HOWL_WITHDRAW_PROFILE,
+  howlMultisigPaymentSource,
+  howlPaymentDataLength,
+  howlPaymentGasLimit,
   howlPaymentIntent,
   howlPaymentSource,
+  howlWithdrawActionGasLimit,
+  type HowlPaymentSourceArgs,
   type HowlWithdrawProof,
 } from "./howl-payment.js";
 
@@ -79,6 +86,7 @@ const paymentRequest = {
 
 const withdrawIface = new Interface([
   "function withdraw(bytes proof, bytes32[] publicInputs)",
+  "function withdrawMultisig(bytes proof, bytes32[] publicInputs)",
   "function deposit(bytes proof, bytes32[] publicInputs)",
 ]);
 
@@ -326,5 +334,162 @@ describe("Howl Nox payment source", () => {
         ]),
       ),
     });
+  });
+});
+
+describe("Howl withdraw profiles", () => {
+  it("derives the payment data bound from the proof size", () => {
+    expect(howlPaymentDataLength(HOWL_WITHDRAW_PROFILE.proofBytes)).toBe(
+      HOWL_PAYMENT_DATA_LENGTH,
+    );
+    expect(howlPaymentDataLength(928)).toBe(4 * 32 + 928 + 17 * 32);
+    expect(howlPaymentDataLength(930)).toBe(4 * 32 + 960 + 17 * 32);
+    expect(() => howlPaymentDataLength(0)).toThrow(/positive integer/);
+    expect(() => howlPaymentDataLength(1.5)).toThrow(/positive integer/);
+  });
+
+  it("derives the gas limits from the frame gas of a profile", () => {
+    expect(howlPaymentGasLimit(HOWL_WITHDRAW_PROFILE)).toBe(
+      HOWL_PAYMENT_GAS_LIMIT,
+    );
+    expect(howlWithdrawActionGasLimit(HOWL_WITHDRAW_PROFILE)).toBe(
+      HOWL_WITHDRAW_ACTION_GAS_LIMIT,
+    );
+    const costlier = {
+      ...HOWL_WITHDRAW_PROFILE,
+      payFrameGas: HOWL_WITHDRAW_PROFILE.payFrameGas + 100_000n,
+      withdrawFrameGas: HOWL_WITHDRAW_PROFILE.withdrawFrameGas + 100_000n,
+    };
+    expect(howlPaymentGasLimit(costlier)).toBe(
+      HOWL_PAYMENT_GAS_LIMIT + 110_000n,
+    );
+    expect(howlWithdrawActionGasLimit(costlier)).toBe(
+      HOWL_WITHDRAW_ACTION_GAS_LIMIT + 120_000n,
+    );
+    expect(() =>
+      howlPaymentGasLimit({ ...HOWL_WITHDRAW_PROFILE, payFrameGas: 0n }),
+    ).toThrow(/pay frame gas must be positive/);
+    expect(() =>
+      howlWithdrawActionGasLimit({
+        ...HOWL_WITHDRAW_PROFILE,
+        withdrawFrameGas: -1n,
+      }),
+    ).toThrow(/withdraw frame gas must be positive/);
+  });
+
+  it("pins the multisig withdraw profile", () => {
+    expect(HOWL_WITHDRAW_MULTISIG_PROFILE).toEqual({
+      proofBytes: 8_384,
+      payFrameGas: 1_010_000n,
+      withdrawFrameGas: 827_000n,
+    });
+  });
+});
+
+describe("Howl Nox multisig payment source", () => {
+  const multisigArgs: HowlPaymentSourceArgs = {
+    adapter: ADAPTER,
+    feeAsset: ASSET,
+    feeNoteNullifier: PAYMENT_ID,
+    feeNoteValue: NOTE_VALUE,
+    proveFeeWithdraw: (amount, recipient, intentHash) =>
+      Promise.resolve(feeProof(amount, recipient, intentHash)),
+  };
+
+  it("declares the multisig profile gas and payment data bound", () => {
+    const payment = howlMultisigPaymentSource(multisigArgs);
+    expect(payment.adapter).toBe(ADAPTER);
+    expect(hexlify(payment.paymentId)).toBe(PAYMENT_ID);
+    expect(payment.gasLimit).toBe(
+      howlPaymentGasLimit(HOWL_WITHDRAW_MULTISIG_PROFILE),
+    );
+    expect(payment.paymentDataLength).toBe(
+      howlPaymentDataLength(HOWL_WITHDRAW_MULTISIG_PROFILE.proofBytes),
+    );
+  });
+
+  it("proves the quoted amount to the adapter under the execution intent", async () => {
+    const calls: [bigint, string, string][] = [];
+    const payment = howlMultisigPaymentSource({
+      ...multisigArgs,
+      proveFeeWithdraw: (amount, recipient, intentHash) => {
+        calls.push([amount, recipient, intentHash.toString()]);
+        return Promise.resolve(feeProof(amount, recipient, intentHash));
+      },
+    });
+    const paymentData = await payment.buildPaymentData(paymentRequest);
+    expect(calls).toEqual([
+      [40n, ADAPTER, howlPaymentIntent(EXECUTION_ID).toString()],
+    ]);
+    const decoded = AbiCoder.defaultAbiCoder().decode(
+      ["bytes", "bytes32[]"],
+      paymentData,
+    );
+    expect(decoded[1][5]).toBe(PAYMENT_ID);
+  });
+
+  it("applies the same proof bindings as the standard source", async () => {
+    const payment = howlMultisigPaymentSource({
+      ...multisigArgs,
+      proveFeeWithdraw: (amount, recipient, intentHash) =>
+        Promise.resolve(feeProof(amount, EXECUTOR, intentHash)),
+    });
+    await expect(payment.buildPaymentData(paymentRequest)).rejects.toThrow(
+      /recipient is not the payment adapter/,
+    );
+    await expect(
+      howlMultisigPaymentSource(multisigArgs).buildPaymentData({
+        ...paymentRequest,
+        amount: NOTE_VALUE + 1n,
+      }),
+    ).rejects.toThrow(/exceeds the fee note value/);
+  });
+
+  it("vetoes a multisig withdraw action that spends the fee note", () => {
+    const proof = withdrawProof({ 5: PAYMENT_ID });
+    const action = getBytes(
+      withdrawIface.encodeFunctionData("withdrawMultisig", [
+        proof.proof,
+        proof.publicInputs,
+      ]),
+    );
+    expect(() =>
+      howlMultisigPaymentSource(multisigArgs).checkAction({ data: action }),
+    ).toThrow(/spends the fee note/);
+    expect(() => source().checkAction({ data: action })).toThrow(
+      /spends the fee note/,
+    );
+    const other = withdrawProof({ 5: OTHER_NOTE });
+    howlMultisigPaymentSource(multisigArgs).checkAction({
+      data: getBytes(
+        withdrawIface.encodeFunctionData("withdrawMultisig", [
+          other.proof,
+          other.publicInputs,
+        ]),
+      ),
+    });
+  });
+
+  it("refuses payment data larger than the declared profile allows", async () => {
+    const payment = howlMultisigPaymentSource({
+      ...multisigArgs,
+      profile: { ...HOWL_WITHDRAW_MULTISIG_PROFILE, proofBytes: 928 },
+      proveFeeWithdraw: (amount, recipient, intentHash) =>
+        Promise.resolve({
+          ...feeProof(amount, recipient, intentHash),
+          proof: new Uint8Array(8_384).fill(7),
+        }),
+    });
+    expect(payment.paymentDataLength).toBe(howlPaymentDataLength(928));
+    await expect(payment.buildPaymentData(paymentRequest)).rejects.toThrow(
+      /above the declared 1600/,
+    );
+  });
+
+  it("takes an explicit gas limit over the profile", () => {
+    expect(
+      howlMultisigPaymentSource({ ...multisigArgs, gasLimit: 2_500_000n })
+        .gasLimit,
+    ).toBe(2_500_000n);
   });
 });
