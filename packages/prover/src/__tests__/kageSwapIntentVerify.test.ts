@@ -43,7 +43,7 @@ vi.mock("@aztec/bb.js", () => ({
 
 const { proveSwapIntent, UnverifiedIntentProofError } =
   await import("../provers/kage/swapIntent.js");
-const { ProofError } = await import("../errors.js");
+const { ProofError, UnverifiedProofError } = await import("../errors.js");
 
 function note(): NoteInput {
   const one = new Fr(1n);
@@ -91,11 +91,13 @@ describe("proveSwapIntent local verification", () => {
     backend.verifies = false;
     const attempt = proveSwapIntent(INPUTS);
     await expect(attempt).rejects.toBeInstanceOf(UnverifiedIntentProofError);
+    await expect(attempt).rejects.toBeInstanceOf(UnverifiedProofError);
     await expect(attempt).rejects.toBeInstanceOf(ProofError);
     await expect(attempt).rejects.toMatchObject({
       name: "UnverifiedIntentProofError",
       circuit: "swap_intent",
-      message: expect.stringMatching(/^proof failed for swap_intent: /),
+      message:
+        "proof failed for swap_intent: the generated proof does not verify against this circuit's verification key, so it was not returned",
     });
   });
 

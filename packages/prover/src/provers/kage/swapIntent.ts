@@ -4,7 +4,7 @@ import { Buffer } from "node:buffer";
 import { circuit } from "../../generated/swap_intent_circuit.js";
 import { SwapIntentInputs, SwapIntentProof } from "../../types.js";
 import { marshalNote, marshalU128, pointHex } from "../../marshal.js";
-import { ProofError } from "../../errors.js";
+import { ProofError, UnverifiedProofError } from "../../errors.js";
 import { ensureBBInitialized } from "../../prover-base.js";
 import {
   INTENT_PI_LEN,
@@ -16,12 +16,9 @@ import {
 const RECURSIVE = { verifierTarget: "noir-recursive" } as const;
 
 /** The intent proof was generated but failed local verification; no solver could settle it. */
-export class UnverifiedIntentProofError extends ProofError {
+export class UnverifiedIntentProofError extends UnverifiedProofError {
   constructor() {
-    super(
-      "swap_intent",
-      "the generated intent proof does not verify against the swap_intent verification key, so it was not returned",
-    );
+    super("swap_intent");
     this.name = "UnverifiedIntentProofError";
   }
 }
