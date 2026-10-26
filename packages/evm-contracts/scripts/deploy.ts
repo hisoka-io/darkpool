@@ -21,16 +21,26 @@
  * Required env:
  *   GOV_SAFE       governance multisig (3-of-5), Timelock proposer + executor + canceller
  *   GUARDIAN_SAFE  guardian multisig (2-of-3), DarkPool pauser, NoxRegistry slasher, NoxRewardPool
- *                  admin + distributor. Explicitly NOT a Timelock canceller.
+ *                  admin + distributor. Explicitly NOT a Timelock canceller. Off test chains no owner of
+ *                  one Safe may own the other.
  *   STAKING_TOKEN  ERC20 staking token. Required off local; a dev MockERC20 is deployed only on
  *                  hardhat/localhost, because it has an unpermissioned mint and NoxRegistry writes the
- *                  token once with no update path.
+ *                  token once with no update path. Off test chains it must be the chain's WETH or USDC.
+ * Required off the test chains (SHORT_DELAY_CHAIN_IDS), optional on them:
+ *   COMPLIANCE_PUBLIC_KEY_X, COMPLIANCE_PUBLIC_KEY_Y  the compliance public key (the committee key); no
+ *                          secret touches this machine. Off test chains this is the only accepted source.
+ *   MIN_STAKE, MIN_STAKE_FLOOR  Nox stake and its permanent floor, in whole staking tokens (decimals read
+ *                          from the token), e.g. 1000 or 0.5. Default 1 each on test chains.
  * Optional env:
- *   COMPLIANCE_SECRET_KEY  reuse an existing compliance BJJ secret (else one is generated and written
- *                          to the sibling .secrets.json before any deploy transaction)
+ *   COMPLIANCE_SECRET_KEY  test chains only: reuse an existing compliance BJJ secret (else one is generated
+ *                          and written to the sibling .secrets.json before any deploy transaction)
  *   LOCAL_TEST_COMPLIANCE_SECRET_KEY  deterministic fixture accepted only by hardhat/localhost
  *   SWAP_ROUTER            deploy UniswapAdaptor against this router
- *   FEE_ASSETS             comma-separated ERC20 addresses accepted for Nox execution fees; required off local
+ *   FEE_ASSETS             comma-separated ERC20 addresses accepted for Nox execution fees; required off local,
+ *                          and off test chains exactly the chain's USDC
+ *   MULTISIG_VERIFIERS     "stub" or "real": what the four multisig circuit slots hold. Off test chains only
+ *                          "stub" (a RevertingVerifier until the Timelock installs the real ones); default
+ *                          "real" on test chains.
  *   TIMELOCK_MIN_DELAY_SECS    Timelock minimum delay in seconds (default 172800 = 48h)
  *   ADMIN_TRANSFER_DELAY_SECS  AccessControlDefaultAdminRules DEFAULT_ADMIN transfer delay in seconds on
  *                              DarkPool, NoxRegistry and NoxRewardPool (default 172800 = 48h)
@@ -47,7 +57,13 @@ import { config, ethers, network, upgrades, run } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { Base8, mulPointEscalar, Point } from "@zk-kit/baby-jubjub";
+import {
+  Base8,
+  inCurve,
+  mulPointEscalar,
+  Point,
+  r as BN254_FR,
+} from "@zk-kit/baby-jubjub";
 import { Manifest } from "@openzeppelin/upgrades-core";
 import type { BaseContract } from "ethers";
 
@@ -58,17 +74,380 @@ const BJJ_SUBGROUP_ORDER =
 // that matches it.
 const DEFAULT_GOVERNANCE_DELAY = 48n * 60n * 60n;
 const UINT48_MAX = 2n ** 48n - 1n;
-// A delay below the production default is a testnet affordance: the in-process chain, Arbitrum Sepolia and
-// Sepolia. Anywhere else it would hand governance an instant path around the review window.
+// The test chains: the in-process chain, Arbitrum Sepolia and Sepolia. A delay below the production default is a
+// testnet affordance; anywhere else it would hand governance an instant path around the review window. Every other
+// launch-chain rule below (fee asset, staking token, stake amounts, compliance key source, Safe owner disjointness,
+// multisig verifier stub) is likewise relaxed only here.
 const SHORT_DELAY_CHAIN_IDS: ReadonlySet<bigint> = new Set([
   31337n,
   421614n,
   11155111n,
 ]);
 
-const MIN_STAKE = ethers.parseEther("1");
 const UNSTAKE_DELAY = 86400n; // contract minimum (1 day)
-const MIN_STAKE_FLOOR = ethers.parseEther("1");
+const TEST_CHAIN_STAKE = "1";
+
+export function isTestChain(chainId: bigint): boolean {
+  return SHORT_DELAY_CHAIN_IDS.has(chainId);
+}
+
+export interface LaunchTokens {
+  readonly usdc: string;
+  readonly weth: string;
+}
+
+// Native Circle USDC (developers.circle.com/stablecoins/usdc-contract-addresses) and the chain's canonical WETH.
+// A launch chain missing here is refused until its row is added and reviewed.
+const USDC_DECIMALS = 6n;
+const WETH_DECIMALS = 18n;
+export const LAUNCH_TOKENS: ReadonlyMap<bigint, LaunchTokens> = new Map([
+  [
+    1n,
+    {
+      usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    },
+  ],
+  [
+    10n,
+    {
+      usdc: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+      weth: "0x4200000000000000000000000000000000000006",
+    },
+  ],
+  [
+    8453n,
+    {
+      usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      weth: "0x4200000000000000000000000000000000000006",
+    },
+  ],
+  [
+    42161n,
+    {
+      usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      weth: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+    },
+  ],
+]);
+
+function launchTokens(chainId: bigint): LaunchTokens {
+  const tokens = LAUNCH_TOKENS.get(chainId);
+  if (tokens === undefined) {
+    throw new Error(
+      `chain id ${chainId} has no USDC/WETH row in LAUNCH_TOKENS; add the chain's native USDC and canonical WETH ` +
+        "addresses (reviewed) before deploying there.",
+    );
+  }
+  return tokens;
+}
+
+/** Off the test chains, refuses any fee asset that is not the chain's USDC; the staking token is never the default. */
+export function assertFeeAssets(
+  chainId: bigint,
+  feeAssets: readonly string[],
+  stakingToken: string,
+): void {
+  if (isTestChain(chainId)) return;
+  const { usdc } = launchTokens(chainId);
+  if (feeAssets.length === 0) {
+    throw new Error(
+      `FEE_ASSETS is empty; on chain id ${chainId} it must be USDC ${usdc}.`,
+    );
+  }
+  for (const asset of feeAssets) {
+    if (ethers.getAddress(asset) === usdc) continue;
+    if (ethers.getAddress(asset) === ethers.getAddress(stakingToken)) {
+      throw new Error(
+        `FEE_ASSETS entry ${asset} is the staking token; on chain id ${chainId} the Nox fee asset is USDC ${usdc} only.`,
+      );
+    }
+    throw new Error(
+      `FEE_ASSETS entry ${asset} is not USDC; on chain id ${chainId} the Nox fee asset is USDC ${usdc} only.`,
+    );
+  }
+}
+
+/** Off the test chains, the staking token is the chain's WETH or USDC, with the decimals that token is known to have. */
+export function assertStakingToken(
+  chainId: bigint,
+  stakingToken: string,
+  decimals: bigint,
+): void {
+  if (isTestChain(chainId)) return;
+  const { usdc, weth } = launchTokens(chainId);
+  const token = ethers.getAddress(stakingToken);
+  const expected =
+    token === weth ? WETH_DECIMALS : token === usdc ? USDC_DECIMALS : null;
+  if (expected === null) {
+    throw new Error(
+      `STAKING_TOKEN ${token} is neither WETH ${weth} nor USDC ${usdc} on chain id ${chainId}.`,
+    );
+  }
+  if (decimals !== expected) {
+    throw new Error(
+      `STAKING_TOKEN ${token} reports ${decimals} decimals, expected ${expected}.`,
+    );
+  }
+}
+
+const TOKEN_AMOUNT_RE = /^[0-9]+(\.[0-9]+)?$/;
+
+function tokenAmount(name: string, raw: string, decimals: bigint): bigint {
+  const trimmed = raw.trim();
+  if (!TOKEN_AMOUNT_RE.test(trimmed)) {
+    throw new Error(
+      `${name}=${raw} must be a decimal amount of whole staking tokens, e.g. 1000 or 0.5.`,
+    );
+  }
+  const fraction = trimmed.split(".")[1] ?? "";
+  if (BigInt(fraction.length) > decimals) {
+    throw new Error(
+      `${name}=${raw} has more fractional digits than the staking token's ${decimals} decimals.`,
+    );
+  }
+  const amount = ethers.parseUnits(trimmed, Number(decimals));
+  if (amount <= 0n) throw new Error(`${name}=${raw} must be positive.`);
+  if (amount > ethers.MaxUint256) throw new Error(`${name} exceeds uint256.`);
+  return amount;
+}
+
+/**
+ * MIN_STAKE and MIN_STAKE_FLOOR in the staking token's base units. NoxRegistry writes the floor once and refuses a
+ * stake below it forever, so a unit error (18-decimal literals against a 6-decimal token) cannot be repaired
+ * without an upgrade. Required off the test chains; 1 token each by default on them.
+ */
+export function stakeAmounts(
+  chainId: bigint,
+  decimals: bigint,
+): { minStake: bigint; minStakeFloor: bigint } {
+  const read = (name: "MIN_STAKE" | "MIN_STAKE_FLOOR"): bigint => {
+    const raw = process.env[name];
+    if (raw === undefined || raw.trim() === "") {
+      if (!isTestChain(chainId)) {
+        throw new Error(
+          `${name} is required on chain id ${chainId}; give it in whole staking tokens.`,
+        );
+      }
+      return tokenAmount(name, TEST_CHAIN_STAKE, decimals);
+    }
+    return tokenAmount(name, raw, decimals);
+  };
+  const minStake = read("MIN_STAKE");
+  const minStakeFloor = read("MIN_STAKE_FLOOR");
+  if (minStake < minStakeFloor) {
+    throw new Error(
+      `MIN_STAKE (${minStake} base units) is below MIN_STAKE_FLOOR (${minStakeFloor}); NoxRegistry refuses it.`,
+    );
+  }
+  return { minStake, minStakeFloor };
+}
+
+export interface SafeOwnership {
+  readonly label: string;
+  readonly address: string;
+  readonly owners: readonly string[];
+  readonly threshold: bigint;
+}
+
+/**
+ * Owners that sit on both Safes. One shared owner already lets the guardian side contribute to a governance
+ * signature, and enough of them let the guardian alone meet the Gov threshold, so any overlap is refused off the
+ * test chains. Returns the shared owners.
+ */
+export function assertSafeOwnersDisjoint(
+  chainId: bigint,
+  gov: SafeOwnership,
+  guardian: SafeOwnership,
+): string[] {
+  const govOwners = new Set(gov.owners.map((o) => ethers.getAddress(o)));
+  const shared = guardian.owners
+    .map((o) => ethers.getAddress(o))
+    .filter((o) => govOwners.has(o));
+  if (shared.length > 0 && !isTestChain(chainId)) {
+    throw new Error(
+      `${guardian.label} ${guardian.address} (${guardian.threshold}-of-${guardian.owners.length}) shares owner(s) ` +
+        `${shared.join(", ")} with ${gov.label} ${gov.address} (${gov.threshold}-of-${gov.owners.length}); the two ` +
+        "Safes must have disjoint owners.",
+    );
+  }
+  return shared;
+}
+
+const SAFE_OWNERS_ABI = [
+  "function getOwners() view returns (address[])",
+  "function getThreshold() view returns (uint256)",
+];
+
+async function readSafeOwnership(
+  label: string,
+  address: string,
+): Promise<SafeOwnership> {
+  const safe = new ethers.Contract(address, SAFE_OWNERS_ABI, ethers.provider);
+  try {
+    const owners = ((await safe.getOwners()) as string[]).map((o) =>
+      ethers.getAddress(o),
+    );
+    const threshold = BigInt(await safe.getThreshold());
+    if (owners.length === 0 || threshold === 0n) {
+      throw new Error(`owners ${owners.length}, threshold ${threshold}`);
+    }
+    return { label, address, owners, threshold };
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `${label} ${address} does not answer as a Safe (getOwners/getThreshold): ${detail}`,
+    );
+  }
+}
+
+export type MultisigVerifierMode = "stub" | "real";
+
+/**
+ * What the four multisig circuit slots hold. Off the test chains they hold a RevertingVerifier until production
+ * DKG, after which the Timelock installs the real verifiers with setVerifier.
+ */
+export function multisigVerifierMode(chainId: bigint): MultisigVerifierMode {
+  const raw = (process.env.MULTISIG_VERIFIERS ?? "").trim();
+  if (raw !== "" && raw !== "stub" && raw !== "real") {
+    throw new Error(`MULTISIG_VERIFIERS=${raw} must be "stub" or "real".`);
+  }
+  if (isTestChain(chainId)) return raw === "stub" ? "stub" : "real";
+  if (raw === "real") {
+    throw new Error(
+      `MULTISIG_VERIFIERS=real is refused on chain id ${chainId}; the multisig slots ship the RevertingVerifier ` +
+        "and the Timelock installs the real verifiers after production DKG.",
+    );
+  }
+  return "stub";
+}
+
+function bjjCoordinate(name: string, raw: string): bigint {
+  let value: bigint;
+  try {
+    value = BigInt(raw.trim());
+  } catch {
+    throw new Error(`${name} must be an unsigned decimal or 0x-hex integer.`);
+  }
+  if (value < 0n || value >= BN254_FR) {
+    throw new Error(`${name} is outside the BN254 scalar field.`);
+  }
+  return value;
+}
+
+/** On-curve, not the identity, and in the prime-order subgroup: the checks the circuits apply to the key. */
+export function assertCompliancePublicKey(pk: Point<bigint>): void {
+  if (!inCurve(pk)) {
+    throw new Error("compliance public key is not on the BabyJubJub curve.");
+  }
+  if (pk[0] === 0n && pk[1] === 1n) {
+    throw new Error("compliance public key is the identity point.");
+  }
+  const cofactorCleared = mulPointEscalar(pk, BJJ_SUBGROUP_ORDER);
+  if (cofactorCleared[0] !== 0n || cofactorCleared[1] !== 1n) {
+    throw new Error(
+      "compliance public key is not in the BabyJubJub prime-order subgroup.",
+    );
+  }
+}
+
+export type ComplianceKeySource =
+  | "public-key"
+  | "supplied-secret"
+  | "local-fixture"
+  | "generated";
+
+export interface ComplianceKey {
+  readonly source: ComplianceKeySource;
+  readonly pk: Point<bigint>;
+  /** Present only when this run knows the secret: generated, supplied or the local fixture. */
+  readonly sk: bigint | null;
+}
+
+/**
+ * Resolves the compliance key from exactly one source. Off the test chains only a public key is accepted: the
+ * launch key is the committee's, which has no single secret, and a secret generated or pasted here would leave one
+ * machine able to decrypt every note forever.
+ */
+export function resolveComplianceKey(
+  chainId: bigint,
+  isLocal: boolean,
+): ComplianceKey {
+  const env = (name: string): string | undefined => {
+    const raw = process.env[name];
+    return raw === undefined || raw.trim() === "" ? undefined : raw;
+  };
+  const configuredSk = env("COMPLIANCE_SECRET_KEY");
+  const localFixtureSk = env("LOCAL_TEST_COMPLIANCE_SECRET_KEY");
+  const pkX = env("COMPLIANCE_PUBLIC_KEY_X");
+  const pkY = env("COMPLIANCE_PUBLIC_KEY_Y");
+  if (configuredSk !== undefined && localFixtureSk !== undefined) {
+    throw new Error(
+      "Set only one of COMPLIANCE_SECRET_KEY or LOCAL_TEST_COMPLIANCE_SECRET_KEY.",
+    );
+  }
+  if ((pkX === undefined) !== (pkY === undefined)) {
+    throw new Error(
+      "Set both COMPLIANCE_PUBLIC_KEY_X and COMPLIANCE_PUBLIC_KEY_Y, or neither.",
+    );
+  }
+  if (
+    pkX !== undefined &&
+    (configuredSk !== undefined || localFixtureSk !== undefined)
+  ) {
+    throw new Error(
+      "Set either COMPLIANCE_PUBLIC_KEY_X/Y or a compliance secret, not both.",
+    );
+  }
+  if (localFixtureSk !== undefined && !isLocal) {
+    throw new Error(
+      "LOCAL_TEST_COMPLIANCE_SECRET_KEY is accepted only on hardhat or localhost.",
+    );
+  }
+  if (pkX !== undefined && pkY !== undefined) {
+    const pk: Point<bigint> = [
+      bjjCoordinate("COMPLIANCE_PUBLIC_KEY_X", pkX),
+      bjjCoordinate("COMPLIANCE_PUBLIC_KEY_Y", pkY),
+    ];
+    assertCompliancePublicKey(pk);
+    return { source: "public-key", pk, sk: null };
+  }
+  if (!isTestChain(chainId)) {
+    throw new Error(
+      `chain id ${chainId} takes the compliance key as COMPLIANCE_PUBLIC_KEY_X/Y only (the committee key); a ` +
+        "generated or supplied secret is accepted only on test chains.",
+    );
+  }
+  const suppliedSk = configuredSk ?? localFixtureSk;
+  if (suppliedSk === undefined) {
+    const generated = generateComplianceKeypair();
+    return { source: "generated", ...generated };
+  }
+  const suppliedSkName =
+    configuredSk === undefined
+      ? "LOCAL_TEST_COMPLIANCE_SECRET_KEY"
+      : "COMPLIANCE_SECRET_KEY";
+  let rawSk: bigint;
+  try {
+    rawSk = BigInt(suppliedSk);
+  } catch {
+    throw new Error(
+      `${suppliedSkName} must be an unsigned decimal or hexadecimal integer.`,
+    );
+  }
+  if (rawSk <= 0n) {
+    throw new Error(`${suppliedSkName} must be positive.`);
+  }
+  const sk = rawSk % BJJ_SUBGROUP_ORDER;
+  if (sk === 0n) {
+    throw new Error(`${suppliedSkName} reduces to zero.`);
+  }
+  return {
+    source: configuredSk === undefined ? "local-fixture" : "supplied-secret",
+    pk: mulPointEscalar(Base8, sk),
+    sk,
+  };
+}
 
 // EIP-1967 storage slots.
 const IMPL_SLOT =
@@ -209,20 +588,91 @@ function generateComplianceKeypair(): { sk: bigint; pk: Point<bigint> } {
   }
 }
 
-async function deployVerifier(
-  contractPath: string,
-): Promise<{ verifier: string; name: string }> {
-  const name =
-    contractPath.split("/").pop()?.replace(".sol", "") || contractPath;
+export interface VerifierSpec {
+  /** Key in the deployment record's `contracts`. */
+  readonly key: string;
+  readonly source: string;
+  readonly contract: string;
+}
+
+const honk = (key: string, file: string): VerifierSpec => ({
+  key,
+  source: `contracts/verifiers/${file}.sol`,
+  contract: "HonkVerifier",
+});
+
+// Index = circuit id; the order MUST match the circuit-id constants in DarkPool.sol (deposit=0 .. join_multisig=9).
+// There is no deposit_multisig verifier: deposit is unified and mints a MULTISIG note from a private witness.
+export const CIRCUIT_VERIFIERS: readonly VerifierSpec[] = [
+  honk("depositVerifier", "DepositVerifier"),
+  honk("withdrawVerifier", "WithdrawVerifier"),
+  honk("transferVerifier", "TransferVerifier"),
+  honk("joinVerifier", "JoinVerifier"),
+  honk("splitVerifier", "SplitVerifier"),
+  honk("publicClaimVerifier", "PublicClaimVerifier"),
+  honk("withdrawMultisigVerifier", "WithdrawMultisigVerifier"),
+  honk("transferMultisigVerifier", "TransferMultisigVerifier"),
+  honk("splitMultisigVerifier", "SplitMultisigVerifier"),
+  honk("joinMultisigVerifier", "JoinMultisigVerifier"),
+];
+export const MULTISIG_CIRCUIT_IDS: ReadonlySet<number> = new Set([6, 7, 8, 9]);
+export const KAGE_VERIFIER: VerifierSpec = honk("kageVerifier", "KageVerifier");
+export const REVERTING_VERIFIER: VerifierSpec = {
+  key: "revertingVerifier",
+  source: "contracts/verifiers-stub/RevertingVerifier.sol",
+  contract: "RevertingVerifier",
+};
+
+function verifierName(spec: VerifierSpec): string {
+  return path.basename(spec.source, ".sol");
+}
+
+function requireDeployed(
+  deployed: ReadonlyMap<VerifierSpec, string>,
+  spec: VerifierSpec,
+): string {
+  const address = deployed.get(spec);
+  if (address === undefined) {
+    throw new Error(`${verifierName(spec)} was not deployed in this run.`);
+  }
+  return address;
+}
+
+async function deployVerifier(spec: VerifierSpec): Promise<string> {
   const factory = await ethers.getContractFactory(
-    `${contractPath}:HonkVerifier`,
+    `${spec.source}:${spec.contract}`,
   );
   const verifier = await factory.deploy();
   await verifier.waitForDeployment();
   const addr = await verifier.getAddress();
-  console.log(`    ${name}: ${addr}`);
-  return { verifier: addr, name };
+  console.log(`    ${verifierName(spec)}: ${addr}`);
+  return addr;
 }
+
+const DEV_STAKING_TOKEN_DECIMALS = 18n;
+
+async function tokenDecimals(label: string, token: string): Promise<bigint> {
+  const erc20 = new ethers.Contract(
+    token,
+    ["function decimals() view returns (uint8)"],
+    ethers.provider,
+  );
+  try {
+    return BigInt(await erc20.decimals());
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(`${label} ${token} does not answer decimals(): ${detail}`);
+  }
+}
+
+const COMPLIANCE_SOURCE_LABELS: Readonly<Record<ComplianceKeySource, string>> =
+  {
+    "public-key":
+      "Using the supplied compliance public key; no compliance secret exists on this machine",
+    "supplied-secret": "Reusing supplied compliance keypair",
+    "local-fixture": "Using deterministic local test compliance keypair",
+    generated: "Generated a fresh compliance keypair",
+  };
 
 // Circuit provenance is the point of the record, so a missing artifact is an abort off local rather
 // than the string "NOT_FOUND" written into the file that is supposed to prove what was deployed.
@@ -244,15 +694,12 @@ function sha256File(filePath: string, required: boolean): string {
 
 const VK_HASH_RE = /uint256 constant VK_HASH = (0x[0-9a-fA-F]{64});/;
 
-// Read from the verifier source compiled and deployed in this run. The VK hash binds a deployed
-// verifier to a specific circuit build, so a record without it cannot be checked against one.
-function verifierVkHash(contractPath: string): string {
+// Backend metadata read from the verifier source compiled and deployed in this run: a Honk verifier carries a
+// VK_HASH binding it to a circuit build, another proving system or the stub may carry none. The verifier's identity
+// in the record is its extcodehash, which every backend has.
+function verifierVkHash(contractPath: string): string | null {
   const src = fs.readFileSync(path.join(__dirname, "..", contractPath), "utf8");
-  const match = src.match(VK_HASH_RE);
-  if (!match) {
-    throw new Error(`no VK_HASH constant found in ${contractPath}`);
-  }
-  return match[1];
+  return src.match(VK_HASH_RE)?.[1] ?? null;
 }
 
 async function tryVerify(
@@ -479,44 +926,8 @@ export async function deploy(
       "COMPLIANCE_THRESHOLD must not exceed COMPLIANCE_COMMITTEE_SIZE.",
     );
   }
-  const configuredSk = process.env.COMPLIANCE_SECRET_KEY;
-  const localFixtureSk = process.env.LOCAL_TEST_COMPLIANCE_SECRET_KEY;
-  if (configuredSk !== undefined && localFixtureSk !== undefined) {
-    throw new Error(
-      "Set only one of COMPLIANCE_SECRET_KEY or LOCAL_TEST_COMPLIANCE_SECRET_KEY.",
-    );
-  }
-  if (localFixtureSk !== undefined && !isLocal) {
-    throw new Error(
-      "LOCAL_TEST_COMPLIANCE_SECRET_KEY is accepted only on hardhat or localhost.",
-    );
-  }
-  const suppliedSk = configuredSk ?? localFixtureSk;
-  const suppliedSkName =
-    configuredSk === undefined
-      ? "LOCAL_TEST_COMPLIANCE_SECRET_KEY"
-      : "COMPLIANCE_SECRET_KEY";
-  let compliance: { sk: bigint; pk: Point<bigint> };
-  if (suppliedSk !== undefined) {
-    let rawSk: bigint;
-    try {
-      rawSk = BigInt(suppliedSk);
-    } catch {
-      throw new Error(
-        `${suppliedSkName} must be an unsigned decimal or hexadecimal integer.`,
-      );
-    }
-    if (rawSk <= 0n) {
-      throw new Error(`${suppliedSkName} must be positive.`);
-    }
-    const sk = rawSk % BJJ_SUBGROUP_ORDER;
-    if (sk === 0n) {
-      throw new Error(`${suppliedSkName} reduces to zero.`);
-    }
-    compliance = { sk, pk: mulPointEscalar(Base8, sk) };
-  } else {
-    compliance = generateComplianceKeypair();
-  }
+  const compliance = resolveComplianceKey(chainId, isLocal);
+  const multisigVerifiers = multisigVerifierMode(chainId);
   // One address holding both roles collapses the separation the wiring assertions exist to enforce, and
   // every one of them would still pass.
   if (govSafe === guardianSafe) {
@@ -542,11 +953,14 @@ export async function deploy(
         "actions get no review window.",
     );
   }
+  const safeOwnerships: SafeOwnership[] = [];
   for (const [label, addr] of [
     ["GOV_SAFE", govSafe],
     ["GUARDIAN_SAFE", guardianSafe],
   ] as const) {
-    if ((await ethers.provider.getCode(addr)) === "0x") {
+    if ((await ethers.provider.getCode(addr)) !== "0x") {
+      safeOwnerships.push(await readSafeOwnership(label, addr));
+    } else {
       // An EOA here is not a weaker multisig, it is no multisig. GOV_SAFE inherits PROPOSER, EXECUTOR
       // and CANCELLER, so a single key would own governance outright, and every Step 10 assertion still
       // passes because they only check that the DEPLOYER holds nothing.
@@ -559,6 +973,34 @@ export async function deploy(
         `  WARNING: ${label} ${addr} has no code; accepted only on ${network.name}.`,
       );
     }
+  }
+  if (safeOwnerships.length === 2) {
+    const [gov, guardian] = safeOwnerships;
+    const shared = assertSafeOwnersDisjoint(chainId, gov, guardian);
+    if (shared.length > 0) {
+      console.log(
+        `  WARNING: GUARDIAN_SAFE shares owner(s) ${shared.join(", ")} with GOV_SAFE; accepted only on test ` +
+          `chain ${chainId}.`,
+      );
+    } else {
+      console.log(
+        `  Safe owners disjoint: Gov ${gov.threshold}-of-${gov.owners.length}, Guardian ` +
+          `${guardian.threshold}-of-${guardian.owners.length}`,
+      );
+    }
+  } else {
+    console.log(
+      "  WARNING: Safe owner disjointness not checked; both Safes must be deployed contracts to read owners.",
+    );
+  }
+  if (stakingToken === null && !isLocal) {
+    // MockERC20 has an unpermissioned public mint, and NoxRegistry writes the staking token only in
+    // initialize with no setter, so falling back to it off local permanently binds stake economics to a
+    // token anyone can print. Fail closed rather than deploy one.
+    throw new Error(
+      `STAKING_TOKEN is required on network ${network.name}: the MockERC20 fallback has an open mint ` +
+        `and NoxRegistry cannot be repointed after initialize.`,
+    );
   }
   const dependencies = [
     ...(stakingToken === null
@@ -576,6 +1018,22 @@ export async function deploy(
       );
     }
   }
+  const stakingDecimals =
+    stakingToken === null
+      ? DEV_STAKING_TOKEN_DECIMALS
+      : await tokenDecimals("STAKING_TOKEN", stakingToken);
+  if (stakingToken !== null) {
+    assertStakingToken(chainId, stakingToken, stakingDecimals);
+    if (explicitFeeAssets !== null) {
+      assertFeeAssets(chainId, explicitFeeAssets, stakingToken);
+    }
+  }
+  const { minStake, minStakeFloor } = stakeAmounts(chainId, stakingDecimals);
+  console.log(
+    `  Staking token decimals: ${stakingDecimals}; min stake ${ethers.formatUnits(minStake, stakingDecimals)}, ` +
+      `floor ${ethers.formatUnits(minStakeFloor, stakingDecimals)}`,
+  );
+  console.log(`  Multisig verifier slots: ${multisigVerifiers}`);
   console.log();
 
   const startBlock = await ethers.provider.getBlockNumber();
@@ -593,19 +1051,13 @@ export async function deploy(
     `${network.name}-${timestamp}.secrets.json`,
   );
 
-  if (localFixtureSk !== undefined) {
-    console.log("Step 0: Using deterministic local test compliance keypair.");
-  } else if (configuredSk !== undefined) {
-    console.log("Step 0: Reusing supplied compliance keypair.");
-  } else {
-    console.log("Step 0: Generated a fresh compliance keypair.");
-  }
+  console.log(`Step 0: ${COMPLIANCE_SOURCE_LABELS[compliance.source]}.`);
 
   // Written to disk BEFORE any transaction. A generated secret that exists only in memory is lost to
   // any throw after the first deploy, and by then the pool is deployed and bound to its public key, so
   // every note encrypted to it would be permanently undecryptable. The file is gitignored alongside the
   // record and is owner-read-only.
-  if (suppliedSk === undefined) {
+  if (compliance.source === "generated" && compliance.sk !== null) {
     fs.writeFileSync(
       secretsFile,
       JSON.stringify(
@@ -627,23 +1079,12 @@ export async function deploy(
   console.log(`  Compliance PK: (${compliance.pk[0]}, ${compliance.pk[1]})`);
   console.log();
 
-  // bb 5.0 --optimized verifiers are self-contained monolithic contracts (no externalized ZKTranscriptLib) and
-  // fit EIP-170 on their own.
-  // Order MUST match the circuit-id constants in DarkPool.sol (deposit=0 .. join_multisig=9). There is
-  // no deposit_multisig verifier: deposit is unified and mints a MULTISIG note from a private witness.
-  const verifierPaths = [
-    "contracts/verifiers/DepositVerifier.sol",
-    "contracts/verifiers/WithdrawVerifier.sol",
-    "contracts/verifiers/TransferVerifier.sol",
-    "contracts/verifiers/JoinVerifier.sol",
-    "contracts/verifiers/SplitVerifier.sol",
-    "contracts/verifiers/PublicClaimVerifier.sol",
-    "contracts/verifiers/WithdrawMultisigVerifier.sol",
-    "contracts/verifiers/TransferMultisigVerifier.sol",
-    "contracts/verifiers/SplitMultisigVerifier.sol",
-    "contracts/verifiers/JoinMultisigVerifier.sol",
-    "contracts/verifiers/KageVerifier.sol",
-  ];
+  const slotSpecs = CIRCUIT_VERIFIERS.map((spec, circuitId) =>
+    multisigVerifiers === "stub" && MULTISIG_CIRCUIT_IDS.has(circuitId)
+      ? REVERTING_VERIFIER
+      : spec,
+  );
+  const deployedSpecs = [...new Set([...slotSpecs, KAGE_VERIFIER])];
   // Everything below reads the filesystem and can throw, so it runs BEFORE the first transaction. Doing
   // it at record-build time put a throw after the renounce, where an abort leaves live governed
   // contracts and no deployment record at all.
@@ -667,12 +1108,11 @@ export async function deploy(
       sha256File(path.join(circuitsDir, `${name}.json`), !isLocal),
     ]),
   );
-  const vkHashes = Object.fromEntries(
-    verifierPaths.map((contractPath) => [
-      contractPath.split("/").pop()?.replace(".sol", "") ?? contractPath,
-      verifierVkHash(contractPath),
-    ]),
-  );
+  const vkHashes: Record<string, string> = {};
+  for (const spec of deployedSpecs) {
+    const vkHash = verifierVkHash(spec.source);
+    if (vkHash !== null) vkHashes[verifierName(spec)] = vkHash;
+  }
   console.log(
     `  Circuit artifacts and VK hashes read: ${Object.keys(circuitHashes).length} circuits, ` +
       `${Object.keys(vkHashes).length} verifiers.`,
@@ -689,8 +1129,14 @@ export async function deploy(
   console.log();
 
   console.log("Step 2: Circuit verifiers...");
-  const verifiers: { verifier: string; name: string }[] = [];
-  for (const p of verifierPaths) verifiers.push(await deployVerifier(p));
+  const verifierAddresses = new Map<VerifierSpec, string>();
+  for (const spec of deployedSpecs) {
+    verifierAddresses.set(spec, await deployVerifier(spec));
+  }
+  const slotAddresses = slotSpecs.map((spec) =>
+    requireDeployed(verifierAddresses, spec),
+  );
+  const kageVerifierAddr = requireDeployed(verifierAddresses, KAGE_VERIFIER);
   console.log();
 
   console.log("Step 3: Staking token...");
@@ -699,18 +1145,9 @@ export async function deploy(
     stakingTokenAddr = stakingToken;
     console.log(`  Using supplied staking token: ${stakingTokenAddr}`);
   } else {
-    // MockERC20 has an unpermissioned public mint, and NoxRegistry writes the staking token only in
-    // initialize with no setter, so falling back to it off local permanently binds stake economics to a
-    // token anyone can print. Fail closed rather than deploy one.
-    if (!isLocal) {
-      throw new Error(
-        `STAKING_TOKEN is required on network ${network.name}: the MockERC20 fallback has an open mint ` +
-          `and NoxRegistry cannot be repointed after initialize.`,
-      );
-    }
     const token = await (
       await ethers.getContractFactory("MockERC20")
-    ).deploy("NOX Stake Token", "NOX-STK", 18);
+    ).deploy("NOX Stake Token", "NOX-STK", DEV_STAKING_TOKEN_DECIMALS);
     await token.waitForDeployment();
     stakingTokenAddr = await token.getAddress();
     console.log(`  Deployed dev MockERC20 staking token: ${stakingTokenAddr}`);
@@ -739,9 +1176,9 @@ export async function deploy(
         adminTransferDelay,
         timelockAddr,
         stakingTokenAddr,
-        MIN_STAKE,
+        minStake,
         UNSTAKE_DELAY,
-        MIN_STAKE_FLOOR,
+        minStakeFloor,
         guardianSafe, // slasher
         timelockAddr, // configManager
         timelockAddr, // upgrader
@@ -783,16 +1220,7 @@ export async function deploy(
     DarkPoolFactory,
     [
       [
-        verifiers[0].verifier,
-        verifiers[1].verifier,
-        verifiers[2].verifier,
-        verifiers[3].verifier,
-        verifiers[4].verifier,
-        verifiers[5].verifier,
-        verifiers[6].verifier,
-        verifiers[7].verifier,
-        verifiers[8].verifier,
-        verifiers[9].verifier,
+        ...slotAddresses,
         compliance.pk[0],
         compliance.pk[1],
         adminTransferDelay,
@@ -880,17 +1308,21 @@ export async function deploy(
 
   const recordedCoreContracts = {
     poseidon2: poseidon2Addr,
-    depositVerifier: verifiers[0].verifier,
-    withdrawVerifier: verifiers[1].verifier,
-    transferVerifier: verifiers[2].verifier,
-    joinVerifier: verifiers[3].verifier,
-    splitVerifier: verifiers[4].verifier,
-    publicClaimVerifier: verifiers[5].verifier,
-    withdrawMultisigVerifier: verifiers[6].verifier,
-    transferMultisigVerifier: verifiers[7].verifier,
-    splitMultisigVerifier: verifiers[8].verifier,
-    joinMultisigVerifier: verifiers[9].verifier,
-    kageVerifier: verifiers[10].verifier,
+    ...Object.fromEntries(
+      CIRCUIT_VERIFIERS.map((spec, circuitId) => [
+        spec.key,
+        slotAddresses[circuitId],
+      ]),
+    ),
+    ...(multisigVerifiers === "stub"
+      ? {
+          [REVERTING_VERIFIER.key]: requireDeployed(
+            verifierAddresses,
+            REVERTING_VERIFIER,
+          ),
+        }
+      : {}),
+    kageVerifier: kageVerifierAddr,
     complianceRegistry: complianceRegistryAddr,
     noxRegistry: noxRegistryAddr,
     noxRewardPool: rewardPoolAddr,
@@ -915,6 +1347,15 @@ export async function deploy(
       }),
     ),
   );
+  // A verifier's identity is its runtime code hash, which every proving backend and the stub have; VK_HASH stays
+  // Honk metadata.
+  const verifierSlots = slotSpecs.map((spec, circuitId) => ({
+    circuitId,
+    verifier: verifierName(spec),
+    address: slotAddresses[circuitId],
+    codeHash: coreContractCodeHashes[CIRCUIT_VERIFIERS[circuitId].key],
+    vkHash: vkHashes[verifierName(spec)] ?? null,
+  }));
   const proxySlots: Record<string, { impl: string; admin: string }> = {};
   const proxyImplementationCodeHashes: Record<string, string> = {};
   for (const [name, address] of [
@@ -1111,6 +1552,17 @@ export async function deploy(
         (await howlMultisigPaymentAdapter.ENTRY_POINT()) ===
           noxEntryPointAddr &&
         (await howlMultisigPaymentAdapter.MULTISIG()),
+    },
+    {
+      label: `Every circuit slot holds its intended verifier (multisig slots: ${multisigVerifiers})`,
+      ok: (
+        await Promise.all(
+          slotAddresses.map(
+            async (address, circuitId) =>
+              (await darkPool.verifier(circuitId)) === address,
+          ),
+        )
+      ).every(Boolean),
     },
     {
       label: "BundleExecutor is linked to DarkPool",
@@ -1427,12 +1879,8 @@ export async function deploy(
   if (!isLocal && process.env.SKIP_EXPLORER_VERIFY !== "true") {
     console.log("Step 13: Block-explorer verification (best-effort)...");
     await tryVerify(poseidon2Addr, []);
-    for (let i = 0; i < verifiers.length; i++) {
-      await tryVerify(
-        verifiers[i].verifier,
-        [],
-        `${verifierPaths[i]}:HonkVerifier`,
-      );
+    for (const [spec, address] of verifierAddresses) {
+      await tryVerify(address, [], `${spec.source}:${spec.contract}`);
     }
     await tryVerify(timelockAddr, [
       timelockMinDelay.toString(),
@@ -1487,8 +1935,15 @@ export async function deploy(
         adminTransferDelaySeconds: Number(adminTransferDelay),
         govSafe,
         guardianSafe,
+        safeOwners: Object.fromEntries(
+          safeOwnerships.map((safe) => [
+            safe.label,
+            { owners: safe.owners, threshold: Number(safe.threshold) },
+          ]),
+        ),
       },
       compliance: {
+        source: compliance.source,
         publicKeyX: compliance.pk[0].toString(),
         publicKeyY: compliance.pk[1].toString(),
       },
@@ -1530,6 +1985,14 @@ export async function deploy(
       vkHashes,
       openzeppelinManifest,
       feeAssets,
+      staking: {
+        token: stakingTokenAddr,
+        decimals: Number(stakingDecimals),
+        minStake: minStake.toString(),
+        minStakeFloor: minStakeFloor.toString(),
+      },
+      multisigVerifiers,
+      verifierSlots,
     };
   }
 
@@ -1565,7 +2028,7 @@ export async function deploy(
     console.log(
       `  - ${deployFile} (addresses, proxy slots, circuit hashes, VK hashes, storage manifest)`,
     );
-    if (suppliedSk === undefined) {
+    if (compliance.source === "generated") {
       console.log(
         `  - ${secretsFile} (COMPLIANCE SECRET KEY, written before any transaction, mode 0600)`,
       );
@@ -1575,9 +2038,13 @@ export async function deploy(
       console.log(
         "    encrypted to the compliance key permanently undecryptable.",
       );
-    } else {
+    } else if (compliance.source === "supplied-secret") {
       console.log(
         "  - COMPLIANCE_SECRET_KEY was supplied via env; ensure it is already backed up.",
+      );
+    } else {
+      console.log(
+        "  - The compliance key was supplied as a public key; its secret shares stay with the committee.",
       );
     }
     console.log();
@@ -1587,7 +2054,7 @@ export async function deploy(
   return {
     deployment: buildRecord(await ethers.provider.getBlockNumber()),
     deployFile,
-    secretsFile: suppliedSk === undefined ? secretsFile : null,
+    secretsFile: compliance.source === "generated" ? secretsFile : null,
   };
 }
 
