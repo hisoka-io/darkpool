@@ -18,7 +18,7 @@ global CT_LEN: u32 = 7;
 // own circuit to forge the taker's half (`0` = not pinned = total forgery). hash(vk) == key_hash is enforced by
 // barretenberg, not the stdlib, so this must stay a compile-time constant.
 pub global INTENT_VK_HASH: Field =
-    0x2e0b51ed4736571c1daa939f67d50684aa262bab910d8971e77c0d65f89efc50;
+    0x23a046bae6af32b5e02a21ef5713d7106b9676d49173825f82da7c4fdeae1dca;
 pub global PROOF_TYPE: u32 = 6;
 // Compiled swap_intent recursion widths; regenerate with INTENT_VK_HASH on any swap_intent change.
 pub global INTENT_VK_LEN: u32 = 115;
@@ -145,6 +145,9 @@ pub fn build_intent(
     assert(from_asset != to_asset, "swap assets must differ");
     assert(change_note.asset_id == from_asset, "change asset mismatch");
     assert(received_note.asset_id == to_asset, "received asset mismatch");
+    // A zero leg is an order no solver can price and only mints zero-value notes.
+    assert(from_amount != 0, "from_amount must be non-zero");
+    assert(received_note.value != 0, "expected_return must be non-zero");
 
     let (nullifier, computed_root) = verify_spend(note_in, spend_scalar, index_in, path_in);
 

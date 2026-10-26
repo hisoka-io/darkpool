@@ -27,6 +27,22 @@ fn intent_reject_compliance_identity() {
     let _ = run_intent(a);
 }
 
+// The change absorbs the whole input, so conservation holds and only the zero-leg guard can reject.
+#[test(should_fail_with = "from_amount must be non-zero")]
+fn intent_reject_zero_from_amount() {
+    let mut a = intent_args();
+    a.from_amount = 0;
+    a.change.value = a.note_in.value;
+    let _ = run_intent(a);
+}
+
+#[test(should_fail_with = "expected_return must be non-zero")]
+fn intent_reject_zero_expected_return() {
+    let mut a = intent_args();
+    a.received.value = 0;
+    let _ = run_intent(a);
+}
+
 #[test(should_fail_with = "scalar must be non-zero")]
 fn intent_reject_zero_spend_scalar() {
     let mut a = intent_args();
