@@ -82,7 +82,8 @@ fn kat_tree_depth_frozen() {
     assert(TREE_DEPTH == 32, "LeanIMT depth is a frozen seam: must stay 32");
 }
 
-// Vectors generated from the TS LeanIMT reference; Solidity<->TS parity is proven by FrontierParity.bench.ts.
+// Vectors generated from the TS LeanIMT reference; Solidity<->TS parity runs in CI in evm-contracts
+// `merkle-tree.test.ts` and `adversarial/MerkleFrontierDifferential.test.ts`.
 #[test]
 fn kat_leanimt_tri_parity() {
     assert(

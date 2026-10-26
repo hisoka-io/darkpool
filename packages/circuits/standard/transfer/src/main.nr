@@ -203,7 +203,9 @@ fn audit_reject_y_twin_owner() {
     );
 }
 
-// A MULTISIG memo with collapsed spend/view keys is owned by the 1-of-n view key: t-of-n becomes 1-of-n.
+// Pins the MULTISIG branch of the spend/view biconditional: equal keys are refused. This does not stop a
+// sender choosing a spend key a view-key holder controls (such as the negated view key); that only redirects
+// the sender's own value, and the recipient's scanner refuses a memo whose owner is not its gpk.
 #[test(should_fail_with = "STANDARD memo must collapse spend/view; MULTISIG must decouple them")]
 fn audit_reject_multisig_memo_with_collapsed_keys() {
     let mut memo = memo_note();
