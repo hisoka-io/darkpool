@@ -3,6 +3,7 @@ mod multisig;
 mod spend;
 mod harness;
 mod index_uniqueness;
+mod poseidon2_arity;
 pub mod mint;
 pub mod mutation;
 
