@@ -119,7 +119,7 @@ export async function mintIncomingNote(
   inKey: Fr,
   assetFr: Fr,
   parents: Fr = ZERO,
-): Promise<BuiltNote> {
+): ReturnType<typeof walletsMintIncomingNote> {
   return walletsMintIncomingNote(
     eph,
     value,

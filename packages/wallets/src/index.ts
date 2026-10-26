@@ -9,7 +9,7 @@ export * from "./note/note.js";
 export * from "./note/nullifier.js";
 export * from "./note/keys.js";
 export * from "./note/complianceKeys.js";
-export { MemoMintError, mintIncomingNote } from "./note/mint.js";
+export { MemoMintError, SelfMintError, mintIncomingNote } from "./note/mint.js";
 export type { MintedNote, SentMemoNote } from "./note/mint.js";
 export * from "./merkle/genesis.js";
 export * from "./discovery/types.js";
@@ -35,6 +35,11 @@ export type {
 export * from "./discovery/reconcile.js";
 export * from "./state/EphemeralCounterStore.js";
 export * from "./state/PersistentEphemeralCounterStore.js";
+export {
+  SELF_EPHEMERAL_SCOPE,
+  SelfEphemeralAllocator,
+  SelfEphemeralAllocatorError,
+} from "./state/SelfEphemeralAllocator.js";
 export * from "./public/memo.js";
 export * from "./public/publicTransfer.js";
 export * from "./public/publicClaim.js";

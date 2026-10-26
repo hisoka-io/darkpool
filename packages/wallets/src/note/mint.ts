@@ -33,9 +33,46 @@ export interface MintedNote {
 }
 
 /** A memo as its SENDER holds it: the recipient's opening key is the one field a sender cannot know. */
-export interface SentMemoNote extends Omit<MintedNote, "spendScalar"> {
+export interface SentMemoNote extends Omit<MintedNote, "spendScalar" | "eph"> {
+  /** The sampled memo ephemeral. Unbranded, so it cannot reach a self-note sink. */
+  readonly eph: Fr;
   readonly inPub: Point<bigint>;
   readonly cekWrap: Fr;
+}
+
+export class SelfMintError extends Error {
+  constructor(
+    readonly reason: "SELF_EPH_RANGE" | "SELF_EPH_ODD_Y",
+    message: string,
+  ) {
+    super(message);
+    this.name = "SelfMintError";
+  }
+}
+
+/** The self-ephemeral rules `mint_self_note` and `mint_deposit` assert in-circuit, as a fault or `null`. */
+export function selfEphemeralFault(eph: Fr): SelfMintError["reason"] | null {
+  const scalar = eph.toBigInt();
+  if (scalar === 0n || scalar >= BJJ_SUBGROUP_ORDER) return "SELF_EPH_RANGE";
+  if (!isEvenY(publicKey(eph))) return "SELF_EPH_ODD_Y";
+  return null;
+}
+
+function assertSelfEphemeral(eph: Fr): void {
+  switch (selfEphemeralFault(eph)) {
+    case "SELF_EPH_RANGE":
+      throw new SelfMintError(
+        "SELF_EPH_RANGE",
+        "self ephemeral must be a non-zero scalar below the BabyJubJub subgroup order",
+      );
+    case "SELF_EPH_ODD_Y":
+      throw new SelfMintError(
+        "SELF_EPH_ODD_Y",
+        "self ephemeral public key has odd y; the circuit rejects it, so the allocator must skip that index",
+      );
+    case null:
+      return;
+  }
 }
 
 async function finish(
@@ -94,6 +131,7 @@ export async function mintSelfNote(
   compliancePk: Point<bigint>,
   parents: Fr = ZERO,
 ): Promise<MintedNote> {
+  assertSelfEphemeral(eph);
   const owner = await pubkeyOwner(publicKey(spendScalar));
   return {
     ...(await finish(eph, value, owner, assetId, parents, compliancePk)),
@@ -156,9 +194,7 @@ export function assertMemoInputs(eph: Fr, inPub: Point<bigint>): void {
  * `eph` is a bare `Fr` on purpose: a memo ephemeral is legitimately random, because `cek_wrap` travels and
  * the tag is the RECIPIENT's key rather than the ephemeral's. It must be in `[1, subgroup order)` with an
  * even-y public key, and `inPub` a non-identity, even-y subgroup point; anything else throws
- * `MemoMintError`. The PARAMETER types keep the two ephemeral families apart (`mintSelfNote` demands a
- * `DerivedEph`); the returned `eph` field is typed `DerivedEph` only because the result shares `MintedNote`,
- * so it is a sampled scalar and must never be passed to a self-note sink.
+ * `MemoMintError`. The returned `eph` stays a bare `Fr`, so it cannot reach a self-note sink.
  */
 export async function mintIncomingNote(
   eph: Fr,
@@ -168,7 +204,7 @@ export async function mintIncomingNote(
   assetId: Fr,
   compliancePk: Point<bigint>,
   parents: Fr = ZERO,
-): Promise<MintedNote> {
+): Promise<SentMemoNote & { readonly spendScalar: Fr }> {
   return {
     ...(await mintMemoNote(eph, value, inPub, assetId, compliancePk, parents)),
     spendScalar: inKey,
@@ -192,8 +228,7 @@ export async function mintMemoNote(
   const built = await finish(eph, value, owner, assetId, parents, compliancePk);
   return {
     ...built,
-    // Branded only to fit the shared MintedNote shape; see mintIncomingNote.
-    eph: eph as DerivedEph,
+    eph,
     inPub,
     cekWrap: await wrapCek(built.cek, eph, inPub),
     tag: new Fr(inPub[0]),
