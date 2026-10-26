@@ -335,6 +335,37 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@24.12.2)
 
+  packages/wallet-runtime:
+    dependencies:
+      '@aztec/foundation':
+        specifier: 2.1.11
+        version: 2.1.11
+      '@hisoka/howl-protocol':
+        specifier: workspace:*
+        version: link:../howl-protocol
+      '@hisoka/wallets':
+        specifier: workspace:*
+        version: link:../wallets
+      '@zk-kit/baby-jubjub':
+        specifier: 1.0.3
+        version: 1.0.3
+      ethers:
+        specifier: 6.16.0
+        version: 6.16.0
+    devDependencies:
+      '@types/node':
+        specifier: 24.12.2
+        version: 24.12.2
+      tsup:
+        specifier: 8.5.1
+        version: 8.5.1(postcss@8.5.10)(tsx@4.21.0)(typescript@5.9.2)(yaml@2.8.3)
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: 1.6.1
+        version: 1.6.1(@types/node@24.12.2)
+
   packages/wallets:
     dependencies:
       '@aztec/foundation':
