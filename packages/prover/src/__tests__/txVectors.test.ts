@@ -183,7 +183,6 @@ async function buildVectors(): Promise<Record<string, unknown>> {
     input: tIn,
     value: 250n,
     recipientInPub: publicKey(RECIPIENT_IN_KEY),
-    recipientInKey: RECIPIENT_IN_KEY,
     selfSpendScalar: SPEND,
     memoEph: toFr(77n),
     changeMint: await checked(78n),

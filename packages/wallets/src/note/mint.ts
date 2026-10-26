@@ -26,15 +26,20 @@ export interface MintedNote {
   readonly cekWrap?: Fr;
 }
 
+/** A memo as its SENDER holds it: the recipient's opening key is the one field a sender cannot know. */
+export interface SentMemoNote extends Omit<MintedNote, "spendScalar"> {
+  readonly inPub: Point<bigint>;
+  readonly cekWrap: Fr;
+}
+
 async function finish(
   eph: DerivedEph,
   value: bigint,
   owner: Fr,
   assetId: Fr,
-  spendScalar: Fr,
   parents: Fr,
   compliancePk: Point<bigint>,
-): Promise<MintedNote> {
+): Promise<Omit<MintedNote, "spendScalar">> {
   const cek = deriveCek(eph, compliancePk);
   const psi = await computePsi(cek);
   const plaintext: Note = {
@@ -65,7 +70,6 @@ async function finish(
     ephPub,
     cek,
     psi,
-    spendScalar,
     tag: new Fr(ephPub[0]),
   };
 }
@@ -86,7 +90,10 @@ export async function mintSelfNote(
   parents: Fr = ZERO,
 ): Promise<MintedNote> {
   const owner = await pubkeyOwner(publicKey(spendScalar));
-  return finish(eph, value, owner, assetId, spendScalar, parents, compliancePk);
+  return {
+    ...(await finish(eph, value, owner, assetId, parents, compliancePk)),
+    spendScalar,
+  };
 }
 
 /**
@@ -105,13 +112,27 @@ export async function mintIncomingNote(
   compliancePk: Point<bigint>,
   parents: Fr = ZERO,
 ): Promise<MintedNote> {
+  return {
+    ...(await mintMemoNote(eph, value, inPub, assetId, compliancePk, parents)),
+    spendScalar: inKey,
+  };
+}
+
+/** `mintIncomingNote` for the sender, who holds the recipient's public key and nothing behind it. */
+export async function mintMemoNote(
+  eph: Fr,
+  value: bigint,
+  inPub: Point<bigint>,
+  assetId: Fr,
+  compliancePk: Point<bigint>,
+  parents: Fr = ZERO,
+): Promise<SentMemoNote> {
   const owner = await pubkeyOwner(inPub);
   const built = await finish(
     eph as DerivedEph,
     value,
     owner,
     assetId,
-    inKey,
     parents,
     compliancePk,
   );
