@@ -3,15 +3,15 @@
 set -euo pipefail
 
 POST_INSTALL=0
-STRICT=0
+CI_MODE=0
 for arg in "$@"; do
     case "$arg" in
         --post-install) POST_INSTALL=1 ;;
-        --ci)           STRICT=1 ;;
+        --ci)           CI_MODE=1 ;;
         --help|-h)
             echo "Usage: $0 [--post-install] [--ci]"
             echo "  --post-install  Validate npm-installed tools and critical version pins"
-            echo "  --ci            Strict mode: promote all warnings to failures"
+            echo "  --ci            CI runner: skip workstation-only tools, promote every other warning to a failure"
             exit 0
             ;;
         *) echo "Unknown flag: $arg"; exit 1 ;;
@@ -22,9 +22,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 REQ_NARGO="1.0.0-beta.22"
-REQ_CARGO="1.80.0"
 REQ_JUST="1.40.0"
-REQ_NODE="20.0.0"
+# Single-sourced: the Node range from check-node.sh (better-sqlite3 ABI, mirrors "engines"), the Rust floor
+# from the toolchain the Nox workflow builds with.
+NODE_MIN_MAJOR=$(sed -nE 's/^MIN_MAJOR=([0-9]+)$/\1/p' "$SCRIPT_DIR/check-node.sh")
+NODE_MAX_MAJOR=$(sed -nE 's/^MAX_MAJOR=([0-9]+)$/\1/p' "$SCRIPT_DIR/check-node.sh")
+REQ_RUST=$(sed -nE 's/^ *toolchain: *([0-9]+\.[0-9]+\.[0-9]+) *$/\1/p' "$PROJECT_ROOT/.github/workflows/nox-paid-e2e.yml" | head -1)
+if [ -z "$NODE_MIN_MAJOR" ] || [ -z "$NODE_MAX_MAJOR" ] || [ -z "$REQ_RUST" ]; then
+    echo "check-deps: could not read the Node range from scripts/check-node.sh or the Rust pin from .github/workflows/nox-paid-e2e.yml" >&2
+    exit 1
+fi
 REQ_BBJS="5.0.0"
 REQ_BB_NATIVE="5.0.0"
 REQ_TS="5.9.2"
@@ -62,7 +69,7 @@ print_row() {
     local required=$3
     local status=$4
 
-    if [ "$STRICT" -eq 1 ] && [ "$status" == "WARN" ]; then
+    if [ "$CI_MODE" -eq 1 ] && [ "$status" == "WARN" ]; then
         status="FAIL"
     fi
 
@@ -86,24 +93,35 @@ print_note() {
     echo -e "  ${DIM}$msg${NC}"
 }
 
+# In --ci mode, rows for tools the checking job does not install are skipped rather than failed.
+workstation_only() {
+    if [ "$CI_MODE" -eq 1 ]; then
+        print_note "$1: skipped in --ci (a CI job installs it where it needs it, or never uses it)"
+        return 0
+    fi
+    return 1
+}
+
+# True when $1 >= $2 by version ordering.
+version_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" == "$2" ]; }
+
+NODE_RANGE="${NODE_MIN_MAJOR}.x-${NODE_MAX_MAJOR}.x"
 if command -v node &> /dev/null; then
     NODE_VER=$(node -v | sed 's/^v//')
     NODE_MAJOR=$(echo "$NODE_VER" | cut -d. -f1)
-    if [ "$NODE_MAJOR" -ge 18 ]; then
-        print_row "Node.js" "$NODE_VER" ">=$REQ_NODE" "OK"
-        if [ "$NODE_MAJOR" -eq 18 ]; then
-            print_note "Node 18: crypto polyfill active for vitest worker threads"
-        elif [ "$NODE_MAJOR" -gt 22 ]; then
-            print_note "Node >22 detected: verify compatibility with @aztec deps"
-        fi
+    if [ "$NODE_MAJOR" -ge "$NODE_MIN_MAJOR" ] && [ "$NODE_MAJOR" -le "$NODE_MAX_MAJOR" ]; then
+        print_row "Node.js" "$NODE_VER" "$NODE_RANGE" "OK"
     else
-        print_row "Node.js" "$NODE_VER" ">=$REQ_NODE" "FAIL"
+        print_row "Node.js" "$NODE_VER" "$NODE_RANGE" "FAIL"
+        print_note "better-sqlite3 is built per Node ABI; see scripts/check-node.sh"
     fi
 else
-    print_row "Node.js" "Not Installed" ">=$REQ_NODE" "FAIL"
+    print_row "Node.js" "Not Installed" "$NODE_RANGE" "FAIL"
 fi
 
-if command -v just &> /dev/null; then
+if workstation_only "just"; then
+    :
+elif command -v just &> /dev/null; then
     JUST_VER=$(just --version | awk '{print $2}')
     if [[ "$JUST_VER" > "$REQ_JUST" ]] || [[ "$JUST_VER" == "$REQ_JUST" ]]; then
         print_row "Just" "$JUST_VER" ">=$REQ_JUST" "OK"
@@ -139,53 +157,61 @@ else
     print_row "Nargo" "Not Installed" "==$REQ_NARGO" "FAIL"
 fi
 
-if command -v cargo &> /dev/null; then
-    CARGO_VER=$(cargo --version | awk '{print $2}')
-    print_row "Cargo" "$CARGO_VER" ">=$REQ_CARGO" "OK"
-else
-    print_row "Cargo" "Not Installed" ">=$REQ_CARGO" "WARN"
-fi
-
-if command -v rustc &> /dev/null; then
-    RUSTC_VER=$(rustc --version | awk '{print $2}')
-    print_row "rustc" "$RUSTC_VER" ">=$REQ_CARGO" "OK"
-else
-    print_row "rustc" "Not Installed" ">=$REQ_CARGO" "WARN"
-fi
-
-if command -v cargo &> /dev/null && cargo clippy --version &> /dev/null; then
-    CLIPPY_VER=$(cargo clippy --version 2>/dev/null | awk '{print $2}')
-    print_row "clippy" "$CLIPPY_VER" "Any" "OK"
-else
-    print_row "clippy" "Not Installed" "Any" "WARN"
-    print_note "Install: rustup component add clippy"
-fi
-
-if command -v cargo-watch &> /dev/null || (command -v cargo &> /dev/null && cargo watch --version &> /dev/null 2>&1); then
-    CW_VER=$(cargo watch --version 2>/dev/null | awk '{print $2}' || echo "unknown")
-    print_row "cargo-watch" "$CW_VER" "Optional" "OK"
-else
-    print_row "cargo-watch" "Not Installed" "Optional" "WARN"
-    print_note "Install: cargo install cargo-watch"
-fi
-
-if command -v anvil &> /dev/null; then
-    ANVIL_VER=$(anvil --version 2>/dev/null | head -1 | awk '{print $3}' || echo "unknown")
-    print_row "anvil" "$ANVIL_VER" "Optional" "OK"
-
-    if [[ ":$PATH:" != *":$HOME/.foundry/bin:"* ]]; then
-        print_note "Hint: add \$HOME/.foundry/bin to PATH for sim binaries"
+# Rust only builds the Nox node for the paid mesh e2e, which pins its own toolchain; core CI never uses it.
+check_rust_tool() {
+    local label=$1 bin=$2 ver
+    if ! command -v "$bin" &> /dev/null; then
+        print_row "$label" "Not Installed" ">=$REQ_RUST" "WARN"
+        return
     fi
-else
-    print_row "anvil" "Not Installed" "Optional" "WARN"
-    print_note "Install: curl -L https://foundry.paradigm.xyz | bash && foundryup"
+    ver=$("$bin" --version | awk '{print $2}')
+    if version_ge "$ver" "$REQ_RUST"; then
+        print_row "$label" "$ver" ">=$REQ_RUST" "OK"
+    else
+        print_row "$label" "$ver" ">=$REQ_RUST" "WARN"
+        print_note "Below the Rust toolchain the Nox e2e workflow pins: rustup install $REQ_RUST"
+    fi
+}
+if ! workstation_only "Rust (cargo, rustc, clippy, cargo-watch)"; then
+    check_rust_tool "Cargo" cargo
+    check_rust_tool "rustc" rustc
+
+    if command -v cargo &> /dev/null && cargo clippy --version &> /dev/null; then
+        CLIPPY_VER=$(cargo clippy --version 2>/dev/null | awk '{print $2}')
+        print_row "clippy" "$CLIPPY_VER" "Any" "OK"
+    else
+        print_row "clippy" "Not Installed" "Any" "WARN"
+        print_note "Install: rustup component add clippy"
+    fi
+
+    if command -v cargo-watch &> /dev/null || (command -v cargo &> /dev/null && cargo watch --version &> /dev/null 2>&1); then
+        CW_VER=$(cargo watch --version 2>/dev/null | awk '{print $2}' || echo "unknown")
+        print_row "cargo-watch" "$CW_VER" "Optional" "OK"
+    else
+        print_row "cargo-watch" "Not Installed" "Optional" "WARN"
+        print_note "Install: cargo install cargo-watch"
+    fi
 fi
 
-if command -v forge &> /dev/null; then
-    FORGE_VER=$(forge --version 2>/dev/null | head -1 | awk '{print $3}' || echo "unknown")
-    print_row "forge" "$FORGE_VER" "Optional" "OK"
-else
-    print_row "forge" "Not Installed" "Optional" "WARN"
+if ! workstation_only "anvil, forge"; then
+    if command -v anvil &> /dev/null; then
+        ANVIL_VER=$(anvil --version 2>/dev/null | head -1 | awk '{print $3}' || echo "unknown")
+        print_row "anvil" "$ANVIL_VER" "Optional" "OK"
+
+        if [[ ":$PATH:" != *":$HOME/.foundry/bin:"* ]]; then
+            print_note "Hint: add \$HOME/.foundry/bin to PATH for sim binaries"
+        fi
+    else
+        print_row "anvil" "Not Installed" "Optional" "WARN"
+        print_note "Install: curl -L https://foundry.paradigm.xyz | bash && foundryup"
+    fi
+
+    if command -v forge &> /dev/null; then
+        FORGE_VER=$(forge --version 2>/dev/null | head -1 | awk '{print $3}' || echo "unknown")
+        print_row "forge" "$FORGE_VER" "Optional" "OK"
+    else
+        print_row "forge" "Not Installed" "Optional" "WARN"
+    fi
 fi
 
 # Resolve bb the way generate_verifier.js does; a correct PATH bb would otherwise mask a wrong one here.
@@ -207,46 +233,48 @@ else
     print_note "Install: bbup -v $REQ_BB_NATIVE (or point BB_NATIVE_PATH at an existing 5.0.0 binary)"
 fi
 
-if command -v pkg-config &> /dev/null; then
-    PKGCFG_VER=$(pkg-config --version 2>/dev/null || echo "unknown")
-    print_row "pkg-config" "$PKGCFG_VER" "Required" "OK"
+if ! workstation_only "pkg-config, OpenSSL, Trufflehog CLI, direnv"; then
+    if command -v pkg-config &> /dev/null; then
+        PKGCFG_VER=$(pkg-config --version 2>/dev/null || echo "unknown")
+        print_row "pkg-config" "$PKGCFG_VER" "Required" "OK"
 
-    # OpenSSL is needed for the Rust ethers build.
-    if pkg-config --exists openssl 2>/dev/null; then
-        OPENSSL_VER=$(pkg-config --modversion openssl 2>/dev/null || echo "unknown")
-        print_row "OpenSSL" "$OPENSSL_VER" "Required" "OK"
+        # OpenSSL is needed for the Rust ethers build.
+        if pkg-config --exists openssl 2>/dev/null; then
+            OPENSSL_VER=$(pkg-config --modversion openssl 2>/dev/null || echo "unknown")
+            print_row "OpenSSL" "$OPENSSL_VER" "Required" "OK"
+        else
+            print_row "OpenSSL" "Not Found" "Required" "FAIL"
+            print_note "Install: sudo apt install libssl-dev (Debian) or brew install openssl"
+        fi
     else
-        print_row "OpenSSL" "Not Found" "Required" "FAIL"
-        print_note "Install: sudo apt install libssl-dev (Debian) or brew install openssl"
+        print_row "pkg-config" "Not Installed" "Required" "WARN"
+        print_note "Cannot verify OpenSSL without pkg-config"
     fi
-else
-    print_row "pkg-config" "Not Installed" "Required" "WARN"
-    print_note "Cannot verify OpenSSL without pkg-config"
-fi
 
-if command -v trufflehog &> /dev/null; then
-    TH_VER=$(trufflehog --version 2>/dev/null | awk '{print $2}' || echo "unknown")
-    print_row "Trufflehog" "$TH_VER" "Optional" "OK"
-else
-    print_row "Trufflehog" "Not Installed" "Optional" "WARN"
-fi
-
-if command -v direnv &> /dev/null; then
-    DIRENV_VER=$(direnv --version)
-    print_row "direnv" "$DIRENV_VER" "Recommended" "OK"
-
-    echo -e "\n${CYAN}Configuring direnv permissions...${NC}"
-    if [ -f "$PROJECT_ROOT/.envrc" ]; then
-        echo "   -> Allowing root .envrc"
-        direnv allow "$PROJECT_ROOT" > /dev/null 2>&1
+    if command -v trufflehog &> /dev/null; then
+        TH_VER=$(trufflehog --version 2>/dev/null | awk '{print $2}' || echo "unknown")
+        print_row "Trufflehog" "$TH_VER" "Optional" "OK"
+    else
+        print_row "Trufflehog" "Not Installed" "Optional" "WARN"
     fi
-    find "$PROJECT_ROOT/packages" -name ".envrc" -type f 2>/dev/null | while read -r file; do
-        dir=$(dirname "$file")
-        echo "   -> Allowing $dir"
-        (cd "$dir" && direnv allow . > /dev/null 2>&1)
-    done
-else
-    print_row "direnv" "Not Installed" "Recommended" "WARN"
+
+    if command -v direnv &> /dev/null; then
+        DIRENV_VER=$(direnv --version)
+        print_row "direnv" "$DIRENV_VER" "Recommended" "OK"
+
+        echo -e "\n${CYAN}Configuring direnv permissions...${NC}"
+        if [ -f "$PROJECT_ROOT/.envrc" ]; then
+            echo "   -> Allowing root .envrc"
+            direnv allow "$PROJECT_ROOT" > /dev/null 2>&1
+        fi
+        find "$PROJECT_ROOT/packages" -name ".envrc" -type f 2>/dev/null | while read -r file; do
+            dir=$(dirname "$file")
+            echo "   -> Allowing $dir"
+            (cd "$dir" && direnv allow . > /dev/null 2>&1)
+        done
+    else
+        print_row "direnv" "Not Installed" "Recommended" "WARN"
+    fi
 fi
 
 if [ "$POST_INSTALL" -eq 1 ]; then
@@ -360,7 +388,7 @@ printf "${DIM}(%d total checks)${NC}\n" "$TOTAL"
 
 echo ""
 if [ $EXIT_CODE -eq 0 ]; then
-    echo -e "${GREEN}Environment looks good! Running install...${NC}"
+    echo -e "${GREEN}Environment looks good.${NC}"
     exit 0
 else
     echo -e "${RED}Please fix the failing dependencies above.${NC}"
