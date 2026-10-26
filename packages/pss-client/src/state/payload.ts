@@ -2,8 +2,11 @@ import { PSS_SCHEMA_VERSION, PLATFORM_MAX_CHARS } from "../wire/constants.js";
 import {
   AMOUNT_SHAPE,
   ASSET_ID_SHAPE,
+  BLOCK_HASH_SHAPE,
   COUNTER_SCOPE_SHAPE,
+  DroppedNote,
   MAX_COUNTER_SCOPES,
+  MAX_DROPPED_NOTES,
   INSTALL_ID_SHAPE,
   IssuedAddress,
   MAX_NOTE_AMOUNT,
@@ -69,7 +72,43 @@ function parseUnspentNote(value: unknown): UnspentNote {
       NULLIFIER_SHAPE,
       "unspentNotes[].nullifier",
     ),
+    block: count(raw.block, "unspentNotes[].block"),
+    blockHash: shaped(
+      raw.blockHash,
+      BLOCK_HASH_SHAPE,
+      "unspentNotes[].blockHash",
+    ),
   };
+}
+
+function parseDroppedNote(value: unknown): DroppedNote {
+  const raw = record(value, "droppedNotes entry");
+  return {
+    leafIndex: count(raw.leafIndex, "droppedNotes[].leafIndex"),
+    nullifier: shaped(
+      raw.nullifier,
+      NULLIFIER_SHAPE,
+      "droppedNotes[].nullifier",
+    ),
+    block: count(raw.block, "droppedNotes[].block"),
+    blockHash: shaped(
+      raw.blockHash,
+      BLOCK_HASH_SHAPE,
+      "droppedNotes[].blockHash",
+    ),
+  };
+}
+
+/** Attacker-controlled like the counters, and bounded the same way. Absent before schema 3. */
+function parseDroppedNotes(value: unknown): DroppedNote[] {
+  if (value === undefined || value === null) return [];
+  const entries = array(value, "droppedNotes");
+  if (entries.length > MAX_DROPPED_NOTES) {
+    throw new PssStateError(
+      `droppedNotes carries ${entries.length} entries, above the ${MAX_DROPPED_NOTES} cap`,
+    );
+  }
+  return entries.map(parseDroppedNote);
 }
 
 function parseSyncCursor(value: unknown): SyncCursor {
@@ -121,14 +160,22 @@ function parseEphemeralCounters(value: unknown): Record<string, number> {
   return counters;
 }
 
+/** The first schema whose notes carry their inclusion block. */
+const SCHEMA_NOTE_BLOCKS = 3;
+
 export function parseStatePayload(value: unknown): ParsedStatePayload {
   const raw = record(value, "payload");
   const schema = count(raw.schema, "schema");
   if (schema > PSS_SCHEMA_VERSION) {
     throw new PssSchemaError(schema, PSS_SCHEMA_VERSION);
   }
+  // Before schema 3 a note carried no inclusion block, so it cannot take part in the reorg-safe merge.
+  // Notes are hints re-derived from the chain, so they are dropped, and with them the cursor and the
+  // nullifier checkpoint that claimed to have scanned for them. Counters and every other field are kept,
+  // and the result is a schema-3 payload, so a later write does not drop the notes added since.
+  const notesCarryBlocks = schema >= SCHEMA_NOTE_BLOCKS;
   const known: PssStatePayload = {
-    schema,
+    schema: notesCarryBlocks ? schema : SCHEMA_NOTE_BLOCKS,
     installId: shaped(raw.installId, INSTALL_ID_SHAPE, "installId"),
     platform: platform(raw.platform),
     updatedAt: count(raw.updatedAt, "updatedAt"),
@@ -140,9 +187,16 @@ export function parseStatePayload(value: unknown): ParsedStatePayload {
     issuedAddresses: array(raw.issuedAddresses, "issuedAddresses").map(
       parseIssuedAddress,
     ),
-    unspentNotes: array(raw.unspentNotes, "unspentNotes").map(parseUnspentNote),
-    syncCursor: parseSyncCursor(raw.syncCursor),
-    nullifierCheckedAt: parseCheckpoint(raw.nullifierCheckedAt),
+    unspentNotes: notesCarryBlocks
+      ? array(raw.unspentNotes, "unspentNotes").map(parseUnspentNote)
+      : [],
+    droppedNotes: notesCarryBlocks ? parseDroppedNotes(raw.droppedNotes) : [],
+    syncCursor: notesCarryBlocks
+      ? parseSyncCursor(raw.syncCursor)
+      : { block: 0, logIndex: 0 },
+    nullifierCheckedAt: notesCarryBlocks
+      ? parseCheckpoint(raw.nullifierCheckedAt)
+      : { block: 0 },
     ephemeralCounters: parseEphemeralCounters(raw.ephemeralCounters),
   };
   const extra: Record<string, unknown> = {};
@@ -185,6 +239,7 @@ export function emptyStatePayload(
       incomingIssueHighwater: 0,
       issuedAddresses: [],
       unspentNotes: [],
+      droppedNotes: [],
       syncCursor: { block: 0, logIndex: 0 },
       nullifierCheckedAt: { block: 0 },
       ephemeralCounters: {},
