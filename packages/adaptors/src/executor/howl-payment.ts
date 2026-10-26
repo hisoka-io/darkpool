@@ -2,6 +2,7 @@ import { Fr } from "@hisoka/wallets";
 import {
   AbiCoder,
   concat,
+  type ContractRunner,
   dataLength,
   dataSlice,
   getAddress,
@@ -13,18 +14,59 @@ import {
   toUtf8Bytes,
 } from "ethers";
 import { AdaptorError } from "../errors.js";
+import { BUNDLE_EXECUTE_FRAGMENT } from "./abi.js";
 
 const WITHDRAW_PUBLIC_INPUTS = 17;
-const NULLIFIER_INPUT = 5;
 const ZERO_BYTES32 = `0x${"00".repeat(32)}`;
 const BASIS_POINTS = 10_000n;
+const MULTISIG_FLAG_CALL = dataSlice(id("MULTISIG()"), 0, 4);
 
-/** Entrypoints whose first two arguments are a withdraw proof and its public inputs. */
-const WITHDRAW_CARRYING_SELECTORS: readonly string[] = [
-  "withdraw(bytes,bytes32[])",
-  "withdrawMultisig(bytes,bytes32[])",
-  "execute(bytes,bytes32[],(address,bytes,uint256,bool,address,uint256,uint256,uint256)[],uint256,address[],address[])",
-].map((signature) => dataSlice(id(signature), 0, 4));
+/** Public-input count and nullifier positions of one spend entrypoint, as `DarkPool` checks and spends them. */
+interface SpendLayout {
+  readonly publicInputs: number;
+  readonly nullifierInputs: readonly number[];
+}
+
+const WITHDRAW_SPEND: SpendLayout = {
+  publicInputs: WITHDRAW_PUBLIC_INPUTS,
+  nullifierInputs: [5],
+};
+const TRANSFER_SPEND: SpendLayout = { publicInputs: 24, nullifierInputs: [2] };
+const SPLIT_SPEND: SpendLayout = { publicInputs: 22, nullifierInputs: [2] };
+const JOIN_SPEND: SpendLayout = { publicInputs: 14, nullifierInputs: [2, 3] };
+
+const BUNDLE_EXECUTE_SIGNATURE = BUNDLE_EXECUTE_FRAGMENT.format("sighash");
+
+interface SpendEntrypoint extends SpendLayout {
+  readonly signature: string;
+}
+
+/**
+ * Every entrypoint whose first two arguments are a spend proof and its public inputs: the `DarkPool` spends
+ * and the adaptors that forward a withdraw. `BundleExecutor.execute` is also searched through its bound calls.
+ */
+const SPEND_ENTRYPOINTS: ReadonlyMap<string, SpendEntrypoint> = new Map(
+  (
+    [
+      ["withdraw(bytes,bytes32[])", WITHDRAW_SPEND],
+      ["withdrawMultisig(bytes,bytes32[])", WITHDRAW_SPEND],
+      ["privateTransfer(bytes,bytes32[])", TRANSFER_SPEND],
+      ["transferMultisig(bytes,bytes32[])", TRANSFER_SPEND],
+      ["split(bytes,bytes32[])", SPLIT_SPEND],
+      ["splitMultisig(bytes,bytes32[])", SPLIT_SPEND],
+      ["join(bytes,bytes32[])", JOIN_SPEND],
+      ["joinMultisig(bytes,bytes32[])", JOIN_SPEND],
+      ["executeSwap(bytes,bytes32[],uint8,bytes,uint256)", WITHDRAW_SPEND],
+      [BUNDLE_EXECUTE_SIGNATURE, WITHDRAW_SPEND],
+    ] as const
+  ).map(([signature, layout]) => [
+    dataSlice(id(signature), 0, 4),
+    { signature, ...layout },
+  ]),
+);
+
+/** Bundles nested inside bound calls are searched to this depth; a deeper action is refused, not passed. */
+const MAX_BUNDLE_DEPTH = 4;
 
 /** A withdraw inserts one leaf; each of the 32 tree levels costs at most one Poseidon2 hash_3. */
 const TREE_ALLOWANCE_GAS = 32n * 24_000n;
@@ -58,8 +100,8 @@ export const HOWL_WITHDRAW_PROFILE: HowlWithdrawProfile = {
 
 /**
  * `withdrawMultisig`: proof length read from the deployed `WithdrawMultisigVerifier` (LOG_N 15). Its pay and
- * action frames measure a few dozen gas below the standard ones at equal pool state, so the standard traced
- * frames bound it.
+ * action frames equal the standard ones within proof-dependent noise (tens of gas either way, since proof bytes
+ * differ per proof), far inside the headroom of the standard traced frames, so those frames bound it.
  */
 export const HOWL_WITHDRAW_MULTISIG_PROFILE: HowlWithdrawProfile = {
   proofBytes: 8_384,
@@ -218,6 +260,8 @@ export interface HowlPaymentSource {
 
 export interface HowlPaymentSourceArgs {
   readonly adapter: string;
+  /** Reads the adapter's `MULTISIG()` flag; the source refuses an instance of the other kind before proving. */
+  readonly runner: ContractRunner;
   readonly feeAsset: string;
   readonly feeNoteNullifier: string;
   readonly feeNoteValue: bigint;
@@ -236,25 +280,116 @@ export interface HowlPaymentSourceArgs {
 export function howlPaymentSource(
   args: HowlPaymentSourceArgs,
 ): HowlPaymentSource {
-  return createHowlPaymentSource(args, HOWL_WITHDRAW_PROFILE);
+  return createHowlPaymentSource(args, HOWL_WITHDRAW_PROFILE, false);
 }
 
 /**
  * Pays from a FROST multisig note through the `HowlPaymentAdapter` instance built on `withdrawMultisig`.
  * `proveFeeWithdraw` runs the quorum signing over `msgWithdraw` (which signs `recipient` and `intentHash`)
- * and proves `withdraw_multisig`; `adapter` must be the instance whose `MULTISIG()` is true.
+ * and proves `withdraw_multisig`. `adapter` must be the instance whose `MULTISIG()` is true; the standard
+ * source requires it false.
  */
 export function howlMultisigPaymentSource(
   args: HowlPaymentSourceArgs,
 ): HowlPaymentSource {
-  return createHowlPaymentSource(args, HOWL_WITHDRAW_MULTISIG_PROFILE);
+  return createHowlPaymentSource(args, HOWL_WITHDRAW_MULTISIG_PROFILE, true);
+}
+
+type EthCall = NonNullable<ContractRunner["call"]>;
+
+async function readAdapterMultisig(
+  call: EthCall,
+  adapter: string,
+): Promise<boolean> {
+  let word: string;
+  try {
+    word = await call({ to: adapter, data: MULTISIG_FLAG_CALL });
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new AdaptorError(
+      `Reading MULTISIG() from payment adapter ${adapter} failed: ${reason}`,
+    );
+  }
+  if (!isHexString(word, 32) || BigInt(word) > 1n) {
+    throw new AdaptorError(
+      `Payment adapter ${adapter} answered MULTISIG() with ${isHexString(word) ? `${dataLength(word)} bytes` : "a non-hex value"} that is not a boolean word: it is not a HowlPaymentAdapter`,
+    );
+  }
+  return BigInt(word) === 1n;
+}
+
+function adapterKind(multisig: boolean): string {
+  return multisig ? "withdrawMultisig" : "withdraw";
+}
+
+function assertActionSparesNote(
+  data: string,
+  feeNoteNullifier: string,
+  depth: number,
+): void {
+  if (dataLength(data) < 4) return;
+  const entrypoint = SPEND_ENTRYPOINTS.get(dataSlice(data, 0, 4));
+  if (entrypoint === undefined) return;
+  const args = dataSlice(data, 4);
+  let publicInputs: readonly string[];
+  let nestedCalls: readonly string[] = [];
+  try {
+    if (entrypoint.signature === BUNDLE_EXECUTE_SIGNATURE) {
+      const decoded = AbiCoder.defaultAbiCoder().decode(
+        BUNDLE_EXECUTE_FRAGMENT.inputs,
+        args,
+      );
+      publicInputs = decoded[1] as string[];
+      nestedCalls = (decoded[2] as unknown as readonly { data: string }[]).map(
+        (call) => call.data,
+      );
+    } else {
+      [, publicInputs] = AbiCoder.defaultAbiCoder().decode(
+        ["bytes", "bytes32[]"],
+        args,
+      ) as unknown as [string, string[]];
+    }
+  } catch {
+    throw new AdaptorError(
+      `Paid action carries a ${entrypoint.signature} spend whose public inputs do not decode`,
+    );
+  }
+  if (publicInputs.length !== entrypoint.publicInputs) {
+    throw new AdaptorError(
+      `Paid action ${entrypoint.signature} requires ${entrypoint.publicInputs} public inputs, got ${publicInputs.length}`,
+    );
+  }
+  for (const index of entrypoint.nullifierInputs) {
+    if (publicInputs[index]!.toLowerCase() === feeNoteNullifier) {
+      throw new AdaptorError(
+        `Paid action spends the fee note through ${entrypoint.signature} (public input ${index}): the fee withdraw runs first, so the action would fail after the fee is paid`,
+      );
+    }
+  }
+  if (nestedCalls.length === 0) return;
+  if (depth >= MAX_BUNDLE_DEPTH) {
+    throw new AdaptorError(
+      `Paid action nests bundles deeper than ${MAX_BUNDLE_DEPTH}; refused because its spends cannot all be checked against the fee note`,
+    );
+  }
+  for (const call of nestedCalls) {
+    assertActionSparesNote(call, feeNoteNullifier, depth + 1);
+  }
 }
 
 function createHowlPaymentSource(
   args: HowlPaymentSourceArgs,
   defaultProfile: HowlWithdrawProfile,
+  multisig: boolean,
 ): HowlPaymentSource {
   const adapter = getAddress(args.adapter);
+  const { runner } = args;
+  if (typeof runner.call !== "function") {
+    throw new AdaptorError(
+      `Howl payment source needs a runner that can eth_call to read MULTISIG() from adapter ${adapter}`,
+    );
+  }
+  const ethCall: EthCall = runner.call.bind(runner);
   const feeAsset = getAddress(args.feeAsset);
   if (
     !isHexString(args.feeNoteNullifier, 32) ||
@@ -274,6 +409,7 @@ function createHowlPaymentSource(
   if (gasLimit <= 0n) {
     throw new AdaptorError("Howl payment gas limit must be positive");
   }
+  let adapterKindChecked = false;
 
   return {
     adapter,
@@ -282,34 +418,7 @@ function createHowlPaymentSource(
     gasLimit,
     paymentDataLength,
     checkAction(action) {
-      const data = hexlify(action.data);
-      if (
-        dataLength(data) < 4 ||
-        !WITHDRAW_CARRYING_SELECTORS.includes(dataSlice(data, 0, 4))
-      ) {
-        return;
-      }
-      let publicInputs: readonly string[];
-      try {
-        [, publicInputs] = AbiCoder.defaultAbiCoder().decode(
-          ["bytes", "bytes32[]"],
-          dataSlice(data, 4),
-        ) as unknown as [string, string[]];
-      } catch {
-        throw new AdaptorError(
-          "Paid action carries a withdraw whose public inputs do not decode",
-        );
-      }
-      if (publicInputs.length !== WITHDRAW_PUBLIC_INPUTS) {
-        throw new AdaptorError(
-          `Paid action withdraw requires ${WITHDRAW_PUBLIC_INPUTS} public inputs, got ${publicInputs.length}`,
-        );
-      }
-      if (publicInputs[NULLIFIER_INPUT]!.toLowerCase() === feeNoteNullifier) {
-        throw new AdaptorError(
-          "Paid action spends the fee note: the fee withdraw runs first, so the action would fail after the fee is paid",
-        );
-      }
+      assertActionSparesNote(hexlify(action.data), feeNoteNullifier, 0);
     },
     async buildPaymentData({ executionId, amount, feeAsset: quotedAsset }) {
       if (getAddress(quotedAsset) !== feeAsset) {
@@ -321,6 +430,15 @@ function createHowlPaymentSource(
         throw new AdaptorError(
           `Quoted fee ${amount} exceeds the fee note value ${args.feeNoteValue}`,
         );
+      }
+      if (!adapterKindChecked) {
+        const adapterIsMultisig = await readAdapterMultisig(ethCall, adapter);
+        if (adapterIsMultisig !== multisig) {
+          throw new AdaptorError(
+            `Payment adapter ${adapter} pulls fees through ${adapterKind(adapterIsMultisig)} (MULTISIG() is ${adapterIsMultisig}), but this fee note pays through ${adapterKind(multisig)}: use the instance whose MULTISIG() is ${multisig}`,
+          );
+        }
+        adapterKindChecked = true;
       }
       const execution = hexlify(executionId);
       const proof = await args.proveFeeWithdraw(

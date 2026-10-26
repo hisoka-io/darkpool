@@ -2,14 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
   AbiCoder,
   concat,
+  type ContractRunner,
+  dataSlice,
   getBytes,
   hexlify,
+  id,
   Interface,
   keccak256,
   toUtf8Bytes,
 } from "ethers";
 import { Fr } from "@hisoka/wallets";
 import { buildBundle, encodeBundleExecute } from "./bundle.js";
+import type { BundleCall } from "./types.js";
 import {
   buildHowlPayment,
   HOWL_PAYMENT_DATA_LENGTH,
@@ -38,10 +42,27 @@ const OTHER_NOTE =
 const EXECUTOR = "0x6666666666666666666666666666666666666666";
 const DARK_POOL = "0x7777777777777777777777777777777777777777";
 const NOTE_VALUE = 100n;
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 function word(value: bigint | string): string {
   return `0x${BigInt(value).toString(16).padStart(64, "0")}`;
 }
+
+function flagRunner(
+  answer: () => Promise<string>,
+  reads: string[] = [],
+): ContractRunner {
+  return {
+    provider: null,
+    call: (tx) => {
+      reads.push(`${String(tx.to)}:${String(tx.data)}`);
+      return answer();
+    },
+  };
+}
+
+const standardAdapter = () => flagRunner(() => Promise.resolve(word(0n)));
+const multisigAdapter = () => flagRunner(() => Promise.resolve(word(1n)));
 
 function withdrawProof(overrides: Record<number, string>): HowlWithdrawProof {
   const publicInputs = Array<string>(17).fill(word(0n));
@@ -70,6 +91,7 @@ function source(
 ) {
   return howlPaymentSource({
     adapter: ADAPTER,
+    runner: standardAdapter(),
     feeAsset: ASSET,
     feeNoteNullifier: PAYMENT_ID,
     feeNoteValue: NOTE_VALUE,
@@ -90,10 +112,26 @@ const withdrawIface = new Interface([
   "function deposit(bytes proof, bytes32[] publicInputs)",
 ]);
 
-function bundleAction(nullifier: string): Uint8Array {
+function boundCall(data: string): BundleCall {
+  return {
+    target: DARK_POOL,
+    data,
+    value: 0n,
+    requireSuccess: true,
+    approveToken: ZERO_ADDRESS,
+    approveAmount: 0n,
+    gasLimit: 900_000n,
+    returnDataLimit: 0n,
+  };
+}
+
+function bundleAction(
+  nullifier: string,
+  calls: readonly string[] = [],
+): Uint8Array {
   const bundle = buildBundle(
     { chainId: 31337n, executor: EXECUTOR, darkPool: DARK_POOL },
-    [],
+    calls.map(boundCall),
     1893456000n,
     [ASSET],
     [],
@@ -275,6 +313,7 @@ describe("Howl Nox payment source", () => {
     const build = (feeNoteNullifier: string, feeNoteValue: bigint) => () =>
       howlPaymentSource({
         adapter: ADAPTER,
+        runner: standardAdapter(),
         feeAsset: ASSET,
         feeNoteNullifier,
         feeNoteValue,
@@ -389,6 +428,7 @@ describe("Howl withdraw profiles", () => {
 describe("Howl Nox multisig payment source", () => {
   const multisigArgs: HowlPaymentSourceArgs = {
     adapter: ADAPTER,
+    runner: multisigAdapter(),
     feeAsset: ASSET,
     feeNoteNullifier: PAYMENT_ID,
     feeNoteValue: NOTE_VALUE,
@@ -491,5 +531,259 @@ describe("Howl Nox multisig payment source", () => {
       howlMultisigPaymentSource({ ...multisigArgs, gasLimit: 2_500_000n })
         .gasLimit,
     ).toBe(2_500_000n);
+  });
+});
+
+const spendIface = new Interface([
+  "function privateTransfer(bytes proof, bytes32[] publicInputs)",
+  "function transferMultisig(bytes proof, bytes32[] publicInputs)",
+  "function split(bytes proof, bytes32[] publicInputs)",
+  "function splitMultisig(bytes proof, bytes32[] publicInputs)",
+  "function join(bytes proof, bytes32[] publicInputs)",
+  "function joinMultisig(bytes proof, bytes32[] publicInputs)",
+  "function withdraw(bytes proof, bytes32[] publicInputs)",
+  "function executeSwap(bytes proof, bytes32[] publicInputs, uint8 swapType, bytes encodedParams, uint256 deadline)",
+]);
+
+/** `DarkPool` input counts and nullifier positions (`_transfer`, `_split`, `_join`). */
+const SPEND_CASES = [
+  { name: "privateTransfer", inputs: 24, nullifiers: [2] },
+  { name: "transferMultisig", inputs: 24, nullifiers: [2] },
+  { name: "split", inputs: 22, nullifiers: [2] },
+  { name: "splitMultisig", inputs: 22, nullifiers: [2] },
+  { name: "join", inputs: 14, nullifiers: [2, 3] },
+  { name: "joinMultisig", inputs: 14, nullifiers: [2, 3] },
+] as const;
+
+function spendAction(
+  name: string,
+  inputs: number,
+  overrides: Record<number, string>,
+): string {
+  const publicInputs = Array<string>(inputs).fill(word(0n));
+  for (const [index, value] of Object.entries(overrides)) {
+    publicInputs[Number(index)] = value;
+  }
+  return spendIface.encodeFunctionData(name, ["0x0102", publicInputs]);
+}
+
+function swapAction(nullifier: string): string {
+  const proof = withdrawProof({ 5: nullifier });
+  return spendIface.encodeFunctionData("executeSwap", [
+    proof.proof,
+    proof.publicInputs,
+    0,
+    "0x",
+    1893456000n,
+  ]);
+}
+
+describe("Howl payment source spend veto", () => {
+  for (const spend of SPEND_CASES) {
+    it(`vetoes ${spend.name} when it spends the fee note`, () => {
+      const payment = source();
+      for (const position of spend.nullifiers) {
+        expect(() =>
+          payment.checkAction({
+            data: getBytes(
+              spendAction(spend.name, spend.inputs, { [position]: PAYMENT_ID }),
+            ),
+          }),
+        ).toThrow(
+          new RegExp(
+            `spends the fee note through ${spend.name}\\(bytes,bytes32\\[\\]\\) \\(public input ${position}\\)`,
+          ),
+        );
+      }
+      const others: Record<number, string> = {};
+      for (const position of spend.nullifiers) others[position] = OTHER_NOTE;
+      payment.checkAction({
+        data: getBytes(spendAction(spend.name, spend.inputs, others)),
+      });
+      const spare = spend.nullifiers.length === 1 ? 4 : 5;
+      payment.checkAction({
+        data: getBytes(
+          spendAction(spend.name, spend.inputs, { [spare]: PAYMENT_ID }),
+        ),
+      });
+      expect(() =>
+        payment.checkAction({
+          data: getBytes(spendAction(spend.name, spend.inputs - 1, others)),
+        }),
+      ).toThrow(new RegExp(`requires ${spend.inputs} public inputs`));
+    });
+  }
+
+  it("vetoes a swap whose withdraw spends the fee note", () => {
+    const payment = source();
+    expect(() =>
+      payment.checkAction({ data: getBytes(swapAction(PAYMENT_ID)) }),
+    ).toThrow(/spends the fee note through executeSwap/);
+    payment.checkAction({ data: getBytes(swapAction(OTHER_NOTE)) });
+  });
+
+  it("vetoes a bundle whose bound call spends the fee note", () => {
+    const payment = source();
+    const nestedWithdraw = hexlify(withdrawAction(PAYMENT_ID));
+    expect(() =>
+      payment.checkAction({
+        data: bundleAction(OTHER_NOTE, [nestedWithdraw]),
+      }),
+    ).toThrow(/spends the fee note through withdraw\(/);
+    expect(() =>
+      payment.checkAction({
+        data: bundleAction(OTHER_NOTE, [
+          "0xdeadbeef",
+          spendAction("join", 14, { 3: PAYMENT_ID }),
+        ]),
+      }),
+    ).toThrow(
+      /spends the fee note through join\(bytes,bytes32\[\]\) \(public input 3\)/,
+    );
+    payment.checkAction({
+      data: bundleAction(OTHER_NOTE, [
+        hexlify(withdrawAction(OTHER_NOTE)),
+        "0xdeadbeef",
+        "0x",
+      ]),
+    });
+  });
+
+  it("searches nested bundles to a bounded depth and refuses deeper ones", () => {
+    const payment = source();
+    const nest = (inner: string, levels: number): string => {
+      let data = inner;
+      for (let level = 0; level < levels; level += 1) {
+        data = hexlify(bundleAction(OTHER_NOTE, [data]));
+      }
+      return data;
+    };
+    const spendsFee = hexlify(withdrawAction(PAYMENT_ID));
+    expect(() =>
+      payment.checkAction({ data: getBytes(nest(spendsFee, 4)) }),
+    ).toThrow(/spends the fee note through withdraw\(/);
+    payment.checkAction({ data: getBytes(nest("0xdeadbeef", 4)) });
+    expect(() =>
+      payment.checkAction({ data: getBytes(nest("0xdeadbeef", 5)) }),
+    ).toThrow(/nests bundles deeper than 4/);
+  });
+
+  it("vetoes a bundle whose bound calls do not decode", () => {
+    const payment = source();
+    const valid = hexlify(bundleAction(OTHER_NOTE, ["0xdeadbeef"]));
+    expect(() =>
+      payment.checkAction({ data: getBytes(valid.slice(0, -64)) }),
+    ).toThrow(/do not decode/);
+  });
+});
+
+describe("Howl payment adapter kind", () => {
+  const MULTISIG_READ = dataSlice(id("MULTISIG()"), 0, 4);
+
+  function sourceAt(
+    kind: "standard" | "multisig",
+    runner: ContractRunner,
+    proved: { count: number },
+  ) {
+    const args: HowlPaymentSourceArgs = {
+      adapter: ADAPTER,
+      runner,
+      feeAsset: ASSET,
+      feeNoteNullifier: PAYMENT_ID,
+      feeNoteValue: NOTE_VALUE,
+      proveFeeWithdraw: (amount, recipient, intentHash) => {
+        proved.count += 1;
+        return Promise.resolve(feeProof(amount, recipient, intentHash));
+      },
+    };
+    return kind === "standard"
+      ? howlPaymentSource(args)
+      : howlMultisigPaymentSource(args);
+  }
+
+  it("reads MULTISIG() from the adapter once, before the first proof", async () => {
+    for (const [kind, flag] of [
+      ["standard", 0n],
+      ["multisig", 1n],
+    ] as const) {
+      const reads: string[] = [];
+      const proved = { count: 0 };
+      const payment = sourceAt(
+        kind,
+        flagRunner(() => Promise.resolve(word(flag)), reads),
+        proved,
+      );
+      expect(reads).toEqual([]);
+      await payment.buildPaymentData(paymentRequest);
+      await payment.buildPaymentData(paymentRequest);
+      expect(reads).toEqual([`${ADAPTER}:${MULTISIG_READ}`]);
+      expect(proved.count).toBe(2);
+    }
+  });
+
+  it("refuses the multisig instance for a standard note before proving", async () => {
+    const proved = { count: 0 };
+    await expect(
+      sourceAt("standard", multisigAdapter(), proved).buildPaymentData(
+        paymentRequest,
+      ),
+    ).rejects.toThrow(
+      /pulls fees through withdrawMultisig \(MULTISIG\(\) is true\).*use the instance whose MULTISIG\(\) is false/,
+    );
+    expect(proved.count).toBe(0);
+  });
+
+  it("refuses the standard instance for a multisig note before proving", async () => {
+    const proved = { count: 0 };
+    await expect(
+      sourceAt("multisig", standardAdapter(), proved).buildPaymentData(
+        paymentRequest,
+      ),
+    ).rejects.toThrow(
+      /pulls fees through withdraw \(MULTISIG\(\) is false\).*use the instance whose MULTISIG\(\) is true/,
+    );
+    expect(proved.count).toBe(0);
+  });
+
+  it("refuses an adapter that does not answer with a boolean word", async () => {
+    for (const answer of ["0x", word(2n), `${word(1n)}00`, "nonsense"]) {
+      const proved = { count: 0 };
+      await expect(
+        sourceAt(
+          "standard",
+          flagRunner(() => Promise.resolve(answer)),
+          proved,
+        ).buildPaymentData(paymentRequest),
+      ).rejects.toThrow(/not a HowlPaymentAdapter/);
+      expect(proved.count).toBe(0);
+    }
+  });
+
+  it("reports a failed read and reads again on the next payment", async () => {
+    let attempts = 0;
+    const proved = { count: 0 };
+    const payment = sourceAt(
+      "standard",
+      flagRunner(() => {
+        attempts += 1;
+        return attempts === 1
+          ? Promise.reject(new Error("connection reset"))
+          : Promise.resolve(word(0n));
+      }),
+      proved,
+    );
+    await expect(payment.buildPaymentData(paymentRequest)).rejects.toThrow(
+      `Reading MULTISIG() from payment adapter ${ADAPTER} failed: connection reset`,
+    );
+    expect(proved.count).toBe(0);
+    await payment.buildPaymentData(paymentRequest);
+    expect(attempts).toBe(2);
+    expect(proved.count).toBe(1);
+  });
+
+  it("requires a runner that can eth_call", () => {
+    expect(() =>
+      sourceAt("standard", { provider: null }, { count: 0 }),
+    ).toThrow(/runner that can eth_call/);
   });
 });

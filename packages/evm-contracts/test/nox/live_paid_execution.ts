@@ -965,6 +965,7 @@ async function main(): Promise<void> {
       },
       payment: howlPaymentSource({
         adapter: record.howlPaymentAdapter,
+        runner: ethers.provider,
         feeAsset: record.stakingToken,
         feeNoteNullifier: feeNote.nullifier.toString(),
         feeNoteValue: feeNote.note.value,

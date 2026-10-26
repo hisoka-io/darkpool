@@ -1403,6 +1403,7 @@ describe("NOX funded non-benchmark paid mesh", function () {
         action: { ...action, data: ethers.getBytes(action.data) },
         payment: howlPaymentSource({
           adapter: deployment.contracts.howlPaymentAdapter,
+          runner: chainProvider,
           feeAsset: mesh.fee_asset_address,
           feeNoteNullifier: feeNote.nullifier.toString(),
           feeNoteValue: feeNote.note.value,
