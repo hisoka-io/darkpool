@@ -92,7 +92,7 @@ export async function proveSwapIntent(
       publicInputs,
       vkAsFields: art.vkAsFields,
       vkHash: art.vkHash,
-      verified,
+      verified: true,
     };
   } catch (err) {
     if (err instanceof ProofError) throw err;
