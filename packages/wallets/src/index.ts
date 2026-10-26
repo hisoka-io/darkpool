@@ -9,7 +9,7 @@ export * from "./note/note.js";
 export * from "./note/nullifier.js";
 export * from "./note/keys.js";
 export * from "./note/complianceKeys.js";
-export { mintIncomingNote } from "./note/mint.js";
+export { MemoMintError, mintIncomingNote } from "./note/mint.js";
 export type { MintedNote, SentMemoNote } from "./note/mint.js";
 export * from "./merkle/genesis.js";
 export * from "./discovery/types.js";
