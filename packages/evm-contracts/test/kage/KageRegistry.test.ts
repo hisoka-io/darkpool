@@ -635,6 +635,43 @@ describe("KageRegistry", function () {
       expect(await upgraded.settlementSigner(id)).to.equal(HOT_KEY.address);
     });
 
+    it("pins every namespace word and both packed Solver words at their raw slots", async function () {
+      const { registry, stakeToken, slasher, solverOwner, id } =
+        await loadFixture(registryFixture);
+      const proxy = await registry.getAddress();
+      await registry.connect(solverOwner).requestExit(id);
+      const unlockTime = BigInt(await time.latest()) + EXIT_DELAY;
+      await registry.connect(slasher).freeze(id);
+
+      const base = BigInt(REGISTRY_LOCATION);
+      const word = async (slot: bigint) =>
+        BigInt(await ethers.provider.getStorage(proxy, slot));
+      expect(await word(base)).to.equal(BigInt(await stakeToken.getAddress()));
+      expect(await word(base + 1n)).to.equal(MIN_STAKE_FLOOR);
+      expect(await word(base + 2n)).to.equal(MIN_STAKE);
+      expect(await word(base + 3n)).to.equal(EXIT_DELAY);
+      expect(await word(base + 4n)).to.equal(1n);
+
+      const solverSlot = BigInt(
+        ethers.keccak256(
+          ethers.AbiCoder.defaultAbiCoder().encode(
+            ["uint256", "uint256"],
+            [id, base + 5n],
+          ),
+        ),
+      );
+      // Word 0: owner (bytes 0-19), status (20), frozen (21), unlockTime (22-29). Word 1: signer (0-19), stake (20-31).
+      expect(await word(solverSlot)).to.equal(
+        BigInt(solverOwner.address) |
+          (EXITING << 160n) |
+          (1n << 168n) |
+          (unlockTime << 176n),
+      );
+      expect(await word(solverSlot + 1n)).to.equal(
+        BigInt(HOT_KEY.address) | (MIN_STAKE << 160n),
+      );
+    });
+
     it("the ERC-7201 namespace constant matches its formula", async function () {
       const inner = BigInt(ethers.id("hisoka.kage.registry")) - 1n;
       const slot =

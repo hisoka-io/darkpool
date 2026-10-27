@@ -1,4 +1,386 @@
 {
   "storage": [],
-  "types": null
+  "types": null,
+  "namespaces": {
+    "erc7201:hisoka.kage.registry": [
+      {
+        "contract": "KageRegistry",
+        "label": "stakingToken",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_contract(IERC20)"
+      },
+      {
+        "contract": "KageRegistry",
+        "label": "minStakeFloor",
+        "slot": "1",
+        "offset": 0,
+        "type": "t_uint256"
+      },
+      {
+        "contract": "KageRegistry",
+        "label": "minStake",
+        "slot": "2",
+        "offset": 0,
+        "type": "t_uint256"
+      },
+      {
+        "contract": "KageRegistry",
+        "label": "exitDelay",
+        "slot": "3",
+        "offset": 0,
+        "type": "t_uint256"
+      },
+      {
+        "contract": "KageRegistry",
+        "label": "solverCount",
+        "slot": "4",
+        "offset": 0,
+        "type": "t_uint256"
+      },
+      {
+        "contract": "KageRegistry",
+        "label": "solvers",
+        "slot": "5",
+        "offset": 0,
+        "type": "t_mapping(t_uint256,t_struct(Solver)_storage)"
+      }
+    ],
+    "erc7201:openzeppelin.storage.AccessControl": [
+      {
+        "contract": "AccessControlUpgradeable",
+        "label": "_roles",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_mapping(t_bytes32,t_struct(RoleData)_storage)"
+      }
+    ],
+    "erc7201:openzeppelin.storage.AccessControlDefaultAdminRules": [
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_pendingDefaultAdmin",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_address"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_pendingDefaultAdminSchedule",
+        "slot": "0",
+        "offset": 20,
+        "type": "t_uint48"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_currentDelay",
+        "slot": "0",
+        "offset": 26,
+        "type": "t_uint48"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_currentDefaultAdmin",
+        "slot": "1",
+        "offset": 0,
+        "type": "t_address"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_pendingDelay",
+        "slot": "1",
+        "offset": 20,
+        "type": "t_uint48"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_pendingDelaySchedule",
+        "slot": "1",
+        "offset": 26,
+        "type": "t_uint48"
+      }
+    ],
+    "erc7201:openzeppelin.storage.Initializable": [
+      {
+        "contract": "Initializable",
+        "label": "_initialized",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_uint64"
+      },
+      {
+        "contract": "Initializable",
+        "label": "_initializing",
+        "slot": "0",
+        "offset": 8,
+        "type": "t_bool"
+      }
+    ],
+    "erc7201:openzeppelin.storage.Pausable": [
+      {
+        "contract": "PausableUpgradeable",
+        "label": "_paused",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_bool"
+      }
+    ],
+    "erc7201:openzeppelin.storage.ReentrancyGuard": [
+      {
+        "contract": "KageRegistry",
+        "label": "status",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_uint256"
+      }
+    ]
+  },
+  "namespaceTypes": {
+    "t_address": {
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_bool": {
+      "label": "bool",
+      "numberOfBytes": "1"
+    },
+    "t_bytes32": {
+      "label": "bytes32",
+      "numberOfBytes": "32"
+    },
+    "t_contract(IERC20)": {
+      "label": "contract IERC20",
+      "numberOfBytes": "20"
+    },
+    "t_enum(SolverStatus)": {
+      "label": "enum KageRegistry.SolverStatus",
+      "numberOfBytes": "1",
+      "members": ["None", "Active", "Exiting", "Exited"]
+    },
+    "t_mapping(t_address,t_bool)": {
+      "label": "mapping(address => bool)",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_bytes32,t_struct(RoleData)_storage)": {
+      "label": "mapping(bytes32 => struct AccessControlUpgradeable.RoleData)",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_uint256,t_struct(Solver)_storage)": {
+      "label": "mapping(uint256 => struct KageRegistry.Solver)",
+      "numberOfBytes": "32"
+    },
+    "t_struct(AccessControlDefaultAdminRulesStorage)_storage": {
+      "label": "struct AccessControlDefaultAdminRulesUpgradeable.AccessControlDefaultAdminRulesStorage",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "label": "_pendingDefaultAdmin",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_address"
+        },
+        {
+          "label": "_pendingDefaultAdminSchedule",
+          "slot": "0",
+          "offset": 20,
+          "type": "t_uint48"
+        },
+        {
+          "label": "_currentDelay",
+          "slot": "0",
+          "offset": 26,
+          "type": "t_uint48"
+        },
+        {
+          "label": "_currentDefaultAdmin",
+          "slot": "1",
+          "offset": 0,
+          "type": "t_address"
+        },
+        {
+          "label": "_pendingDelay",
+          "slot": "1",
+          "offset": 20,
+          "type": "t_uint48"
+        },
+        {
+          "label": "_pendingDelaySchedule",
+          "slot": "1",
+          "offset": 26,
+          "type": "t_uint48"
+        }
+      ]
+    },
+    "t_struct(AccessControlStorage)_storage": {
+      "label": "struct AccessControlUpgradeable.AccessControlStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "_roles",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_mapping(t_bytes32,t_struct(RoleData)_storage)"
+        }
+      ]
+    },
+    "t_struct(InitializableStorage)_storage": {
+      "label": "struct Initializable.InitializableStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "_initialized",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_uint64"
+        },
+        {
+          "label": "_initializing",
+          "slot": "0",
+          "offset": 8,
+          "type": "t_bool"
+        }
+      ]
+    },
+    "t_struct(PausableStorage)_storage": {
+      "label": "struct PausableUpgradeable.PausableStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "_paused",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_bool"
+        }
+      ]
+    },
+    "t_struct(ReentrancyStorage)_storage": {
+      "label": "struct KageRegistry.ReentrancyStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "status",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_uint256"
+        }
+      ]
+    },
+    "t_struct(RegistryStorage)_storage": {
+      "label": "struct KageRegistry.RegistryStorage",
+      "numberOfBytes": "192",
+      "members": [
+        {
+          "label": "stakingToken",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_contract(IERC20)"
+        },
+        {
+          "label": "minStakeFloor",
+          "slot": "1",
+          "offset": 0,
+          "type": "t_uint256"
+        },
+        {
+          "label": "minStake",
+          "slot": "2",
+          "offset": 0,
+          "type": "t_uint256"
+        },
+        {
+          "label": "exitDelay",
+          "slot": "3",
+          "offset": 0,
+          "type": "t_uint256"
+        },
+        {
+          "label": "solverCount",
+          "slot": "4",
+          "offset": 0,
+          "type": "t_uint256"
+        },
+        {
+          "label": "solvers",
+          "slot": "5",
+          "offset": 0,
+          "type": "t_mapping(t_uint256,t_struct(Solver)_storage)"
+        }
+      ]
+    },
+    "t_struct(RoleData)_storage": {
+      "label": "struct AccessControlUpgradeable.RoleData",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "label": "hasRole",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_bool)"
+        },
+        {
+          "label": "adminRole",
+          "slot": "1",
+          "offset": 0,
+          "type": "t_bytes32"
+        }
+      ]
+    },
+    "t_struct(Solver)_storage": {
+      "label": "struct KageRegistry.Solver",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "label": "owner",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_address"
+        },
+        {
+          "label": "status",
+          "slot": "0",
+          "offset": 20,
+          "type": "t_enum(SolverStatus)"
+        },
+        {
+          "label": "frozen",
+          "slot": "0",
+          "offset": 21,
+          "type": "t_bool"
+        },
+        {
+          "label": "unlockTime",
+          "slot": "0",
+          "offset": 22,
+          "type": "t_uint64"
+        },
+        {
+          "label": "signer",
+          "slot": "1",
+          "offset": 0,
+          "type": "t_address"
+        },
+        {
+          "label": "stake",
+          "slot": "1",
+          "offset": 20,
+          "type": "t_uint96"
+        }
+      ]
+    },
+    "t_uint256": {
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_uint48": {
+      "label": "uint48",
+      "numberOfBytes": "6"
+    },
+    "t_uint64": {
+      "label": "uint64",
+      "numberOfBytes": "8"
+    },
+    "t_uint96": {
+      "label": "uint96",
+      "numberOfBytes": "12"
+    }
+  }
 }

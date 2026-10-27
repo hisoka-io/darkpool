@@ -1,4 +1,421 @@
 {
   "storage": [],
-  "types": null
+  "types": null,
+  "namespaces": {
+    "erc7201:hisoka.nox.rewardpool": [
+      {
+        "contract": "NoxRewardPool",
+        "label": "noxRegistry",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_contract(INoxRegistry)"
+      },
+      {
+        "contract": "NoxRewardPool",
+        "label": "isSupportedAsset",
+        "slot": "1",
+        "offset": 0,
+        "type": "t_mapping(t_address,t_bool)"
+      },
+      {
+        "contract": "NoxRewardPool",
+        "label": "totalCollected",
+        "slot": "2",
+        "offset": 0,
+        "type": "t_mapping(t_address,t_uint256)"
+      },
+      {
+        "contract": "NoxRewardPool",
+        "label": "totalDistributed",
+        "slot": "3",
+        "offset": 0,
+        "type": "t_mapping(t_address,t_uint256)"
+      },
+      {
+        "contract": "NoxRewardPool",
+        "label": "legacyNetworkLiability",
+        "slot": "4",
+        "offset": 0,
+        "type": "t_mapping(t_address,t_uint256)"
+      },
+      {
+        "contract": "NoxRewardPool",
+        "label": "legacyClassified",
+        "slot": "5",
+        "offset": 0,
+        "type": "t_mapping(t_address,t_bool)"
+      },
+      {
+        "contract": "NoxRewardPool",
+        "label": "newNetworkCollected",
+        "slot": "6",
+        "offset": 0,
+        "type": "t_mapping(t_address,t_uint256)"
+      },
+      {
+        "contract": "NoxRewardPool",
+        "label": "newNetworkDistributed",
+        "slot": "7",
+        "offset": 0,
+        "type": "t_mapping(t_address,t_uint256)"
+      },
+      {
+        "contract": "NoxRewardPool",
+        "label": "totalExitCredited",
+        "slot": "8",
+        "offset": 0,
+        "type": "t_mapping(t_address,t_uint256)"
+      },
+      {
+        "contract": "NoxRewardPool",
+        "label": "totalExitClaimed",
+        "slot": "9",
+        "offset": 0,
+        "type": "t_mapping(t_address,t_uint256)"
+      },
+      {
+        "contract": "NoxRewardPool",
+        "label": "claimableExit",
+        "slot": "10",
+        "offset": 0,
+        "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))"
+      },
+      {
+        "contract": "NoxRewardPool",
+        "label": "settledExecution",
+        "slot": "11",
+        "offset": 0,
+        "type": "t_mapping(t_bytes32,t_bool)"
+      }
+    ],
+    "erc7201:openzeppelin.storage.AccessControl": [
+      {
+        "contract": "AccessControlUpgradeable",
+        "label": "_roles",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_mapping(t_bytes32,t_struct(RoleData)_storage)"
+      }
+    ],
+    "erc7201:openzeppelin.storage.AccessControlDefaultAdminRules": [
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_pendingDefaultAdmin",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_address"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_pendingDefaultAdminSchedule",
+        "slot": "0",
+        "offset": 20,
+        "type": "t_uint48"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_currentDelay",
+        "slot": "0",
+        "offset": 26,
+        "type": "t_uint48"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_currentDefaultAdmin",
+        "slot": "1",
+        "offset": 0,
+        "type": "t_address"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_pendingDelay",
+        "slot": "1",
+        "offset": 20,
+        "type": "t_uint48"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_pendingDelaySchedule",
+        "slot": "1",
+        "offset": 26,
+        "type": "t_uint48"
+      }
+    ],
+    "erc7201:openzeppelin.storage.Initializable": [
+      {
+        "contract": "Initializable",
+        "label": "_initialized",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_uint64"
+      },
+      {
+        "contract": "Initializable",
+        "label": "_initializing",
+        "slot": "0",
+        "offset": 8,
+        "type": "t_bool"
+      }
+    ],
+    "erc7201:openzeppelin.storage.Pausable": [
+      {
+        "contract": "PausableUpgradeable",
+        "label": "_paused",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_bool"
+      }
+    ],
+    "erc7201:openzeppelin.storage.ReentrancyGuard": [
+      {
+        "contract": "NoxRewardPool",
+        "label": "status",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_uint256"
+      }
+    ]
+  },
+  "namespaceTypes": {
+    "t_address": {
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_bool": {
+      "label": "bool",
+      "numberOfBytes": "1"
+    },
+    "t_bytes32": {
+      "label": "bytes32",
+      "numberOfBytes": "32"
+    },
+    "t_contract(INoxRegistry)": {
+      "label": "contract INoxRegistry",
+      "numberOfBytes": "20"
+    },
+    "t_mapping(t_address,t_bool)": {
+      "label": "mapping(address => bool)",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_address,t_mapping(t_address,t_uint256))": {
+      "label": "mapping(address => mapping(address => uint256))",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_address,t_uint256)": {
+      "label": "mapping(address => uint256)",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_bytes32,t_bool)": {
+      "label": "mapping(bytes32 => bool)",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_bytes32,t_struct(RoleData)_storage)": {
+      "label": "mapping(bytes32 => struct AccessControlUpgradeable.RoleData)",
+      "numberOfBytes": "32"
+    },
+    "t_struct(AccessControlDefaultAdminRulesStorage)_storage": {
+      "label": "struct AccessControlDefaultAdminRulesUpgradeable.AccessControlDefaultAdminRulesStorage",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "label": "_pendingDefaultAdmin",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_address"
+        },
+        {
+          "label": "_pendingDefaultAdminSchedule",
+          "slot": "0",
+          "offset": 20,
+          "type": "t_uint48"
+        },
+        {
+          "label": "_currentDelay",
+          "slot": "0",
+          "offset": 26,
+          "type": "t_uint48"
+        },
+        {
+          "label": "_currentDefaultAdmin",
+          "slot": "1",
+          "offset": 0,
+          "type": "t_address"
+        },
+        {
+          "label": "_pendingDelay",
+          "slot": "1",
+          "offset": 20,
+          "type": "t_uint48"
+        },
+        {
+          "label": "_pendingDelaySchedule",
+          "slot": "1",
+          "offset": 26,
+          "type": "t_uint48"
+        }
+      ]
+    },
+    "t_struct(AccessControlStorage)_storage": {
+      "label": "struct AccessControlUpgradeable.AccessControlStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "_roles",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_mapping(t_bytes32,t_struct(RoleData)_storage)"
+        }
+      ]
+    },
+    "t_struct(InitializableStorage)_storage": {
+      "label": "struct Initializable.InitializableStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "_initialized",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_uint64"
+        },
+        {
+          "label": "_initializing",
+          "slot": "0",
+          "offset": 8,
+          "type": "t_bool"
+        }
+      ]
+    },
+    "t_struct(PausableStorage)_storage": {
+      "label": "struct PausableUpgradeable.PausableStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "_paused",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_bool"
+        }
+      ]
+    },
+    "t_struct(ReentrancyStorage)_storage": {
+      "label": "struct NoxRewardPool.ReentrancyStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "status",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_uint256"
+        }
+      ]
+    },
+    "t_struct(RewardPoolStorage)_storage": {
+      "label": "struct NoxRewardPool.RewardPoolStorage",
+      "numberOfBytes": "384",
+      "members": [
+        {
+          "label": "noxRegistry",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_contract(INoxRegistry)"
+        },
+        {
+          "label": "isSupportedAsset",
+          "slot": "1",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_bool)"
+        },
+        {
+          "label": "totalCollected",
+          "slot": "2",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_uint256)"
+        },
+        {
+          "label": "totalDistributed",
+          "slot": "3",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_uint256)"
+        },
+        {
+          "label": "legacyNetworkLiability",
+          "slot": "4",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_uint256)"
+        },
+        {
+          "label": "legacyClassified",
+          "slot": "5",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_bool)"
+        },
+        {
+          "label": "newNetworkCollected",
+          "slot": "6",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_uint256)"
+        },
+        {
+          "label": "newNetworkDistributed",
+          "slot": "7",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_uint256)"
+        },
+        {
+          "label": "totalExitCredited",
+          "slot": "8",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_uint256)"
+        },
+        {
+          "label": "totalExitClaimed",
+          "slot": "9",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_uint256)"
+        },
+        {
+          "label": "claimableExit",
+          "slot": "10",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))"
+        },
+        {
+          "label": "settledExecution",
+          "slot": "11",
+          "offset": 0,
+          "type": "t_mapping(t_bytes32,t_bool)"
+        }
+      ]
+    },
+    "t_struct(RoleData)_storage": {
+      "label": "struct AccessControlUpgradeable.RoleData",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "label": "hasRole",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_bool)"
+        },
+        {
+          "label": "adminRole",
+          "slot": "1",
+          "offset": 0,
+          "type": "t_bytes32"
+        }
+      ]
+    },
+    "t_uint256": {
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_uint48": {
+      "label": "uint48",
+      "numberOfBytes": "6"
+    },
+    "t_uint64": {
+      "label": "uint64",
+      "numberOfBytes": "8"
+    }
+  }
 }
