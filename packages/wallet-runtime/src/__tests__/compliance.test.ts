@@ -69,7 +69,7 @@ describe("compliance key history", () => {
     expect(
       history.ring.epochs.map((e) => [e.version, e.pk, e.fromBlock]),
     ).toEqual([
-      [1, K[0], undefined],
+      [1, K[0], DEPLOY],
       [2, K[1], 20],
       [3, K[2], 30],
     ]);
@@ -170,6 +170,12 @@ describe("compliance key history", () => {
     const resumed = await readComplianceHistory(deps(chain, store));
     expect(resumed.history.currentVersion).toBe(4);
     expect(Math.min(...logStarts(chain))).toBe(41);
+    expect(resumed.history.ring.epochs.map((e) => e.fromBlock)).toEqual([
+      DEPLOY,
+      20,
+      30,
+      45,
+    ]);
 
     chain.reorgFrom(48);
     chain.calls.length = 0;
@@ -211,6 +217,24 @@ describe("compliance key history", () => {
     expect((await readComplianceHistory(d)).history.currentVersion).toBe(3);
     expect(Math.min(...logStarts(chain))).toBe(DEPLOY);
   });
+  it("starts over from a cache written without the initialization event", async () => {
+    const chain = rotatingChain({ initEvent: true });
+    const store = new MemoryStore();
+    const d = deps(chain, store);
+    await readComplianceHistory(d);
+    for (const [key, raw] of store.data) {
+      const snap = JSON.parse(raw) as { v: number; rotations: unknown[] };
+      store.data.set(
+        key,
+        JSON.stringify({ ...snap, v: 1, rotations: snap.rotations.slice(1) }),
+      );
+    }
+    chain.calls.length = 0;
+    const { history } = await readComplianceHistory(d);
+    expect(Math.min(...logStarts(chain))).toBe(DEPLOY);
+    expect(history.ring.epochs[0]!.fromBlock).toBe(DEPLOY);
+  });
+
   it("reads the current key at the head its logs reach, so a rotation landing mid-read cannot split them", async () => {
     const chain = rotatingChain({ initEvent: true });
     const d = deps(chain);

@@ -1,15 +1,12 @@
 import { Fr } from "@aztec/foundation/fields";
-import {
-  InMemoryEphemeralCounterStore,
-  type DarkAccount,
-} from "@hisoka/wallets";
-import { KeyRepository } from "@hisoka/wallets/reference";
+import { SelfEphemeralAllocator, type DarkAccount } from "@hisoka/wallets";
 import { DARK_POOL_INTERFACE, ERC20_INTERFACE } from "../../abi.js";
 import { SelfIndexDiscovery } from "../../adapters/selfIndex/selfIndex.js";
 import { RpcChainReader } from "../../chain/chainReader.js";
 import { RpcLogSource } from "../../chain/logs.js";
 import { readComplianceHistory } from "../../history/compliance.js";
 import { sweepNullifiers } from "../../history/nullifiers.js";
+import { PssEphemeralCounterStore } from "../../pss/counterStore.js";
 import type { PssStatePort } from "../../pss/noteMirror.js";
 import type { EntropyPort } from "../../spend/entropy.js";
 import { syncWallet } from "../../walletSync.js";
@@ -23,6 +20,7 @@ import type {
 } from "../../submit/ports.js";
 import { ASSET, evenSelfIndex, selfNote } from "./mint.js";
 import { accounts, COMPLIANCE_PK, SimPool } from "./pool.js";
+import { FakePss } from "./pss.js";
 import { ReferenceProver } from "./prover.js";
 import { MemoryStore } from "./store.js";
 
@@ -156,7 +154,7 @@ export interface RuntimeEnv {
   readonly notes: NoteStore;
   readonly prover: ReferenceProver;
   readonly submitter: PoolSubmitter;
-  readonly counter: InMemoryEphemeralCounterStore;
+  readonly counter: PssEphemeralCounterStore;
   readonly pss: { state: PssStatePort["state"] };
   readonly pipeline: SpendPipeline;
   readonly chain: RpcChainReader;
@@ -173,13 +171,10 @@ export async function runtimeEnv(height = 40): Promise<RuntimeEnv> {
   const logs = RpcLogSource.over(pool.chain.rpc, config);
   const index = await SelfIndexDiscovery.open({ config, chain, logs, store });
   const notes = await NoteStore.open(store, "hisoka.runtime.v1.test.notes");
-  const counter = new InMemoryEphemeralCounterStore();
-  const keys = new KeyRepository(alice, counter);
+  const pss = new FakePss();
+  const counter = new PssEphemeralCounterStore(pss);
   const prover = new ReferenceProver();
   const submitter = new PoolSubmitter(pool);
-  const pss: { state: PssStatePort["state"] } = {
-    state: { mode: "writer", heldBy: null },
-  };
   const historyDeps = { config, chain, logs, store };
   const pipeline = new SpendPipeline({
     config,
@@ -188,7 +183,7 @@ export async function runtimeEnv(height = 40): Promise<RuntimeEnv> {
     discovery: index,
     notes,
     pss,
-    allocator: { next: () => keys.nextSelfEphemeral() },
+    allocator: new SelfEphemeralAllocator(alice, counter),
     account: alice,
     prover,
     submitter,

@@ -47,7 +47,8 @@ interface Snapshot {
   readonly rotations: readonly Rotation[];
 }
 
-const CACHE_VERSION = 1;
+// 2: cached rotations keep the initialization event, so a resumed read keys version 1 by its block.
+const CACHE_VERSION = 2;
 
 /**
  * The complete compliance-key history, from the pool's own logs (version 1 from the deployment block, then
@@ -158,6 +159,7 @@ function v1Unknown(firstBlock: number, why: string, cause?: unknown): never {
 
 /**
  * Version 1 comes from the `ComplianceKeyRotated(0, 1, x, y)` that `initialize` emits in the deployment block.
+ * That event stays at the head of the returned rotations so the history keys version 1 from its block.
  * A pool initialized before that event existed has none; its version-1 key is then read from state at the
  * deployment block (an archive read), which is only sound when no rotation landed in that same block.
  */
@@ -181,7 +183,7 @@ async function splitVersionOne(
         `the initialization event sets version ${init.newVersion} at block ${init.block}; the configured deployment block is wrong`,
       );
     }
-    return { genesis: [init.x, init.y], rotations: fresh.slice(1) };
+    return { genesis: [init.x, init.y], rotations: fresh };
   }
 
   const sameBlock = fresh.find((r) => r.block === firstBlock);

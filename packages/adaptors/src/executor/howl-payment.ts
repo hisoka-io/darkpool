@@ -287,7 +287,9 @@ export function howlPaymentSource(
  * Pays from a FROST multisig note through the `HowlPaymentAdapter` instance built on `withdrawMultisig`.
  * `proveFeeWithdraw` runs the quorum signing over `msgWithdraw` (which signs `recipient` and `intentHash`)
  * and proves `withdraw_multisig`. `adapter` must be the instance whose `MULTISIG()` is true; the standard
- * source requires it false.
+ * source requires it false. Each signer must run `verifyFeeQuoteForSigning` from `@hisoka/wallet-runtime`
+ * before contributing a share: the signed intent is a hash of the quote, so only a signer that recomputes it
+ * from the quote preimage knows which fee and action the share approves.
  */
 export function howlMultisigPaymentSource(
   args: HowlPaymentSourceArgs,

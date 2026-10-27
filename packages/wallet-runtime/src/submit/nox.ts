@@ -1,6 +1,6 @@
 import { howlPaymentSource } from "@hisoka/adaptors";
-import { getBytes } from "ethers";
-import { describeCause } from "../errors.js";
+import { getBytes, type ContractRunner } from "ethers";
+import { describeCause, WalletRuntimeError } from "../errors.js";
 import type {
   FeeWithdrawProver,
   PoolCall,
@@ -98,7 +98,7 @@ export interface NoxSubmitterDeps {
   readonly executor: NoxPaidExecutor;
   readonly chainId: bigint;
   readonly entryPoint: string;
-  /** The `HowlPaymentAdapter` instance built on `withdraw`. */
+  /** The `HowlPaymentAdapter` instance built on `withdraw`; its `MULTISIG()` is read through `preflight`. */
   readonly paymentAdapter: string;
   /** Overrides the payment gas limit derived from the withdraw verifier profile. */
   readonly paymentGasLimit?: bigint;
@@ -107,6 +107,25 @@ export interface NoxSubmitterDeps {
   readonly intentSalt: Uint8Array;
   readonly preflight: NoxPaidOptions["preflight"];
   readonly actionGasLimit?: bigint;
+}
+
+/** Serves the payment source's adapter-kind read from the same `eth_call` port the paid execution preflights with. */
+function preflightRunner(
+  preflight: NoxPaidOptions["preflight"],
+): ContractRunner {
+  return {
+    provider: null,
+    call: async (tx) => {
+      if (typeof tx.to !== "string" || typeof tx.data !== "string") {
+        throw new WalletRuntimeError(
+          "SUBMIT_FAILED",
+          "the payment adapter read needs a plain address and calldata",
+          { stage: "payment" },
+        );
+      }
+      return preflight.call({ to: tx.to, data: tx.data }, "latest");
+    },
+  };
 }
 
 /** The resume token of an `unknown` paid result. */
@@ -165,6 +184,7 @@ export class NoxSubmitter implements SubmitterPort {
     const asset = fee.assetId.toBigInt();
     return howlPaymentSource({
       adapter: this.deps.paymentAdapter,
+      runner: preflightRunner(this.deps.preflight),
       feeAsset: `0x${asset.toString(16).padStart(40, "0")}`,
       feeNoteNullifier: `0x${fee.nullifier.toBigInt().toString(16).padStart(64, "0")}`,
       feeNoteValue: fee.value,

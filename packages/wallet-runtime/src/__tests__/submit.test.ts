@@ -166,7 +166,8 @@ function nox(results: NoxPaidResult[]) {
       maxTotalFee: 1_000n,
       intentSalt: new Uint8Array(32).fill(9),
       preflight: {
-        call: async () => "0x",
+        // The withdraw adapter instance: MULTISIG() answers false.
+        call: async () => `0x${"00".repeat(32)}`,
         estimateGas: async () => 21_000n,
       },
     }),
@@ -311,6 +312,49 @@ describe("Nox submitter", () => {
       await submitter.submit(CALL, { ...CONTEXT, fee: { ...FEE, value: 0n } }),
     ).toMatchObject({ status: "not-sent", stage: "payment" });
     expect(seen).toEqual([]);
+  });
+
+  it("reads the adapter kind through the preflight port and refuses the multisig instance before proving", async () => {
+    const reads: { to: string; data: string; block: bigint | "latest" }[] = [];
+    let proved = false;
+    const submitter = new NoxSubmitter({
+      executor: {
+        async execute(options) {
+          await options.payment.buildPaymentData({
+            executionId: new Uint8Array(32).fill(1),
+            amount: 5n,
+            feeAsset: options.payment.feeAsset,
+          });
+          throw new Error("the payment data must be refused");
+        },
+      },
+      chainId: 31337n,
+      entryPoint: "0x00000000000000000000000000000000000e0001",
+      paymentAdapter: ADAPTER,
+      maxTotalFee: 1_000n,
+      intentSalt: new Uint8Array(32).fill(9),
+      preflight: {
+        call: async (tx, block) => {
+          reads.push({ to: tx.to, data: tx.data, block });
+          return `0x${"00".repeat(31)}01`;
+        },
+        estimateGas: async () => 21_000n,
+      },
+    });
+    const fee: FeeWithdrawProver = {
+      ...FEE,
+      prove: async () => {
+        proved = true;
+        throw new Error("must not prove");
+      },
+    };
+    await expect(submitter.submit(CALL, { ...CONTEXT, fee })).rejects.toThrow(
+      /MULTISIG\(\) is true/,
+    );
+    expect(proved).toBe(false);
+    expect(reads.map((r) => ({ ...r, to: r.to.toLowerCase() }))).toEqual([
+      { to: ADAPTER, data: "0x2530b145", block: "latest" },
+    ]);
   });
 
   it("round-trips a resume token and refuses a malformed one", () => {

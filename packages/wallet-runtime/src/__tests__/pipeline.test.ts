@@ -549,7 +549,8 @@ function noxOver(env: RuntimeEnv, feeAmount: bigint) {
     maxTotalFee: 10n,
     intentSalt: new Uint8Array(32),
     preflight: {
-      call: async () => "0x",
+      // The withdraw adapter instance: MULTISIG() answers false.
+      call: async () => `0x${"00".repeat(32)}`,
       estimateGas: async () => 0n,
     },
   });
