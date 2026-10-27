@@ -23,7 +23,8 @@
  *   GUARDIAN_SAFE  guardian multisig (2-of-3), DarkPool pauser, NoxRegistry slasher, NoxRewardPool
  *                  admin + distributor. Explicitly NOT a Timelock canceller. Off test chains no owner of
  *                  one Safe may own the other, and each Safe needs a threshold of at least 2, no enabled
- *                  module and no guard (warnings on test chains).
+ *                  module and no guard (warnings on test chains), and must be a proxy whose singleton is
+ *                  an official Safe v1.3.0 or v1.4.1 singleton (SAFE_SINGLETONS).
  *   STAKING_TOKEN  ERC20 staking token. Required off local; a dev MockERC20 is deployed only on
  *                  hardhat/localhost, because it has an unpermissioned mint and NoxRegistry writes the
  *                  token once with no update path. Off test chains it must be the chain's WETH or USDC.
@@ -349,6 +350,58 @@ export interface SafeControls extends SafeOwnership {
   readonly modules: readonly string[];
   /** The raw guard storage word; any non-zero word counts as a guard. */
   readonly guardWord: string;
+  /** The raw storage word at slot 0, where a Safe proxy keeps its singleton. */
+  readonly singletonWord: string;
+}
+
+// Official Safe singletons, from safe-global/safe-deployments at commit b45417dd009957effb3575928941e736f8fd37d1:
+// src/assets/v1.3.0/gnosis_safe.json and gnosis_safe_l2.json (canonical and eip155 deployments), and
+// src/assets/v1.4.1/safe.json and safe_l2.json (canonical). Each address is listed there for chains 1, 10, 8453
+// and 42161. They are CREATE2 deployments, so an address carries the same reviewed code on every chain that has
+// it. Both versions keep the guard at the slot SAFE_GUARD_SLOT reads and the modules in the list
+// getModulesPaginated walks, which is what assertSafeControls checks. v1.5.0 adds a module guard at another slot
+// and is left out until those checks cover it.
+export const SAFE_SINGLETONS: ReadonlyMap<string, string> = new Map([
+  [
+    "0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552",
+    "v1.3.0 GnosisSafe (canonical)",
+  ],
+  ["0x69f4D1788e39c87893C980c06EdF4b7f686e2938", "v1.3.0 GnosisSafe (eip155)"],
+  [
+    "0x3E5c63644E683549055b9Be8653de26E0B4CD36E",
+    "v1.3.0 GnosisSafeL2 (canonical)",
+  ],
+  [
+    "0xfb1bffC9d739B8D520DaF37dF666da4C687191EA",
+    "v1.3.0 GnosisSafeL2 (eip155)",
+  ],
+  ["0x41675C099F32341bf84BFc5382aF534df5C7461a", "v1.4.1 Safe (canonical)"],
+  ["0x29fcB43b46531BcA003ddC8FCB67FFE91900C762", "v1.4.1 SafeL2 (canonical)"],
+]);
+const SAFE_SINGLETON_SLOT = 0n;
+
+/**
+ * Off the test chains, refuses a Safe whose proxy does not point at an official Safe singleton: a contract that
+ * merely answers the Safe getters can report any owners, threshold, modules and guard. Returns the singleton's
+ * description, or null on a test chain where it is not one.
+ */
+export function assertSafeSingleton(
+  chainId: bigint,
+  safe: SafeControls,
+): string | null {
+  const word = safe.singletonWord.toLowerCase();
+  const highBytesClear = /^0x0{24}[0-9a-f]{40}$/.test(word);
+  const singleton = highBytesClear
+    ? ethers.getAddress(ethers.dataSlice(word, 12))
+    : null;
+  const known = singleton === null ? undefined : SAFE_SINGLETONS.get(singleton);
+  if (known !== undefined) return known;
+  if (isTestChain(chainId)) return null;
+  throw new Error(
+    `${safe.label} ${safe.address} has storage slot 0 ${safe.singletonWord}, which is not an official Safe ` +
+      "v1.3.0 or v1.4.1 singleton (SAFE_SINGLETONS); a launch Safe must be a Safe proxy deployed from the " +
+      "official contracts.",
+  );
 }
 
 /**
@@ -402,6 +455,10 @@ async function readSafe(label: string, address: string): Promise<SafeControls> {
       threshold,
       modules: modules.map((m) => ethers.getAddress(m)),
       guardWord: await ethers.provider.getStorage(address, SAFE_GUARD_SLOT),
+      singletonWord: await ethers.provider.getStorage(
+        address,
+        SAFE_SINGLETON_SLOT,
+      ),
     };
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
@@ -1081,6 +1138,40 @@ export function assertNoPriorDeployment(
   );
 }
 
+/**
+ * The record and secrets base name for one run: the network, the UTC time to the millisecond and a random suffix,
+ * so two runs never share a name, even in the same millisecond or across machines writing to one directory.
+ */
+export function deploymentBaseName(
+  networkName: string,
+  now: Date = new Date(),
+  suffix: string = crypto.randomBytes(4).toString("hex"),
+): string {
+  const stamp = now.toISOString().replace(/[:.]/g, "-").slice(0, 23);
+  return `${networkName}-${stamp}-${suffix}`;
+}
+
+/**
+ * Creates `file` and refuses if it already exists: a record or a compliance secret from another run is never
+ * overwritten, since a lost secret leaves every note encrypted to its key undecryptable.
+ */
+export function writeNewFile(
+  file: string,
+  content: string,
+  mode: number = 0o666,
+): void {
+  try {
+    fs.writeFileSync(file, content, { flag: "wx", mode });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new Error(
+        `${file} already exists; refusing to overwrite another deployment's file. Re-run to get a fresh name.`,
+      );
+    }
+    throw e;
+  }
+}
+
 /** Narrowed to what a mis-wiring needs, so the test seams cannot be used to reach anything else. */
 export interface MisWiringContext {
   readonly grantCanceller: (account: string) => Promise<void>;
@@ -1188,6 +1279,10 @@ export async function deploy(
   ] as const) {
     if ((await ethers.provider.getCode(addr)) !== "0x") {
       const safe = await readSafe(label, addr);
+      const singleton = assertSafeSingleton(rulesChainId, safe);
+      if (singleton !== null) {
+        console.log(`  ${label} singleton: ${singleton}`);
+      }
       const problems = assertSafeControls(rulesChainId, safe);
       if (problems.length > 0) {
         console.log(
@@ -1317,17 +1412,23 @@ export async function deploy(
   const startBlock = await ethers.provider.getBlockNumber();
   const startTime = new Date().toISOString();
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const baseName = deploymentBaseName(network.name);
   const deployDir =
     process.env.DEPLOYMENTS_DIR ?? path.join(__dirname, "../deployments");
   fs.mkdirSync(deployDir, { recursive: true });
-  const deployFile = path.join(deployDir, `${network.name}-${timestamp}.json`);
+  const deployFile = path.join(deployDir, `${baseName}.json`);
   const latestFile = path.join(deployDir, `${network.name}-latest.json`);
   assertNoPriorDeployment(latestFile, isLocal);
-  const secretsFile = path.join(
-    deployDir,
-    `${network.name}-${timestamp}.secrets.json`,
-  );
+  const secretsFile = path.join(deployDir, `${baseName}.secrets.json`);
+  // writeRecord creates this run's record exclusively on its first call and refreshes the same file after.
+  let recordCreated = false;
+  for (const file of [deployFile, secretsFile]) {
+    if (fs.existsSync(file)) {
+      throw new Error(
+        `${file} already exists before any transaction; refusing to overwrite another deployment's file.`,
+      );
+    }
+  }
 
   console.log(`Step 0: ${COMPLIANCE_SOURCE_LABELS[compliance.source]}.`);
 
@@ -1336,7 +1437,7 @@ export async function deploy(
   // every note encrypted to it would be permanently undecryptable. The file is gitignored alongside the
   // record and is owner-read-only.
   if (compliance.source === "generated" && compliance.sk !== null) {
-    fs.writeFileSync(
+    writeNewFile(
       secretsFile,
       JSON.stringify(
         {
@@ -1350,7 +1451,7 @@ export async function deploy(
         null,
         2,
       ),
-      { mode: 0o600 },
+      0o600,
     );
     console.log(`  Compliance secret written to ${secretsFile}`);
   }
@@ -1708,8 +1809,8 @@ export async function deploy(
     proxyImplementationCodeHashes[name] = ethers.keccak256(implementationCode);
   }
 
-  // The module is registered by the Timelock (UPGRADER_ROLE), so the deploy records the exact call; once it has
-  // executed, scripts/check-kage-module.ts compares the registered module with KAGE_MODULE_LAYOUT.
+  // The module is registered by the Timelock (UPGRADER_ROLE), so the deploy records the exact call;
+  // scripts/check-kage-module.ts checks the scheduled call before execution and the registered module after it.
   const kageRecord =
     kage === null
       ? null
@@ -2428,8 +2529,11 @@ export async function deploy(
 
   async function writeRecord(latest: boolean): Promise<string> {
     const record = buildRecord(await ethers.provider.getBlockNumber());
-    fs.writeFileSync(deployFile, JSON.stringify(record, null, 2));
-    if (latest) fs.writeFileSync(latestFile, JSON.stringify(record, null, 2));
+    const json = JSON.stringify(record, null, 2);
+    if (recordCreated) fs.writeFileSync(deployFile, json);
+    else writeNewFile(deployFile, json);
+    recordCreated = true;
+    if (latest) fs.writeFileSync(latestFile, json);
     return deployFile;
   }
 
@@ -2453,7 +2557,8 @@ export async function deploy(
     console.log(`  KageRegistry:  ${kageRecord.registry}`);
     console.log(`  KageSettlement:${kageRecord.settlement}`);
     console.log(
-      `  Kage module registration (Timelock call, then run scripts/check-kage-module.ts): target ` +
+      `  Kage module registration (Timelock call; once scheduled run scripts/check-kage-module.ts with ` +
+        `KAGE_OPERATION_ID=<operation id>, and again without it after execution): target ` +
         `${kageRecord.moduleRegistration.target} data ${kageRecord.moduleRegistration.data}`,
     );
   }

@@ -7,11 +7,17 @@ import * as os from "os";
 import {
   assertNoPriorDeployment,
   deploy,
+  deploymentBaseName,
   governanceDelays,
+  writeNewFile,
   type DeployOptions,
 } from "../../scripts/deploy";
 
-const DEPLOY_DIR = path.join(__dirname, "../../deployments");
+// Every deploy in this file writes here, so no other run's record, latest pointer or secret can be read back.
+const DEPLOY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "deploy-script-"));
+after(function () {
+  fs.rmSync(DEPLOY_DIR, { recursive: true, force: true });
+});
 const GOV_SAFE = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 const GUARDIAN_SAFE = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
 const THIRD_PARTY = "0x90F79bf6EB2c4f870365E785982E1f101E93b906";
@@ -57,7 +63,10 @@ async function runDeploy(
   options: DeployOptions = {},
 ): Promise<{ ok: boolean; output: string }> {
   const saved: Record_<string | undefined> = {};
-  for (const [k, v] of Object.entries(env)) {
+  for (const [k, v] of Object.entries({
+    DEPLOYMENTS_DIR: DEPLOY_DIR,
+    ...env,
+  })) {
     saved[k] = process.env[k];
     if (v === "") delete process.env[k];
     else process.env[k] = v;
@@ -442,13 +451,29 @@ describe("deploy script", function () {
     ).to.be.greaterThan(0);
   });
 
+  it("writes this run's record and secrets under one unique name in its own directory", function () {
+    const deployFile = /Deployment record: (\S+)/.exec(result.output)?.[1];
+    const secretsFile = /Compliance secret written to (\S+)/.exec(
+      result.output,
+    )?.[1];
+    expect(deployFile, "record path").to.be.a("string");
+    expect(secretsFile, "secrets path").to.be.a("string");
+    expect(path.dirname(deployFile as string)).to.equal(DEPLOY_DIR);
+    const base = path.basename(deployFile as string, ".json");
+    expect(base).to.match(
+      /^hardhat-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{8}$/,
+    );
+    expect(secretsFile).to.equal(path.join(DEPLOY_DIR, `${base}.secrets.json`));
+    expect(
+      JSON.parse(fs.readFileSync(deployFile as string, "utf8")),
+    ).to.deep.equal(latestRecord());
+  });
+
   it("persists the compliance secret before any transaction, owner-readable only", async function () {
-    const secrets = fs
-      .readdirSync(DEPLOY_DIR)
-      .filter((f) => f.startsWith("hardhat-") && f.endsWith(".secrets.json"))
-      .sort();
-    const newest = path.join(DEPLOY_DIR, secrets[secrets.length - 1]);
-    const parsed = JSON.parse(fs.readFileSync(newest, "utf8")) as {
+    const ownSecrets =
+      /Compliance secret written to (\S+)/.exec(result.output)?.[1] ?? "";
+    expect(path.dirname(ownSecrets)).to.equal(DEPLOY_DIR);
+    const parsed = JSON.parse(fs.readFileSync(ownSecrets, "utf8")) as {
       complianceSecretKey: string;
     };
     expect(parsed.complianceSecretKey).to.match(/^[0-9]+$/);
@@ -463,12 +488,48 @@ describe("deploy script", function () {
     const [onChainX, onChainY] = await darkPool.complianceKey();
     expect(derived[0].toString()).to.equal(onChainX.toString());
     expect(derived[1].toString()).to.equal(onChainY.toString());
-    expect(fs.statSync(newest).mode & 0o777).to.equal(0o600);
+    expect(fs.statSync(ownSecrets).mode & 0o777).to.equal(0o600);
     // The log line proves ordering: the secret is on disk before Step 1 deploys anything.
     const written = result.output.indexOf("Compliance secret written to");
     const firstDeploy = result.output.indexOf("Step 1: Poseidon2");
     expect(written).to.be.greaterThan(-1);
     expect(written).to.be.lessThan(firstDeploy);
+  });
+});
+
+describe("deploy script file naming", function () {
+  let dir: string;
+
+  beforeEach(function () {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "deploy-names-"));
+  });
+
+  afterEach(function () {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("gives two runs in the same millisecond different names", function () {
+    const now = new Date("2026-10-27T12:34:56.789Z");
+    const first = deploymentBaseName("arbitrumSepolia", now);
+    const second = deploymentBaseName("arbitrumSepolia", now);
+    expect(first).to.match(
+      /^arbitrumSepolia-2026-10-27T12-34-56-789-[0-9a-f]{8}$/,
+    );
+    expect(second).to.not.equal(first);
+  });
+
+  it("refuses to overwrite an existing record or secrets file", function () {
+    const file = path.join(dir, "arbitrumSepolia-earlier.secrets.json");
+    fs.writeFileSync(file, '{"complianceSecretKey":"1"}', { mode: 0o600 });
+    expect(() => writeNewFile(file, "{}", 0o600)).to.throw(
+      "already exists; refusing to overwrite another deployment's file",
+    );
+    expect(fs.readFileSync(file, "utf8")).to.equal(
+      '{"complianceSecretKey":"1"}',
+    );
+    const fresh = path.join(dir, "arbitrumSepolia-new.secrets.json");
+    writeNewFile(fresh, "{}", 0o600);
+    expect(fs.statSync(fresh).mode & 0o777).to.equal(0o600);
   });
 });
 
