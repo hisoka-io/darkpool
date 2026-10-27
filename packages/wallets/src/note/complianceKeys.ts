@@ -114,6 +114,7 @@ export class ComplianceKeyRing {
     genesisBlock?: number,
   ): ComplianceKeyRing {
     const init = splitInitialization(genesis, rotations, genesisBlock);
+    assertInitializationBlock(init.genesisBlock);
     const epochs: ComplianceKeyEpoch[] = [
       {
         version: COMPLIANCE_INITIAL_VERSION,
@@ -224,6 +225,15 @@ function splitInitialization(
   };
 }
 
+function assertInitializationBlock(block: number | undefined): void {
+  if (block !== undefined && (!Number.isSafeInteger(block) || block < 0)) {
+    throw new ComplianceKeyError(
+      "INVALID_VERSION_SEQUENCE",
+      `compliance initialization block ${block} is not a block number`,
+    );
+  }
+}
+
 /** Trusted application/Raven history, validated for internal sequence and current-key consistency. */
 export interface CompleteComplianceHistory {
   readonly ring: ComplianceKeyRing;
@@ -258,16 +268,8 @@ export function completeComplianceHistory(input: {
 }): CompleteComplianceHistory {
   assertVersion(input.currentVersion, "current compliance version");
   const init = splitInitialization(input.genesisPk, input.rotations, undefined);
-  let previousBlock = -1;
-  if (init.genesisBlock !== undefined) {
-    if (!Number.isSafeInteger(init.genesisBlock) || init.genesisBlock < 0) {
-      throw new ComplianceKeyError(
-        "INVALID_VERSION_SEQUENCE",
-        `compliance initialization block ${init.genesisBlock} is not a block number`,
-      );
-    }
-    previousBlock = init.genesisBlock;
-  }
+  assertInitializationBlock(init.genesisBlock);
+  let previousBlock = init.genesisBlock ?? -1;
   const epochs: ComplianceKeyEpoch[] = [
     {
       version: COMPLIANCE_INITIAL_VERSION,

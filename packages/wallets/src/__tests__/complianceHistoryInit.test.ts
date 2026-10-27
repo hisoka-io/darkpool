@@ -205,6 +205,29 @@ describe("compliance history from a real deployment's ComplianceKeyRotated log",
       ).toBe("INVALID_VERSION_SEQUENCE");
     });
 
+    it.each([-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
+      "an initialization event at block %s, which is not a block number",
+      (blockNumber: number) => {
+        const rotations = [{ ...init, blockNumber }, ...rest];
+        expect(
+          reasonOf(() => ComplianceKeyRing.fromRotations(GENESIS, rotations)),
+        ).toBe("INVALID_VERSION_SEQUENCE");
+        expect(() =>
+          ComplianceKeyRing.fromRotations(GENESIS, rotations),
+        ).toThrow(/initialization block .* is not a block number/);
+        expect(
+          reasonOf(() =>
+            completeComplianceHistory({
+              genesisPk: GENESIS,
+              rotations,
+              currentPk: CURRENT,
+              currentVersion: 3,
+            }),
+          ),
+        ).toBe("INVALID_VERSION_SEQUENCE");
+      },
+    );
+
     it("an initialization event dated after the first rotation", () => {
       expect(
         reasonOf(() =>
