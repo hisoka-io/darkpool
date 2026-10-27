@@ -5,6 +5,7 @@ import {
   type ContractRunner,
   dataLength,
   dataSlice,
+  FunctionFragment,
   getAddress,
   getBytes,
   hexlify,
@@ -34,34 +35,56 @@ const WITHDRAW_SPEND: SpendLayout = {
 const TRANSFER_SPEND: SpendLayout = { publicInputs: 24, nullifierInputs: [2] };
 const SPLIT_SPEND: SpendLayout = { publicInputs: 22, nullifierInputs: [2] };
 const JOIN_SPEND: SpendLayout = { publicInputs: 14, nullifierInputs: [2, 3] };
+/**
+ * `DarkPool.settle` reads a module's vector as `[compliance x, y, timestamp, nullifier_1..k, root, outputs...]`;
+ * Kage registers k = 2 nullifiers and 4 outputs of 9 words, no module words.
+ */
+const KAGE_SETTLE_SPEND: SpendLayout = {
+  publicInputs: 3 + 2 + 1 + 4 * 9,
+  nullifierInputs: [3, 4],
+};
 
 const BUNDLE_EXECUTE_SIGNATURE = BUNDLE_EXECUTE_FRAGMENT.format("sighash");
 
 interface SpendEntrypoint extends SpendLayout {
   readonly signature: string;
+  readonly fragment: FunctionFragment;
+  /** Argument position of the spend's public inputs. */
+  readonly publicInputsArg: number;
 }
 
 /**
- * Every entrypoint whose first two arguments are a spend proof and its public inputs: the `DarkPool` spends
- * and the adaptors that forward a withdraw. `BundleExecutor.execute` is also searched through its bound calls.
+ * Every entrypoint that carries a spend proof and its public inputs: the `DarkPool` spends, the adaptors that
+ * forward a withdraw, and `KageSettlement.settleSwap`. `BundleExecutor.execute` is also searched through its
+ * bound calls.
  */
 const SPEND_ENTRYPOINTS: ReadonlyMap<string, SpendEntrypoint> = new Map(
   (
     [
-      ["withdraw(bytes,bytes32[])", WITHDRAW_SPEND],
-      ["withdrawMultisig(bytes,bytes32[])", WITHDRAW_SPEND],
-      ["privateTransfer(bytes,bytes32[])", TRANSFER_SPEND],
-      ["transferMultisig(bytes,bytes32[])", TRANSFER_SPEND],
-      ["split(bytes,bytes32[])", SPLIT_SPEND],
-      ["splitMultisig(bytes,bytes32[])", SPLIT_SPEND],
-      ["join(bytes,bytes32[])", JOIN_SPEND],
-      ["joinMultisig(bytes,bytes32[])", JOIN_SPEND],
-      ["executeSwap(bytes,bytes32[],uint8,bytes,uint256)", WITHDRAW_SPEND],
-      [BUNDLE_EXECUTE_SIGNATURE, WITHDRAW_SPEND],
+      ["withdraw(bytes,bytes32[])", WITHDRAW_SPEND, 1],
+      ["withdrawMultisig(bytes,bytes32[])", WITHDRAW_SPEND, 1],
+      ["privateTransfer(bytes,bytes32[])", TRANSFER_SPEND, 1],
+      ["transferMultisig(bytes,bytes32[])", TRANSFER_SPEND, 1],
+      ["split(bytes,bytes32[])", SPLIT_SPEND, 1],
+      ["splitMultisig(bytes,bytes32[])", SPLIT_SPEND, 1],
+      ["join(bytes,bytes32[])", JOIN_SPEND, 1],
+      ["joinMultisig(bytes,bytes32[])", JOIN_SPEND, 1],
+      ["executeSwap(bytes,bytes32[],uint8,bytes,uint256)", WITHDRAW_SPEND, 1],
+      [
+        "settleSwap(uint256,uint256,bytes,bytes,bytes32[])",
+        KAGE_SETTLE_SPEND,
+        4,
+      ],
+      [BUNDLE_EXECUTE_SIGNATURE, WITHDRAW_SPEND, 1],
     ] as const
-  ).map(([signature, layout]) => [
+  ).map(([signature, layout, publicInputsArg]) => [
     dataSlice(id(signature), 0, 4),
-    { signature, ...layout },
+    {
+      signature,
+      fragment: FunctionFragment.from(`function ${signature}`),
+      publicInputsArg,
+      ...layout,
+    },
   ]),
 );
 
@@ -346,10 +369,11 @@ function assertActionSparesNote(
         (call) => call.data,
       );
     } else {
-      [, publicInputs] = AbiCoder.defaultAbiCoder().decode(
-        ["bytes", "bytes32[]"],
+      const decoded = AbiCoder.defaultAbiCoder().decode(
+        entrypoint.fragment.inputs,
         args,
-      ) as unknown as [string, string[]];
+      );
+      publicInputs = decoded[entrypoint.publicInputsArg] as string[];
     }
   } catch {
     throw new AdaptorError(

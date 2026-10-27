@@ -37,6 +37,14 @@ import {
   howlPaymentSource,
   howlWithdrawActionGasLimit,
 } from "@hisoka/adaptors";
+import { KAGE_PROOF, KAGE_PUBLIC_INPUTS } from "../integration/kageGolden";
+import {
+  HOT_KEY,
+  SETTLE_WINDOW,
+  deployKageFixture,
+  messageFor,
+  signSettlement,
+} from "../kage/kageFixtures";
 
 const QUOTE_TYPES = {
   ExecutionQuote: [
@@ -1175,6 +1183,59 @@ describe("Howl payment source spend veto against the compiled pool", function ()
         alice.sendTransaction({ to: await darkPool.getAddress(), data: short }),
       ).to.be.revertedWithCustomError(darkPool, "InvalidInputsLength");
     }
+  });
+
+  it("vetoes exactly the nullifiers a Kage settlement spends through the compiled module", async function () {
+    const d = await loadFixture(deployKageFixture);
+    const deadline = BigInt(await time.latest()) + SETTLE_WINDOW;
+    const sig = await signSettlement(
+      HOT_KEY,
+      await messageFor(d, KAGE_PUBLIC_INPUTS, deadline),
+    );
+    const action = d.settlement.interface.encodeFunctionData("settleSwap", [
+      d.solverId,
+      deadline,
+      sig,
+      KAGE_PROOF,
+      KAGE_PUBLIC_INPUTS,
+    ]);
+    const receipt = await (
+      await d.solverOwner.sendTransaction({
+        to: await d.settlement.getAddress(),
+        data: action,
+      })
+    ).wait();
+    const spent = receipt!.logs
+      .filter(
+        (log) =>
+          log.address === (d.darkPool.target as string) &&
+          log.topics[0] ===
+            d.darkPool.interface.getEvent("NullifierSpent").topicHash,
+      )
+      .map((log) =>
+        KAGE_PUBLIC_INPUTS.indexOf(
+          d.darkPool.interface.parseLog(log)!.args[0] as string,
+        ),
+      );
+    expect(spent).to.deep.equal([3, 4]);
+
+    const vetoed = KAGE_PUBLIC_INPUTS.map((word, i) =>
+      word !== ethers.ZeroHash && vetoes(word, action) ? i : -1,
+    ).filter((i) => i >= 0);
+    expect(vetoed).to.deep.equal(spent);
+
+    const short = d.settlement.interface.encodeFunctionData("settleSwap", [
+      d.solverId,
+      deadline,
+      sig,
+      KAGE_PROOF,
+      KAGE_PUBLIC_INPUTS.slice(0, -1),
+    ]);
+    expect(() =>
+      sourceFor(KAGE_PUBLIC_INPUTS[3]!).checkAction({
+        data: ethers.getBytes(short),
+      }),
+    ).to.throw(`requires ${KAGE_PUBLIC_INPUTS.length} public inputs`);
   });
 
   it("vetoes the fee note in the compiled swap and bundle entrypoints", async function () {

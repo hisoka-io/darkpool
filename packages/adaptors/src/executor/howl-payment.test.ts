@@ -543,6 +543,7 @@ const spendIface = new Interface([
   "function joinMultisig(bytes proof, bytes32[] publicInputs)",
   "function withdraw(bytes proof, bytes32[] publicInputs)",
   "function executeSwap(bytes proof, bytes32[] publicInputs, uint8 swapType, bytes encodedParams, uint256 deadline)",
+  "function settleSwap(uint256 solverId, uint256 deadline, bytes solverSignature, bytes proof, bytes32[] publicInputs)",
 ]);
 
 /** `DarkPool` input counts and nullifier positions (`_transfer`, `_split`, `_join`). */
@@ -613,6 +614,41 @@ describe("Howl payment source spend veto", () => {
       ).toThrow(new RegExp(`requires ${spend.inputs} public inputs`));
     });
   }
+
+  it("vetoes a Kage settlement that spends the fee note as taker or maker", () => {
+    const payment = source();
+    const settle = (inputs: number, overrides: Record<number, string>) => {
+      const publicInputs = Array<string>(inputs).fill(word(0n));
+      for (const [index, value] of Object.entries(overrides)) {
+        publicInputs[Number(index)] = value;
+      }
+      return getBytes(
+        spendIface.encodeFunctionData("settleSwap", [
+          1n,
+          1893456000n,
+          "0xabcd",
+          "0x0102",
+          publicInputs,
+        ]),
+      );
+    };
+    for (const position of [3, 4]) {
+      expect(() =>
+        payment.checkAction({ data: settle(42, { [position]: PAYMENT_ID }) }),
+      ).toThrow(
+        new RegExp(
+          `spends the fee note through settleSwap\\(uint256,uint256,bytes,bytes,bytes32\\[\\]\\) \\(public input ${position}\\)`,
+        ),
+      );
+    }
+    payment.checkAction({ data: settle(42, { 3: OTHER_NOTE, 4: OTHER_NOTE }) });
+    for (const position of [0, 2, 5, 6, 41]) {
+      payment.checkAction({ data: settle(42, { [position]: PAYMENT_ID }) });
+    }
+    expect(() =>
+      payment.checkAction({ data: settle(41, { 3: OTHER_NOTE }) }),
+    ).toThrow(/requires 42 public inputs, got 41/);
+  });
 
   it("vetoes a swap whose withdraw spends the fee note", () => {
     const payment = source();
