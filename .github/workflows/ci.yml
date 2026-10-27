@@ -225,7 +225,7 @@ jobs:
           out="$(GAS_BENCH=1 pnpm --filter evm-contracts exec hardhat test test/benchmark/Gas.bench.ts 2>&1)" || rc=$?
           echo "$out"
           test "$rc" -eq 0 || { echo "::error::gas guard exited $rc"; exit 1; }
-          echo "$out" | grep -qE '11 passing' || { echo "::error::gas guard did not run all 10 entrypoints and settle"; exit 1; }
+          echo "$out" | grep -qE '11 passing' || { echo "::error::gas guard did not run all 10 entrypoints and settleSwap"; exit 1; }
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
       - name: Run invariant tests (Foundry)
