@@ -175,7 +175,11 @@
     "t_enum(RelayerStatus)": {
       "label": "enum NoxRegistry.RelayerStatus",
       "numberOfBytes": "1",
-      "members": ["None", "Registered", "Unstaking"]
+      "members": [
+        "None",
+        "Registered",
+        "Unstaking"
+      ]
     },
     "t_mapping(t_address,t_bool)": {
       "label": "mapping(address => bool)",

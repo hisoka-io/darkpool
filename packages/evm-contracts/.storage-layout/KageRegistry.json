@@ -154,7 +154,12 @@
     "t_enum(SolverStatus)": {
       "label": "enum KageRegistry.SolverStatus",
       "numberOfBytes": "1",
-      "members": ["None", "Active", "Exiting", "Exited"]
+      "members": [
+        "None",
+        "Active",
+        "Exiting",
+        "Exited"
+      ]
     },
     "t_mapping(t_address,t_bool)": {
       "label": "mapping(address => bool)",
