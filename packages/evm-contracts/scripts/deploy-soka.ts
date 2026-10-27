@@ -1,5 +1,6 @@
 /**
- * Deploys SOKA, the Nox staking and execution-fee token, and records it.
+ * Deploys SOKA, the Nox staking and execution-fee token, and records it. Test chains only: SOKA is
+ * owner-mintable, so a launch chain stakes and pays fees in WETH or USDC instead.
  *
  * Required env off hardhat/localhost:
  *   SOKA_TREASURY  receives the whole initial supply
@@ -19,6 +20,7 @@
 import { ethers, network, run } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
+import { isTestChain } from "./deploy";
 
 const SOKA_DECIMALS = 18;
 
@@ -90,10 +92,20 @@ function readLatest(latestFile: string): SokaRecord | null {
   return JSON.parse(fs.readFileSync(latestFile, "utf8")) as SokaRecord;
 }
 
+/** Refuses every chain outside the test chains deploy.ts accepts short delays on. */
+export function assertSokaChain(chainId: bigint): void {
+  if (!isTestChain(chainId)) {
+    throw new Error(
+      `SOKA is a test-chain token; refusing to deploy it on chain id ${chainId}.`,
+    );
+  }
+}
+
 export async function deploySoka(): Promise<SokaDeployResult> {
   const [deployer] = await ethers.getSigners();
   const chainId = (await ethers.provider.getNetwork()).chainId;
   const isLocal = network.name === "hardhat" || network.name === "localhost";
+  assertSokaChain(chainId);
 
   const treasury = addressFromEnv(
     "SOKA_TREASURY",
