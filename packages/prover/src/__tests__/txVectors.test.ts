@@ -11,7 +11,7 @@
  * REGENERATE (only when the witness shape legitimately changes, and say why in the commit):
  *   GEN_TX_VECTORS=1 npx vitest run src/__tests__/txVectors.test.ts
  */
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -307,7 +307,16 @@ async function buildVectors(): Promise<Record<string, unknown>> {
   };
 }
 
+// One build is two mnemonic derivations plus preflight and six assemblies, measured at 2.5-5.5 s alone and under
+// the full suite; the shared build gets about ten times the worst run.
+const BUILD_VECTORS_TIMEOUT_MS = 60_000;
+
 describe("transaction golden vectors", () => {
+  let built: Record<string, unknown>;
+  beforeAll(async () => {
+    built = await buildVectors();
+  }, BUILD_VECTORS_TIMEOUT_MS);
+
   it("pins the protocol modulus to the installed field implementation", () => {
     expect(BigInt(BN254_FR_MODULUS)).toBe(Fr.MODULUS);
   });
@@ -398,9 +407,7 @@ describe("transaction golden vectors", () => {
     expect(frozen.public_claim).toBeDefined();
   });
 
-  it("assembly marshals byte-identically to the frozen contract", async () => {
-    const built = await buildVectors();
-
+  it("assembly marshals byte-identically to the frozen contract", () => {
     if (process.env["GEN_TX_VECTORS"] === "1") {
       writeFileSync(VECTORS, `${JSON.stringify(built, null, 2)}\n`);
       console.log(`wrote ${VECTORS}`);
@@ -415,12 +422,12 @@ describe("transaction golden vectors", () => {
     expect(built).toEqual(frozen);
   });
 
-  it("the join vector is index-ordered, which the circuit asserts", async () => {
-    const built = (await buildVectors()) as {
+  it("the join vector is index-ordered, which the circuit asserts", () => {
+    const vectors = built as {
       join: { witness: { index_a: string; index_b: string } };
     };
-    expect(Number(built.join.witness.index_a)).toBeLessThan(
-      Number(built.join.witness.index_b),
+    expect(Number(vectors.join.witness.index_a)).toBeLessThan(
+      Number(vectors.join.witness.index_b),
     );
   });
 });
