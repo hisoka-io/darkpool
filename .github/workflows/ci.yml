@@ -51,8 +51,8 @@ jobs:
           echo "$out"
           test "${rc:-0}" -eq 0 || { echo "::error::vendored noir-edwards tests exited ${rc}"; exit 1; }
           # The crate is frozen by hash, so its count moves only with a reviewed re-vendor.
-          echo "$out" | grep -qE "[^0-9]17 tests passed" \
-            || { echo "::error::vendored noir-edwards did not report exactly 17 passing tests"; exit 1; }
+          echo "$out" | grep -qE "[^0-9]20 tests passed" \
+            || { echo "::error::vendored noir-edwards did not report exactly 20 passing tests"; exit 1; }
       - name: VK byte-identity (recompile, re-derive every VK, compare to the committed pins)
         run: bash scripts/check-vk-identity.sh
       - name: Check soundness harness formatting
@@ -112,8 +112,8 @@ jobs:
           # tsconfig excludes test files and vitest strips types.
           # The filter names every package that HAS a typecheck script except evm-contracts, which the
           # evm-tests job runs itself. Adding a script without adding it here leaves it unenforced.
-          echo "$out" | grep -qE "Tasks: +13 successful, 13 total" \
-            || { echo "::error::expected 13 typecheck tasks; a filter or a package script is missing"; exit 1; }
+          echo "$out" | grep -qE "Tasks: +15 successful, 15 total" \
+            || { echo "::error::expected 15 typecheck tasks; a filter or a package script is missing"; exit 1; }
       - name: Test howl-protocol
         run: |
           out="$(pnpm --filter @hisoka/howl-protocol run test 2>&1)" || rc=$?
@@ -145,8 +145,8 @@ jobs:
           out="$(pnpm --filter @hisoka/wallet-runtime run test 2>&1)" || rc=$?
           echo "$out"
           test "${rc:-0}" -eq 0 || { echo "::error::wallet-runtime tests exited ${rc}"; exit 1; }
-          echo "$out" | grep -qE "Tests +73 passed \(73\)" \
-            || { echo "::error::wallet-runtime did not report exactly 73 passing tests"; exit 1; }
+          echo "$out" | grep -qE "Tests +185 passed \(185\)" \
+            || { echo "::error::wallet-runtime did not report exactly 185 passing tests"; exit 1; }
       - name: Browser bundle gate (wallets)
         run: |
           # Bundle-only: proves the crypto core still resolves for a browser target, which is what breaks
@@ -163,8 +163,8 @@ jobs:
           # step is not evidence the suite ran. Assert a non-zero pass count.
           # Exact, not a wildcard: vitest prints "Tests N passed | M skipped" and exits 0, so a
           # partially skipped suite would satisfy a [0-9]+ match while covering less than it claims.
-          echo "$out" | grep -qE "Tests +197 passed \(197\)" \
-            || { echo "::error::pss-client did not report exactly 197 passing tests"; exit 1; }
+          echo "$out" | grep -qE "Tests +206 passed \(206\)" \
+            || { echo "::error::pss-client did not report exactly 206 passing tests"; exit 1; }
       - name: Test pss-server
         run: |
           out="$(pnpm --filter @hisoka/pss-server run test 2>&1)" || rc=$?
@@ -176,15 +176,16 @@ jobs:
         run: |
           # Through turbo, not pnpm --filter, so `test.dependsOn: ["^build"]` rebuilds pss-client and
           # pss-server first. This suite resolves them through dist, so a pnpm --filter run would grade
-          # whatever bundle happened to be on disk. Five tasks: the test plus the pss-client, pss-server,
-          # wallets and howl-protocol builds (wallets imports howl-protocol at runtime).
+          # whatever bundle happened to be on disk. Seven tasks: the test plus the pss-client, pss-server,
+          # wallets, howl-protocol, wallet-runtime and adaptors builds (wallets imports howl-protocol and
+          # wallet-runtime imports adaptors at runtime).
           out="$(pnpm turbo run test --filter=@hisoka/pss-integration --force 2>&1)" || rc=$?
           echo "$out"
           test "${rc:-0}" -eq 0 || { echo "::error::pss-integration tests exited ${rc}"; exit 1; }
-          echo "$out" | grep -qE "Tests +17 passed \(17\)" \
-            || { echo "::error::pss-integration did not report exactly 17 passing tests"; exit 1; }
-          echo "$out" | grep -qE "Tasks: +5 successful, 5 total" \
-            || { echo "::error::expected 5 turbo tasks; a build dependency is missing"; exit 1; }
+          echo "$out" | grep -qE "Tests +19 passed \(19\)" \
+            || { echo "::error::pss-integration did not report exactly 19 passing tests"; exit 1; }
+          echo "$out" | grep -qE "Tasks: +7 successful, 7 total" \
+            || { echo "::error::expected 7 turbo tasks; a build dependency is missing"; exit 1; }
 
   kage-native-gate:
     name: Kage native VK-pin gate
