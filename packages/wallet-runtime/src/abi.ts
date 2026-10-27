@@ -9,6 +9,12 @@ export const DARK_POOL_FRAGMENTS = [
   "function getCurrentRoot() view returns (bytes32)",
   "function isKnownRoot(bytes32 _root) view returns (bool)",
   "function complianceKey() view returns (uint256 x, uint256 y, uint256 version)",
+  "function deposit(bytes _proof, bytes32[] _publicInputs)",
+  "function withdraw(bytes _proof, bytes32[] _publicInputs)",
+  "function privateTransfer(bytes _proof, bytes32[] _publicInputs)",
+  "function split(bytes _proof, bytes32[] _publicInputs)",
+  "function join(bytes _proof, bytes32[] _publicInputs)",
+  "function publicClaim(bytes _proof, bytes32[] _publicInputs)",
   "event LeafInserted(uint256 indexed leafIndex, bytes32 leaf, bytes32 newRoot)",
   "event RootSaved(bytes32 indexed root)",
   "event NewNote(uint256 indexed leafIndex, bytes32 indexed commitment, uint256 ephemeralPK_x, bytes32[7] packedCiphertext)",
@@ -18,9 +24,37 @@ export const DARK_POOL_FRAGMENTS = [
   "event PublicMemoSpent(bytes32 indexed memoId)",
   "event ComplianceKeyRotated(uint256 oldVersion, uint256 newVersion, uint256 newX, uint256 newY)",
   "event GenesisSeeded(uint256 indexed chainId, bytes32 genesisLeaf)",
+  "error InvalidInputsLength()",
+  "error InvalidProof()",
+  "error InvalidRoot()",
+  "error TimestampInvalid()",
+  "error NullifierAlreadySpent()",
+  "error ValueZero()",
+  "error ValueTooLarge()",
+  "error TimelockTooLarge()",
+  "error MemoCollision()",
+  "error MemoSpent()",
+  "error MemoInvalid()",
+  "error FeeOnTransferUnsupported()",
+  "error RecipientRejectedWithdraw(address recipient)",
+  "error RecipientCannotAcceptWithdraw(address recipient)",
+  "error UnknownCircuitId()",
+  "error VerifierHasNoCode()",
+  "error VerifierUnset(uint256 circuitId)",
+  "error InvalidComplianceKeyPoint()",
+  "error InvalidMemoOwnerPoint()",
+  "error ReentrancyGuardReentrantCall()",
+  "error ComplianceKeyStale(uint256 currentVersion, uint256 currentX, uint256 currentY)",
+  "error NonCanonicalField()",
+  "error EnforcedPause()",
 ] as const;
 
 export const DARK_POOL_INTERFACE = new Interface(DARK_POOL_FRAGMENTS);
+
+/** The one ERC20 call the runtime makes: an exact approval of the deposit amount to the pool. */
+export const ERC20_INTERFACE = new Interface([
+  "function approve(address spender, uint256 amount) returns (bool)",
+]);
 
 /** topic0 of every event above, as literals so a fragment edit cannot silently move a log filter. */
 export const EVENT_TOPICS = {

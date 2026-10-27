@@ -24,7 +24,7 @@ import {
   startServer,
 } from "@hisoka/pss-server";
 import type { RunningServer } from "@hisoka/pss-server";
-import { PssEphemeralCounterStore } from "../pssEphemeralCounterStore.js";
+import { PssEphemeralCounterStore } from "@hisoka/wallet-runtime";
 
 const MNEMONIC = "test test test test test test test test test test test junk";
 const GCM_NONCE_BYTES = 12;

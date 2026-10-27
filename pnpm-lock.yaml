@@ -294,6 +294,9 @@ importers:
       '@hisoka/pss-server':
         specifier: workspace:*
         version: link:../pss-server
+      '@hisoka/wallet-runtime':
+        specifier: workspace:*
+        version: link:../wallet-runtime
       '@hisoka/wallets':
         specifier: workspace:*
         version: link:../wallets
@@ -340,9 +343,15 @@ importers:
       '@aztec/foundation':
         specifier: 2.1.11
         version: 2.1.11
+      '@hisoka/adaptors':
+        specifier: workspace:*
+        version: link:../adaptors
       '@hisoka/howl-protocol':
         specifier: workspace:*
         version: link:../howl-protocol
+      '@hisoka/pss-client':
+        specifier: workspace:*
+        version: link:../pss-client
       '@hisoka/wallets':
         specifier: workspace:*
         version: link:../wallets

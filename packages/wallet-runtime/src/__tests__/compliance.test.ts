@@ -178,6 +178,29 @@ describe("compliance key history", () => {
     expect(Math.min(...logStarts(chain))).toBe(DEPLOY);
   });
 
+  it("names both numbers when the configured deployment block is above the chain head", async () => {
+    const chain = new FakeChain(3);
+    const err = await failure(readComplianceHistory(deps(chain)));
+    expect(err.code).toBe("COMPLIANCE_V1_UNKNOWN");
+    expect(err.message).toContain(
+      "deployment block 5 is above the chain head 3",
+    );
+    expect(err.message).not.toMatch(/archive/);
+  });
+
+  it("refuses a rotation log whose old version is outside the safe integer range", async () => {
+    const chain = rotatingChain({ initEvent: true });
+    chain.emit(35, "ComplianceKeyRotated", [
+      2n ** 53n + 1n,
+      4n,
+      K[3]![0],
+      K[3]![1],
+    ]);
+    expect((await failure(readComplianceHistory(deps(chain)))).code).toBe(
+      "RPC_RESPONSE_INVALID",
+    );
+  });
+
   it("ignores a cache that does not parse", async () => {
     const chain = rotatingChain({ initEvent: true });
     const store = new MemoryStore();

@@ -50,14 +50,15 @@ function byBlockThenKey(a: DroppedNote, b: DroppedNote): number {
 }
 
 /**
- * Union of every input's tombstones. Over the cap the lowest blocks go first: the oldest reorgs are the
- * least likely to still be held by a stale device, and a resurrected note is re-verified against the
- * chain before use anyway.
+ * Union of tombstone lists. Over the cap the lowest blocks go first: the oldest reorgs are the least likely
+ * to still be held by a stale device, and a resurrected note is re-verified against the chain before use.
  */
-function mergeDroppedNotes(inputs: readonly MergeInput[]): DroppedNote[] {
+export function mergeDroppedNoteLists(
+  lists: readonly (readonly DroppedNote[])[],
+): DroppedNote[] {
   const byKey = new Map<string, DroppedNote>();
-  for (const input of inputs) {
-    for (const dropped of input.payload.known.droppedNotes) {
+  for (const list of lists) {
+    for (const dropped of list) {
       const key = tombstoneKey(dropped);
       const seen = byKey.get(key);
       if (seen === undefined || dropped.block > seen.block) {
@@ -160,7 +161,9 @@ export function mergeStatePayloads(
   }
   const complete = inputs.filter((input) => input.noteListComplete);
   const latest = newest(inputs);
-  const droppedNotes = mergeDroppedNotes(inputs);
+  const droppedNotes = mergeDroppedNoteLists(
+    inputs.map((input) => input.payload.known.droppedNotes),
+  );
   // Filtered by every tombstone any input carries, not only the ones that survive the cap.
   const droppedKeys = new Set(
     inputs.flatMap((input) =>

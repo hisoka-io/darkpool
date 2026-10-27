@@ -70,6 +70,14 @@ export class FakeChain {
   });
   /** Runs before each `latest` answer; tests use it to reorg in the middle of a read. */
   onLatest: (() => void) | null = null;
+  /** Answers pool calls other than `complianceKey`, at the block the call was pinned to. */
+  poolCall:
+    | ((
+        name: string,
+        args: readonly unknown[],
+        block: number,
+      ) => readonly unknown[])
+    | null = null;
   archive = true;
 
   constructor(
@@ -194,6 +202,11 @@ export class FakeChain {
         }
       }
       const call = DARK_POOL_INTERFACE.parseTransaction({ data: tx.data });
+      if (call !== null && call.name !== "complianceKey" && this.poolCall) {
+        return DARK_POOL_INTERFACE.encodeFunctionResult(call.name, [
+          ...this.poolCall(call.name, [...call.args], number),
+        ]);
+      }
       if (call?.name !== "complianceKey")
         throw new Error(`unscripted call ${call?.name}`);
       const s = this.compliance(number);

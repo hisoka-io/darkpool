@@ -152,12 +152,13 @@ export const MAX_STABLE_READ_ATTEMPTS = 3;
 
 class Reorged extends Error {}
 
-async function stillCanonical(
+/** True while `block` is still the canonical block at its height. */
+export async function stillCanonical(
   chain: Pick<ChainReader, "blockByNumber">,
-  head: BlockRef,
+  block: { readonly number: number; readonly hash: string },
 ): Promise<boolean> {
   try {
-    return (await chain.blockByNumber(head.number)).hash === head.hash;
+    return (await chain.blockByNumber(block.number)).hash === block.hash;
   } catch (e) {
     // A reorg onto a shorter fork leaves no block at the old height.
     if (e instanceof WalletRuntimeError && e.code === "RPC_RESPONSE_INVALID")
@@ -169,7 +170,10 @@ async function stillCanonical(
 /**
  * Runs `read` against `latest` and accepts the result only if that head is still canonical afterwards and no
  * log came back `removed`. Any reorg at or below the head replaces the block at its height, so the re-check
- * catches a fetch that mixed two forks. A removed log is never applied; it restarts the read.
+ * catches a fetch that mixed two forks. A removed log is never applied; it restarts the read. A read that
+ * fails while its head has left the canonical chain (a node refusing a hash-pinned call into a reorged
+ * block, or logs from two forks that do not fit together) is a reorg too and restarts; a failure on a
+ * head that is still canonical is surfaced as it is.
  */
 export async function readAtStableHead<T>(
   chain: Pick<ChainReader, "latest" | "blockByNumber">,
@@ -177,6 +181,7 @@ export async function readAtStableHead<T>(
   source: LogSource,
 ): Promise<StableRead<T>> {
   let lastHead: BlockRef | undefined;
+  let lastFailure: unknown;
   for (let attempt = 1; attempt <= MAX_STABLE_READ_ATTEMPTS; attempt++) {
     const head = await chain.latest();
     lastHead = head;
@@ -194,6 +199,13 @@ export async function readAtStableHead<T>(
       value = await read(head, logs);
     } catch (e) {
       if (e instanceof Reorged) continue;
+      if (
+        e instanceof WalletRuntimeError &&
+        !(await stillCanonical(chain, head))
+      ) {
+        lastFailure = e;
+        continue;
+      }
       throw e;
     }
     if (await stillCanonical(chain, head)) return { head, value };
@@ -205,5 +217,35 @@ export async function readAtStableHead<T>(
       attempts: String(MAX_STABLE_READ_ATTEMPTS),
       head: String(lastHead?.number ?? ""),
     },
+    lastFailure,
   );
+}
+
+/**
+ * Runs a read pinned to `pin` by block hash. A transport failure while `pin` is no longer canonical is the
+ * node refusing a reorged block, so it surfaces as `HEAD_REORGED` (re-pin and retry), not `RPC_TRANSPORT`
+ * (node down).
+ */
+export async function readPinned<T>(
+  chain: Pick<ChainReader, "blockByNumber">,
+  pin: { readonly number: number; readonly hash: string },
+  read: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await read();
+  } catch (e) {
+    if (
+      e instanceof WalletRuntimeError &&
+      e.code === "RPC_TRANSPORT" &&
+      !(await stillCanonical(chain, pin))
+    ) {
+      throw new WalletRuntimeError(
+        "HEAD_REORGED",
+        `block ${pin.number} (${pin.hash}) left the canonical chain during a read pinned to it; re-pin`,
+        { attempts: "1", head: String(pin.number) },
+        e,
+      );
+    }
+    throw e;
+  }
 }

@@ -19,7 +19,7 @@ import {
 import {
   type CounterPayloadPort,
   PssEphemeralCounterStore,
-} from "../pssEphemeralCounterStore.js";
+} from "@hisoka/wallet-runtime";
 
 const MNEMONIC = "test test test test test test test test test test test junk";
 const INSTALL = "0x11111111111111111111111111111111";

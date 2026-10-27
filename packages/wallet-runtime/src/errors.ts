@@ -20,6 +20,8 @@ export const RUNTIME_ERROR_CODES = [
   "ROOT_PIN_MISMATCH",
   "ROOT_UNKNOWN",
   "LEASE_HELD",
+  "PLAN_UNKNOWN",
+  "STORE_CORRUPT",
   "NOT_WRITER",
   "PSS_UNAVAILABLE",
   "PROOF_FAILED",
@@ -29,6 +31,8 @@ export const RUNTIME_ERROR_CODES = [
   "SIMULATION_REVERTED",
   "SUBMIT_FAILED",
   "SUBMIT_UNKNOWN",
+  "QUOTE_REJECTED",
+  "ENTROPY_EXHAUSTED",
 ] as const;
 
 export type RuntimeErrorCode = (typeof RUNTIME_ERROR_CODES)[number];

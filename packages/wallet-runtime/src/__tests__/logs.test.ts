@@ -3,6 +3,7 @@ import { EVENT_TOPICS } from "../abi.js";
 import { RpcChainReader } from "../chain/chainReader.js";
 import {
   readAtStableHead,
+  readPinned,
   RpcLogSource,
   MAX_STABLE_READ_ATTEMPTS,
 } from "../chain/logs.js";
@@ -119,6 +120,67 @@ describe("log source", () => {
     );
     expect(reads).toBe(2);
     expect(result.value).toEqual([12]);
+  });
+
+  it("restarts a read that failed because its head was reorged away mid-read", async () => {
+    const chain = new FakeChain(20);
+    const reader = RpcChainReader.over(chain.rpc, CONFIG);
+    let attempts = 0;
+    const result = await readAtStableHead(
+      reader,
+      async (head) => {
+        attempts += 1;
+        if (attempts === 1) {
+          chain.reorgFrom(head.number - 2);
+          // What a node answers to a call pinned to a block hash it no longer has as canonical.
+          return reader.complianceKey(head);
+        }
+        return head.number;
+      },
+      RpcLogSource.over(chain.rpc, CONFIG),
+    );
+    expect(attempts).toBe(2);
+    expect(result.value).toBe(20);
+  });
+
+  it("surfaces a failure whose head is still canonical instead of retrying it", async () => {
+    const chain = new FakeChain(20);
+    const reader = RpcChainReader.over(chain.rpc, CONFIG);
+    let attempts = 0;
+    const err = await readAtStableHead(
+      reader,
+      async () => {
+        attempts += 1;
+        throw new WalletRuntimeError("RPC_TRANSPORT", "node down", {});
+      },
+      RpcLogSource.over(chain.rpc, CONFIG),
+    ).catch((e: unknown) => e);
+    expect(attempts).toBe(1);
+    expect((err as WalletRuntimeError).code).toBe("RPC_TRANSPORT");
+  });
+
+  it("reports a pinned read into a reorged block as HEAD_REORGED, and one into a live block as it is", async () => {
+    const chain = new FakeChain(20);
+    const reader = RpcChainReader.over(chain.rpc, CONFIG);
+    const pin = await reader.blockByNumber(18);
+    const live = await readPinned(reader, pin, () => reader.complianceKey(pin));
+    expect(live.version).toBe(1);
+    chain.reorgFrom(15);
+    const err = await readPinned(reader, pin, () =>
+      reader.complianceKey(pin),
+    ).catch((e: unknown) => e);
+    expect((err as WalletRuntimeError).code).toBe("HEAD_REORGED");
+    expect((err as WalletRuntimeError).cause).toBeInstanceOf(
+      WalletRuntimeError,
+    );
+    const down = await readPinned(
+      reader,
+      await reader.blockByNumber(10),
+      async () => {
+        throw new WalletRuntimeError("RPC_TRANSPORT", "node down", {});
+      },
+    ).catch((e: unknown) => e);
+    expect((down as WalletRuntimeError).code).toBe("RPC_TRANSPORT");
   });
 
   it("restarts a read whose head was reorged away, and gives up with HEAD_REORGED", async () => {
