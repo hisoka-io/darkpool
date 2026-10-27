@@ -41,6 +41,12 @@
  *   MULTISIG_VERIFIERS     "stub" or "real": what the four multisig circuit slots hold. Off test chains only
  *                          "stub" (a RevertingVerifier until the Timelock installs the real ones); default
  *                          "real" on test chains.
+ *   KAGE_MODULE            "on" deploys the Kage settlement module (KageRegistry proxy + KageSettlement) and
+ *                          writes the Timelock call that registers it; default "off", and refused off test chains
+ *                          while the Kage launch is parked. With it on:
+ *     KAGE_STAKING_TOKEN   solver stake token; required off local (local default: the Nox staking token)
+ *     KAGE_MIN_STAKE, KAGE_MIN_STAKE_FLOOR  in whole tokens, scaled by its decimals (default 1 each on test chains)
+ *     KAGE_EXIT_DELAY_SECS solver exit delay, at least 86400 (default 604800 = 7 days)
  *   TIMELOCK_MIN_DELAY_SECS    Timelock minimum delay in seconds (default 172800 = 48h)
  *   ADMIN_TRANSFER_DELAY_SECS  AccessControlDefaultAdminRules DEFAULT_ADMIN transfer delay in seconds on
  *                              DarkPool, NoxRegistry and NoxRewardPool (default 172800 = 48h)
@@ -220,8 +226,11 @@ function tokenAmount(name: string, raw: string, decimals: bigint): bigint {
 export function stakeAmounts(
   chainId: bigint,
   decimals: bigint,
+  prefix: "" | "KAGE_" = "",
 ): { minStake: bigint; minStakeFloor: bigint } {
-  const read = (name: "MIN_STAKE" | "MIN_STAKE_FLOOR"): bigint => {
+  const minStakeName = `${prefix}MIN_STAKE`;
+  const floorName = `${prefix}MIN_STAKE_FLOOR`;
+  const read = (name: string): bigint => {
     const raw = process.env[name];
     if (raw === undefined || raw.trim() === "") {
       if (!isTestChain(chainId)) {
@@ -233,11 +242,11 @@ export function stakeAmounts(
     }
     return tokenAmount(name, raw, decimals);
   };
-  const minStake = read("MIN_STAKE");
-  const minStakeFloor = read("MIN_STAKE_FLOOR");
+  const minStake = read(minStakeName);
+  const minStakeFloor = read(floorName);
   if (minStake < minStakeFloor) {
     throw new Error(
-      `MIN_STAKE (${minStake} base units) is below MIN_STAKE_FLOOR (${minStakeFloor}); NoxRegistry refuses it.`,
+      `${minStakeName} (${minStake} base units) is below ${floorName} (${minStakeFloor}); the registry refuses it.`,
     );
   }
   return { minStake, minStakeFloor };
@@ -333,6 +342,114 @@ function bjjCoordinate(name: string, raw: string): bigint {
     throw new Error(`${name} is outside the BN254 scalar field.`);
   }
   return value;
+}
+
+// Kage's registration tuple: two spent notes (taker, maker), four minted self-notes, no module words, and a proof
+// timestamp that may not lie in the past, so a swap settles before its intent expires or not at all.
+export const KAGE_MODULE_LAYOUT = {
+  nullifierCount: 2n,
+  outputCount: 4n,
+  extraCount: 0n,
+  maxPast: 0n,
+  maxFuture: 2n ** 32n - 1n,
+} as const;
+const KAGE_MIN_EXIT_DELAY = 86400n;
+const KAGE_DEFAULT_EXIT_DELAY = 7n * 86400n;
+
+/** "on" deploys the Kage module; refused off the test chains while the Kage launch is parked. */
+export function kageModuleEnabled(chainId: bigint): boolean {
+  const raw = (process.env.KAGE_MODULE ?? "").trim();
+  if (raw !== "" && raw !== "on" && raw !== "off") {
+    throw new Error(`KAGE_MODULE=${raw} must be "on" or "off".`);
+  }
+  if (raw !== "on") return false;
+  if (!isTestChain(chainId)) {
+    throw new Error(
+      `KAGE_MODULE=on is refused on chain id ${chainId}: the Kage launch is parked, so its registry and module ` +
+        "are deployed on test chains only.",
+    );
+  }
+  return true;
+}
+
+export function kageExitDelay(): bigint {
+  const raw = process.env.KAGE_EXIT_DELAY_SECS;
+  if (raw === undefined || raw.trim() === "") return KAGE_DEFAULT_EXIT_DELAY;
+  if (!/^[0-9]+$/.test(raw.trim())) {
+    throw new Error(
+      `KAGE_EXIT_DELAY_SECS=${raw} must be an unsigned decimal number of seconds.`,
+    );
+  }
+  const value = BigInt(raw.trim());
+  if (value < KAGE_MIN_EXIT_DELAY) {
+    throw new Error(
+      `KAGE_EXIT_DELAY_SECS=${raw} is below the registry minimum of ${KAGE_MIN_EXIT_DELAY}s.`,
+    );
+  }
+  return value;
+}
+
+/** The Timelock call that registers `settlement` as the Kage module on `darkPool`. */
+export function kageModuleRegistration(
+  darkPool: string,
+  settlement: string,
+  kageVerifier: string,
+): { target: string; value: string; data: string } {
+  const iface = new ethers.Interface([
+    "function registerSettlementModule(address controller, address moduleVerifier, uint8 nullifierCount, uint8 outputCount, uint8 extraCount, uint32 maxPast, uint32 maxFuture)",
+  ]);
+  const l = KAGE_MODULE_LAYOUT;
+  return {
+    target: darkPool,
+    value: "0",
+    data: iface.encodeFunctionData("registerSettlementModule", [
+      settlement,
+      kageVerifier,
+      l.nullifierCount,
+      l.outputCount,
+      l.extraCount,
+      l.maxPast,
+      l.maxFuture,
+    ]),
+  };
+}
+
+/**
+ * Compares the module DarkPool holds for `settlement` with the Kage layout. Run once the Timelock has executed the
+ * registration: settle-before-expiry depends on `maxPast == 0`, and a controller can never re-register.
+ */
+export async function kageModuleProblems(
+  darkPool: BaseContract,
+  settlement: string,
+  kageVerifier: string,
+): Promise<string[]> {
+  const m = (await darkPool.getFunction("settlementModule")(settlement)) as {
+    verifier: string;
+    nullifierCount: bigint;
+    outputCount: bigint;
+    extraCount: bigint;
+    maxPast: bigint;
+    maxFuture: bigint;
+    active: boolean;
+  };
+  const problems: string[] = [];
+  if (m.verifier === ethers.ZeroAddress) {
+    return [`no settlement module is registered for ${settlement}`];
+  }
+  if (m.verifier !== kageVerifier) {
+    problems.push(`module verifier is ${m.verifier}, expected ${kageVerifier}`);
+  }
+  for (const field of Object.keys(
+    KAGE_MODULE_LAYOUT,
+  ) as (keyof typeof KAGE_MODULE_LAYOUT)[]) {
+    if (BigInt(m[field]) !== KAGE_MODULE_LAYOUT[field]) {
+      problems.push(
+        `${field} is ${m[field]}, expected ${KAGE_MODULE_LAYOUT[field]}`,
+      );
+    }
+  }
+  if (!m.active) problems.push("module is not active");
+  return problems;
 }
 
 /** On-curve, not the identity, and in the prime-order subgroup: the checks the circuits apply to the key. */
@@ -928,6 +1045,7 @@ export async function deploy(
   }
   const compliance = resolveComplianceKey(chainId, isLocal);
   const multisigVerifiers = multisigVerifierMode(chainId);
+  const kageEnabled = kageModuleEnabled(chainId);
   // One address holding both roles collapses the separation the wiring assertions exist to enforce, and
   // every one of them would still pass.
   if (govSafe === guardianSafe) {
@@ -1029,11 +1147,47 @@ export async function deploy(
     }
   }
   const { minStake, minStakeFloor } = stakeAmounts(chainId, stakingDecimals);
+  let kageParams: {
+    token: string | null;
+    decimals: bigint;
+    minStake: bigint;
+    minStakeFloor: bigint;
+    exitDelay: bigint;
+  } | null = null;
+  if (kageEnabled) {
+    const kageToken = optionalAddress("KAGE_STAKING_TOKEN");
+    if (kageToken === null && !isLocal) {
+      throw new Error(
+        `KAGE_STAKING_TOKEN is required with KAGE_MODULE=on on network ${network.name}; it is written once in ` +
+          "KageRegistry.initialize.",
+      );
+    }
+    if (
+      kageToken !== null &&
+      (await ethers.provider.getCode(kageToken)) === "0x"
+    ) {
+      throw new Error(
+        `KAGE_STAKING_TOKEN ${kageToken} has no deployed code on network ${network.name}.`,
+      );
+    }
+    const decimals =
+      kageToken === null
+        ? stakingDecimals
+        : await tokenDecimals("KAGE_STAKING_TOKEN", kageToken);
+    assertStakingToken(chainId, kageToken ?? ethers.ZeroAddress, decimals);
+    kageParams = {
+      token: kageToken,
+      decimals,
+      ...stakeAmounts(chainId, decimals, "KAGE_"),
+      exitDelay: kageExitDelay(),
+    };
+  }
   console.log(
     `  Staking token decimals: ${stakingDecimals}; min stake ${ethers.formatUnits(minStake, stakingDecimals)}, ` +
       `floor ${ethers.formatUnits(minStakeFloor, stakingDecimals)}`,
   );
   console.log(`  Multisig verifier slots: ${multisigVerifiers}`);
+  console.log(`  Kage module: ${kageEnabled ? "on" : "off"}`);
   console.log();
 
   const startBlock = await ethers.provider.getBlockNumber();
@@ -1306,6 +1460,54 @@ export async function deploy(
   );
   console.log();
 
+  let kage: {
+    registry: string;
+    settlement: string;
+    stakingToken: string;
+    params: NonNullable<typeof kageParams>;
+    registryContract: BaseContract;
+    settlementContract: BaseContract;
+  } | null = null;
+  if (kageParams !== null) {
+    console.log("Step 7c: Kage settlement module...");
+    const kageStakingToken = kageParams.token ?? stakingTokenAddr;
+    const registryContract = await upgrades.deployProxy(
+      await ethers.getContractFactory("KageRegistry"),
+      [
+        {
+          initialAdminDelay: adminTransferDelay,
+          initialAdmin: timelockAddr,
+          stakingToken: kageStakingToken,
+          minStake: kageParams.minStake,
+          minStakeFloor: kageParams.minStakeFloor,
+          exitDelay: kageParams.exitDelay,
+          slasher: guardianSafe,
+          configManager: timelockAddr,
+          upgrader: timelockAddr,
+        },
+      ],
+      { kind: "uups", initializer: "initialize" },
+    );
+    await registryContract.waitForDeployment();
+    const registry = await registryContract.getAddress();
+    const settlementContract = await (
+      await ethers.getContractFactory("KageSettlement")
+    ).deploy(darkPoolAddr, registry);
+    await settlementContract.waitForDeployment();
+    const settlement = await settlementContract.getAddress();
+    kage = {
+      registry,
+      settlement,
+      stakingToken: kageStakingToken,
+      params: kageParams,
+      registryContract,
+      settlementContract,
+    };
+    console.log(`  KageRegistry: ${registry}`);
+    console.log(`  KageSettlement: ${settlement}`);
+    console.log();
+  }
+
   const recordedCoreContracts = {
     poseidon2: poseidon2Addr,
     ...Object.fromEntries(
@@ -1333,7 +1535,18 @@ export async function deploy(
     bundleExecutor: bundleExecutorAddr,
     darkPool: darkPoolAddr,
     stakingToken: stakingTokenAddr,
+    ...(kage === null
+      ? {}
+      : { kageRegistry: kage.registry, kageSettlement: kage.settlement }),
   };
+  const proxies: [string, string][] = [
+    ["darkPool", darkPoolAddr],
+    ["noxRegistry", noxRegistryAddr],
+    ["noxRewardPool", rewardPoolAddr],
+    ...(kage === null
+      ? []
+      : [["kageRegistry", kage.registry] as [string, string]]),
+  ];
   const coreContractCodeHashes = Object.fromEntries(
     await Promise.all(
       Object.entries(recordedCoreContracts).map(async ([name, address]) => {
@@ -1358,11 +1571,7 @@ export async function deploy(
   }));
   const proxySlots: Record<string, { impl: string; admin: string }> = {};
   const proxyImplementationCodeHashes: Record<string, string> = {};
-  for (const [name, address] of [
-    ["darkPool", darkPoolAddr],
-    ["noxRegistry", noxRegistryAddr],
-    ["noxRewardPool", rewardPoolAddr],
-  ] as const) {
+  for (const [name, address] of proxies) {
     const implementation = await slot(address, IMPL_SLOT);
     const admin = await slot(address, ADMIN_SLOT);
     const implementationCode = await ethers.provider.getCode(implementation);
@@ -1374,6 +1583,39 @@ export async function deploy(
     proxySlots[name] = { impl: implementation, admin };
     proxyImplementationCodeHashes[name] = ethers.keccak256(implementationCode);
   }
+
+  // The module is registered by the Timelock (UPGRADER_ROLE), so the deploy records the exact call; once it has
+  // executed, scripts/check-kage-module.ts compares the registered module with KAGE_MODULE_LAYOUT.
+  const kageRecord =
+    kage === null
+      ? null
+      : {
+          registry: kage.registry,
+          settlement: kage.settlement,
+          verifier: kageVerifierAddr,
+          stakingToken: kage.stakingToken,
+          stakingTokenDecimals: Number(kage.params.decimals),
+          minStake: kage.params.minStake.toString(),
+          minStakeFloor: kage.params.minStakeFloor.toString(),
+          exitDelaySeconds: Number(kage.params.exitDelay),
+          eip712Domain: {
+            name: "HisokaKageSettlement",
+            version: "1",
+            chainId: Number(chainId),
+            verifyingContract: kage.settlement,
+          },
+          settlementTypehash: String(
+            await kage.settlementContract.getFunction("SETTLEMENT_TYPEHASH")(),
+          ),
+          moduleLayout: Object.fromEntries(
+            Object.entries(KAGE_MODULE_LAYOUT).map(([k, v]) => [k, Number(v)]),
+          ),
+          moduleRegistration: kageModuleRegistration(
+            darkPoolAddr,
+            kage.settlement,
+            kageVerifierAddr,
+          ),
+        };
 
   console.log("Step 8: Governance wiring...");
   // CANCELLER must NOT go to the DarkPool PAUSER holder. OZ TimelockController is its own DEFAULT_ADMIN
@@ -1619,6 +1861,35 @@ export async function deploy(
       ).every(Boolean),
     },
   ];
+  if (kage !== null) {
+    const registry = kage.registryContract;
+    const settlement = kage.settlementContract;
+    const read = (contract: BaseContract, fn: string): Promise<unknown> =>
+      contract.getFunction(fn)();
+    wiring.push(
+      {
+        label: "KageSettlement is linked to DarkPool and KageRegistry",
+        ok:
+          (await read(settlement, "DARK_POOL")) === darkPoolAddr &&
+          (await read(settlement, "REGISTRY")) === kage.registry,
+      },
+      {
+        label: `KageRegistry stakes ${kage.stakingToken} (${kage.params.decimals} decimals): min ${kage.params.minStake}, floor ${kage.params.minStakeFloor}, exit delay ${kage.params.exitDelay}s`,
+        ok:
+          (await read(registry, "stakingToken")) === kage.stakingToken &&
+          (await read(registry, "minStake")) === kage.params.minStake &&
+          (await read(registry, "minStakeFloor")) ===
+            kage.params.minStakeFloor &&
+          (await read(registry, "exitDelay")) === kage.params.exitDelay,
+      },
+      {
+        label: `KageRegistry DEFAULT_ADMIN is the Timelock with a ${adminTransferDelay}s transfer delay`,
+        ok:
+          (await read(registry, "defaultAdmin")) === timelockAddr &&
+          (await read(registry, "defaultAdminDelay")) === adminTransferDelay,
+      },
+    );
+  }
   for (const w of wiring) {
     console.log(`  [${w.ok ? "ok" : "FAIL"}] ${w.label}`);
     if (!w.ok) throw new Error(`SECURITY: wiring check failed: ${w.label}`);
@@ -1635,7 +1906,11 @@ export async function deploy(
     [guardianSafe, "guardianSafe"],
     [noxEntryPointAddr, "noxEntryPoint"],
   ]);
-  const roleTables = [
+  const roleTables: {
+    label: string;
+    contract: BaseContract;
+    roles: RoleExpectation[];
+  }[] = [
     {
       label: "DarkPool",
       contract: darkPool,
@@ -1700,6 +1975,32 @@ export async function deploy(
       ],
     },
   ];
+  if (kage !== null) {
+    const registry = kage.registryContract;
+    const role = async (name: string): Promise<string> =>
+      String(await registry.getFunction(name)());
+    roleTables.push({
+      label: "KageRegistry",
+      contract: registry,
+      roles: [
+        {
+          name: "SLASHER_ROLE",
+          role: await role("SLASHER_ROLE"),
+          holders: [guardianSafe],
+        },
+        {
+          name: "CONFIG_ROLE",
+          role: await role("CONFIG_ROLE"),
+          holders: [timelockAddr],
+        },
+        {
+          name: "UPGRADER_ROLE",
+          role: await role("UPGRADER_ROLE"),
+          holders: [timelockAddr],
+        },
+      ],
+    });
+  }
   const governanceIntegrity = async (
     timelockAdmins: readonly string[],
   ): Promise<string[]> => {
@@ -1755,11 +2056,7 @@ export async function deploy(
         `Timelock ${timelockAddr} logged ${operations} scheduled or executed call(s); a fresh deployment has none`,
       );
     }
-    for (const [name, address] of [
-      ["darkPool", darkPoolAddr],
-      ["noxRegistry", noxRegistryAddr],
-      ["noxRewardPool", rewardPoolAddr],
-    ] as const) {
+    for (const [name, address] of proxies) {
       const implementation = await slot(address, IMPL_SLOT);
       if (implementation !== proxySlots[name].impl) {
         problems.push(
@@ -1770,7 +2067,9 @@ export async function deploy(
     return problems;
   };
   const integrityScope =
-    "Timelock, DarkPool, NoxRegistry, NoxRewardPool and ComplianceRegistry";
+    kage === null
+      ? "Timelock, DarkPool, NoxRegistry, NoxRewardPool and ComplianceRegistry"
+      : "Timelock, DarkPool, NoxRegistry, NoxRewardPool, ComplianceRegistry and KageRegistry";
   const preflightProblems = await withRetries(
     "governance integrity check",
     () => governanceIntegrity([timelockAddr, deployer.address]),
@@ -1790,7 +2089,7 @@ export async function deploy(
   // Read here, before the renounce, so a missing or malformed manifest aborts while the deployer can
   // still fix the topology rather than after it has given up admin.
   const openzeppelinManifest = await readManifest(
-    [darkPoolAddr, noxRegistryAddr, rewardPoolAddr],
+    proxies.map(([, address]) => address),
     !isLocal,
   );
   console.log(
@@ -1904,6 +2203,9 @@ export async function deploy(
       true,
     ]);
     await tryVerify(bundleExecutorAddr, [darkPoolAddr]);
+    if (kage !== null) {
+      await tryVerify(kage.settlement, [darkPoolAddr, kage.registry]);
+    }
     console.log();
   }
 
@@ -1959,6 +2261,9 @@ export async function deploy(
           committeeThreshold.toString(),
           committeeSize.toString(),
         ],
+        ...(kage === null
+          ? {}
+          : { kageSettlement: [darkPoolAddr, kage.registry] }),
       },
       contractCodeHashes,
       proxySlots,
@@ -1993,6 +2298,7 @@ export async function deploy(
       },
       multisigVerifiers,
       verifierSlots,
+      kage: kageRecord,
     };
   }
 
@@ -2019,6 +2325,14 @@ export async function deploy(
   console.log(`  BundleExecutor:${bundleExecutorAddr}`);
   console.log(`  Staking Token: ${stakingTokenAddr}`);
   if (adaptorAddr) console.log(`  UniswapAdaptor:${adaptorAddr}`);
+  if (kageRecord !== null) {
+    console.log(`  KageRegistry:  ${kageRecord.registry}`);
+    console.log(`  KageSettlement:${kageRecord.settlement}`);
+    console.log(
+      `  Kage module registration (Timelock call, then run scripts/check-kage-module.ts): target ` +
+        `${kageRecord.moduleRegistration.target} data ${kageRecord.moduleRegistration.data}`,
+    );
+  }
   console.log();
 
   if (isLocal) {

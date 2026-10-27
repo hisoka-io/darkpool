@@ -6,6 +6,7 @@ import { spawnSync } from "child_process";
 import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
 import {
   CIRCUIT_VERIFIERS,
+  KAGE_MODULE_LAYOUT,
   LAUNCH_TOKENS,
   MULTISIG_CIRCUIT_IDS,
   assertFeeAssets,
@@ -13,12 +14,17 @@ import {
   assertStakingToken,
   deploy,
   isTestChain,
+  kageExitDelay,
+  kageModuleEnabled,
+  kageModuleProblems,
+  kageModuleRegistration,
   multisigVerifierMode,
   resolveComplianceKey,
   stakeAmounts,
   type SafeOwnership,
 } from "../../scripts/deploy";
 import { assertSokaChain } from "../../scripts/deploy-soka";
+import { checkKageModule } from "../../scripts/check-kage-module";
 
 const ARBITRUM_ONE = 42161n;
 const ETHEREUM = 1n;
@@ -524,6 +530,81 @@ describe("launch-chain rules: pure checks", function () {
     });
   });
 
+  describe("Kage module flag", function () {
+    it("defaults off, and refuses on off the test chains while the launch is parked", function () {
+      withEnv({ KAGE_MODULE: "" }, () => {
+        expect(kageModuleEnabled(ARBITRUM_ONE)).to.equal(false);
+        expect(kageModuleEnabled(HARDHAT)).to.equal(false);
+      });
+      withEnv({ KAGE_MODULE: "off" }, () => {
+        expect(kageModuleEnabled(ETHEREUM)).to.equal(false);
+      });
+      withEnv({ KAGE_MODULE: "on" }, () => {
+        expect(kageModuleEnabled(ARBITRUM_SEPOLIA)).to.equal(true);
+        expect(errorOf(() => kageModuleEnabled(ARBITRUM_ONE))).to.contain(
+          "KAGE_MODULE=on is refused on chain id 42161",
+        );
+      });
+      withEnv({ KAGE_MODULE: "true" }, () => {
+        expect(errorOf(() => kageModuleEnabled(HARDHAT))).to.contain(
+          'must be "on" or "off"',
+        );
+      });
+    });
+
+    it("defaults the solver exit delay to 7 days and refuses one below a day", function () {
+      withEnv({ KAGE_EXIT_DELAY_SECS: "" }, () => {
+        expect(kageExitDelay()).to.equal(604800n);
+      });
+      withEnv({ KAGE_EXIT_DELAY_SECS: "86400" }, () => {
+        expect(kageExitDelay()).to.equal(86400n);
+      });
+      withEnv({ KAGE_EXIT_DELAY_SECS: "86399" }, () => {
+        expect(errorOf(() => kageExitDelay())).to.contain(
+          "below the registry minimum of 86400s",
+        );
+      });
+      withEnv({ KAGE_EXIT_DELAY_SECS: "1d" }, () => {
+        expect(errorOf(() => kageExitDelay())).to.contain(
+          "unsigned decimal number of seconds",
+        );
+      });
+    });
+
+    it("encodes the registration as (2 spends, 4 outputs, 0 extras, maxPast 0, maxFuture unbounded)", function () {
+      const [pool, settlement, verifier] = Array.from(
+        { length: 3 },
+        () => ethers.Wallet.createRandom().address,
+      );
+      const call = kageModuleRegistration(pool, settlement, verifier);
+      expect(call.target).to.equal(pool);
+      expect(call.value).to.equal("0");
+      const iface = new ethers.Interface([
+        "function registerSettlementModule(address,address,uint8,uint8,uint8,uint32,uint32)",
+      ]);
+      const args = iface.decodeFunctionData(
+        "registerSettlementModule",
+        call.data,
+      );
+      expect([...args]).to.deep.equal([
+        settlement,
+        verifier,
+        2n,
+        4n,
+        0n,
+        0n,
+        2n ** 32n - 1n,
+      ]);
+      expect(KAGE_MODULE_LAYOUT).to.deep.equal({
+        nullifierCount: 2n,
+        outputCount: 4n,
+        extraCount: 0n,
+        maxPast: 0n,
+        maxFuture: 4294967295n,
+      });
+    });
+  });
+
   it("refuses to deploy SOKA off the test chains", function () {
     for (const id of [ETHEREUM, ARBITRUM_ONE, 43114n]) {
       expect(errorOf(() => assertSokaChain(id))).to.contain(
@@ -555,8 +636,28 @@ interface LaunchRecord {
     vkHash: string | null;
   }[];
   governance: {
+    timelock: string;
     safeOwners: Record<string, { owners: string[]; threshold: number }>;
   };
+  kage: {
+    registry: string;
+    settlement: string;
+    verifier: string;
+    stakingToken: string;
+    stakingTokenDecimals: number;
+    minStake: string;
+    minStakeFloor: string;
+    exitDelaySeconds: number;
+    eip712Domain: {
+      name: string;
+      version: string;
+      chainId: number;
+      verifyingContract: string;
+    };
+    settlementTypehash: string;
+    moduleLayout: Record<string, number>;
+    moduleRegistration: { target: string; value: string; data: string };
+  } | null;
 }
 
 async function quietDeploy(env: Record<string, string>): Promise<{
@@ -751,11 +852,199 @@ describe("launch-shaped deployment on the in-process chain", function () {
     );
   });
 
+  it("leaves the Kage module out by default", function () {
+    expect(record.kage).to.equal(null);
+    expect(record.contracts).to.not.have.property("kageRegistry");
+    expect(run.output).to.contain("Kage module: off");
+  });
+
   it("does not leave a secrets file behind for this run", function () {
     const deployFile = /Deployment record: (\S+)/.exec(run.output)?.[1];
     expect(deployFile, "record path").to.be.a("string");
     const secrets = (deployFile as string).replace(/\.json$/, ".secrets.json");
     expect(fs.existsSync(secrets)).to.equal(false);
+  });
+});
+
+describe("Kage module deployment on the in-process chain", function () {
+  this.timeout(600000);
+
+  const GOV = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+  const GUARDIAN = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
+  let run: Awaited<ReturnType<typeof quietDeploy>>;
+  let record: LaunchRecord;
+  let kage: NonNullable<LaunchRecord["kage"]>;
+  let kageToken: string;
+  let recordFile: string;
+
+  async function throughTimelock(target: string, data: string): Promise<void> {
+    const gov = await ethers.getSigner(GOV);
+    const timelock = await ethers.getContractAt(
+      "TimelockController",
+      record.governance.timelock,
+      gov,
+    );
+    const salt = ethers.hexlify(ethers.randomBytes(32));
+    await (
+      await timelock.schedule(target, 0, data, ethers.ZeroHash, salt, 0)
+    ).wait();
+    await (
+      await timelock.execute(target, 0, data, ethers.ZeroHash, salt)
+    ).wait();
+  }
+
+  before(async function () {
+    const token = await (
+      await ethers.getContractFactory("MockERC20")
+    ).deploy("USD Coin", "USDC", 6);
+    kageToken = await token.getAddress();
+    run = await quietDeploy({
+      ...NO_KEY_ENV,
+      GOV_SAFE: GOV,
+      GUARDIAN_SAFE: GUARDIAN,
+      STAKING_TOKEN: "",
+      FEE_ASSETS: "",
+      MIN_STAKE: "",
+      MIN_STAKE_FLOOR: "",
+      MULTISIG_VERIFIERS: "",
+      TIMELOCK_MIN_DELAY_SECS: "0",
+      ADMIN_TRANSFER_DELAY_SECS: "0",
+      KAGE_MODULE: "on",
+      KAGE_STAKING_TOKEN: kageToken,
+      KAGE_MIN_STAKE: "10000",
+      KAGE_MIN_STAKE_FLOOR: "1000",
+      KAGE_EXIT_DELAY_SECS: "",
+    });
+    if (run.record !== null && run.record.kage !== null) {
+      record = run.record;
+      kage = run.record.kage;
+    }
+    recordFile = /Deployment record: (\S+)/.exec(run.output)?.[1] ?? "";
+  });
+
+  it("deploys the registry and settlement and wires them to the pool", async function () {
+    expect(run.ok, run.output.slice(-2000)).to.equal(true);
+    const settlement = await ethers.getContractAt(
+      "KageSettlement",
+      kage.settlement,
+    );
+    expect(await settlement.DARK_POOL()).to.equal(record.contracts.darkPool);
+    expect(await settlement.REGISTRY()).to.equal(kage.registry);
+    expect(record.contracts.kageRegistry).to.equal(kage.registry);
+    expect(record.contracts.kageSettlement).to.equal(kage.settlement);
+    expect(kage.verifier).to.equal(record.contracts.kageVerifier);
+    expect(kage.settlementTypehash).to.equal(
+      "0x7ffa2d5aad35edb790ebb58164e6295a1d3de164ece1e8683f412d87f1157fda",
+    );
+    expect(kage.eip712Domain).to.deep.equal({
+      name: "HisokaKageSettlement",
+      version: "1",
+      chainId: 31337,
+      verifyingContract: kage.settlement,
+    });
+  });
+
+  it("stakes the 6-decimal token in its own units with a 7-day exit delay", async function () {
+    const registry = await ethers.getContractAt("KageRegistry", kage.registry);
+    expect(await registry.stakingToken()).to.equal(kageToken);
+    expect(await registry.minStake()).to.equal(10000_000000n);
+    expect(await registry.minStakeFloor()).to.equal(1000_000000n);
+    expect(await registry.exitDelay()).to.equal(604800n);
+    expect(kage.stakingTokenDecimals).to.equal(6);
+  });
+
+  it("hands every registry role to governance and pins it before and after the renounce", async function () {
+    const registry = await ethers.getContractAt("KageRegistry", kage.registry);
+    expect(await registry.defaultAdmin()).to.equal(record.governance.timelock);
+    expect(
+      await registry.hasRole(await registry.SLASHER_ROLE(), GUARDIAN),
+    ).to.equal(true);
+    for (const role of [
+      await registry.CONFIG_ROLE(),
+      await registry.UPGRADER_ROLE(),
+    ]) {
+      expect(await registry.hasRole(role, record.governance.timelock)).to.equal(
+        true,
+      );
+    }
+    expect(run.output).to.contain(
+      "[ok] Every role on Timelock, DarkPool, NoxRegistry, NoxRewardPool, ComplianceRegistry and KageRegistry is still held",
+    );
+    expect(run.output).to.contain(
+      "[ok] KageSettlement is linked to DarkPool and KageRegistry",
+    );
+  });
+
+  it("leaves the module unregistered until the Timelock runs the recorded call", async function () {
+    const darkPool = await ethers.getContractAt(
+      "DarkPool",
+      record.contracts.darkPool,
+    );
+    expect(
+      await kageModuleProblems(darkPool, kage.settlement, kage.verifier),
+    ).to.deep.equal([
+      `no settlement module is registered for ${kage.settlement}`,
+    ]);
+    let error = "";
+    try {
+      await checkKageModule(recordFile);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+    expect(error).to.contain("no settlement module is registered");
+  });
+
+  it("registers with maxPast 0 through the Timelock and passes the post-registration check", async function () {
+    await throughTimelock(
+      kage.moduleRegistration.target,
+      kage.moduleRegistration.data,
+    );
+    const darkPool = await ethers.getContractAt(
+      "DarkPool",
+      record.contracts.darkPool,
+    );
+    const m = await darkPool.settlementModule(kage.settlement);
+    expect(m.maxPast).to.equal(0n);
+    expect(m.maxFuture).to.equal(2n ** 32n - 1n);
+    expect(
+      await kageModuleProblems(darkPool, kage.settlement, kage.verifier),
+    ).to.deep.equal([]);
+    const realLog = console.log;
+    console.log = () => undefined;
+    try {
+      await checkKageModule(recordFile);
+    } finally {
+      console.log = realLog;
+    }
+  });
+
+  it("flags a Kage controller registered with the generic 300-second past window", async function () {
+    const settlement = await (
+      await ethers.getContractFactory("KageSettlement")
+    ).deploy(record.contracts.darkPool, kage.registry);
+    const controller = await settlement.getAddress();
+    const iface = new ethers.Interface([
+      "function registerSettlementModule(address,address,uint8,uint8,uint8,uint32,uint32)",
+    ]);
+    await throughTimelock(
+      record.contracts.darkPool,
+      iface.encodeFunctionData("registerSettlementModule", [
+        controller,
+        kage.verifier,
+        2,
+        4,
+        0,
+        300,
+        2n ** 32n - 1n,
+      ]),
+    );
+    const darkPool = await ethers.getContractAt(
+      "DarkPool",
+      record.contracts.darkPool,
+    );
+    expect(
+      await kageModuleProblems(darkPool, controller, kage.verifier),
+    ).to.deep.equal(["maxPast is 300, expected 0"]);
   });
 });
 
@@ -870,6 +1159,66 @@ describe("archive-deployment.sh", function () {
     expect(r.output).to.contain("verifierSlots must list 10 circuit slots");
     expect(fs.existsSync(path.join(deployments, "archives", broken))).to.equal(
       false,
+    );
+  });
+
+  it("archives a Kage deployment's module and refuses one whose layout is not maxPast 0", async function () {
+    const r = await quietDeploy({
+      ...NO_KEY_ENV,
+      GOV_SAFE: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      GUARDIAN_SAFE: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      STAKING_TOKEN: "",
+      FEE_ASSETS: "",
+      MIN_STAKE: "",
+      MIN_STAKE_FLOOR: "",
+      MULTISIG_VERIFIERS: "",
+      KAGE_MODULE: "on",
+      KAGE_STAKING_TOKEN: "",
+      KAGE_MIN_STAKE: "",
+      KAGE_MIN_STAKE_FLOOR: "",
+    });
+    expect(r.ok, r.output.slice(-2000)).to.equal(true);
+    const kageName = path.basename(
+      /Deployment record: (\S+)/.exec(r.output)?.[1] ?? "",
+      ".json",
+    );
+    created.push(path.join(deployments, "archives", kageName));
+    const ok = archive(kageName);
+    expect(ok.status, ok.output).to.equal(0);
+    const dir = path.join(deployments, "archives", kageName);
+    for (const abi of ["KageRegistry", "KageSettlement", "IKageRegistry"]) {
+      expect(fs.existsSync(path.join(dir, `abis/${abi}.json`)), abi).to.equal(
+        true,
+      );
+    }
+    const kageRecord = r.record?.kage;
+    const identity = JSON.parse(
+      fs.readFileSync(path.join(dir, "identity.json"), "utf8"),
+    ) as {
+      settlementHook: {
+        modules: { controller: string; layout: Record<string, number> }[];
+      };
+      kage: LaunchRecord["kage"];
+    };
+    expect(identity.kage).to.deep.equal(kageRecord);
+    expect(identity.settlementHook.modules).to.have.length(1);
+    expect(identity.settlementHook.modules[0].controller).to.equal(
+      kageRecord?.settlement,
+    );
+    expect(identity.settlementHook.modules[0].layout.maxPast).to.equal(0);
+
+    const tampered = JSON.parse(
+      fs.readFileSync(path.join(deployments, `${kageName}.json`), "utf8"),
+    ) as { kage: { moduleLayout: { maxPast: number } } };
+    tampered.kage.moduleLayout.maxPast = 300;
+    const broken = `${kageName}-maxpast`;
+    const brokenFile = path.join(deployments, `${broken}.json`);
+    fs.writeFileSync(brokenFile, JSON.stringify(tampered));
+    created.push(brokenFile, path.join(deployments, "archives", broken));
+    const refused = archive(broken);
+    expect(refused.status).to.equal(1);
+    expect(refused.output).to.contain(
+      "kage section lacks its contracts, its registration call, or maxPast 0",
     );
   });
 });

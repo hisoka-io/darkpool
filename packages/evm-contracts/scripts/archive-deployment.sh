@@ -7,7 +7,8 @@
 # Archives: deployment JSON, secrets, circuit artifacts, verifier sources (generated and stub),
 #           ABIs (incl. the settlement hook interface), the verifier and payment-adapter identity
 #           (identity.json), and version metadata to a local directory, plus the network's
-#           SOKA record (<network>-soka-latest.json), Safe record (<network>-safes.json)
+#           SOKA record (<network>-soka-latest.json), Safe record (<network>-safes.json), the Kage
+#           module (contracts, ABIs, registration call) when the record has one,
 #           and, when REGISTER_RESULT points at one, the register-nodes result.
 #           Optionally pushes to the hisoka-io/nox-deployments private repo.
 
@@ -24,7 +25,7 @@ NETWORK_NAME="${DEPLOYMENT_NAME%%-*}"
 CIRCUITS=(deposit withdraw transfer join split public_claim withdraw_multisig transfer_multisig split_multisig join_multisig swap_intent swap_settle)
 VERIFIERS=(DepositVerifier WithdrawVerifier TransferVerifier JoinVerifier SplitVerifier PublicClaimVerifier WithdrawMultisigVerifier TransferMultisigVerifier SplitMultisigVerifier JoinMultisigVerifier KageVerifier)
 STUB_VERIFIERS=(RevertingVerifier)
-ABIS=(DarkPool IDarkPoolSettlement IProofVerifier RevertingVerifier NoxRegistry NoxRewardPool NoxExecutionSandbox NoxEntryPoint HowlPaymentAdapter BundleExecutor ComplianceRegistry MockERC20 SokaToken TimelockController)
+ABIS=(DarkPool IDarkPoolSettlement IProofVerifier RevertingVerifier KageRegistry KageSettlement IKageRegistry NoxRegistry NoxRewardPool NoxExecutionSandbox NoxEntryPoint HowlPaymentAdapter BundleExecutor ComplianceRegistry MockERC20 SokaToken TimelockController)
 CIRCUIT_SLOTS=10
 
 if [ ! -f "${DEPLOYMENT_FILE}" ]; then
@@ -69,7 +70,10 @@ record_problems=$(jq -r --argjson slots "${CIRCUIT_SLOTS}" '
     (select((.verifierSlots | type) != "array" or (.verifierSlots | length) != $slots)
       | "verifierSlots must list \($slots) circuit slots"),
     ((.verifierSlots // [])[] | select((.address | addr | not) or (.codeHash | hash | not))
-      | "verifierSlots[\(.circuitId)] lacks an address or code hash")
+      | "verifierSlots[\(.circuitId)] lacks an address or code hash"),
+    (.kage // empty | select((.registry | addr | not) or (.settlement | addr | not)
+      or (.moduleLayout.maxPast != 0) or ((.moduleRegistration.data | type) != "string"))
+      | "kage section lacks its contracts, its registration call, or maxPast 0")
   ] | .[]' "${DEPLOYMENT_FILE}")
 if [ -n "${record_problems}" ]; then
   echo "ERROR: deployment record ${DEPLOYMENT_FILE} is incomplete:" >&2
@@ -145,7 +149,8 @@ done
 echo "[5/7] Writing identity.json..."
 jq '{
   darkPool: .contracts.darkPool,
-  settlementHook: {contract: .contracts.darkPool, entrypoint: "settle(bytes,bytes32[])", modules: (.settlementModules // [])},
+  settlementHook: {contract: .contracts.darkPool, entrypoint: "settle(bytes,bytes32[])", modules: [.kage // empty | {controller: .settlement, verifier, layout: .moduleLayout, registration: .moduleRegistration}]},
+  kage: (.kage // null),
   multisigVerifiers: (.multisigVerifiers // "real"),
   verifierSlots: .verifierSlots,
   paymentAdapters: {
