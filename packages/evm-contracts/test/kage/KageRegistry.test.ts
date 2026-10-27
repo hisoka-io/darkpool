@@ -467,12 +467,12 @@ describe("KageRegistry", function () {
       const d = await loadFixture(deployKageFixture);
       const s = d.registry.connect(d.stranger);
       for (const call of [
-        s.addStake(d.solverId, 1n),
-        s.requestExit(d.solverId),
-        s.cancelExit(d.solverId),
-        s.rotateSigner(d.solverId, ROTATED_KEY.address),
+        () => s.addStake(d.solverId, 1n),
+        () => s.requestExit(d.solverId),
+        () => s.cancelExit(d.solverId),
+        () => s.rotateSigner(d.solverId, ROTATED_KEY.address),
       ]) {
-        await expect(call)
+        await expect(call())
           .to.be.revertedWithCustomError(d.registry, "NotSolverOwner")
           .withArgs(d.solverId);
       }
@@ -506,12 +506,12 @@ describe("KageRegistry", function () {
       await registry.connect(admin).pause();
       const owner = registry.connect(solverOwner);
       for (const call of [
-        owner.register(HOT_KEY.address, MIN_STAKE),
-        owner.addStake(id, 1n),
-        owner.requestExit(id),
-        owner.cancelExit(second),
+        () => owner.register(HOT_KEY.address, MIN_STAKE),
+        () => owner.addStake(id, 1n),
+        () => owner.requestExit(id),
+        () => owner.cancelExit(second),
       ]) {
-        await expect(call).to.be.revertedWithCustomError(
+        await expect(call()).to.be.revertedWithCustomError(
           registry,
           "EnforcedPause",
         );
