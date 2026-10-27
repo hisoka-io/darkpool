@@ -4,7 +4,12 @@ import type { DiscoveryPort } from "../discovery/ports.js";
 import { readComplianceHistory } from "../history/compliance.js";
 import { mergeStatePayloads } from "@hisoka/pss-client";
 import { WalletRuntimeError } from "../errors.js";
-import { noteKey, nullifierHex, type NoteView } from "../store/noteStore.js";
+import {
+  NoteStore,
+  noteKey,
+  nullifierHex,
+  type NoteView,
+} from "../store/noteStore.js";
 import { syncWallet, type WalletSyncDeps } from "../walletSync.js";
 import { funded, runtimeEnv, type RuntimeEnv } from "./fixtures/env.js";
 import { ASSET, evenSelfIndex, selfNote } from "./fixtures/mint.js";
@@ -271,5 +276,99 @@ describe("wallet sync", () => {
     expect(report.hints).toEqual({ confirmed: 0, rejected: 1 });
     expect(pss.payload.known.droppedNotes.map((t) => t.leafIndex)).toEqual([1]);
     expect(env.notes.notes.map((n) => n.leafIndex)).toEqual([1]);
+  });
+
+  it("leaves pending, never tombstones, a PSS hint past a lagging device's derivation window", async () => {
+    const env = await runtimeEnv(20);
+    const idx = await evenSelfIndex(env.alice, 30);
+    await env.pool.insertSelf(
+      12,
+      await selfNote(env.alice, idx, 50n, COMPLIANCE_PK[0]!, ASSET),
+    );
+    const pss = new FakePss();
+    await syncWallet({
+      ...syncDeps(env, pss),
+      highWater: async () => ({ self: idx, incoming: 0 }),
+    });
+    const real = pss.payload.known.unspentNotes[0]!;
+    expect(real.block).toBe(12);
+
+    // A second device of the account, whose counters lag, takes over as the writer.
+    const lagging = await NoteStore.open(env.store, "hisoka.runtime.v1.test.b");
+    const report = await syncWallet({
+      ...syncDeps(env, pss),
+      notes: lagging,
+      highWater: async () => ({ self: 0, incoming: 0 }),
+    });
+    expect(report.hints).toEqual({ confirmed: 0, rejected: 0 });
+    expect(pss.payload.known.droppedNotes).toEqual([]);
+    expect(lagging.notes).toEqual([]);
+
+    // The first device writes again and the hint is back for every device.
+    await syncWallet({
+      ...syncDeps(env, pss),
+      highWater: async () => ({ self: idx, incoming: 0 }),
+    });
+    expect(pss.payload.known.unspentNotes).toEqual([real]);
+  });
+
+  it("tombstones a PSS hint whose block left the chain, though no note of the device sits at its leaf", async () => {
+    const env = await runtimeEnv(20);
+    const pss = new FakePss();
+    const other = await evenSelfIndex(env.bob, 0);
+    await env.pool.insertSelf(
+      12,
+      await selfNote(env.bob, other, 7n, COMPLIANCE_PK[0]!),
+    );
+    const gone = {
+      leafIndex: 1,
+      assetId: `0x${ASSET.toBigInt().toString(16).padStart(40, "0")}`,
+      amount: "5",
+      nullifier: `0x${"77".repeat(32)}`,
+      block: 12,
+      blockHash: `0x${"cd".repeat(32)}`,
+    };
+    await pss.update((p) => ({
+      known: { ...p.known, unspentNotes: [gone] },
+      extra: p.extra,
+    }));
+    const report = await syncWallet(syncDeps(env, pss));
+    expect(report.hints).toEqual({ confirmed: 0, rejected: 1 });
+    expect(pss.payload.known.droppedNotes).toEqual([
+      {
+        leafIndex: 1,
+        nullifier: gone.nullifier,
+        block: 12,
+        blockHash: gone.blockHash,
+      },
+    ]);
+  });
+
+  it("tombstones a canonical PSS hint at a leaf the device holds with another note, or past the tree", async () => {
+    const env = await runtimeEnv(20);
+    const pss = new FakePss();
+    const [held] = await funded(env, [100n]);
+    const canonical = (leafIndex: number, block: number, n: number) => ({
+      leafIndex,
+      assetId: `0x${ASSET.toBigInt().toString(16).padStart(40, "0")}`,
+      amount: "5",
+      nullifier: `0x${n.toString(16).padStart(64, "0")}`,
+      block,
+      blockHash: env.pool.chain.blocks[block]!.hash,
+    });
+    const atHeld = canonical(held!.leafIndex, held!.block.number, 0x71);
+    const pastTree = canonical(9, 15, 0x72);
+    await pss.update((p) => ({
+      known: { ...p.known, unspentNotes: [atHeld, pastTree] },
+      extra: p.extra,
+    }));
+    const report = await syncWallet(syncDeps(env, pss));
+    expect(report.hints).toEqual({ confirmed: 0, rejected: 2 });
+    expect(
+      pss.payload.known.droppedNotes.map((t) => [t.leafIndex, t.nullifier]),
+    ).toEqual([
+      [held!.leafIndex, atHeld.nullifier],
+      [9, pastTree.nullifier],
+    ]);
   });
 });

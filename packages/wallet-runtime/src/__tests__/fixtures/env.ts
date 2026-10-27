@@ -184,6 +184,7 @@ export async function runtimeEnv(height = 40): Promise<RuntimeEnv> {
     notes,
     pss,
     allocator: new SelfEphemeralAllocator(alice, counter),
+    counters: counter,
     account: alice,
     prover,
     submitter,

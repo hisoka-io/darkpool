@@ -114,12 +114,31 @@ describe("direct submitter", () => {
       resumeToken: TX,
     });
     const refused = direct({ eth_call: () => "0x" }, async () => {
-      throw new Error("user rejected");
+      throw Object.assign(new Error("user rejected"), { code: 4001 });
     });
     expect(await refused.submitter.submit(CALL, CONTEXT)).toMatchObject({
       status: "not-sent",
       stage: "send",
       detail: "user rejected",
+    });
+  });
+
+  it("reports unknown, never not-sent, when the signer fails after the transaction may have left", async () => {
+    const lost = direct({ eth_call: () => "0x" }, async () => {
+      throw new Error("request timed out after eth_sendRawTransaction");
+    });
+    expect(await lost.submitter.submit(CALL, CONTEXT)).toMatchObject({
+      status: "unknown",
+      resumeToken: null,
+    });
+    const wrapped = direct({ eth_call: () => "0x" }, async () => {
+      throw Object.assign(new Error("ethers: user rejected action"), {
+        code: "ACTION_REJECTED",
+      });
+    });
+    expect(await wrapped.submitter.submit(CALL, CONTEXT)).toMatchObject({
+      status: "not-sent",
+      stage: "send",
     });
   });
 });

@@ -32,6 +32,8 @@ export interface DiscoveredNote extends OpenedNote {
   readonly verification: LeafVerification;
   /** Inclusion block when the adapter reports it, else the head of the sync that found the note. */
   readonly block: BlockId;
+  /** Whether `block` is the adapter's inclusion block rather than the sync head. */
+  readonly blockReported: boolean;
 }
 
 export interface UnopenableRow {
@@ -171,6 +173,7 @@ export async function discoverNotes(
         ...outcome.note,
         verification,
         block: block ?? { number: head.block.number, hash: head.block.hash },
+        blockReported: block !== null,
       });
     }
   }

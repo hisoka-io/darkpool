@@ -167,8 +167,9 @@ export function decodeNoxResume(
 /**
  * Sends a pool call as a Nox paid action. The fee is a withdraw from a separate fee note, leased with the
  * action's inputs and never one of them, and proved by the pipeline only once the quote names the
- * execution id it must bind. An `unknown` result carries the execution id and validity in its
- * resume token, and a retry passes it back as `pending` so it resumes instead of paying twice.
+ * execution id it must bind, at no more than `maxTotalFee`. An `unknown` result carries the execution id and
+ * validity in its resume token; the pipeline journals it and keeps the plan's notes leased until
+ * `validUntilUnix`, so a new action cannot pay a second fee for the same notes while the first can still land.
  */
 export class NoxSubmitter implements SubmitterPort {
   /** Unknown executions to resume, by the plan that sent them: another action must never inherit one. */
@@ -189,6 +190,17 @@ export class NoxSubmitter implements SubmitterPort {
       feeNoteNullifier: `0x${fee.nullifier.toBigInt().toString(16).padStart(64, "0")}`,
       feeNoteValue: fee.value,
       proveFeeWithdraw: async (amount, recipient, intentHash) => {
+        if (amount > this.deps.maxTotalFee) {
+          throw new WalletRuntimeError(
+            "QUOTE_REJECTED",
+            `the quoted fee ${amount} is above this submitter's maxTotalFee ${this.deps.maxTotalFee}; the fee withdraw is not proved`,
+            {
+              field: "amount",
+              expected: `<= ${this.deps.maxTotalFee}`,
+              actual: amount.toString(),
+            },
+          );
+        }
         const proof = await fee.prove(amount, recipient, intentHash);
         return { proof: proof.proof, publicInputs: proof.publicInputs };
       },
@@ -198,7 +210,11 @@ export class NoxSubmitter implements SubmitterPort {
     });
   }
 
-  /** Resumes, on the next submit for `planId`, the paid execution an earlier run of that plan left `unknown`. */
+  /**
+   * Resumes, on the next submit for `planId`, the paid execution an earlier run of that plan left `unknown`.
+   * Only a caller that submits again under the same plan id reaches it: the pipeline gives every action a new
+   * plan id and relies on the lease kept until `validUntilUnix` instead.
+   */
   resume(planId: string, token: string): boolean {
     const pending = decodeNoxResume(token);
     if (pending === null) return false;

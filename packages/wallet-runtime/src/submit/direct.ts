@@ -12,7 +12,10 @@ export interface DirectSubmitterDeps {
   readonly rpc: JsonRpc;
   /** The account that signs, used as `from` in the simulation. */
   readonly from: string;
-  /** An EIP-1193 signer or a relayer: sends the call and returns its transaction hash. */
+  /**
+   * An EIP-1193 signer or a relayer: sends the call and returns its transaction hash. A throw counts as "not
+   * sent" only when it is a user rejection (EIP-1193 `4001`); any other throw may follow a broadcast.
+   */
   readonly sendTransaction: (call: PoolCall) => Promise<string>;
   readonly pollIntervalMs: number;
   readonly receiptTimeoutMs: number;
@@ -51,6 +54,30 @@ function errorNameOf(data: string | null): string | null {
   }
 }
 
+/** EIP-1193 `4001`, or ethers' `ACTION_REJECTED`: the user refused to sign, so nothing was broadcast. */
+const USER_REJECTED_CODES: ReadonlySet<unknown> = new Set([
+  4001,
+  "ACTION_REJECTED",
+]);
+
+function refusedBeforeSigning(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (
+    typeof current === "object" &&
+    current !== null &&
+    !seen.has(current)
+  ) {
+    seen.add(current);
+    if (USER_REJECTED_CODES.has((current as { readonly code?: unknown }).code))
+      return true;
+    current =
+      (current as { readonly error?: unknown }).error ??
+      (current as { readonly cause?: unknown }).cause;
+  }
+  return false;
+}
+
 /**
  * Sends a pool call from an app-supplied signer: simulates it at `latest` first, so a call the pool would
  * reject (a stale compliance key, a spent nullifier, an unknown root) is never broadcast and comes back with
@@ -82,10 +109,18 @@ export class DirectSubmitter implements SubmitterPort {
     try {
       txHash = await this.deps.sendTransaction(call);
     } catch (cause) {
+      if (refusedBeforeSigning(cause)) {
+        return {
+          status: "not-sent",
+          stage: "send",
+          detail: describeCause(cause),
+        };
+      }
+      // The signer may have broadcast before it failed, so the notes stay leased until the sweep settles it.
       return {
-        status: "not-sent",
-        stage: "send",
-        detail: describeCause(cause),
+        status: "unknown",
+        detail: `sending failed after the call may have been broadcast: ${describeCause(cause)}`,
+        resumeToken: null,
       };
     }
 
