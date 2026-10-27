@@ -3,7 +3,7 @@
  *
  *   npx hardhat run scripts/validate-upgrade-safety.ts
  *
- * It fails (exit 1) if any of the three UUPS implementations is upgrade-unsafe, if the live
+ * It fails (exit 1) if any of the four UUPS implementations is upgrade-unsafe, if the live
  * DarkPool storage is incompatible with the pinned DarkPoolV1 baseline (namespace-internal
  * reorder/retype included), if an unapproved unsafe flag or source annotation is used, or if the
  * DarkPool external-library link set drifts from the pinned Poseidon2-only record.
@@ -51,6 +51,7 @@ const REAL_CONTRACT_SOURCES = [
   "contracts/DarkPool.sol",
   "contracts/nox/NoxRegistry.sol",
   "contracts/nox/NoxRewardPool.sol",
+  "contracts/kage/KageRegistry.sol",
 ];
 
 type ValidateOpts = NonNullable<
@@ -133,7 +134,7 @@ function assertAnnotationScan(): void {
   }
 }
 
-/** Assert DarkPool links exactly Poseidon2 (and nothing else), the Nox contracts link
+/** Assert DarkPool links exactly Poseidon2 (and nothing else), the Nox and Kage registries link
  *  nothing, and the link set matches the committed pin. Fails on any drift. */
 async function assertLibraryLinkPin(): Promise<void> {
   const darkpool = await artifacts.readArtifact("DarkPool");
@@ -154,7 +155,7 @@ async function assertLibraryLinkPin(): Promise<void> {
     );
   }
 
-  for (const name of ["NoxRegistry", "NoxRewardPool"]) {
+  for (const name of ["NoxRegistry", "NoxRewardPool", "KageRegistry"]) {
     const art = await artifacts.readArtifact(name);
     const count = Object.keys(art.linkReferences).length;
     if (count !== 0) {
@@ -202,6 +203,7 @@ async function main(): Promise<void> {
   });
   const noxRegistryFactory = await ethers.getContractFactory("NoxRegistry");
   const noxRewardPoolFactory = await ethers.getContractFactory("NoxRewardPool");
+  const kageRegistryFactory = await ethers.getContractFactory("KageRegistry");
 
   const darkPoolOpts: ValidateOpts = {
     kind: "uups",
@@ -212,6 +214,7 @@ async function main(): Promise<void> {
     await validateOne("DarkPool", darkPoolFactory, darkPoolOpts),
     await validateOne("NoxRegistry", noxRegistryFactory, { kind: "uups" }),
     await validateOne("NoxRewardPool", noxRewardPoolFactory, { kind: "uups" }),
+    await validateOne("KageRegistry", kageRegistryFactory, { kind: "uups" }),
   ];
 
   // Storage-compat gate: assertStorageUpgradeSafe(DarkPoolV1 -> DarkPool). With V1 == current this
