@@ -234,7 +234,7 @@ describe("Nox submitter", () => {
     });
     expect(
       unknown.status === "unknown" &&
-        submitter.resume(unknown.resumeToken ?? ""),
+        submitter.resume(PAID.planId, unknown.resumeToken ?? ""),
     ).toBe(true);
     expect(await submitter.submit(CALL, PAID)).toMatchObject({
       status: "reverted",
@@ -255,6 +255,50 @@ describe("Nox submitter", () => {
       status: "unknown",
       resumeToken: null,
     });
+  });
+
+  it("resumes an unknown execution only for the plan that sent it", async () => {
+    const pending = {
+      executionId: `0x${"06".repeat(32)}`,
+      validUntilUnix: 456n,
+    };
+    const other: SubmissionContext = { ...PAID, planId: "other" };
+    const { submitter, seen } = nox([
+      { status: "unknown", ...pending, detail: "exit went silent" },
+      {
+        status: "not-paid",
+        stage: "quote",
+        code: "NO_EXIT",
+        detail: "no exit quoted",
+      },
+      {
+        status: "settled",
+        executionId: pending.executionId,
+        transactionHash: TX,
+        blockNumber: 12n,
+      },
+      {
+        status: "not-paid",
+        stage: "quote",
+        code: "NO_EXIT",
+        detail: "no exit quoted",
+      },
+    ]);
+    const unknown = await submitter.submit(CALL, PAID);
+    expect(
+      unknown.status === "unknown" &&
+        submitter.resume(PAID.planId, unknown.resumeToken ?? ""),
+    ).toBe(true);
+    expect(submitter.resume(other.planId, "not a token")).toBe(false);
+
+    await submitter.submit(CALL, other);
+    expect(seen[1]!.pending).toBeUndefined();
+    expect(await submitter.submit(CALL, PAID)).toMatchObject({
+      status: "included",
+    });
+    expect(seen[2]!.pending).toEqual(pending);
+    await submitter.submit(CALL, PAID);
+    expect(seen[3]!.pending).toBeUndefined();
   });
 
   it("sends nothing for an action that leased no fee note, or whose fee note cannot pay", async () => {

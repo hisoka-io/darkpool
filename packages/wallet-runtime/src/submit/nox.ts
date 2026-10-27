@@ -152,10 +152,11 @@ export function decodeNoxResume(
  * resume token, and a retry passes it back as `pending` so it resumes instead of paying twice.
  */
 export class NoxSubmitter implements SubmitterPort {
-  #pending: {
-    readonly executionId: string;
-    readonly validUntilUnix: bigint;
-  } | null = null;
+  /** Unknown executions to resume, by the plan that sent them: another action must never inherit one. */
+  readonly #pending = new Map<
+    string,
+    { readonly executionId: string; readonly validUntilUnix: bigint }
+  >();
 
   constructor(private readonly deps: NoxSubmitterDeps) {}
 
@@ -177,10 +178,12 @@ export class NoxSubmitter implements SubmitterPort {
     });
   }
 
-  /** Resumes a paid execution an earlier run left `unknown`. */
-  resume(token: string): boolean {
-    this.#pending = decodeNoxResume(token);
-    return this.#pending !== null;
+  /** Resumes, on the next submit for `planId`, the paid execution an earlier run of that plan left `unknown`. */
+  resume(planId: string, token: string): boolean {
+    const pending = decodeNoxResume(token);
+    if (pending === null) return false;
+    this.#pending.set(planId, pending);
+    return true;
   }
 
   async submit(
@@ -204,6 +207,7 @@ export class NoxSubmitter implements SubmitterPort {
         detail: `the fee note cannot pay: ${describeCause(cause)}`,
       };
     }
+    const pending = this.#pending.get(context.planId);
     const result = await this.deps.executor.execute({
       chainId: this.deps.chainId,
       entryPoint: this.deps.entryPoint,
@@ -218,18 +222,17 @@ export class NoxSubmitter implements SubmitterPort {
       maxTotalFee: this.deps.maxTotalFee,
       intentSalt: this.deps.intentSalt,
       preflight: this.deps.preflight,
-      ...(this.#pending === null ? {} : { pending: this.#pending }),
+      ...(pending === undefined ? {} : { pending }),
     });
+    if (result.status !== "unknown") this.#pending.delete(context.planId);
     switch (result.status) {
       case "settled":
-        this.#pending = null;
         return {
           status: "included",
           txHash: result.transactionHash,
           blockNumber: Number(result.blockNumber),
         };
       case "paid-action-failed":
-        this.#pending = null;
         return {
           status: "reverted",
           txHash: result.transactionHash,
