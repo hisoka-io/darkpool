@@ -22,7 +22,8 @@
  *   GOV_SAFE       governance multisig (3-of-5), Timelock proposer + executor + canceller
  *   GUARDIAN_SAFE  guardian multisig (2-of-3), DarkPool pauser, NoxRegistry slasher, NoxRewardPool
  *                  admin + distributor. Explicitly NOT a Timelock canceller. Off test chains no owner of
- *                  one Safe may own the other.
+ *                  one Safe may own the other, and each Safe needs a threshold of at least 2, no enabled
+ *                  module and no guard (warnings on test chains).
  *   STAKING_TOKEN  ERC20 staking token. Required off local; a dev MockERC20 is deployed only on
  *                  hardhat/localhost, because it has an unpermissioned mint and NoxRegistry writes the
  *                  token once with no update path. Off test chains it must be the chain's WETH or USDC.
@@ -53,6 +54,9 @@
  *                              DarkPool, NoxRegistry and NoxRewardPool (default 172800 = 48h)
  *                          Either may be 0, but a value below 48h is refused outside SHORT_DELAY_CHAIN_IDS.
  *   SKIP_EXPLORER_VERIFY   "true" skips block-explorer verification (forks and rehearsals)
+ *   FORCE_LAUNCH_RULES     "1" makes chain 31337 (a hardhat fork rehearsal) enforce every launch-chain refusal,
+ *                          evaluated for the forked chain when Hardhat reports a fork of a non-test chain, else
+ *                          for 31337 itself, which has no token row and so refuses any staking or fee token
  *   ALLOW_REDEPLOY         "true" deploys even though <network>-latest.json exists; refused otherwise off local
  *   DEPLOYMENTS_DIR        where the record, the latest pointer and the secrets land (default deployments/)
  *
@@ -83,10 +87,11 @@ const DEFAULT_GOVERNANCE_DELAY = 48n * 60n * 60n;
 const UINT48_MAX = 2n ** 48n - 1n;
 // The test chains: the in-process chain, Arbitrum Sepolia and Sepolia. A delay below the production default is a
 // testnet affordance; anywhere else it would hand governance an instant path around the review window. Every other
-// launch-chain rule below (fee asset, staking token, stake amounts, compliance key source, Safe owner disjointness,
+// launch-chain rule below (fee asset, staking token, stake amounts, compliance key source, Safe owners and controls,
 // multisig verifier stub) is likewise relaxed only here.
+const IN_PROCESS_CHAIN_ID = 31337n;
 const SHORT_DELAY_CHAIN_IDS: ReadonlySet<bigint> = new Set([
-  31337n,
+  IN_PROCESS_CHAIN_ID,
   421614n,
   11155111n,
 ]);
@@ -94,8 +99,52 @@ const SHORT_DELAY_CHAIN_IDS: ReadonlySet<bigint> = new Set([
 const UNSTAKE_DELAY = 86400n; // contract minimum (1 day)
 const TEST_CHAIN_STAKE = "1";
 
+/**
+ * FORCE_LAUNCH_RULES=1 makes the in-process chain enforce every launch-chain refusal, so a fork rehearsal under
+ * chain id 31337 rehearses the launch rules rather than the relaxed test-chain ones. Any other non-empty value is
+ * refused, so a typo cannot silently fall back to the relaxed rules.
+ */
+export function launchRulesForced(): boolean {
+  const raw = (process.env.FORCE_LAUNCH_RULES ?? "").trim();
+  if (raw !== "" && raw !== "1") {
+    throw new Error(`FORCE_LAUNCH_RULES=${raw} must be "1" or unset.`);
+  }
+  return raw === "1";
+}
+
 export function isTestChain(chainId: bigint): boolean {
+  if (chainId === IN_PROCESS_CHAIN_ID && launchRulesForced()) return false;
   return SHORT_DELAY_CHAIN_IDS.has(chainId);
+}
+
+/**
+ * The chain id the launch rules are evaluated against. A forced rehearsal on a fork of a launch chain takes the
+ * forked chain's token row; a forced run with no fork, or on a fork of a test chain, keeps 31337, which has no
+ * token row and so refuses every staking and fee token.
+ */
+export function launchRulesChainId(
+  chainId: bigint,
+  forkedChainId: bigint | null,
+): bigint {
+  if (chainId !== IN_PROCESS_CHAIN_ID || !launchRulesForced()) return chainId;
+  if (forkedChainId === null || SHORT_DELAY_CHAIN_IDS.has(forkedChainId)) {
+    return chainId;
+  }
+  return forkedChainId;
+}
+
+// Hardhat's own metadata call names the forked chain; any other node (anvil, a live RPC) does not answer it, and a
+// fork there is rehearsed under the forked chain's own id instead.
+async function forkedChainId(): Promise<bigint | null> {
+  let metadata: { forkedNetwork?: { chainId: number } };
+  try {
+    metadata = await ethers.provider.send("hardhat_metadata", []);
+  } catch {
+    return null;
+  }
+  return metadata.forkedNetwork === undefined
+    ? null
+    : BigInt(metadata.forkedNetwork.chainId);
 }
 
 export interface LaunchTokens {
@@ -284,16 +333,56 @@ export function assertSafeOwnersDisjoint(
   return shared;
 }
 
-const SAFE_OWNERS_ABI = [
+// Safe v1.x storage: the guard sits at keccak256("guard_manager.guard.address"); modules are a linked list read from
+// the sentinel. One page is enough, since any enabled module is refused.
+const SAFE_ABI = [
   "function getOwners() view returns (address[])",
   "function getThreshold() view returns (uint256)",
+  "function getModulesPaginated(address start, uint256 pageSize) view returns (address[] array, address next)",
 ];
+const SAFE_GUARD_SLOT = ethers.id("guard_manager.guard.address");
+const SAFE_MODULES_SENTINEL = "0x0000000000000000000000000000000000000001";
+const SAFE_MODULES_PAGE = 10;
+const MIN_SAFE_THRESHOLD = 2n;
 
-async function readSafeOwnership(
-  label: string,
-  address: string,
-): Promise<SafeOwnership> {
-  const safe = new ethers.Contract(address, SAFE_OWNERS_ABI, ethers.provider);
+export interface SafeControls extends SafeOwnership {
+  readonly modules: readonly string[];
+  /** The raw guard storage word; any non-zero word counts as a guard. */
+  readonly guardWord: string;
+}
+
+/**
+ * What lets a Safe act around a quorum of its owners: a threshold below 2 makes one key the whole Safe, an enabled
+ * module executes without owner signatures, and a guard can veto or rewrite every Safe transaction. Off the test
+ * chains each is refused; on them the problems are returned for a warning.
+ */
+export function assertSafeControls(
+  chainId: bigint,
+  safe: SafeControls,
+): string[] {
+  const problems: string[] = [];
+  if (safe.threshold < MIN_SAFE_THRESHOLD) {
+    problems.push(
+      `threshold ${safe.threshold}-of-${safe.owners.length} is below ${MIN_SAFE_THRESHOLD}`,
+    );
+  }
+  if (safe.modules.length > 0) {
+    problems.push(`module(s) enabled: ${safe.modules.join(", ")}`);
+  }
+  if (safe.guardWord !== ethers.ZeroHash) {
+    problems.push(`guard ${ethers.dataSlice(safe.guardWord, 12)} is set`);
+  }
+  if (problems.length > 0 && !isTestChain(chainId)) {
+    throw new Error(
+      `${safe.label} ${safe.address} ${problems.join("; ")}; a launch Safe needs a threshold of at least ` +
+        `${MIN_SAFE_THRESHOLD}, no module and no guard.`,
+    );
+  }
+  return problems;
+}
+
+async function readSafe(label: string, address: string): Promise<SafeControls> {
+  const safe = new ethers.Contract(address, SAFE_ABI, ethers.provider);
   try {
     const owners = ((await safe.getOwners()) as string[]).map((o) =>
       ethers.getAddress(o),
@@ -302,11 +391,22 @@ async function readSafeOwnership(
     if (owners.length === 0 || threshold === 0n) {
       throw new Error(`owners ${owners.length}, threshold ${threshold}`);
     }
-    return { label, address, owners, threshold };
+    const [modules] = (await safe.getModulesPaginated(
+      SAFE_MODULES_SENTINEL,
+      SAFE_MODULES_PAGE,
+    )) as [string[], string];
+    return {
+      label,
+      address,
+      owners,
+      threshold,
+      modules: modules.map((m) => ethers.getAddress(m)),
+      guardWord: await ethers.provider.getStorage(address, SAFE_GUARD_SLOT),
+    };
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     throw new Error(
-      `${label} ${address} does not answer as a Safe (getOwners/getThreshold): ${detail}`,
+      `${label} ${address} does not answer as a Safe (getOwners/getThreshold/getModulesPaginated): ${detail}`,
     );
   }
 }
@@ -519,7 +619,7 @@ export function resolveComplianceKey(
   }
   if (localFixtureSk !== undefined && !isLocal) {
     throw new Error(
-      "LOCAL_TEST_COMPLIANCE_SECRET_KEY is accepted only on hardhat or localhost.",
+      "LOCAL_TEST_COMPLIANCE_SECRET_KEY is accepted only on hardhat or localhost, and not under FORCE_LAUNCH_RULES=1.",
     );
   }
   if (pkX !== undefined && pkY !== undefined) {
@@ -685,10 +785,7 @@ export function governanceDelays(chainId: bigint): {
     ["TIMELOCK_MIN_DELAY_SECS", timelockMinDelay],
     ["ADMIN_TRANSFER_DELAY_SECS", adminTransferDelay],
   ] as const) {
-    if (
-      value < DEFAULT_GOVERNANCE_DELAY &&
-      !SHORT_DELAY_CHAIN_IDS.has(chainId)
-    ) {
+    if (value < DEFAULT_GOVERNANCE_DELAY && !isTestChain(chainId)) {
       throw new Error(
         `${name}=${value} is below the ${DEFAULT_GOVERNANCE_DELAY}s production default, which is accepted ` +
           `only on chain ids ${[...SHORT_DELAY_CHAIN_IDS].join(", ")} (this is ${chainId}).`,
@@ -1029,14 +1126,21 @@ export async function deploy(
   const balance = await ethers.provider.getBalance(deployer.address);
 
   const isLocal = network.name === "hardhat" || network.name === "localhost";
+  const forced = launchRulesForced();
+  // The launch refusals keyed on the network name (an EOA Safe, a missing staking token or fee asset, the local
+  // compliance fixture, a missing circuit artifact or storage manifest) are lifted only on an unforced local run.
+  // The redeploy guard, explorer verification and backup notice concern a persistent chain and stay on isLocal.
+  const relaxLocalRules = isLocal && !forced;
+  const rulesChainId = launchRulesChainId(chainId, await forkedChainId());
 
-  const { timelockMinDelay, adminTransferDelay } = governanceDelays(chainId);
+  const { timelockMinDelay, adminTransferDelay } =
+    governanceDelays(rulesChainId);
 
   const govSafe = requireSafeAddress("GOV_SAFE");
   const guardianSafe = requireSafeAddress("GUARDIAN_SAFE");
   const stakingToken = optionalAddress("STAKING_TOKEN");
   const swapRouter = optionalAddress("SWAP_ROUTER");
-  const explicitFeeAssets = configuredFeeAssets(isLocal);
+  const explicitFeeAssets = configuredFeeAssets(relaxLocalRules);
   const committeeThreshold = positiveUint256("COMPLIANCE_THRESHOLD", "3");
   const committeeSize = positiveUint256("COMPLIANCE_COMMITTEE_SIZE", "5");
   if (committeeThreshold > committeeSize) {
@@ -1044,9 +1148,9 @@ export async function deploy(
       "COMPLIANCE_THRESHOLD must not exceed COMPLIANCE_COMMITTEE_SIZE.",
     );
   }
-  const compliance = resolveComplianceKey(chainId, isLocal);
-  const multisigVerifiers = multisigVerifierMode(chainId);
-  const kageEnabled = kageModuleEnabled(chainId);
+  const compliance = resolveComplianceKey(rulesChainId, relaxLocalRules);
+  const multisigVerifiers = multisigVerifierMode(rulesChainId);
+  const kageEnabled = kageModuleEnabled(rulesChainId);
   // One address holding both roles collapses the separation the wiring assertions exist to enforce, and
   // every one of them would still pass.
   if (govSafe === guardianSafe) {
@@ -1057,6 +1161,11 @@ export async function deploy(
 
   console.log("DarkPool + NOX governed deployment");
   console.log(`  Network:       ${network.name} (chainId: ${chainId})`);
+  if (forced) {
+    console.log(
+      `  FORCE_LAUNCH_RULES=1: launch-chain rules enforced, evaluated for chain id ${rulesChainId}`,
+    );
+  }
   console.log(`  Deployer:      ${deployer.address}`);
   console.log(`  Balance:       ${ethers.formatEther(balance)} ETH`);
   console.log(`  Gov Safe:      ${govSafe}`);
@@ -1072,18 +1181,25 @@ export async function deploy(
         "actions get no review window.",
     );
   }
-  const safeOwnerships: SafeOwnership[] = [];
+  const safeOwnerships: SafeControls[] = [];
   for (const [label, addr] of [
     ["GOV_SAFE", govSafe],
     ["GUARDIAN_SAFE", guardianSafe],
   ] as const) {
     if ((await ethers.provider.getCode(addr)) !== "0x") {
-      safeOwnerships.push(await readSafeOwnership(label, addr));
+      const safe = await readSafe(label, addr);
+      const problems = assertSafeControls(rulesChainId, safe);
+      if (problems.length > 0) {
+        console.log(
+          `  WARNING: ${label} ${addr} ${problems.join("; ")}; accepted only on test chain ${chainId}.`,
+        );
+      }
+      safeOwnerships.push(safe);
     } else {
       // An EOA here is not a weaker multisig, it is no multisig. GOV_SAFE inherits PROPOSER, EXECUTOR
       // and CANCELLER, so a single key would own governance outright, and every Step 10 assertion still
       // passes because they only check that the DEPLOYER holds nothing.
-      if (!isLocal) {
+      if (!relaxLocalRules) {
         throw new Error(
           `${label} ${addr} has no code on network ${network.name}; it must be a deployed multisig contract.`,
         );
@@ -1095,7 +1211,7 @@ export async function deploy(
   }
   if (safeOwnerships.length === 2) {
     const [gov, guardian] = safeOwnerships;
-    const shared = assertSafeOwnersDisjoint(chainId, gov, guardian);
+    const shared = assertSafeOwnersDisjoint(rulesChainId, gov, guardian);
     if (shared.length > 0) {
       console.log(
         `  WARNING: GUARDIAN_SAFE shares owner(s) ${shared.join(", ")} with GOV_SAFE; accepted only on test ` +
@@ -1112,7 +1228,7 @@ export async function deploy(
       "  WARNING: Safe owner disjointness not checked; both Safes must be deployed contracts to read owners.",
     );
   }
-  if (stakingToken === null && !isLocal) {
+  if (stakingToken === null && !relaxLocalRules) {
     // MockERC20 has an unpermissioned public mint, and NoxRegistry writes the staking token only in
     // initialize with no setter, so falling back to it off local permanently binds stake economics to a
     // token anyone can print. Fail closed rather than deploy one.
@@ -1142,12 +1258,15 @@ export async function deploy(
       ? DEV_STAKING_TOKEN_DECIMALS
       : await tokenDecimals("STAKING_TOKEN", stakingToken);
   if (stakingToken !== null) {
-    assertStakingToken(chainId, stakingToken, stakingDecimals);
+    assertStakingToken(rulesChainId, stakingToken, stakingDecimals);
     if (explicitFeeAssets !== null) {
-      assertFeeAssets(chainId, explicitFeeAssets, stakingToken);
+      assertFeeAssets(rulesChainId, explicitFeeAssets, stakingToken);
     }
   }
-  const { minStake, minStakeFloor } = stakeAmounts(chainId, stakingDecimals);
+  const { minStake, minStakeFloor } = stakeAmounts(
+    rulesChainId,
+    stakingDecimals,
+  );
   let kageParams: {
     token: string | null;
     decimals: bigint;
@@ -1157,7 +1276,7 @@ export async function deploy(
   } | null = null;
   if (kageEnabled) {
     const kageToken = optionalAddress("KAGE_STAKING_TOKEN");
-    if (kageToken === null && !isLocal) {
+    if (kageToken === null && !relaxLocalRules) {
       throw new Error(
         `KAGE_STAKING_TOKEN is required with KAGE_MODULE=on on network ${network.name}; it is written once in ` +
           "KageRegistry.initialize.",
@@ -1175,11 +1294,11 @@ export async function deploy(
       kageToken === null
         ? stakingDecimals
         : await tokenDecimals("KAGE_STAKING_TOKEN", kageToken);
-    assertStakingToken(chainId, kageToken ?? ethers.ZeroAddress, decimals);
+    assertStakingToken(rulesChainId, kageToken ?? ethers.ZeroAddress, decimals);
     kageParams = {
       token: kageToken,
       decimals,
-      ...stakeAmounts(chainId, decimals, "KAGE_"),
+      ...stakeAmounts(rulesChainId, decimals, "KAGE_"),
       exitDelay: kageExitDelay(),
     };
   }
@@ -1264,7 +1383,7 @@ export async function deploy(
       "swap_settle",
     ].map((name) => [
       name,
-      sha256File(path.join(circuitsDir, `${name}.json`), !isLocal),
+      sha256File(path.join(circuitsDir, `${name}.json`), !relaxLocalRules),
     ]),
   );
   const vkHashes: Record<string, string> = {};
@@ -2095,7 +2214,7 @@ export async function deploy(
   // still fix the topology rather than after it has given up admin.
   const openzeppelinManifest = await readManifest(
     proxies.map(([, address]) => address),
-    !isLocal,
+    !relaxLocalRules,
   );
   console.log(
     `  Storage-layout manifest: ${openzeppelinManifest === null ? "none (optional on this network)" : "captured"}`,

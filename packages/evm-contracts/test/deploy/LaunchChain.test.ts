@@ -10,17 +10,21 @@ import {
   LAUNCH_TOKENS,
   MULTISIG_CIRCUIT_IDS,
   assertFeeAssets,
+  assertSafeControls,
   assertSafeOwnersDisjoint,
   assertStakingToken,
   deploy,
+  governanceDelays,
   isTestChain,
   kageExitDelay,
   kageModuleEnabled,
   kageModuleProblems,
   kageModuleRegistration,
+  launchRulesChainId,
   multisigVerifierMode,
   resolveComplianceKey,
   stakeAmounts,
+  type SafeControls,
   type SafeOwnership,
 } from "../../scripts/deploy";
 import { assertSokaChain } from "../../scripts/deploy-soka";
@@ -34,6 +38,8 @@ const UNLISTED_CHAIN = 999999n;
 const BN254_FR =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 const OTHER_TOKEN = "0x1111111111111111111111111111111111111111";
+const SAFE_SENTINEL = "0x0000000000000000000000000000000000000001";
+const SAFE_GUARD_SLOT = ethers.id("guard_manager.guard.address");
 
 function tokensOf(chainId: bigint): { usdc: string; weth: string } {
   const tokens = LAUNCH_TOKENS.get(chainId);
@@ -125,10 +131,15 @@ function fixedResponseCode(responses: ReadonlyMap<string, string>): string {
   return `0x${prologue}${dispatch}600080fd${cases}${blobs}`;
 }
 
-function safeCode(owners: readonly string[], threshold: number): string {
+function safeCode(
+  owners: readonly string[],
+  threshold: number,
+  modules: readonly string[] = [],
+): string {
   const iface = new ethers.Interface([
     "function getOwners() view returns (address[])",
     "function getThreshold() view returns (uint256)",
+    "function getModulesPaginated(address start, uint256 pageSize) view returns (address[] array, address next)",
   ]);
   const coder = ethers.AbiCoder.defaultAbiCoder();
   return fixedResponseCode(
@@ -141,8 +152,29 @@ function safeCode(owners: readonly string[], threshold: number): string {
         iface.getFunction("getThreshold")?.selector ?? "",
         coder.encode(["uint256"], [threshold]),
       ],
+      [
+        iface.getFunction("getModulesPaginated")?.selector ?? "",
+        coder.encode(["address[]", "address"], [modules, SAFE_SENTINEL]),
+      ],
     ]),
   );
+}
+
+function controls(
+  label: string,
+  threshold: bigint,
+  modules: readonly string[] = [],
+  guardWord: string = ethers.ZeroHash,
+): SafeControls {
+  return {
+    ...ownership(
+      label,
+      Array.from({ length: 3 }, () => ethers.Wallet.createRandom().address),
+      threshold,
+    ),
+    modules,
+    guardWord,
+  };
 }
 
 function ownership(
@@ -378,6 +410,212 @@ describe("launch-chain rules: pure checks", function () {
           ownership("GUARDIAN_SAFE", [a, f, g], 2n),
         ),
       ).to.deep.equal([a]);
+    });
+  });
+
+  describe("Safe controls", function () {
+    const moduleAddr = ethers.Wallet.createRandom().address;
+    const guardAddr = ethers.Wallet.createRandom().address;
+    const guardWord = ethers.zeroPadValue(guardAddr, 32);
+
+    it("passes a Safe with a threshold of 2 or more, no module and no guard", function () {
+      expect(
+        assertSafeControls(ARBITRUM_ONE, controls("GOV_SAFE", 3n)),
+      ).to.deep.equal([]);
+      expect(
+        assertSafeControls(ETHEREUM, controls("GUARDIAN_SAFE", 2n)),
+      ).to.deep.equal([]);
+    });
+
+    it("refuses a 1-of-N Safe off the test chains", function () {
+      const message = errorOf(() =>
+        assertSafeControls(ARBITRUM_ONE, controls("GOV_SAFE", 1n)),
+      );
+      expect(message).to.contain("threshold 1-of-3 is below 2");
+      expect(message).to.contain(
+        "a launch Safe needs a threshold of at least 2, no module and no guard",
+      );
+    });
+
+    it("refuses a Safe with an enabled module off the test chains", function () {
+      expect(
+        errorOf(() =>
+          assertSafeControls(
+            ETHEREUM,
+            controls("GUARDIAN_SAFE", 2n, [moduleAddr]),
+          ),
+        ),
+      ).to.contain(`module(s) enabled: ${moduleAddr}`);
+    });
+
+    it("refuses a Safe with a guard set off the test chains", function () {
+      expect(
+        errorOf(() =>
+          assertSafeControls(
+            ARBITRUM_ONE,
+            controls("GOV_SAFE", 3n, [], guardWord),
+          ),
+        ),
+      ).to.contain(`guard ${guardAddr.toLowerCase()} is set`);
+    });
+
+    it("refuses a guard word with only its high bytes set", function () {
+      const highOnly = `0x01${"00".repeat(31)}`;
+      expect(
+        errorOf(() =>
+          assertSafeControls(
+            ARBITRUM_ONE,
+            controls("GOV_SAFE", 3n, [], highOnly),
+          ),
+        ),
+      ).to.contain("is set");
+    });
+
+    it("reports every problem without refusing on a test chain", function () {
+      expect(
+        assertSafeControls(
+          ARBITRUM_SEPOLIA,
+          controls("GUARDIAN_SAFE", 1n, [moduleAddr], guardWord),
+        ),
+      ).to.deep.equal([
+        "threshold 1-of-3 is below 2",
+        `module(s) enabled: ${moduleAddr}`,
+        `guard ${guardAddr.toLowerCase()} is set`,
+      ]);
+    });
+  });
+
+  describe("FORCE_LAUNCH_RULES", function () {
+    const FORCED = { FORCE_LAUNCH_RULES: "1" };
+    const UNFORCED = { FORCE_LAUNCH_RULES: "" };
+    const [a, b, c, d, e, f] = Array.from(
+      { length: 6 },
+      () => ethers.Wallet.createRandom().address,
+    );
+
+    it("takes the in-process chain off the test chains only when set to 1", function () {
+      withEnv(UNFORCED, () => expect(isTestChain(HARDHAT)).to.equal(true));
+      withEnv(FORCED, () => {
+        expect(isTestChain(HARDHAT)).to.equal(false);
+        expect(isTestChain(ARBITRUM_SEPOLIA)).to.equal(true);
+        expect(isTestChain(ARBITRUM_ONE)).to.equal(false);
+      });
+      for (const raw of ["true", "yes", "0"]) {
+        withEnv({ FORCE_LAUNCH_RULES: raw }, () => {
+          expect(errorOf(() => isTestChain(HARDHAT))).to.contain(
+            `FORCE_LAUNCH_RULES=${raw} must be "1" or unset`,
+          );
+        });
+      }
+    });
+
+    it("makes chain 31337 refuse every launch-chain rule it otherwise relaxes", function () {
+      const refusals: [string, () => unknown, string][] = [
+        [
+          "fee asset",
+          () => assertFeeAssets(HARDHAT, [OTHER_TOKEN], OTHER_TOKEN),
+          "chain id 31337 has no USDC/WETH row",
+        ],
+        [
+          "staking token",
+          () => assertStakingToken(HARDHAT, OTHER_TOKEN, 6n),
+          "chain id 31337 has no USDC/WETH row",
+        ],
+        [
+          "stake amounts",
+          () =>
+            withEnv({ MIN_STAKE: "", MIN_STAKE_FLOOR: "" }, () =>
+              stakeAmounts(HARDHAT, 6n),
+            ),
+          "MIN_STAKE is required on chain id 31337",
+        ],
+        [
+          "Safe owners",
+          () =>
+            assertSafeOwnersDisjoint(
+              HARDHAT,
+              ownership("GOV_SAFE", [a, b, c], 2n),
+              ownership("GUARDIAN_SAFE", [a, d, e], 2n),
+            ),
+          "must have disjoint owners",
+        ],
+        [
+          "Safe threshold",
+          () => assertSafeControls(HARDHAT, controls("GOV_SAFE", 1n)),
+          "threshold 1-of-3 is below 2",
+        ],
+        [
+          "Safe module",
+          () => assertSafeControls(HARDHAT, controls("GOV_SAFE", 3n, [f])),
+          `module(s) enabled: ${f}`,
+        ],
+        [
+          "multisig verifiers",
+          () =>
+            withEnv({ MULTISIG_VERIFIERS: "real" }, () =>
+              multisigVerifierMode(HARDHAT),
+            ),
+          "MULTISIG_VERIFIERS=real is refused on chain id 31337",
+        ],
+        [
+          "Kage module",
+          () =>
+            withEnv({ KAGE_MODULE: "on" }, () => kageModuleEnabled(HARDHAT)),
+          "KAGE_MODULE=on is refused on chain id 31337",
+        ],
+        [
+          "compliance secret",
+          () =>
+            withEnv({ ...NO_KEY_ENV, COMPLIANCE_SECRET_KEY: "7" }, () =>
+              resolveComplianceKey(HARDHAT, true),
+            ),
+          "takes the compliance key as COMPLIANCE_PUBLIC_KEY_X/Y only",
+        ],
+        [
+          "governance delay",
+          () =>
+            withEnv({ TIMELOCK_MIN_DELAY_SECS: "0" }, () =>
+              governanceDelays(HARDHAT),
+            ),
+          "TIMELOCK_MIN_DELAY_SECS=0 is below the 172800s production default",
+        ],
+        [
+          "SOKA",
+          () => assertSokaChain(HARDHAT),
+          "refusing to deploy it on chain id 31337",
+        ],
+      ];
+      for (const [name, check, message] of refusals) {
+        withEnv(UNFORCED, () => {
+          expect(check, `${name} unforced`).to.not.throw();
+        });
+        withEnv(FORCED, () => {
+          expect(errorOf(check), `${name} forced`).to.contain(message);
+        });
+      }
+    });
+
+    it("evaluates a forced rehearsal for the forked launch chain and keeps 31337 otherwise", function () {
+      withEnv(UNFORCED, () => {
+        expect(launchRulesChainId(HARDHAT, ARBITRUM_ONE)).to.equal(HARDHAT);
+      });
+      withEnv(FORCED, () => {
+        expect(launchRulesChainId(HARDHAT, ARBITRUM_ONE)).to.equal(
+          ARBITRUM_ONE,
+        );
+        expect(launchRulesChainId(HARDHAT, UNLISTED_CHAIN)).to.equal(
+          UNLISTED_CHAIN,
+        );
+        expect(launchRulesChainId(HARDHAT, null)).to.equal(HARDHAT);
+        expect(launchRulesChainId(HARDHAT, ARBITRUM_SEPOLIA)).to.equal(HARDHAT);
+        expect(launchRulesChainId(ARBITRUM_SEPOLIA, ARBITRUM_ONE)).to.equal(
+          ARBITRUM_SEPOLIA,
+        );
+        const { usdc, weth } = tokensOf(ARBITRUM_ONE);
+        const rules = launchRulesChainId(HARDHAT, ARBITRUM_ONE);
+        expect(() => assertFeeAssets(rules, [usdc], weth)).to.not.throw();
+        expect(() => assertStakingToken(rules, weth, 18n)).to.not.throw();
+      });
     });
   });
 
@@ -1348,11 +1586,240 @@ describe("Safe ownership checks on the in-process chain", function () {
     });
     expect(r.ok).to.equal(false);
     expect(r.output).to.contain(
-      `GUARDIAN_SAFE ${notASafe} does not answer as a Safe (getOwners/getThreshold)`,
+      `GUARDIAN_SAFE ${notASafe} does not answer as a Safe (getOwners/getThreshold/getModulesPaginated)`,
     );
     expect(r.output).to.not.contain("Step 1: Poseidon2");
     expect(
       await ethers.provider.getTransactionCount(deployer.address),
     ).to.equal(nonceBefore);
+  });
+});
+
+describe("Safe controls and forced launch rules on the in-process chain", function () {
+  this.timeout(600000);
+
+  const pk = mulPointEscalar(Base8, 24681357n);
+  let usdcLike: string;
+  let feeToken: string;
+
+  async function installSafe(
+    owners: readonly string[],
+    threshold: number,
+    modules: readonly string[] = [],
+    guard: string | null = null,
+  ): Promise<string> {
+    const address = ethers.Wallet.createRandom().address;
+    await ethers.provider.send("hardhat_setCode", [
+      address,
+      safeCode(owners, threshold, modules),
+    ]);
+    if (guard !== null) {
+      await ethers.provider.send("hardhat_setStorageAt", [
+        address,
+        SAFE_GUARD_SLOT,
+        ethers.zeroPadValue(guard, 32),
+      ]);
+    }
+    return address;
+  }
+
+  const randomOwners = (n: number): string[] =>
+    Array.from({ length: n }, () => ethers.Wallet.createRandom().address);
+
+  before(async function () {
+    const factory = await ethers.getContractFactory("MockERC20");
+    usdcLike = await (await factory.deploy("USD Coin", "USDC", 6)).getAddress();
+    feeToken = await (await factory.deploy("Fee Coin", "FEE", 6)).getAddress();
+  });
+
+  it("refuses a contract that answers owners and threshold but cannot list its modules", async function () {
+    const iface = new ethers.Interface([
+      "function getOwners() view returns (address[])",
+      "function getThreshold() view returns (uint256)",
+    ]);
+    const coder = ethers.AbiCoder.defaultAbiCoder();
+    const noModulesView = ethers.Wallet.createRandom().address;
+    await ethers.provider.send("hardhat_setCode", [
+      noModulesView,
+      fixedResponseCode(
+        new Map([
+          [
+            iface.getFunction("getOwners")?.selector ?? "",
+            coder.encode(["address[]"], [randomOwners(3)]),
+          ],
+          [
+            iface.getFunction("getThreshold")?.selector ?? "",
+            coder.encode(["uint256"], [2]),
+          ],
+        ]),
+      ),
+    ]);
+    const r = await quietDeploy({
+      ...NO_KEY_ENV,
+      FORCE_LAUNCH_RULES: "",
+      GOV_SAFE: await installSafe(randomOwners(5), 3),
+      GUARDIAN_SAFE: noModulesView,
+    });
+    expect(r.ok).to.equal(false);
+    expect(r.output).to.contain(
+      `GUARDIAN_SAFE ${noModulesView} does not answer as a Safe (getOwners/getThreshold/getModulesPaginated)`,
+    );
+    expect(r.output).to.not.contain("Step 1: Poseidon2");
+  });
+
+  it("warns, without refusing, about a 1-of-N Safe with a module and a guard on a test chain", async function () {
+    const moduleAddr = ethers.Wallet.createRandom().address;
+    const guardAddr = ethers.Wallet.createRandom().address;
+    const govSafe = await installSafe(randomOwners(5), 3);
+    const guardianSafe = await installSafe(
+      randomOwners(3),
+      1,
+      [moduleAddr],
+      guardAddr,
+    );
+    const r = await quietDeploy({
+      ...NO_KEY_ENV,
+      FORCE_LAUNCH_RULES: "",
+      GOV_SAFE: govSafe,
+      GUARDIAN_SAFE: guardianSafe,
+      STAKING_TOKEN: "",
+      FEE_ASSETS: "",
+      MIN_STAKE: "",
+      MIN_STAKE_FLOOR: "",
+      MULTISIG_VERIFIERS: "",
+    });
+    expect(r.ok, r.output.slice(-2000)).to.equal(true);
+    expect(r.output).to.contain(
+      `WARNING: GUARDIAN_SAFE ${guardianSafe} threshold 1-of-3 is below 2; module(s) enabled: ${moduleAddr}; ` +
+        `guard ${guardAddr.toLowerCase()} is set; accepted only on test chain 31337.`,
+    );
+    expect(r.output).to.not.contain(`WARNING: GOV_SAFE ${govSafe}`);
+  });
+
+  it("refuses every launch-chain rule on chain 31337 under FORCE_LAUNCH_RULES=1, before any transaction", async function () {
+    const [deployer] = await ethers.getSigners();
+    const govOwners = randomOwners(5);
+    const guardianOwners = randomOwners(3);
+    const gov = await installSafe(govOwners, 3);
+    const guardian = await installSafe(guardianOwners, 2);
+    const base: Record<string, string> = {
+      ...NO_KEY_ENV,
+      FORCE_LAUNCH_RULES: "1",
+      GOV_SAFE: gov,
+      GUARDIAN_SAFE: guardian,
+      STAKING_TOKEN: usdcLike,
+      FEE_ASSETS: feeToken,
+      MIN_STAKE: "1000",
+      MIN_STAKE_FLOOR: "250",
+      MULTISIG_VERIFIERS: "stub",
+      KAGE_MODULE: "",
+      TIMELOCK_MIN_DELAY_SECS: "",
+      ADMIN_TRANSFER_DELAY_SECS: "",
+      COMPLIANCE_PUBLIC_KEY_X: pk[0].toString(),
+      COMPLIANCE_PUBLIC_KEY_Y: pk[1].toString(),
+    };
+    const moduleAddr = ethers.Wallet.createRandom().address;
+    const guardAddr = ethers.Wallet.createRandom().address;
+    const eoa = ethers.Wallet.createRandom().address;
+    const cases: [string, Record<string, string>, string][] = [
+      [
+        "short governance delay",
+        { TIMELOCK_MIN_DELAY_SECS: "60" },
+        "TIMELOCK_MIN_DELAY_SECS=60 is below the 172800s production default",
+      ],
+      [
+        "missing fee asset",
+        { FEE_ASSETS: "" },
+        "FEE_ASSETS is required on network hardhat",
+      ],
+      [
+        "compliance secret",
+        {
+          COMPLIANCE_PUBLIC_KEY_X: "",
+          COMPLIANCE_PUBLIC_KEY_Y: "",
+          COMPLIANCE_SECRET_KEY: "7",
+        },
+        "takes the compliance key as COMPLIANCE_PUBLIC_KEY_X/Y only",
+      ],
+      [
+        "local compliance fixture",
+        {
+          COMPLIANCE_PUBLIC_KEY_X: "",
+          COMPLIANCE_PUBLIC_KEY_Y: "",
+          LOCAL_TEST_COMPLIANCE_SECRET_KEY: "7",
+        },
+        "LOCAL_TEST_COMPLIANCE_SECRET_KEY is accepted only on hardhat or localhost, and not under FORCE_LAUNCH_RULES=1",
+      ],
+      [
+        "real multisig verifiers",
+        { MULTISIG_VERIFIERS: "real" },
+        "MULTISIG_VERIFIERS=real is refused on chain id 31337",
+      ],
+      [
+        "Kage module",
+        { KAGE_MODULE: "on" },
+        "KAGE_MODULE=on is refused on chain id 31337",
+      ],
+      [
+        "EOA Safe",
+        { GUARDIAN_SAFE: eoa },
+        `GUARDIAN_SAFE ${eoa} has no code on network hardhat`,
+      ],
+      [
+        "shared Safe owner",
+        {
+          GUARDIAN_SAFE: await installSafe(
+            [govOwners[0], ...randomOwners(2)],
+            2,
+          ),
+        },
+        `shares owner(s) ${govOwners[0]}`,
+      ],
+      [
+        "1-of-N Safe",
+        { GUARDIAN_SAFE: await installSafe(randomOwners(3), 1) },
+        "threshold 1-of-3 is below 2",
+      ],
+      [
+        "Safe module",
+        { GOV_SAFE: await installSafe(randomOwners(5), 3, [moduleAddr]) },
+        `module(s) enabled: ${moduleAddr}`,
+      ],
+      [
+        "Safe guard",
+        {
+          GOV_SAFE: await installSafe(randomOwners(5), 3, [], guardAddr),
+        },
+        `guard ${guardAddr.toLowerCase()} is set`,
+      ],
+      [
+        "missing staking token",
+        { STAKING_TOKEN: "" },
+        "STAKING_TOKEN is required on network hardhat",
+      ],
+      [
+        "staking and fee tokens without a reviewed row",
+        {},
+        "chain id 31337 has no USDC/WETH row",
+      ],
+    ];
+    let lastOutput = "";
+    for (const [name, overrides, message] of cases) {
+      const nonceBefore = await ethers.provider.getTransactionCount(
+        deployer.address,
+      );
+      const r = await quietDeploy({ ...base, ...overrides });
+      lastOutput = r.output;
+      expect(r.ok, name).to.equal(false);
+      expect(r.output, name).to.contain(message);
+      expect(r.output, name).to.not.contain("Step 1: Poseidon2");
+      expect(
+        await ethers.provider.getTransactionCount(deployer.address),
+        name,
+      ).to.equal(nonceBefore);
+    }
+    expect(lastOutput).to.contain(
+      "FORCE_LAUNCH_RULES=1: launch-chain rules enforced, evaluated for chain id 31337",
+    );
   });
 });
