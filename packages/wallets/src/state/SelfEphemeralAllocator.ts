@@ -24,6 +24,7 @@ export class SelfEphemeralAllocatorError extends Error {
       | "INVALID_ACCOUNT"
       | "COUNTER_UNAVAILABLE"
       | "COUNTER_INVALID"
+      | "COUNTER_COMMIT_FAILED"
       | "NO_CANONICAL_EPHEMERAL",
     message: string,
     cause?: unknown,
@@ -63,7 +64,15 @@ export async function reserveSelfEphemeral(
     }
     const eph = await account.getSelfEphemeral(BigInt(index));
     if (selfEphemeralFault(eph) !== null) continue;
-    await reservation.commit(index);
+    try {
+      await reservation.commit(index);
+    } catch (cause) {
+      throw new SelfEphemeralAllocatorError(
+        "COUNTER_COMMIT_FAILED",
+        `self ephemeral index ${index} was reserved but its commit failed; the index stays burned and is never reissued, retry to reserve a fresh one: ${cause instanceof Error ? cause.message : String(cause)}`,
+        cause,
+      );
+    }
     const ephPub = publicKey(eph);
     return markDerivedSelfMintCandidate(
       { eph, ephPub, tag: new Fr(ephPub[0]), index },

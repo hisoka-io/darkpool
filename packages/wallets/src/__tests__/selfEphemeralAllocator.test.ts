@@ -254,6 +254,44 @@ describe("SelfEphemeralAllocator", () => {
     ).rejects.toMatchObject({ reason: "COUNTER_INVALID" });
   });
 
+  it("types a failed commit and never reissues the burned index", async () => {
+    const inner = new InMemoryEphemeralCounterStore();
+    const backendError = new Error("commit write failed");
+    let failCommit = true;
+    const flaky: EphemeralCounterStore = {
+      reserve: async (scope, span) => {
+        const reservation = await inner.reserve(scope, span);
+        return {
+          ...reservation,
+          commit: (usedThrough: number) => {
+            if (failCommit) {
+              failCommit = false;
+              return Promise.reject(backendError);
+            }
+            return reservation.commit(usedThrough);
+          },
+        };
+      },
+      highWater: (scope) => inner.highWater(scope),
+    };
+    const allocator = new SelfEphemeralAllocator(account, flaky);
+    const burned = await firstIndexWithOddY(false);
+
+    const attempt = allocator.next();
+    await expect(attempt).rejects.toBeInstanceOf(SelfEphemeralAllocatorError);
+    await expect(attempt).rejects.toMatchObject({
+      reason: "COUNTER_COMMIT_FAILED",
+      cause: backendError,
+    });
+    await expect(attempt).rejects.toThrow(
+      new RegExp(`index ${burned} was reserved but its commit failed`),
+    );
+    expect(await inner.highWater(SELF_EPHEMERAL_SCOPE)).toBe(burned + 1);
+
+    const next = await allocator.next();
+    expect(next.index).toBeGreaterThan(burned);
+  });
+
   it("gives up with a typed refusal when no reserved index is even-y, committing none", async () => {
     const odd = await firstIndexWithOddY(true);
     let commits = 0;
