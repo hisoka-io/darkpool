@@ -28,6 +28,9 @@ contract KageSettlement is EIP712 {
     IDarkPoolSettlement public immutable DARK_POOL;
     IKageRegistry public immutable REGISTRY;
 
+    /// @notice A swap settled. `solverId` is the submitter of record: the id whose current signer approved this
+    ///         public-input vector. Any registered solver can approve a vector it has seen, so the id does not
+    ///         prove which solver found or quoted the swap; it must not feed slashing, rebates or reputation.
     event KageSwapSettled(
         uint256 indexed solverId,
         bytes32 takerNullifier,
