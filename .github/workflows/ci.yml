@@ -213,7 +213,8 @@ jobs:
           echo "$out"
           echo "$out" | grep -q 'skipping (not passing)' && { echo "::error::Kage native gate SKIPPED"; exit 1; }
           echo "$out" | grep -q 'opt-in only' && { echo "::error::gate did not receive KAGE_NATIVE=1"; exit 1; }
-          echo "$out" | grep -qE '1 passed' || { echo "::error::gate did not report a passing assertion"; exit 1; }
+          # Two cases: the tamper battery and the forged-circuit (kage-intent-forger) VK-hash rejection.
+          echo "$out" | grep -qE 'Tests +2 passed \(2\)' || { echo "::error::gate did not report exactly 2 passing tests"; exit 1; }
           exit "$rc"
       - name: Forgery accept-path controls, all 3 harnesses (must execute, never skip)
         run: |
