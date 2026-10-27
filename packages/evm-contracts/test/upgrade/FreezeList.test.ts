@@ -1044,6 +1044,18 @@ describe("Freeze list: values every pool reader depends on", function () {
       });
     }
 
+    // Distinct from the ModuleDisabled event: a module controller decodes this revert when its module is off.
+    it("a disabled module's settle reverts with ModuleNotActive(address) 0x377e7f86", function () {
+      const err = POOL_ABI.getError("ModuleNotActive");
+      if (err === null)
+        throw new Error("ModuleNotActive missing from DarkPool ABI");
+      expect(err.format("sighash")).to.equal("ModuleNotActive(address)");
+      expect(err.selector).to.equal("0x377e7f86");
+      expect(POOL_ABI.getEvent("ModuleDisabled")?.format("sighash")).to.equal(
+        "ModuleDisabled(address,address)",
+      );
+    });
+
     it("a fresh pool reads: one leaf (genesis), genesis root known, compliance version 1, ids 0..9 bound", async function () {
       const f = await loadFixture(deployPinnedPool);
       expect(await f.pool.getNextLeafIndex()).to.equal(1n);
