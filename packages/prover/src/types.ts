@@ -138,7 +138,8 @@ export interface SwapIntentProof {
   publicInputs: string[];
   vkAsFields: string[];
   vkHash: string;
-  verified: boolean;
+  /** Always true: an intent proof that fails local verification is never returned (`UnverifiedIntentProofError`). */
+  verified: true;
 }
 
 export interface SwapSettleInputs {

@@ -37,11 +37,12 @@ import {
   type DiscoverySource,
   type HowlNoteRecord,
 } from "../discovery/types.js";
+import { canonicalSelfEph } from "./canonicalSelfEph.js";
 
 const COMPLIANCE_PK = mulPointEscalar(Base8, 987654321n);
 const ASSET = toFr(0x1234567890123456789012345678901234567890n);
 const SPEND = toFr(789n);
-const eph = (n: bigint): DerivedEph => toFr(n) as DerivedEph;
+const eph = (n: bigint): DerivedEph => canonicalSelfEph(n);
 const COMPLIANCE_HISTORY = completeComplianceHistory({
   genesisPk: COMPLIANCE_PK,
   rotations: [],

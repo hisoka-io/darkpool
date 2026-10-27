@@ -11,6 +11,7 @@ import {
   type CompleteComplianceHistory,
 } from "../note/complianceKeys.js";
 import { publicKey } from "../note/keys.js";
+import { selfEphemeralFault } from "../note/mint.js";
 import { commitmentPrefixMatches } from "./codec.js";
 import { reconstructCiphertext } from "./reconstruct.js";
 import {
@@ -94,6 +95,8 @@ export type SelfMintPreflightFailure =
   | "CANDIDATE_OWNER_MISMATCH"
   | "CANDIDATE_PROVENANCE_MISMATCH"
   | "CANDIDATE_ALREADY_CLAIMED"
+  | "CANDIDATE_EPH_RANGE"
+  | "CANDIDATE_ODD_Y"
   | "CANDIDATES_EXHAUSTED";
 
 export class SelfMintPreflightError extends Error {
@@ -519,6 +522,20 @@ export class SelfMintPreflight<T extends SelfMintCandidate> {
           "self-mint allocator returned inconsistent scalar, public point, tag, or index fields",
         );
       }
+      switch (selfEphemeralFault(eph)) {
+        case "SELF_EPH_RANGE":
+          throw new SelfMintPreflightError(
+            "CANDIDATE_EPH_RANGE",
+            `self-mint allocator returned index ${candidate.index} with a scalar outside [1, BabyJubJub subgroup order)`,
+          );
+        case "SELF_EPH_ODD_Y":
+          throw new SelfMintPreflightError(
+            "CANDIDATE_ODD_Y",
+            `self-mint allocator returned index ${candidate.index} with an odd-y public key; the circuit rejects it, so the allocator must skip odd-y indices`,
+          );
+        case null:
+          break;
+      }
       allocated.push(
         freezeCandidate({
           eph,
@@ -620,7 +637,7 @@ export class SelfMintPreflight<T extends SelfMintCandidate> {
         );
       }
       // A prefix match is used whatever it opens to: an incoming row, a self row under an epoch this history
-      // lacks, and a 48-bit tag-prefix collision are indistinguishable here, and reusing a tag is not undoable.
+      // lacks, and a 6-byte tag-prefix collision are indistinguishable here, and reusing a tag is not undoable.
       if (entry.occurrenceCount > 0) continue;
       if (
         await opensExistingSelfRecord(

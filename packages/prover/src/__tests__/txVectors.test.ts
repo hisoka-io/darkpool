@@ -11,7 +11,7 @@
  * REGENERATE (only when the witness shape legitimately changes, and say why in the commit):
  *   GEN_TX_VECTORS=1 npx vitest run src/__tests__/txVectors.test.ts
  */
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,7 +22,6 @@ import { standardWitnessDtoToNoirInput } from "@hisoka/howl-protocol/proving";
 import {
   buildPublicClaim,
   buildPublicTransfer,
-  canonicalPublicAddress,
   encodeHisokaPublicAddress,
   LeanIMT,
   TREE_DEPTH,
@@ -32,6 +31,9 @@ import {
   pubkeyOwner,
   completeComplianceHistory,
   SelfMintPreflight,
+  SelfEphemeralAllocator,
+  InMemoryEphemeralCounterStore,
+  DarkAccount,
   type DerivedEph,
   CIPHERTEXT_KEPT_INDICES,
   COMMITMENT_PREFIX_BYTES,
@@ -39,10 +41,6 @@ import {
   RECORD_KIND_INCOMING,
   type HowlNoteRecord,
 } from "@hisoka/wallets";
-import {
-  markDerivedSelfMintCandidate,
-  mintSelfNote,
-} from "@hisoka/wallets/unsafe-sim";
 import {
   assembleDeposit,
   assembleWithdraw,
@@ -61,12 +59,15 @@ const VECTORS = join(
   "../../tx-vectors.json",
 );
 
-// Every input is fixed. A vector that moves because of a clock, a counter or a CSPRNG is not a vector.
+// Every input is fixed. A vector that moves because of a clock or a CSPRNG is not a vector. Self ephemerals come
+// from the production allocator over a fresh counter, so each build derives the same even-y sequence.
 const COMPLIANCE_PK = mulPointEscalar(Base8, 987654321n);
 const ASSET = toFr(0x1234567890123456789012345678901234567890n);
 const ASSET_ADDRESS = "0x1234567890123456789012345678901234567890";
-const SPEND = toFr(789n);
-const RECIPIENT_IN_KEY = toFr(31n);
+const SENDER_MNEMONIC =
+  "test test test test test test test test test test test junk";
+const RECIPIENT_MNEMONIC =
+  "legal winner thank year wave sausage worth useful legal winner thank yellow";
 const eph = (n: bigint): DerivedEph => toFr(n) as DerivedEph;
 const COMPLIANCE_HISTORY = completeComplianceHistory({
   genesisPk: COMPLIANCE_PK,
@@ -74,7 +75,6 @@ const COMPLIANCE_HISTORY = completeComplianceHistory({
   currentPk: COMPLIANCE_PK,
   currentVersion: 1,
 });
-const OWNER_COMMITMENT = await pubkeyOwner(publicKey(SPEND));
 const DOMAIN = {
   chainId: 31337n,
   poolAddress: "0x0000000000000000000000000000000000000001",
@@ -90,24 +90,25 @@ const MISS_RECORD: HowlNoteRecord = {
   ciphertextKept: CIPHERTEXT_KEPT_INDICES.map(() => Fr.ZERO),
 };
 
-async function checked(n: bigint) {
-  const scalar = eph(n);
-  const ephPub = publicKey(scalar);
+const SIBLINGS = Array.from({ length: 32 }, (_, i) => toFr(BigInt(i) + 1n));
+
+const ctx = (merkle: MerkleWitnessSource): AssemblyContext => ({
+  compliancePk: COMPLIANCE_PK,
+  complianceVersion: 1,
+  complianceHistory: COMPLIANCE_HISTORY,
+  ...DOMAIN,
+  merkle,
+});
+
+async function buildVectors(): Promise<Record<string, unknown>> {
+  const account = await DarkAccount.fromMnemonic(SENDER_MNEMONIC);
+  const recipient = await DarkAccount.fromMnemonic(RECIPIENT_MNEMONIC);
+  const spendScalar = await account.getSelfSpendKey();
   const preflight = new SelfMintPreflight({
-    allocator: {
-      next: () =>
-        Promise.resolve(
-          markDerivedSelfMintCandidate(
-            {
-              eph: scalar,
-              ephPub,
-              tag: new Fr(ephPub[0]),
-              index: Number(n),
-            },
-            OWNER_COMMITMENT,
-          ),
-        ),
-    },
+    allocator: new SelfEphemeralAllocator(
+      account,
+      new InMemoryEphemeralCounterStore(),
+    ),
     discovery: {
       probeFirst: (tags) =>
         Promise.resolve(
@@ -117,101 +118,90 @@ async function checked(n: bigint) {
       fetchLeafBlock: () => Promise.resolve([]),
     },
     history: COMPLIANCE_HISTORY,
-    ownerCommitment: OWNER_COMMITMENT,
+    ownerCommitment: await pubkeyOwner(await account.getSelfSpendPub()),
     domain: DOMAIN,
   });
-  return (await preflight.take(1))[0];
-}
+  const checked = async () => (await preflight.take(1))[0];
 
-const SIBLINGS = Array.from({ length: 32 }, (_, i) => toFr(BigInt(i) + 1n));
-
-/** Every spent note at its index, fixed filler leaves elsewhere, so each witness is a real LeanIMT path. */
-const placed = new Map<number, Fr>();
-const merkle: MerkleWitnessSource = {
-  witnessFor: async (leaf: Fr, expectedLeafIndex: number) => {
-    const tree = new LeanIMT(TREE_DEPTH);
-    const top = Math.max(0, ...placed.keys());
-    for (let i = 0; i <= top; i++) {
-      await tree.insert(placed.get(i) ?? toFr(BigInt(0x10000 + i)));
-    }
-    return new LocalTreeWitnessSource(tree).witnessFor(leaf, expectedLeafIndex);
-  },
-};
-const ctx: AssemblyContext = {
-  compliancePk: COMPLIANCE_PK,
-  complianceVersion: 1,
-  complianceHistory: COMPLIANCE_HISTORY,
-  ...DOMAIN,
-  merkle,
-};
-
-async function spendable(
-  value: bigint,
-  leafIndex: number,
-): Promise<SpendableNote> {
-  const m = await mintSelfNote(
-    eph(BigInt(500 + leafIndex)),
-    value,
-    SPEND,
-    ASSET,
-    COMPLIANCE_PK,
-  );
-  placed.set(leafIndex, m.commitment);
-  return {
-    note: m.note,
-    leaf: m.commitment,
-    leafIndex,
-    spendScalar: SPEND,
+  // Every spent note at its index, fixed filler leaves elsewhere, so each witness is a real LeanIMT path.
+  const placed = new Map<number, Fr>();
+  const merkle: MerkleWitnessSource = {
+    witnessFor: async (leaf: Fr, expectedLeafIndex: number) => {
+      const tree = new LeanIMT(TREE_DEPTH);
+      const top = Math.max(0, ...placed.keys());
+      for (let i = 0; i <= top; i++) {
+        await tree.insert(placed.get(i) ?? toFr(BigInt(0x10000 + i)));
+      }
+      return new LocalTreeWitnessSource(tree).witnessFor(
+        leaf,
+        expectedLeafIndex,
+      );
+    },
   };
-}
+  const spendable = async (
+    value: bigint,
+    leafIndex: number,
+  ): Promise<SpendableNote> => {
+    const { minted } = await assembleDeposit(ctx(merkle), {
+      value,
+      assetId: ASSET,
+      spendScalar,
+      selfMint: await checked(),
+    });
+    placed.set(leafIndex, minted.commitment);
+    return {
+      note: minted.note,
+      leaf: minted.commitment,
+      leafIndex,
+      spendScalar,
+    };
+  };
 
-async function buildVectors(): Promise<Record<string, unknown>> {
-  const dep = await assembleDeposit(ctx, {
+  const dep = await assembleDeposit(ctx(merkle), {
     value: 1000n,
     assetId: ASSET,
-    spendScalar: SPEND,
-    selfMint: await checked(5n),
+    spendScalar,
+    selfMint: await checked(),
   });
 
   const wIn = await spendable(1000n, 1);
-  const wd = await assembleWithdraw(ctx, {
+  const wd = await assembleWithdraw(ctx(merkle), {
     input: wIn,
     value: 300n,
     recipient: toFr(0xbeefn),
-    selfSpendScalar: SPEND,
-    changeMint: await checked(21n),
+    selfSpendScalar: spendScalar,
+    changeMint: await checked(),
   });
 
   const tIn = await spendable(1000n, 2);
-  const tr = await assembleTransfer(ctx, {
+  const tr = await assembleTransfer(ctx(merkle), {
     input: tIn,
     value: 250n,
-    recipientInPub: publicKey(RECIPIENT_IN_KEY),
-    selfSpendScalar: SPEND,
-    // Even-y public key: the circuit publishes only eph_pub.x and asserts even y.
+    recipientInPub: (await recipient.canonicalIncomingAddress(0n)).pub,
+    selfSpendScalar: spendScalar,
+    // A memo ephemeral is sampled in production; fixed here, with the even-y key the circuit asserts.
     memoEph: toFr(76n),
-    changeMint: await checked(78n),
+    changeMint: await checked(),
   });
 
   const sIn = await spendable(1000n, 3);
-  const sp = await assembleSplit(ctx, {
+  const sp = await assembleSplit(ctx(merkle), {
     input: sIn,
     value1: 400n,
-    selfSpendScalar: SPEND,
-    selfMints: [await checked(51n), await checked(52n)],
+    selfSpendScalar: spendScalar,
+    selfMints: [await checked(), await checked()],
   });
 
   const jA = await spendable(600n, 4);
   const jB = await spendable(400n, 9);
-  const jn = await assembleJoin(ctx, {
+  const jn = await assembleJoin(ctx(merkle), {
     inputA: jA,
     inputB: jB,
-    selfSpendScalar: SPEND,
-    selfMint: await checked(60n),
+    selfSpendScalar: spendScalar,
+    selfMint: await checked(),
   });
 
-  const publicViewKey = toFr(1234n);
-  const publicAddress = await canonicalPublicAddress(publicViewKey, 0n);
+  const publicAddress = await recipient.canonicalPublicAddress(0n);
   const publicTransfer = await buildPublicTransfer({
     darkPool: DOMAIN.poolAddress,
     recipient: encodeHisokaPublicAddress({
@@ -225,14 +215,14 @@ async function buildVectors(): Promise<Record<string, unknown>> {
   });
   const publicClaim = await buildPublicClaim({
     memo: publicTransfer.memo,
-    viewKey: publicViewKey,
+    viewKey: await recipient.getViewKey(),
     ownerIndex: publicAddress.index,
     compliancePk: COMPLIANCE_PK,
     complianceVersion: 1,
     complianceHistory: COMPLIANCE_HISTORY,
     ...DOMAIN,
-    keys: { getSelfSpendPub: () => Promise.resolve(publicKey(SPEND)) },
-    selfMint: await checked(70n),
+    keys: account,
+    selfMint: await checked(),
     currentTimestamp: 1_800_000_000,
   });
 
@@ -317,7 +307,16 @@ async function buildVectors(): Promise<Record<string, unknown>> {
   };
 }
 
+// One build is two mnemonic derivations plus preflight and six assemblies, measured at 2.5-5.5 s alone and under
+// the full suite; the shared build gets about ten times the worst run.
+const BUILD_VECTORS_TIMEOUT_MS = 60_000;
+
 describe("transaction golden vectors", () => {
+  let built: Record<string, unknown>;
+  beforeAll(async () => {
+    built = await buildVectors();
+  }, BUILD_VECTORS_TIMEOUT_MS);
+
   it("pins the protocol modulus to the installed field implementation", () => {
     expect(BigInt(BN254_FR_MODULUS)).toBe(Fr.MODULUS);
   });
@@ -408,9 +407,7 @@ describe("transaction golden vectors", () => {
     expect(frozen.public_claim).toBeDefined();
   });
 
-  it("assembly marshals byte-identically to the frozen contract", async () => {
-    const built = await buildVectors();
-
+  it("assembly marshals byte-identically to the frozen contract", () => {
     if (process.env["GEN_TX_VECTORS"] === "1") {
       writeFileSync(VECTORS, `${JSON.stringify(built, null, 2)}\n`);
       console.log(`wrote ${VECTORS}`);
@@ -425,12 +422,12 @@ describe("transaction golden vectors", () => {
     expect(built).toEqual(frozen);
   });
 
-  it("the join vector is index-ordered, which the circuit asserts", async () => {
-    const built = (await buildVectors()) as {
+  it("the join vector is index-ordered, which the circuit asserts", () => {
+    const vectors = built as {
       join: { witness: { index_a: string; index_b: string } };
     };
-    expect(Number(built.join.witness.index_a)).toBeLessThan(
-      Number(built.join.witness.index_b),
+    expect(Number(vectors.join.witness.index_a)).toBeLessThan(
+      Number(vectors.join.witness.index_b),
     );
   });
 });

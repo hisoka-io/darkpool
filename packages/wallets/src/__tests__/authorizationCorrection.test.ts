@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Fr } from "@aztec/foundation/fields";
-import {
-  asDerivedEph,
-  markDerivedSelfMintCandidate,
-} from "../types/ephemeral.js";
+import { markDerivedSelfMintCandidate } from "../types/ephemeral.js";
 import { publicKey, pubkeyOwner } from "../note/keys.js";
 import {
   completeComplianceHistory,
@@ -27,6 +24,7 @@ import {
 import { DarkAccount } from "../keys/DarkAccount.js";
 import { KeyRepository } from "../state/KeyRepository.js";
 import { InMemoryEphemeralCounterStore } from "../state/EphemeralCounterStore.js";
+import { canonicalSelfEph } from "./canonicalSelfEph.js";
 
 const OWNER_A_SCALAR = new Fr(0x1111n);
 const OWNER_B_SCALAR = new Fr(0x2222n);
@@ -60,7 +58,7 @@ function candidate(
   seed: bigint,
   ownerCommitment = OWNER_A_COMMITMENT,
 ): SelfMintCandidate {
-  const eph = asDerivedEph(new Fr(seed));
+  const eph = canonicalSelfEph(seed);
   const ephPub = publicKey(eph);
   return markDerivedSelfMintCandidate(
     {
@@ -210,7 +208,7 @@ describe("opaque self-mint authorization", () => {
     }
 
     const [mint] = consumeSelfMints([authorization], certified);
-    expect(mint.eph.toBigInt()).toBe(5n);
+    expect(mint.eph.toBigInt()).toBe(canonicalSelfEph(5n).toBigInt());
     expect(() => consumeSelfMints([authorization], certified)).toThrow(
       SelfMintAuthorizationError,
     );
@@ -227,7 +225,7 @@ describe("opaque self-mint authorization", () => {
       [aliasAuthorization],
       aliasCheck.certified,
     );
-    expect(snapshotted.eph.toBigInt()).toBe(6n);
+    expect(snapshotted.eph.toBigInt()).toBe(canonicalSelfEph(6n).toBigInt());
 
     const ownerAliasCheck = await preflight([candidate(13n)]);
     const [ownerAliasAuthorization] = await ownerAliasCheck.preflight.take(1);
@@ -307,7 +305,10 @@ describe("opaque self-mint authorization", () => {
     ).toThrow(/context/i);
 
     const mints = consumeSelfMints([first, second], certified);
-    expect(mints.map((mint) => mint.eph.toBigInt())).toEqual([7n, 8n]);
+    expect(mints.map((mint) => mint.eph.toBigInt())).toEqual([
+      canonicalSelfEph(7n).toBigInt(),
+      canonicalSelfEph(8n).toBigInt(),
+    ]);
 
     const left = await preflight([candidate(9n)]);
     const right = await preflight(
