@@ -18,6 +18,7 @@ packages/circuits/**/target
 # Generated code (regenerated from circuits — never hand-format)
 packages/prover/src/generated
 packages/evm-contracts/contracts/verifiers
+packages/evm-contracts/.storage-layout
 
 # Vendored third-party Solidity (zemse/poseidon2-evm, incl. inline Yul)
 packages/evm-contracts/contracts/Poseidon

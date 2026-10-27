@@ -29,6 +29,7 @@ const EXITING = 2n;
 const EXITED = 3n;
 const REGISTRY_LOCATION =
   "0x102b9fa007d4c73faa68f63651f6c057c7e7cb4c5454c9575e84d8c78e4a1b00";
+const MAX_EXIT_DELAY = 30n * 24n * 3600n;
 
 async function settleWith(
   d: KageDeployment,
@@ -81,7 +82,7 @@ describe("KageRegistry", function () {
       ).to.equal(true);
     });
 
-    it("rejects zero addresses, a zero floor, a minimum below the floor and a short exit delay", async function () {
+    it("rejects zero addresses, a zero floor, a minimum below the floor and a short or overlong exit delay", async function () {
       const [admin, other] = await ethers.getSigners();
       const F = await ethers.getContractFactory("KageRegistry");
       const token = other.address;
@@ -115,6 +116,7 @@ describe("KageRegistry", function () {
         [4, 0n, "InvalidAmount"],
         [3, MIN_STAKE_FLOOR - 1n, "MinStakeBelowFloor"],
         [5, 24n * 3600n - 1n, "InvalidDelay"],
+        [5, MAX_EXIT_DELAY + 1n, "InvalidDelay"],
       ];
       for (const [i, v, err] of cases) {
         const p = [...base] as unknown[];
@@ -461,6 +463,54 @@ describe("KageRegistry", function () {
       await expect(
         d.registry.connect(d.config).updateConfig(MIN_STAKE, 24n * 3600n - 1n),
       ).to.be.revertedWithCustomError(d.registry, "InvalidDelay");
+      await expect(
+        d.registry
+          .connect(d.config)
+          .updateConfig(MIN_STAKE, MAX_EXIT_DELAY + 1n),
+      ).to.be.revertedWithCustomError(d.registry, "InvalidDelay");
+    });
+
+    it("the maximum exit delay is accepted at initialize and updateConfig, and exit, slash and withdrawal run at it", async function () {
+      const d = await loadFixture(deployKageFixture);
+      expect(await d.registry.MAX_EXIT_DELAY()).to.equal(MAX_EXIT_DELAY);
+
+      const [admin] = await ethers.getSigners();
+      const atMax = (await upgrades.deployProxy(
+        await ethers.getContractFactory("KageRegistry"),
+        [
+          [
+            0,
+            admin.address,
+            await d.stakeToken.getAddress(),
+            MIN_STAKE,
+            MIN_STAKE_FLOOR,
+            MAX_EXIT_DELAY,
+            admin.address,
+            admin.address,
+            admin.address,
+          ],
+        ],
+        { kind: "uups", initializer: "initialize" },
+      )) as unknown as KageRegistry;
+      expect(await atMax.exitDelay()).to.equal(MAX_EXIT_DELAY);
+
+      await expect(
+        d.registry.connect(d.config).updateConfig(MIN_STAKE, MAX_EXIT_DELAY),
+      )
+        .to.emit(d.registry, "ConfigUpdated")
+        .withArgs(MIN_STAKE, MAX_EXIT_DELAY);
+      await d.registry.connect(d.solverOwner).requestExit(d.solverId);
+      expect((await d.registry.solver(d.solverId)).unlockTime).to.equal(
+        BigInt(await time.latest()) + MAX_EXIT_DELAY,
+      );
+      await time.increase(MAX_EXIT_DELAY - 10n);
+      await d.registry.connect(d.slasher).slash(d.solverId, 5n);
+      const unlock = (await d.registry.solver(d.solverId)).unlockTime;
+      expect(unlock).to.equal(BigInt(await time.latest()) + MAX_EXIT_DELAY);
+      await time.increaseTo(unlock);
+      await expect(d.registry.withdrawStake(d.solverId))
+        .to.emit(d.registry, "Unstaked")
+        .withArgs(d.solverId, d.solverOwner.address, MIN_STAKE - 5n);
     });
 
     it("owner-only calls reject everyone else, and addStake requires an active solver", async function () {
@@ -633,6 +683,43 @@ describe("KageRegistry", function () {
         await stakeToken.getAddress(),
       );
       expect(await upgraded.settlementSigner(id)).to.equal(HOT_KEY.address);
+    });
+
+    it("pins every namespace word and both packed Solver words at their raw slots", async function () {
+      const { registry, stakeToken, slasher, solverOwner, id } =
+        await loadFixture(registryFixture);
+      const proxy = await registry.getAddress();
+      await registry.connect(solverOwner).requestExit(id);
+      const unlockTime = BigInt(await time.latest()) + EXIT_DELAY;
+      await registry.connect(slasher).freeze(id);
+
+      const base = BigInt(REGISTRY_LOCATION);
+      const word = async (slot: bigint) =>
+        BigInt(await ethers.provider.getStorage(proxy, slot));
+      expect(await word(base)).to.equal(BigInt(await stakeToken.getAddress()));
+      expect(await word(base + 1n)).to.equal(MIN_STAKE_FLOOR);
+      expect(await word(base + 2n)).to.equal(MIN_STAKE);
+      expect(await word(base + 3n)).to.equal(EXIT_DELAY);
+      expect(await word(base + 4n)).to.equal(1n);
+
+      const solverSlot = BigInt(
+        ethers.keccak256(
+          ethers.AbiCoder.defaultAbiCoder().encode(
+            ["uint256", "uint256"],
+            [id, base + 5n],
+          ),
+        ),
+      );
+      // Word 0: owner (bytes 0-19), status (20), frozen (21), unlockTime (22-29). Word 1: signer (0-19), stake (20-31).
+      expect(await word(solverSlot)).to.equal(
+        BigInt(solverOwner.address) |
+          (EXITING << 160n) |
+          (1n << 168n) |
+          (unlockTime << 176n),
+      );
+      expect(await word(solverSlot + 1n)).to.equal(
+        BigInt(HOT_KEY.address) | (MIN_STAKE << 160n),
+      );
     });
 
     it("the ERC-7201 namespace constant matches its formula", async function () {

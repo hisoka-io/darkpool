@@ -67,8 +67,9 @@ const GAS_BUDGET: Record<string, number> = {
   splitMultisig: 1_102_000,
   joinMultisig: 1_046_000,
   // KageSettlement.settleSwap with the golden swap_settle proof (k=2, m=4) on a 3-leaf tree: the solver
-  // guard (registry read, EIP-712 ECDSA check) plus DarkPool.settle.
-  settleSwap: 1_484_000,
+  // guard (registry read, EIP-712 ECDSA check, both nullifiers checked unspent) plus DarkPool.settle.
+  // Measured 1,443,612 with the spent-nullifier pre-check, plus 3%.
+  settleSwap: 1_487_000,
 };
 
 const results: { op: string; gas: bigint }[] = [];

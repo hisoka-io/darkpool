@@ -6,6 +6,13 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 import {IDarkPoolSettlement} from "../interfaces/IDarkPoolSettlement.sol";
 import {IKageRegistry} from "./IKageRegistry.sol";
 
+/// @notice DarkPool's spent-nullifier query.
+interface IDarkPoolNullifiers {
+    function isNullifierSpent(
+        bytes32 nullifierHash
+    ) external view returns (bool);
+}
+
 /**
  * @title KageSettlement
  * @notice DarkPool settlement module for private in-pool swaps. A registered solver approves one swap_settle
@@ -13,7 +20,8 @@ import {IKageRegistry} from "./IKageRegistry.sol";
  *         with the verifier it holds for this module, so this contract only gates and forwards.
  * @dev Stateless and not upgradeable: a fix is a new instance registered as a new module. Replay protection is
  *      DarkPool's nullifier set, so no nonce is stored. The proof is not signed: the vector alone fixes every
- *      effect, and many valid proofs exist for one vector.
+ *      effect, and many valid proofs exist for one vector. Both nullifiers are checked before forwarding, so a
+ *      settlement that lost the race for a note reverts before DarkPool spends gas on proof verification.
  */
 contract KageSettlement is EIP712 {
     bytes32 public constant SETTLEMENT_TYPEHASH =
@@ -28,6 +36,9 @@ contract KageSettlement is EIP712 {
     IDarkPoolSettlement public immutable DARK_POOL;
     IKageRegistry public immutable REGISTRY;
 
+    /// @notice A swap settled. `solverId` is the submitter of record: the id whose current signer approved this
+    ///         public-input vector. Any registered solver can approve a vector it has seen, so the id does not
+    ///         prove which solver found or quoted the swap; it must not feed slashing, rebates or reputation.
     event KageSwapSettled(
         uint256 indexed solverId,
         bytes32 takerNullifier,
@@ -40,6 +51,7 @@ contract KageSettlement is EIP712 {
     error SettlementExpired(uint256 deadline);
     error SolverNotActive(uint256 solverId);
     error InvalidSolverSignature(uint256 solverId);
+    error NoteAlreadySpent(bytes32 nullifier);
 
     constructor(
         IDarkPoolSettlement pool,
@@ -72,6 +84,11 @@ contract KageSettlement is EIP712 {
                 solverSignature
             )
         ) revert InvalidSolverSignature(solverId);
+        // A vector too short to hold both nullifiers is left to DarkPool's typed length check.
+        if (publicInputs.length > MAKER_NULLIFIER) {
+            _requireUnspent(publicInputs[TAKER_NULLIFIER]);
+            _requireUnspent(publicInputs[MAKER_NULLIFIER]);
+        }
 
         DARK_POOL.settle(proof, publicInputs);
 
@@ -102,5 +119,10 @@ contract KageSettlement is EIP712 {
                     )
                 )
             );
+    }
+
+    function _requireUnspent(bytes32 nullifier) private view {
+        if (IDarkPoolNullifiers(address(DARK_POOL)).isNullifierSpent(nullifier))
+            revert NoteAlreadySpent(nullifier);
     }
 }
