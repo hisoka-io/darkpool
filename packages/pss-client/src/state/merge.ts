@@ -1,6 +1,8 @@
 import { PSS_SCHEMA_VERSION } from "../wire/constants.js";
 import {
+  DroppedNote,
   IssuedAddress,
+  MAX_DROPPED_NOTES,
   NullifierCheckpoint,
   ParsedStatePayload,
   SyncCursor,
@@ -32,29 +34,97 @@ function mergeIssuedAddresses(inputs: readonly MergeInput[]): IssuedAddress[] {
   return [...byIndex.values()].sort((a, b) => a.index - b.index);
 }
 
-// Two payloads disagreeing about the same leaf means one of them is corrupt, and picking either would
-// hide that. PSS is advisory, so refusing the merge costs a resync rather than a wrong balance.
-function mergeUnspentNotes(inputs: readonly MergeInput[]): UnspentNote[] {
-  const byLeaf = new Map<number, UnspentNote>();
-  for (const input of inputs) {
-    for (const note of input.payload.known.unspentNotes) {
-      const seen = byLeaf.get(note.leafIndex);
-      if (seen === undefined) {
-        byLeaf.set(note.leafIndex, note);
-        continue;
-      }
-      if (
-        seen.assetId !== note.assetId ||
-        seen.amount !== note.amount ||
-        seen.nullifier !== note.nullifier
-      ) {
-        throw new PssStateError(
-          `two payloads disagree about leaf ${note.leafIndex}; refusing to merge a corrupt note set`,
-        );
+function tombstoneKey(note: {
+  readonly leafIndex: number;
+  readonly nullifier: string;
+  readonly blockHash: string;
+}): string {
+  return `${note.leafIndex}:${note.nullifier}:${note.blockHash}`;
+}
+
+function byBlockThenKey(a: DroppedNote, b: DroppedNote): number {
+  if (a.block !== b.block) return a.block - b.block;
+  const ka = tombstoneKey(a);
+  const kb = tombstoneKey(b);
+  return ka < kb ? -1 : ka > kb ? 1 : 0;
+}
+
+/**
+ * Union of tombstone lists. Over the cap the lowest blocks go first: the oldest reorgs are the least likely
+ * to still be held by a stale device, and a resurrected note is re-verified against the chain before use.
+ */
+export function mergeDroppedNoteLists(
+  lists: readonly (readonly DroppedNote[])[],
+): DroppedNote[] {
+  const byKey = new Map<string, DroppedNote>();
+  for (const list of lists) {
+    for (const dropped of list) {
+      const key = tombstoneKey(dropped);
+      const seen = byKey.get(key);
+      if (seen === undefined || dropped.block > seen.block) {
+        byKey.set(key, dropped);
       }
     }
   }
-  return [...byLeaf.values()].sort((a, b) => a.leafIndex - b.leafIndex);
+  const all = [...byKey.values()].sort(byBlockThenKey);
+  return all.slice(Math.max(0, all.length - MAX_DROPPED_NOTES));
+}
+
+function sameNote(a: UnspentNote, b: UnspentNote): boolean {
+  return (
+    a.leafIndex === b.leafIndex &&
+    a.assetId === b.assetId &&
+    a.amount === b.amount &&
+    a.nullifier === b.nullifier &&
+    a.block === b.block &&
+    a.blockHash === b.blockHash
+  );
+}
+
+interface MergedNotes {
+  readonly notes: UnspentNote[];
+  /** Lowest inclusion block among notes dropped because two inputs disagreed about their leaf. */
+  readonly lowestDisputedBlock: number | null;
+}
+
+/**
+ * Union by leaf index of every note no input has tombstoned.
+ *
+ * Two surviving entries that disagree about one leaf mean a reorg past the PSS write depth left two
+ * devices holding different notes there. Neither is kept and the merge goes on: the wallet re-derives the
+ * truth from the chain, while a throw here would fail every counter reservation (each one pulls and
+ * merges first) and wedge the account until someone repaired the blob by hand.
+ */
+function mergeUnspentNotes(
+  inputs: readonly MergeInput[],
+  dropped: ReadonlySet<string>,
+): MergedNotes {
+  const byLeaf = new Map<number, UnspentNote | null>();
+  const firstAt = new Map<number, UnspentNote>();
+  let lowestDisputedBlock: number | null = null;
+  for (const input of inputs) {
+    for (const note of input.payload.known.unspentNotes) {
+      if (dropped.has(tombstoneKey(note))) continue;
+      const first = firstAt.get(note.leafIndex);
+      if (first === undefined) {
+        firstAt.set(note.leafIndex, note);
+        byLeaf.set(note.leafIndex, note);
+      } else if (!sameNote(first, note)) {
+        byLeaf.set(note.leafIndex, null);
+        const low = Math.min(first.block, note.block);
+        lowestDisputedBlock =
+          lowestDisputedBlock === null
+            ? low
+            : Math.min(lowestDisputedBlock, low);
+      }
+    }
+  }
+  return {
+    notes: [...byLeaf.values()]
+      .filter((note): note is UnspentNote => note !== null)
+      .sort((a, b) => a.leafIndex - b.leafIndex),
+    lowestDisputedBlock,
+  };
 }
 
 /**
@@ -91,6 +161,15 @@ export function mergeStatePayloads(
   }
   const complete = inputs.filter((input) => input.noteListComplete);
   const latest = newest(inputs);
+  const droppedNotes = mergeDroppedNoteLists(
+    inputs.map((input) => input.payload.known.droppedNotes),
+  );
+  // Filtered by every tombstone any input carries, not only the ones that survive the cap.
+  const droppedKeys = new Set(
+    inputs.flatMap((input) =>
+      input.payload.known.droppedNotes.map(tombstoneKey),
+    ),
+  );
 
   let cursor: SyncCursor = { block: 0, logIndex: 0 };
   let checkedAt: NullifierCheckpoint = { block: 0 };
@@ -101,6 +180,18 @@ export function mergeStatePayloads(
         checkedAt.block,
         input.payload.known.nullifierCheckedAt.block,
       ),
+    };
+  }
+  const unspent = mergeUnspentNotes(inputs, droppedKeys);
+  // The merged list no longer holds a disputed note, so the cursor may not claim to have scanned its
+  // block: it moves back below the lowest one, and the next scan finds whichever note is canonical.
+  if (
+    unspent.lowestDisputedBlock !== null &&
+    cursor.block >= unspent.lowestDisputedBlock
+  ) {
+    cursor = {
+      block: Math.max(0, unspent.lowestDisputedBlock - 1),
+      logIndex: 0,
     };
   }
 
@@ -126,7 +217,8 @@ export function mergeStatePayloads(
         ...inputs.map((input) => input.payload.known.incomingIssueHighwater),
       ),
       issuedAddresses: mergeIssuedAddresses(inputs),
-      unspentNotes: mergeUnspentNotes(inputs),
+      unspentNotes: unspent.notes,
+      droppedNotes,
       syncCursor: cursor,
       nullifierCheckedAt: checkedAt,
       ephemeralCounters: mergeEphemeralCounterSnapshots(

@@ -13,9 +13,13 @@ export type JsonRpc = (
 /** JSON-RPC 2.0 "invalid params": the node does not accept a parameter shape, here the EIP-1898 block object. */
 const JSON_RPC_INVALID_PARAMS = -32602;
 
-export interface BlockRef {
+/** One block of one fork. */
+export interface BlockId {
   readonly number: number;
   readonly hash: string;
+}
+
+export interface BlockRef extends BlockId {
   readonly timestamp: bigint;
 }
 

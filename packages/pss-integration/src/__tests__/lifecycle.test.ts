@@ -15,6 +15,7 @@ import {
   deriveKeys,
   nobleBackend,
   toHexRaw,
+  type UnspentNote,
 } from "@hisoka/pss-client";
 import {
   defaultMigrationsDir,
@@ -23,7 +24,7 @@ import {
   startServer,
 } from "@hisoka/pss-server";
 import type { RunningServer } from "@hisoka/pss-server";
-import { PssEphemeralCounterStore } from "../pssEphemeralCounterStore.js";
+import { PssEphemeralCounterStore } from "@hisoka/wallet-runtime";
 
 const MNEMONIC = "test test test test test test test test test test test junk";
 const GCM_NONCE_BYTES = 12;
@@ -85,17 +86,14 @@ async function device(invite?: string): Promise<StateSync> {
   });
 }
 
-function note(leafIndex: number): {
-  leafIndex: number;
-  assetId: string;
-  amount: string;
-  nullifier: string;
-} {
+function note(leafIndex: number): UnspentNote {
   return {
     leafIndex,
     assetId: "0x1234567890123456789012345678901234567890",
     amount: "1000",
     nullifier: `0x${leafIndex.toString(16).padStart(64, "0")}`,
+    block: leafIndex,
+    blockHash: `0x${(0xb10c00 + leafIndex).toString(16).padStart(64, "0")}`,
   };
 }
 

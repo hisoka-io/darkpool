@@ -178,6 +178,29 @@ describe("compliance key history", () => {
     expect(Math.min(...logStarts(chain))).toBe(DEPLOY);
   });
 
+  it("names both numbers when the configured deployment block is above the chain head", async () => {
+    const chain = new FakeChain(3);
+    const err = await failure(readComplianceHistory(deps(chain)));
+    expect(err.code).toBe("COMPLIANCE_V1_UNKNOWN");
+    expect(err.message).toContain(
+      "deployment block 5 is above the chain head 3",
+    );
+    expect(err.message).not.toMatch(/archive/);
+  });
+
+  it("refuses a rotation log whose old version is outside the safe integer range", async () => {
+    const chain = rotatingChain({ initEvent: true });
+    chain.emit(35, "ComplianceKeyRotated", [
+      2n ** 53n + 1n,
+      4n,
+      K[3]![0],
+      K[3]![1],
+    ]);
+    expect((await failure(readComplianceHistory(deps(chain)))).code).toBe(
+      "RPC_RESPONSE_INVALID",
+    );
+  });
+
   it("ignores a cache that does not parse", async () => {
     const chain = rotatingChain({ initEvent: true });
     const store = new MemoryStore();
@@ -187,5 +210,29 @@ describe("compliance key history", () => {
     chain.calls.length = 0;
     expect((await readComplianceHistory(d)).history.currentVersion).toBe(3);
     expect(Math.min(...logStarts(chain))).toBe(DEPLOY);
+  });
+  it("reads the current key at the head its logs reach, so a rotation landing mid-read cannot split them", async () => {
+    const chain = rotatingChain({ initEvent: true });
+    const d = deps(chain);
+    const real = d.logs;
+    let rotated = false;
+    const logs = {
+      logs: async (q: Parameters<typeof real.logs>[0]) => {
+        const out = await real.logs(q);
+        if (!rotated) {
+          rotated = true;
+          chain.mine();
+          chain.emit(41, "ComplianceKeyRotated", [3n, 4n, K[3]![0], K[3]![1]]);
+          const before = chain.compliance;
+          chain.compliance = (n) =>
+            n >= 41 ? { x: K[3]![0], y: K[3]![1], version: 4 } : before(n);
+        }
+        return out;
+      },
+    };
+    const { history, head } = await readComplianceHistory({ ...d, logs });
+    expect(head.number).toBe(40);
+    expect(history.currentVersion).toBe(3);
+    expect(history.currentPk).toEqual(K[2]);
   });
 });

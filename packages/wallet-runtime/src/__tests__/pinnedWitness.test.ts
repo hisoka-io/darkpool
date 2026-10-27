@@ -106,6 +106,58 @@ describe("pinned witness checks", () => {
     ).toBe("WITNESS_MISMATCH");
   });
 
+  it("rejects a path for the pinned tree size but another leaf index", async () => {
+    const port = new LeafListWitnessPort(leaves);
+    const shifted = tampered(port, (w) => ({
+      ...w,
+      leafIndex: w.leafIndex + 1,
+    }));
+    const err = await checkedWitness(checksOver(shifted), pin, {
+      leafIndex: 2,
+      commitment: leaves[2]!,
+    }).catch((e: unknown) => e);
+    expect((err as WalletRuntimeError).code).toBe("WITNESS_MISMATCH");
+    expect((err as WalletRuntimeError).message).toContain(
+      "came back for leaf 3",
+    );
+  });
+
+  it.each([31, 33])(
+    "rejects a path with %i siblings: the circuit takes exactly the tree depth",
+    async (count: number) => {
+      const port = new LeafListWitnessPort(leaves);
+      const resized = tampered(port, (w) => ({
+        ...w,
+        siblings:
+          count < w.siblings.length
+            ? w.siblings.slice(0, count)
+            : [...w.siblings, new Fr(0n)],
+      }));
+      const err = await checkedWitness(checksOver(resized), pin, {
+        leafIndex: 2,
+        commitment: leaves[2]!,
+      }).catch((e: unknown) => e);
+      expect((err as WalletRuntimeError).code).toBe("WITNESS_MISMATCH");
+      expect((err as WalletRuntimeError).message).toContain(
+        `has ${count} siblings`,
+      );
+    },
+  );
+
+  it("checks each input once and hands assembly the same checked path again", async () => {
+    const port = new LeafListWitnessPort(leaves);
+    const log: string[] = [];
+    const source = pinnedWitnessSource(
+      checksOver(port, () => true, log),
+      pin,
+      new Map([[4, leaves[4]!]]),
+    );
+    const first = await source.witnessFor(leaves[4]!, 4);
+    const again = await source.witnessFor(leaves[4]!, 4);
+    expect(log).toEqual(["witness", "isKnownRoot"]);
+    expect(again).toEqual(first);
+  });
+
   it("rejects a path that does not fold to its own root", async () => {
     const port = new LeafListWitnessPort(leaves);
     const bent = tampered(port, (w) => ({

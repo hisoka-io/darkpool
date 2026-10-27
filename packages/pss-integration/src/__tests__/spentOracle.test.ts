@@ -132,6 +132,8 @@ function note(leafIndex: number, nullifier: string): UnspentNote {
     assetId: "0x1234567890123456789012345678901234567890",
     amount: "1000",
     nullifier,
+    block: leafIndex,
+    blockHash: `0x${(0xb10c00 + leafIndex).toString(16).padStart(64, "0")}`,
   };
 }
 
@@ -146,6 +148,7 @@ function payload(notes: readonly UnspentNote[]): ParsedStatePayload {
       incomingIssueHighwater: 0,
       issuedAddresses: [],
       unspentNotes: [...notes],
+      droppedNotes: [],
       syncCursor: { block: 0, logIndex: 0 },
       nullifierCheckedAt: { block: 0 },
       ephemeralCounters: {},

@@ -67,6 +67,12 @@ export async function readComplianceHistory(
   const { head, value } = await readAtStableHead(
     deps.chain,
     async (head, logsTo) => {
+      if (firstBlock > head.number) {
+        v1Unknown(
+          firstBlock,
+          `the configured deployment block ${firstBlock} is above the chain head ${head.number}: wrong deployment block, wrong chain, or a node that is behind`,
+        );
+      }
       const base =
         cached !== null && (await resumable(deps.chain, cached, head))
           ? cached
@@ -249,6 +255,7 @@ function decodeRotation(log: RawLog): Rotation {
     typeof newVersion !== "bigint" ||
     typeof x !== "bigint" ||
     typeof y !== "bigint" ||
+    oldVersion > BigInt(Number.MAX_SAFE_INTEGER) ||
     newVersion > BigInt(Number.MAX_SAFE_INTEGER)
   ) {
     return invalidResponse(

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { nobleBackend } from "../crypto/index.js";
 import { PAD_TIERS, PSS_SCHEMA_VERSION } from "../wire/constants.js";
 import {
+  DroppedNote,
+  MAX_DROPPED_NOTES,
   ParsedStatePayload,
   PssStatePayload,
   STATE_PAYLOAD_KNOWN_KEYS,
@@ -38,6 +40,8 @@ function note(
     assetId: "0x1234567890123456789012345678901234567890",
     amount,
     nullifier: `0x${leafIndex.toString(16).padStart(64, "0")}`,
+    block: leafIndex,
+    blockHash: `0x${(0xb10c00 + leafIndex).toString(16).padStart(64, "0")}`,
   };
 }
 
@@ -55,6 +59,7 @@ function payload(
       incomingIssueHighwater: 0,
       issuedAddresses: [],
       unspentNotes: [],
+      droppedNotes: [],
       syncCursor: { block: 0, logIndex: 0 },
       nullifierCheckedAt: { block: 0 },
       ephemeralCounters: {},
@@ -106,6 +111,8 @@ describe("payload serde", () => {
     expect(Object.keys(parsed.known.unspentNotes[0]).sort()).toEqual([
       "amount",
       "assetId",
+      "block",
+      "blockHash",
       "leafIndex",
       "nullifier",
     ]);
@@ -304,13 +311,12 @@ describe("merge table", () => {
     ]);
   });
 
-  it("refuses to merge two payloads that disagree about one leaf", () => {
-    expect(() =>
-      mergeStatePayloads([
-        complete(payload({ unspentNotes: [note(5, "1000")] })),
-        complete(payload({ unspentNotes: [note(5, "2000")] })),
-      ]),
-    ).toThrow(PssStateError);
+  it("keeps neither note when two payloads disagree about one leaf, and does not throw", () => {
+    const merged = mergeStatePayloads([
+      complete(payload({ unspentNotes: [note(5, "1000"), note(9)] })),
+      complete(payload({ unspentNotes: [note(5, "2000")] })),
+    ]);
+    expect(merged.known.unspentNotes.map((n) => n.leafIndex)).toEqual([9]);
   });
 
   it("takes the max cursor by block then logIndex", () => {
@@ -393,6 +399,174 @@ describe("merge table", () => {
       PSS_SCHEMA_VERSION,
     );
     expect(() => mergeStatePayloads([])).toThrow(PssStateError);
+  });
+});
+
+describe("schema 3 note merge", () => {
+  const tombstone = (
+    n: PssStatePayload["unspentNotes"][number],
+  ): DroppedNote => ({
+    leafIndex: n.leafIndex,
+    nullifier: n.nullifier,
+    block: n.block,
+    blockHash: n.blockHash,
+  });
+
+  it("writes schema 3, the version a schema-2 reader refuses", () => {
+    expect(PSS_SCHEMA_VERSION).toBe(3);
+    expect(emptyStatePayload(INSTALL_A, "web", 1).known.schema).toBe(3);
+    const merged = mergeStatePayloads([complete(payload({ schema: 2 }))]);
+    expect(JSON.parse(serializeStatePayload(merged)).schema).toBe(3);
+    // The gate a schema-2 reader runs is `schema > 2`; what this build writes trips it.
+    expect(merged.known.schema > 2).toBe(true);
+  });
+
+  it("does not resurrect a note another device tombstoned after a reorg", () => {
+    const x = note(5);
+    const writer = payload({
+      unspentNotes: [note(9)],
+      droppedNotes: [tombstone(x)],
+    });
+    const stale = payload({ unspentNotes: [x, note(9)] });
+    for (const order of [
+      [writer, stale],
+      [stale, writer],
+    ]) {
+      const merged = mergeStatePayloads(order.map(complete));
+      expect(merged.known.unspentNotes.map((n) => n.leafIndex)).toEqual([9]);
+      expect(merged.known.droppedNotes).toEqual([tombstone(x)]);
+    }
+  });
+
+  it("keeps the same note re-mined in another block despite the tombstone", () => {
+    const x = note(5);
+    const reMined = { ...x, block: 77, blockHash: `0x${"7".repeat(64)}` };
+    const merged = mergeStatePayloads([
+      complete(
+        payload({ unspentNotes: [reMined], droppedNotes: [tombstone(x)] }),
+      ),
+      complete(payload({ unspentNotes: [x] })),
+    ]);
+    expect(merged.known.unspentNotes).toEqual([reMined]);
+  });
+
+  it("moves the cursor below a disputed leaf so the next scan finds the canonical note", () => {
+    const merged = mergeStatePayloads([
+      complete(
+        payload({
+          unspentNotes: [note(40, "1000")],
+          syncCursor: { block: 90, logIndex: 3 },
+        }),
+      ),
+      complete(
+        payload({
+          unspentNotes: [{ ...note(40, "2000"), block: 35 }],
+          syncCursor: { block: 80, logIndex: 0 },
+        }),
+      ),
+    ]);
+    expect(merged.known.unspentNotes).toEqual([]);
+    expect(merged.known.syncCursor).toEqual({ block: 34, logIndex: 0 });
+  });
+
+  it("collapses agreeing duplicates and leaves the cursor alone", () => {
+    const merged = mergeStatePayloads([
+      complete(
+        payload({
+          unspentNotes: [note(40)],
+          syncCursor: { block: 90, logIndex: 3 },
+        }),
+      ),
+      complete(payload({ unspentNotes: [note(40)] })),
+    ]);
+    expect(merged.known.unspentNotes).toEqual([note(40)]);
+    expect(merged.known.syncCursor).toEqual({ block: 90, logIndex: 3 });
+    // The same note fields under another inclusion block is a different note: disputed, not collapsed.
+    const otherFork = mergeStatePayloads([
+      complete(payload({ unspentNotes: [note(40)] })),
+      complete(
+        payload({
+          unspentNotes: [{ ...note(40), blockHash: `0x${"9".repeat(64)}` }],
+        }),
+      ),
+    ]);
+    expect(otherFork.known.unspentNotes).toEqual([]);
+  });
+
+  it("caps tombstones by evicting the lowest blocks, and refuses an oversized list on read", () => {
+    const many = Array.from({ length: MAX_DROPPED_NOTES + 6 }, (_u, i) =>
+      tombstone(note(1000 + i)),
+    );
+    const merged = mergeStatePayloads([
+      complete(payload({ droppedNotes: many.slice(0, 40) })),
+      complete(payload({ droppedNotes: many.slice(40) })),
+    ]);
+    expect(merged.known.droppedNotes).toHaveLength(MAX_DROPPED_NOTES);
+    expect(merged.known.droppedNotes.map((d) => d.block)).toEqual(
+      many.slice(6).map((d) => d.block),
+    );
+    // Evicted tombstones still suppressed their notes in the merge that evicted them.
+    const withNotes = mergeStatePayloads([
+      complete(payload({ droppedNotes: many })),
+      complete(payload({ unspentNotes: [note(1000)] })),
+    ]);
+    expect(withNotes.known.unspentNotes).toEqual([]);
+    expect(() =>
+      parseStatePayload({ ...payload().known, droppedNotes: many }),
+    ).toThrow(PssStateError);
+  });
+
+  it("refuses a schema-3 note or tombstone without a well-formed inclusion block", () => {
+    const { block: _block, ...noBlock } = note(1);
+    expect(() =>
+      parseStatePayload({ ...payload().known, unspentNotes: [noBlock] }),
+    ).toThrow(PssStateError);
+    expect(() =>
+      parseStatePayload({
+        ...payload().known,
+        unspentNotes: [{ ...note(1), blockHash: "0x1234" }],
+      }),
+    ).toThrow(PssStateError);
+    expect(() =>
+      parseStatePayload({
+        ...payload().known,
+        droppedNotes: [{ ...tombstone(note(1)), blockHash: "0xAB" }],
+      }),
+    ).toThrow(PssStateError);
+  });
+
+  it("reads a schema-2 payload as schema 3 without its block-less notes or their cursor", () => {
+    const { droppedNotes: _dropped, ...v2 } = {
+      ...payload().known,
+      schema: 2,
+      ephemeralCounters: { self: 12 },
+      syncCursor: { block: 500, logIndex: 1 },
+      nullifierCheckedAt: { block: 500 },
+    };
+    const parsed = parseStatePayload({
+      ...v2,
+      unspentNotes: [
+        {
+          leafIndex: 5,
+          assetId: note(5).assetId,
+          amount: "1",
+          nullifier: note(5).nullifier,
+        },
+      ],
+    });
+    expect(parsed.known.schema).toBe(3);
+    expect(parsed.known.unspentNotes).toEqual([]);
+    expect(parsed.known.syncCursor).toEqual({ block: 0, logIndex: 0 });
+    expect(parsed.known.nullifierCheckedAt).toEqual({ block: 0 });
+    expect(parsed.known.ephemeralCounters).toEqual({ self: 12 });
+    // A note added after the upgrade survives the next write and read.
+    const next = decodeStatePayload(
+      serializeStatePayload({
+        known: { ...parsed.known, unspentNotes: [note(6)] },
+        extra: parsed.extra,
+      }),
+    );
+    expect(next.known.unspentNotes).toEqual([note(6)]);
   });
 });
 
@@ -519,7 +693,10 @@ describe("payload capacity", () => {
         assetId: `0x${"12".repeat(20)}`,
         amount: "1000000000000000000",
         nullifier: `0x${i.toString(16).padStart(64, "0")}`,
+        block: 21_830_001,
+        blockHash: `0x${"ab".repeat(32)}`,
       })),
+      droppedNotes: [],
       syncCursor: { block: 21_830_001, logIndex: 4 },
       nullifierCheckedAt: { block: 21_830_001 },
       ephemeralCounters: {},
@@ -532,12 +709,12 @@ describe("payload capacity", () => {
   // Graded by the serialiser rather than by hand arithmetic, because the published figure was wrong by
   // 1.8x twice. The shape is fixed here: a 20-byte asset address and a 32-byte nullifier, both at the
   // widths the frozen payload shapes require, so the smallest legal record cannot be smaller.
-  it("costs about 185 bytes per note, not 105", () => {
+  it("costs about 283 bytes per note, not 105", () => {
     const marginal = bytes(101) - bytes(100);
-    expect(marginal).toBe(185);
-    // 309, not 286: the schema-2 counter carrier adds exactly `,"ephemeralCounters":{}` when empty.
-    // The per-note cost is unchanged, so the tier occupancies below are unchanged too.
-    expect(bytes(0)).toBe(309);
+    // 185 before schema 3; the inclusion block and its hash add `,"block":21830001,"blockHash":"0x..."`.
+    expect(marginal).toBe(283);
+    // 309 at schema 2 plus exactly `,"droppedNotes":[]` when no tombstone is held.
+    expect(bytes(0)).toBe(327);
   });
 
   it("fits the note counts the capacity table claims", () => {
@@ -547,9 +724,9 @@ describe("payload capacity", () => {
       return count;
     };
     // Minus the 4-byte padding length header, which is inside the tier.
-    expect(fits(PAD_TIERS[0])).toBe(87);
-    expect(fits(PAD_TIERS[1])).toBe(707);
-    expect(fits(PAD_TIERS[2])).toBe(5641);
+    expect(fits(PAD_TIERS[0])).toBe(56);
+    expect(fits(PAD_TIERS[1])).toBe(462);
+    expect(fits(PAD_TIERS[2])).toBe(3694);
   });
 });
 

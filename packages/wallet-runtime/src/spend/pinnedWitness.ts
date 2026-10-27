@@ -129,13 +129,15 @@ export interface PinnedWitnessSource {
 /**
  * Hands assembly only checked witnesses, every one at the same pinned tree size, for exactly the notes the
  * plan leased. The live tree may grow while an action assembles; the pin does not move, so a join's two paths
- * always come from one tree.
+ * always come from one tree. A checked witness is kept, so the pipeline can run the witness and root checks
+ * for every input before anything is reserved, and assembly then reads the same paths back.
  */
 export function pinnedWitnessSource(
   checks: WitnessChecks,
   pin: TreeState,
   expected: ReadonlyMap<number, Fr>,
 ): PinnedWitnessSource {
+  const checked = new Map<number, TreeWitness>();
   return {
     async witnessFor(leaf, expectedLeafIndex) {
       const planned = expected.get(expectedLeafIndex);
@@ -146,10 +148,14 @@ export function pinnedWitnessSource(
           { leafIndex: String(expectedLeafIndex), actual: leaf.toString() },
         );
       }
-      const w = await checkedWitness(checks, pin, {
-        leafIndex: expectedLeafIndex,
-        commitment: planned,
-      });
+      let w = checked.get(expectedLeafIndex);
+      if (w === undefined) {
+        w = await checkedWitness(checks, pin, {
+          leafIndex: expectedLeafIndex,
+          commitment: planned,
+        });
+        checked.set(expectedLeafIndex, w);
+      }
       return { leafIndex: w.leafIndex, siblings: w.siblings, root: w.root };
     },
   };

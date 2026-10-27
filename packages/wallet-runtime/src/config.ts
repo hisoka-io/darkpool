@@ -23,7 +23,7 @@ export interface ChainConfig {
   };
   /** Block span of one `eth_getLogs` request. */
   readonly logRangeBlocks: number;
-  /** Deepest rewind walked block by block before a full re-index from the deployment block. */
+  /** Deepest reorg this chain can have: a recorded block at least this far below the head that left the chain fails `REORG_TOO_DEEP`. */
   readonly maxReorgBlocks: number;
   /** Matched positions per discovery tag above which discovery fails loud. */
   readonly maxOccurrencesPerTag: number;
