@@ -41,8 +41,32 @@ jobs:
         run: nargo test
       - name: Circuit regression guards
         run: bash scripts/circuit-guards.sh
+      - name: Vendored noir-edwards tests
+        run: |
+          # nargo refuses a package that is not a workspace member ("Selected package `edwards` was not
+          # found"), so test a copy outside the workspace. The guards step above has already pinned the
+          # vendored bytes to VENDOR-HASHES.sha256, so the copy is the reviewed source.
+          cp -r packages/circuits/vendor/noir-edwards "$RUNNER_TEMP/noir-edwards"
+          out="$(nargo test --program-dir "$RUNNER_TEMP/noir-edwards" 2>&1)" || rc=$?
+          echo "$out"
+          test "${rc:-0}" -eq 0 || { echo "::error::vendored noir-edwards tests exited ${rc}"; exit 1; }
+          # The crate is frozen by hash, so its count moves only with a reviewed re-vendor.
+          echo "$out" | grep -qE "[^0-9]17 tests passed" \
+            || { echo "::error::vendored noir-edwards did not report exactly 17 passing tests"; exit 1; }
       - name: VK byte-identity (recompile, re-derive every VK, compare to the committed pins)
         run: bash scripts/check-vk-identity.sh
+      - name: Check soundness harness formatting
+        run: |
+          # Each harness is its own nargo project outside the circuits workspace, so the formatting step
+          # above never reaches it.
+          shopt -s nullglob
+          n=0
+          for toml in packages/prover/test-harness/*/Nargo.toml; do
+            h="$(dirname "$toml")"
+            ( cd "$h" && nargo fmt --check ) || { echo "::error::$h is not nargo-fmt clean; run nargo fmt there"; exit 1; }
+            n=$((n + 1))
+          done
+          test "$n" -gt 0 || { echo "::error::no soundness harness crate found under packages/prover/test-harness"; exit 1; }
       - name: Witness-injection soundness harnesses
         run: |
           for h in frost-forgery psi-cek-forgery leaf-index-forgery; do
@@ -79,17 +103,17 @@ jobs:
         run: pnpm turbo run build --filter=@hisoka/wallets --filter=@hisoka/adaptors --filter=@hisoka/prover --filter=@hisoka/pss-client --filter=@hisoka/pss-server --filter=@hisoka/howl-protocol
       - name: Typecheck TS packages
         run: |
-          out="$(pnpm turbo run typecheck --filter=@hisoka/pss-client --filter=@hisoka/pss-server --filter=@hisoka/pss-integration --filter=@hisoka/wallets --filter=@hisoka/prover --filter=@hisoka/howl-e2e --filter=@hisoka/howl-protocol --force 2>&1)" || rc=$?
+          out="$(pnpm turbo run typecheck --filter=@hisoka/pss-client --filter=@hisoka/pss-server --filter=@hisoka/pss-integration --filter=@hisoka/wallets --filter=@hisoka/prover --filter=@hisoka/howl-e2e --filter=@hisoka/howl-protocol --filter=@hisoka/wallet-runtime --force 2>&1)" || rc=$?
           echo "$out"
           test "${rc:-0}" -eq 0 || { echo "::error::typecheck exited ${rc}"; exit 1; }
-          # turbo exits 0 when a package lacks the task, so assert the measured count instead. Seven
+          # turbo exits 0 when a package lacks the task, so assert the measured count instead. Eight
           # typecheck tasks plus the builds their ^build dependency pulls in. The wallets entry covers
           # its TESTS, which is the only enforcement of the derived-ephemeral brand pin: the package
           # tsconfig excludes test files and vitest strips types.
           # The filter names every package that HAS a typecheck script except evm-contracts, which the
           # evm-tests job runs itself. Adding a script without adding it here leaves it unenforced.
-          echo "$out" | grep -qE "Tasks: +12 successful, 12 total" \
-            || { echo "::error::expected 12 typecheck tasks; a filter or a package script is missing"; exit 1; }
+          echo "$out" | grep -qE "Tasks: +13 successful, 13 total" \
+            || { echo "::error::expected 13 typecheck tasks; a filter or a package script is missing"; exit 1; }
       - name: Test howl-protocol
         run: |
           out="$(pnpm --filter @hisoka/howl-protocol run test 2>&1)" || rc=$?
@@ -115,6 +139,14 @@ jobs:
           test "${rc:-0}" -eq 0 || { echo "::error::howl-e2e tests exited ${rc}"; exit 1; }
           echo "$out" | grep -qE "Tests +[0-9]+ passed" \
             || { echo "::error::howl-e2e reported no passing tests"; exit 1; }
+      - name: Test wallet-runtime
+        run: |
+          # Resolves @hisoka/wallets and @hisoka/howl-protocol through dist, which the build step above produced.
+          out="$(pnpm --filter @hisoka/wallet-runtime run test 2>&1)" || rc=$?
+          echo "$out"
+          test "${rc:-0}" -eq 0 || { echo "::error::wallet-runtime tests exited ${rc}"; exit 1; }
+          echo "$out" | grep -qE "Tests +73 passed \(73\)" \
+            || { echo "::error::wallet-runtime did not report exactly 73 passing tests"; exit 1; }
       - name: Browser bundle gate (wallets)
         run: |
           # Bundle-only: proves the crypto core still resolves for a browser target, which is what breaks
