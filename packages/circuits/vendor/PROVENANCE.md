@@ -33,8 +33,13 @@ is rejected. The `frost-forgery` harness proves exactly this at both widths (`fo
 `forgery_rejected_by_binding_64`, both `should_fail`). The non-canonical residual (a negative `hi` encoding
 `V = x - p`, equal to `x` mod p, which the field equality alone accepts) is closed in `v0.2.5-hisoka.3` by
 `hi.assert_max_bit_size::<128>()` (`scalar_field.nr:135`, upstream PR #53, consolidating and superseding the
-earlier narrow PR #50); the upstream test `n64_rejects_negative_representative` feeds the slices of `7 - p` and
-must fail. Issue #51 is a separate `dbl_internal` bug, unrelated to this slice binding.
+earlier narrow PR #50). The upstream test `n64_rejects_negative_representative` feeds the slices of `7 - p` to
+`n64_canonical_checks`, a replica of the N==64 body inside the library's test module, not to `from` itself: it
+pins the rule, and deleting the bound at `:135` leaves the library suite green. The production line is held by
+two other checks. The vendor-hash guard (guard 6 in `scripts/circuit-guards.sh`) freezes `scalar_field.nr`
+against `VENDOR-HASHES.sha256`, and the `frost-forgery` and `psi-cek-forgery` harness mirrors carry the same
+bound, with each `check-byte-identity.sh` failing if the mirrored constrained region of `from` drifts from the
+vendored one. Issue #51 is a separate `dbl_internal` bug, unrelated to this slice binding.
 
 Every live `ScalarField` is still `<63>` (`shared/src/multisig/frost.nr:28`, `vendor/ecdh/src/bjj.nr:47,57`), so
 no shipped program instantiates the N==64 branch and the `.3` bound leaves every program's ACIR and VK unchanged.
