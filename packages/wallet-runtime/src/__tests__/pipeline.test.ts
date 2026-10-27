@@ -511,7 +511,7 @@ const EXECUTION_ID = `0x${"5e".repeat(32)}`;
  * source for the fee at the quote's amount and execution id, then lands the fee withdraw and the action in
  * one block, as `NoxEntryPoint` does.
  */
-function noxOver(env: RuntimeEnv, feeAmount: bigint) {
+function noxOver(env: RuntimeEnv, feeAmount: bigint, maxTotalFee = 10n) {
   const seen: { paymentData: string | null } = { paymentData: null };
   const executor: NoxPaidExecutor = {
     async execute(options) {
@@ -546,7 +546,7 @@ function noxOver(env: RuntimeEnv, feeAmount: bigint) {
     chainId: 31337n,
     entryPoint: "0x00000000000000000000000000000000000000e0",
     paymentAdapter: ADAPTER,
-    maxTotalFee: 10n,
+    maxTotalFee,
     intentSalt: new Uint8Array(32),
     preflight: {
       // The withdraw adapter instance: MULTISIG() answers false.
@@ -644,5 +644,176 @@ describe("spend pipeline over Nox", () => {
       status: "failed",
       leased: [],
     });
+  });
+
+  it("refuses a quote above maxTotalFee before proving the fee withdraw", async () => {
+    const env = await runtimeEnv();
+    const [input, fee] = await funded(env, [100n, 10n]);
+    noxOver(env, 3n, 2n);
+    let proofs = 0;
+    env.prover.onProve = async () => {
+      proofs += 1;
+    };
+    const head = env.pool.chain.head;
+    const err = await failure(
+      env.pipeline.withdraw(input!, 30n, RECIPIENT, undefined, { fee: fee! }),
+    );
+    expect(err.code).toBe("QUOTE_REJECTED");
+    expect(err.context).toMatchObject({ field: "amount", actual: "3" });
+    expect(proofs).toBe(1);
+    expect(env.pool.chain.head).toBe(head);
+    expect(env.notes.plans[env.notes.plans.length - 1]).toMatchObject({
+      status: "failed",
+      leased: [],
+    });
+  });
+});
+
+describe("spend pipeline input selection", () => {
+  it("selects the store's copy: a stale caller copy of a spent note is refused before proving", async () => {
+    const env = await runtimeEnv();
+    const [note] = await funded(env, [100n]);
+    env.pool.chain.mine();
+    env.pool.spend(env.pool.chain.head, note!.nullifier);
+    await env.refresh();
+    expect(env.notes.find(noteKey(note!))?.spent).not.toBeNull();
+    expect(note!.spent).toBeNull();
+    let proofs = 0;
+    env.prover.onProve = async () => {
+      proofs += 1;
+    };
+    const err = await failure(env.pipeline.withdraw(note!, 30n, RECIPIENT));
+    expect(err.code).toBe("INPUT_SPENT");
+    expect(proofs).toBe(0);
+    expect(env.submitter.calls).toEqual([]);
+  });
+
+  it("refuses a caller copy whose nullifier the store does not hold for that note, before proving", async () => {
+    const env = await runtimeEnv();
+    const [note] = await funded(env, [100n]);
+    let proofs = 0;
+    env.prover.onProve = async () => {
+      proofs += 1;
+    };
+    const forged = { ...note!, nullifier: new Fr(0x77n) };
+    const err = await failure(env.pipeline.withdraw(forged, 30n, RECIPIENT));
+    expect(err.code).toBe("PUBLIC_INPUT_MISMATCH");
+    expect(err.context).toMatchObject({
+      position: "nullifier",
+      actual: new Fr(0x77n).toString(),
+    });
+    expect(proofs).toBe(0);
+    expect(env.notes.plans).toEqual([]);
+  });
+
+  it("refuses a note the store no longer holds, at select and at the pre-submit check", async () => {
+    const env = await runtimeEnv();
+    const [a, b] = await funded(env, [100n, 50n]);
+    let proofs = 0;
+    env.prover.onProve = async () => {
+      proofs += 1;
+    };
+    await env.notes.discard(noteKey(a!), null);
+    const atSelect = await failure(env.pipeline.withdraw(a!, 30n, RECIPIENT));
+    expect(atSelect.code).toBe("HEAD_REORGED");
+    expect(atSelect.context.leafIndex).toBe(String(a!.leafIndex));
+    expect(proofs).toBe(0);
+
+    env.prover.onProve = async () => {
+      proofs += 1;
+      await env.notes.discard(noteKey(b!), null);
+    };
+    const atSubmit = await failure(env.pipeline.withdraw(b!, 10n, RECIPIENT));
+    expect(atSubmit.code).toBe("HEAD_REORGED");
+    expect(proofs).toBe(1);
+    expect(env.submitter.calls).toEqual([]);
+  });
+
+  it("verifies an unverified input against the pinned tree, records it verified, and spends it", async () => {
+    const env = await runtimeEnv();
+    const [note] = await funded(env, [100n]);
+    await env.notes.discard(noteKey(note!), null);
+    await env.notes.record([{ ...note!, verification: "unverified" }], null);
+    expect(env.notes.find(noteKey(note!))?.verification).toBe("unverified");
+    const result = await env.pipeline.withdraw(note!, 30n, RECIPIENT);
+    expect(
+      env.notes.plans.find((p) => p.planId === result.planId)?.status,
+    ).toBe("included");
+    expect(env.notes.find(noteKey(note!))?.verification).toBe("verified");
+  });
+
+  it("refuses an input whose leaf the pinned tree does not hold, and leaves it unverified", async () => {
+    const env = await runtimeEnv();
+    const [note] = await funded(env, [100n]);
+    const fake = { ...note!, commitment: new Fr(0x1234n) };
+    await env.notes.record([{ ...fake, verification: "unverified" }], null);
+    const err = await failure(env.pipeline.withdraw(fake, 30n, RECIPIENT));
+    expect(err.code).toBe("LEAF_MISMATCH");
+    expect(env.notes.find(noteKey(fake))?.verification).toBe("unverified");
+  });
+
+  it("names a pending input INPUT_PENDING and a leased one LEASE_HELD", async () => {
+    const env = await runtimeEnv();
+    const [note] = await funded(env, [100n]);
+    const later = {
+      ...note!,
+      leafIndex: note!.leafIndex + 7,
+      block: { number: env.pool.chain.head + 5, hash: `0x${"ee".repeat(32)}` },
+    };
+    await env.notes.record([later], null);
+    const pending = await failure(env.pipeline.withdraw(later, 30n, RECIPIENT));
+    expect(pending.code).toBe("INPUT_PENDING");
+    expect(pending.context.leafIndex).toBe(String(later.leafIndex));
+
+    await env.notes.acquire("holder", [noteKey(note!)], 1n << 62n, 0n);
+    const held = await failure(env.pipeline.withdraw(note!, 30n, RECIPIENT));
+    expect(held.code).toBe("LEASE_HELD");
+    expect(held.context.planId).toBe("holder");
+  });
+
+  it("prunes finished plans from the journal once the reorg bound passes them", async () => {
+    const env = await runtimeEnv(20);
+    const [a, b] = await funded(env, [100n, 50n]);
+    const ok = await env.pipeline.withdraw(a!, 30n, RECIPIENT);
+    env.submitter.next = {
+      status: "not-sent",
+      stage: "simulation",
+      detail: "eth_call reverted: ComplianceKeyStale",
+      errorName: "ComplianceKeyStale",
+    };
+    await failure(env.pipeline.withdraw(b!, 10n, RECIPIENT));
+    expect(env.notes.plans.map((p) => p.status)).toEqual([
+      "included",
+      "failed",
+    ]);
+    await env.refresh();
+    expect(env.notes.plans.map((p) => p.planId)).toEqual([ok.planId]);
+    env.pool.chain.mine(env.pool.config.maxReorgBlocks);
+    await env.refresh();
+    expect(env.notes.plans).toEqual([]);
+  });
+
+  it("ratchets the self counter past every index the chain shows used before the first mint", async () => {
+    const env = await runtimeEnv();
+    const [note, second] = await funded(env, [100n, 20n, 5n]);
+    const highest = Math.max(...env.notes.notes.map((n) => n.derivationIndex));
+    expect(highest).toBeGreaterThan(0);
+    expect(await env.counter.highWater("self")).toBe(0);
+    const spans: number[] = [];
+    const counter = env.counter as unknown as {
+      reserve: (scope: string, span: number) => Promise<unknown>;
+    };
+    const reserve = counter.reserve.bind(env.counter);
+    counter.reserve = async (scope: string, span: number) => {
+      spans.push(span);
+      return reserve(scope, span);
+    };
+    await env.pipeline.withdraw(note!, 30n, RECIPIENT);
+    expect(spans[0]).toBe(highest + 1);
+    expect(spans.slice(1).every((s) => s === 1)).toBe(true);
+    const first = spans.length;
+    await env.refresh();
+    await env.pipeline.withdraw(second!, 5n, RECIPIENT);
+    expect(spans.slice(first).every((s) => s === 1)).toBe(true);
   });
 });

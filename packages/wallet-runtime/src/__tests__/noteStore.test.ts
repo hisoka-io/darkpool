@@ -163,7 +163,7 @@ describe("note store", () => {
       [kept, unspend, droppedMirrored, droppedLocal, belowFork],
       at(36),
     );
-    await notes.markSpent([], 36);
+    await notes.markSpent([], block(36), -1);
     await notes.acquire("orphan", [noteKey(unspend)], 9_000n, 1n);
     await notes.updatePlan("orphan", (p) => ({
       ...p,
@@ -235,7 +235,8 @@ describe("note store", () => {
     await notes.record([a], at(10));
     await notes.markSpent(
       [{ nullifier: a.nullifier, block: block(12), txHash: "0x0c" }],
-      12,
+      block(12),
+      -1,
     );
     await notes.markMirrored([noteKey(a)], []);
     await notes.record([{ ...a, verification: "verified" }], at(13));
@@ -334,7 +335,8 @@ describe("note store", () => {
         { nullifier: landed.nullifier, block: block(48), txHash: "0x0d" },
         { nullifier: fee.nullifier, block: block(48), txHash: "0x0e" },
       ],
-      50,
+      block(50),
+      -1,
     );
 
     // Before every deadline, and with the sweep behind the confirmed head, nothing moves.
@@ -377,7 +379,8 @@ describe("note store", () => {
     await notes.updatePlan("p", (p) => ({ ...p, status: "submitted" }));
     await notes.markSpent(
       [{ nullifier: a.nullifier, block: block(52), txHash: "0x0f" }],
-      52,
+      block(52),
+      -1,
     );
     expect(
       await notes.settleSubmitted({
@@ -387,5 +390,47 @@ describe("note store", () => {
       }),
     ).toEqual([]);
     expect(notes.plans[0]?.status).toBe("submitted");
+  });
+
+  it("refuses a sweep whose starting checkpoint dropped while it read, and forgets a sweep head that left the chain", async () => {
+    const notes = await NoteStore.open(new MemoryStore(), KEY);
+    await notes.record([await stored(1, 10)], at(10));
+    expect(await notes.markSpent([], block(20), -1)).toBe(true);
+    expect(notes.sweptThrough).toBe(20);
+    expect(notes.sweptHead).toEqual(block(20));
+
+    const late = await stored(2, 14);
+    await notes.record([late], null);
+    expect(notes.sweptThrough).toBe(13);
+    expect(
+      await notes.markSpent(
+        [{ nullifier: late.nullifier, block: block(21, 1), txHash: "0x01" }],
+        block(25, 1),
+        20,
+      ),
+    ).toBe(false);
+    expect(notes.find(noteKey(late))?.spent).toBeNull();
+    expect(notes.sweptThrough).toBe(13);
+    expect(notes.sweptHead).toEqual(block(20));
+
+    expect(await notes.markSpent([], block(22), 13)).toBe(true);
+    await notes.rollback({ ancestor: block(10), orphaned: [block(22)] });
+    expect(notes.sweptHead).toBeNull();
+    expect(notes.sweptThrough).toBe(10);
+  });
+
+  it("re-sweeps from the start a document written before the sweep head was kept", async () => {
+    const store = new MemoryStore();
+    const notes = await NoteStore.open(store, KEY);
+    await notes.record([await stored(1, 10)], at(10));
+    await notes.markSpent([], block(20), -1);
+    const raw = JSON.parse((await store.get(KEY))!) as Record<string, unknown>;
+    expect(raw.v).toBe(3);
+    delete raw.sweptHead;
+    await store.set(KEY, JSON.stringify({ ...raw, v: 2 }));
+    const reopened = await NoteStore.open(store, KEY);
+    expect(reopened.notes).toHaveLength(1);
+    expect(reopened.sweptThrough).toBe(-1);
+    expect(reopened.sweptHead).toBeNull();
   });
 });

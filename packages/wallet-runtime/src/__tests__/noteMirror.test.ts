@@ -66,7 +66,7 @@ describe("PSS note mirror", () => {
       ],
       at(30),
     );
-    await notes.markSpent([], 30);
+    await notes.markSpent([], block(30), -1);
     const pss = new FakePss();
     const result = await mirrorNotes(pss, notes, block(20));
 
@@ -94,7 +94,7 @@ describe("PSS note mirror", () => {
     const pss = new FakePss();
     const x = await stored(1, 10);
     await notes.record([x, await stored(2, 9)], at(10));
-    await notes.markSpent([], 10);
+    await notes.markSpent([], block(10), -1);
     await mirrorNotes(pss, notes, block(10));
     expect(pss.payload.known.unspentNotes.map((n) => n.leafIndex)).toEqual([
       1, 2,

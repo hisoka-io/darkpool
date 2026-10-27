@@ -12,8 +12,10 @@ import {
   deriveCek,
   publicKey,
   pubkeyOwner,
+  reconcileCounterWithChain,
   SelfMintPreflight,
   type CompleteComplianceHistory,
+  type EphemeralCounterStore,
   type IDarkAccount,
   type MintedNote,
   type SelfMintAllocator,
@@ -41,11 +43,18 @@ import { deploymentBlock, type ChainConfig } from "../config.js";
 import { describeCause, WalletRuntimeError } from "../errors.js";
 import { discoverySourceOver } from "../discovery/feedSource.js";
 import type { DiscoveryPort, WitnessPort } from "../discovery/ports.js";
+import {
+  DISCOVERY_LOOKAHEAD,
+  MAX_DISCOVERY_INDEX,
+  walletCandidates,
+} from "../discovery/sync.js";
 import { requireWriter, type PssStatePort } from "../pss/noteMirror.js";
 import {
   noteKey,
   submittedDeadline,
+  type NoteState,
   type NoteStore,
+  type NoteView,
   type StoredNote,
 } from "../store/noteStore.js";
 import type {
@@ -98,9 +107,15 @@ export interface SpendPipelineDeps {
    * `SelfMintAllocator` fits; preflight checks every candidate's provenance before use.
    */
   readonly allocator: SelfMintAllocator<SelfMintCandidate>;
+  /** The durable counter `allocator` reserves from; ratcheted past every index the chain shows used. */
+  readonly counters: EphemeralCounterStore;
   readonly account: Pick<
     IDarkAccount,
-    "getSelfSpendKey" | "getSelfSpendPub" | "getIncomingKey" | "getViewKey"
+    | "getSelfSpendKey"
+    | "getSelfSpendPub"
+    | "getSelfEphemeral"
+    | "getIncomingKey"
+    | "getViewKey"
   >;
   readonly prover: ProverPort;
   readonly submitter: SubmitterPort;
@@ -137,6 +152,11 @@ interface Built<C extends StandardCircuitId> {
   readonly commitments: readonly Fr[];
 }
 
+interface Landed {
+  readonly txHash: string;
+  readonly block: { readonly number: number; readonly hash: string };
+}
+
 type Assembler<C extends StandardCircuitId> = (
   ctx: AssemblyContext,
   inputs: readonly SpendableNote[],
@@ -144,6 +164,9 @@ type Assembler<C extends StandardCircuitId> = (
   pin: TreeState,
   history: CompleteComplianceHistory,
 ) => Promise<Built<C>>;
+
+/** The counter scope wallets' `SelfEphemeralAllocator` reserves self ephemerals in. */
+const SELF_COUNTER_SCOPE = "self";
 
 const ENTRYPOINT: Readonly<Record<StandardCircuitId, string>> = {
   deposit: "deposit",
@@ -183,6 +206,7 @@ function addressFr(address: string): Fr {
  */
 export class SpendPipeline {
   #queue: Promise<void> = Promise.resolve();
+  #counterReconciled = false;
 
   constructor(private readonly deps: SpendPipelineDeps) {}
 
@@ -525,35 +549,31 @@ export class SpendPipeline {
         { leafIndex: String(fee.leafIndex), planId: "" },
       );
     }
-    const held = fee === undefined ? inputs : [...inputs, fee];
     return this.#exclusive(async () => {
       const { notes, chain } = this.deps;
       const pin = await this.#pin();
       const history = await this.deps.history();
       await this.deps.sweep();
 
-      // select
+      // select: the store's copy decides, never the caller's
       const view = {
         confirmedHead: pin.block.number,
         sweptThrough: notes.sweptThrough,
         now: pin.block.timestamp,
       };
       await notes.settleSubmitted(view);
+      const held = (fee === undefined ? inputs : [...inputs, fee]).map((n) =>
+        this.#stored(circuit, n, "select"),
+      );
       for (const input of held) {
-        const state = notes.state(input, view);
-        if (state !== "spendable") {
-          throw new WalletRuntimeError(
-            state === "spent" || state === "spent-pending"
-              ? "INPUT_SPENT"
-              : "LEASE_HELD",
-            `note at leaf ${input.leafIndex} is ${state}, not spendable at block ${pin.block.number}`,
-            {
-              nullifier: input.nullifier.toString(),
-              leafIndex: String(input.leafIndex),
-              planId: "",
-            },
-          );
-        }
+        // An unverified note is checked against the pinned tree at the witness step, or the action stops.
+        const state = notes.state(
+          input.verification === "unverified"
+            ? { ...input, verification: "verified" }
+            : input,
+          view,
+        );
+        if (state !== "spendable") throw this.#unselectable(input, state, view);
       }
       const planId = newPlanId(this.deps.entropy);
       await notes.acquire(
@@ -572,6 +592,9 @@ export class SpendPipeline {
         );
         for (const input of held) {
           await merkle.witnessFor(input.commitment, input.leafIndex);
+          if (input.verification === "unverified") {
+            await notes.setVerification(noteKey(input), "verified");
+          }
         }
 
         // assemble
@@ -671,12 +694,15 @@ export class SpendPipeline {
         // submit
         await this.deps.sweep();
         for (const input of held) {
-          const now = notes.find(noteKey(input));
-          if (now?.spent !== null && now?.spent !== undefined) {
+          const now = this.#stored(circuit, input, "submit");
+          if (now.spent !== null) {
             throw new WalletRuntimeError(
               "INPUT_SPENT",
               `note at leaf ${input.leafIndex} was spent in block ${now.spent.block.number} while this action was being built`,
-              { nullifier: input.nullifier.toString() },
+              {
+                nullifier: input.nullifier.toString(),
+                leafIndex: String(input.leafIndex),
+              },
             );
           }
         }
@@ -695,25 +721,38 @@ export class SpendPipeline {
             [],
           );
         }
-        const nullifiers = inputs.map((i) => i.nullifier);
+        const nullifiers = held.slice(0, inputs.length).map((i) => i.nullifier);
+        const feeNote = fee === undefined ? undefined : held[inputs.length];
         const feeProver =
-          fee === undefined
+          feeNote === undefined
             ? undefined
-            : this.#feeProver(fee, ctx, pin, history, spends);
-        const outcome = await this.#send(
-          circuit,
-          planId,
-          {
-            to: this.deps.config.deployment.dark_pool,
-            data: DARK_POOL_INTERFACE.encodeFunctionData(ENTRYPOINT[circuit], [
-              envelope.proof,
-              envelope.public_inputs,
-            ]),
-          },
-          nullifiers,
-          built.commitments,
-          feeProver?.prover,
-        );
+            : this.#feeProver(feeNote, ctx, pin, history, spends);
+        let outcome: Landed;
+        try {
+          outcome = await this.#send(
+            circuit,
+            planId,
+            {
+              to: this.deps.config.deployment.dark_pool,
+              data: DARK_POOL_INTERFACE.encodeFunctionData(
+                ENTRYPOINT[circuit],
+                [envelope.proof, envelope.public_inputs],
+              ),
+            },
+            nullifiers,
+            built.commitments,
+            feeProver?.prover,
+          );
+        } catch (e) {
+          if (
+            e instanceof WalletRuntimeError &&
+            e.code === "SIMULATION_REVERTED" &&
+            e.context.errorName === "NullifierAlreadySpent"
+          ) {
+            throw await this.#spentElsewhere(circuit, held, e);
+          }
+          throw e;
+        }
         const feeSpent = feeProver?.proven() ?? null;
         await this.#confirm(
           circuit,
@@ -835,6 +874,167 @@ export class SpendPipeline {
   }
 
   /**
+   * The store's copy of a note the caller named. A note the store no longer holds (a reorg rollback dropped it)
+   * stops the action, and so does a caller copy whose nullifier or asset is not the store's.
+   */
+  #stored(
+    circuit: StandardCircuitId,
+    note: StoredNote,
+    step: "select" | "submit",
+  ): StoredNote {
+    const stored = this.deps.notes.find(noteKey(note));
+    if (stored === undefined) {
+      throw new WalletRuntimeError(
+        "HEAD_REORGED",
+        `the note at leaf ${note.leafIndex} is no longer in the note store at ${step} (a reorg rollback dropped it); sync the wallet and plan the action again`,
+        { leafIndex: String(note.leafIndex), head: "" },
+      );
+    }
+    for (const [position, expected, actual] of [
+      ["nullifier", stored.nullifier, note.nullifier],
+      ["asset", stored.note.assetId, note.note.assetId],
+    ] as const) {
+      if (!expected.equals(actual)) {
+        throw new WalletRuntimeError(
+          "PUBLIC_INPUT_MISMATCH",
+          `the note passed for leaf ${note.leafIndex} carries a ${position} the note store does not hold for it`,
+          {
+            circuit,
+            position,
+            expected: expected.toString(),
+            actual: actual.toString(),
+          },
+        );
+      }
+    }
+    return stored;
+  }
+
+  /** Why a stored note cannot be selected, as the error the caller can act on. */
+  #unselectable(
+    note: StoredNote,
+    state: Exclude<NoteState, "spendable">,
+    view: NoteView,
+  ): WalletRuntimeError {
+    const leafIndex = String(note.leafIndex);
+    if (note.spent !== null) {
+      return new WalletRuntimeError(
+        "INPUT_SPENT",
+        `note at leaf ${note.leafIndex} is ${state}: spent in block ${note.spent.block.number}`,
+        { nullifier: note.nullifier.toString(), leafIndex },
+      );
+    }
+    const holder = this.deps.notes.leasedBy(noteKey(note), view.now);
+    if (holder !== null) {
+      const plan = this.deps.notes.plans.find((p) => p.planId === holder);
+      if (plan?.status === "submitted") {
+        return new WalletRuntimeError(
+          "INPUT_SPENT",
+          `note at leaf ${note.leafIndex} is being spent by submitted plan ${holder}, whose outcome settles after chain time ${submittedDeadline(plan)}`,
+          { nullifier: note.nullifier.toString(), leafIndex, planId: holder },
+        );
+      }
+      return new WalletRuntimeError(
+        "LEASE_HELD",
+        `note at leaf ${note.leafIndex} is leased by plan ${holder}`,
+        { leafIndex, planId: holder },
+      );
+    }
+    return new WalletRuntimeError(
+      "INPUT_PENDING",
+      `note at leaf ${note.leafIndex} (block ${note.block.number}) is ${state}: the confirmed head is ${view.confirmedHead} and the nullifier sweep has covered through block ${view.sweptThrough}`,
+      {
+        leafIndex,
+        block: String(note.block.number),
+        confirmedHead: String(view.confirmedHead),
+        sweptThrough: String(view.sweptThrough),
+      },
+    );
+  }
+
+  /**
+   * The pool refused an input nullifier as already spent, which the incremental sweep did not see. Re-reads
+   * every spend from the oldest input's block, so the store learns the truth before the action fails.
+   */
+  async #spentElsewhere(
+    circuit: StandardCircuitId,
+    held: readonly StoredNote[],
+    cause: WalletRuntimeError,
+  ): Promise<WalletRuntimeError> {
+    if (held.length === 0) return cause;
+    const from = Math.min(...held.map((n) => n.block.number));
+    await this.deps.notes.resweepFrom(from);
+    await this.deps.sweep();
+    for (const input of held) {
+      const spent = this.deps.notes.find(noteKey(input))?.spent ?? null;
+      if (spent !== null) {
+        return new WalletRuntimeError(
+          "INPUT_SPENT",
+          `the pool refused the ${circuit} because an input is already spent; a re-sweep from block ${from} finds the note at leaf ${input.leafIndex} spent in block ${spent.block.number}`,
+          {
+            nullifier: input.nullifier.toString(),
+            leafIndex: String(input.leafIndex),
+          },
+          cause,
+        );
+      }
+    }
+    return new WalletRuntimeError(
+      "SIMULATION_REVERTED",
+      `the ${circuit} simulation reverted with NullifierAlreadySpent, but a re-sweep from block ${from} through block ${this.deps.notes.sweptThrough} finds no input spent; the log source lags the node that simulated, so sync and retry`,
+      { errorName: "NullifierAlreadySpent", circuit },
+      cause,
+    );
+  }
+
+  /**
+   * Before the first mint of this pipeline, ratchets the durable self counter past every index the chain shows
+   * occupied, scanning windows of `DISCOVERY_LOOKAHEAD` past the counter and past each occupied index. Preflight
+   * would otherwise burn one candidate per used index and give up after its candidate bound when the counter
+   * lost its place.
+   */
+  async #reconcileCounter(
+    source: ReturnType<typeof discoverySourceOver>,
+  ): Promise<void> {
+    if (this.#counterReconciled) return;
+    const { counters } = this.deps;
+    let from = 0;
+    let to = 0;
+    try {
+      to = Math.min(
+        MAX_DISCOVERY_INDEX,
+        (await counters.highWater(SELF_COUNTER_SCOPE)) + DISCOVERY_LOOKAHEAD,
+      );
+      while (from < to) {
+        const tags = (
+          await walletCandidates(this.deps.account, "self", from, to)
+        ).map((c) => ({ index: c.candidate.index, tag: c.tag }));
+        const { occupied } = await reconcileCounterWithChain(
+          source,
+          counters,
+          SELF_COUNTER_SCOPE,
+          tags,
+        );
+        const highest = occupied[occupied.length - 1] ?? -1;
+        from = to;
+        to = Math.min(
+          MAX_DISCOVERY_INDEX,
+          Math.max(to, highest + 1 + DISCOVERY_LOOKAHEAD),
+        );
+      }
+    } catch (cause) {
+      if (cause instanceof WalletRuntimeError) throw cause;
+      throw new WalletRuntimeError(
+        "PSS_UNAVAILABLE",
+        `reconciling the self counter with the chain failed at indices [${from}, ${to}): ${describeCause(cause)}`,
+        { operation: "reconcile" },
+        cause,
+      );
+    }
+    this.#counterReconciled = true;
+  }
+
+  /**
    * Self-mint preflight syncs discovery to `latest`. A rewind there that reaches an input's leaf stops the
    * action before it proves: the input may be gone from the chain, and the next wallet sync rolls the store
    * back from block hashes. A rewind above every input changes only occupancy, which preflight reads after it.
@@ -862,13 +1062,15 @@ export class SpendPipeline {
         },
       );
     };
+    const source = discoverySourceOver(
+      this.deps.discovery,
+      this.deps.config.maxOccurrencesPerTag,
+      onRewind,
+    );
+    await this.#reconcileCounter(source);
     const preflight = new SelfMintPreflight({
       allocator: this.deps.allocator,
-      discovery: discoverySourceOver(
-        this.deps.discovery,
-        this.deps.config.maxOccurrencesPerTag,
-        onRewind,
-      ),
+      discovery: source,
       history,
       ownerCommitment: await pubkeyOwner(
         await this.deps.account.getSelfSpendPub(),
@@ -906,10 +1108,7 @@ export class SpendPipeline {
     nullifiers: readonly Fr[],
     commitments: readonly Fr[],
     fee?: FeeWithdrawProver,
-  ): Promise<{
-    readonly txHash: string;
-    readonly block: { number: number; hash: string };
-  }> {
+  ): Promise<Landed> {
     const outcome: SubmissionOutcome = await this.deps.submitter.submit(call, {
       planId,
       nullifiers,

@@ -130,8 +130,8 @@ export type HintCheck =
 /**
  * PSS notes are hints. Each one not already in the store is re-opened from the chain at its leaf index by
  * `check`; it enters the store only when that yields the same nullifier in the same block, is left alone
- * while the chain view has not reached its block, and is tombstoned otherwise so the next write removes it
- * for every device.
+ * while `check` can neither confirm nor refute it, and is tombstoned when refuted so the next write removes
+ * it for every device.
  */
 export async function reverifyPssHints(
   pss: Pick<PssStatePort, "current">,

@@ -1,4 +1,5 @@
 import type { CompleteComplianceHistory, IDarkAccount } from "@hisoka/wallets";
+import type { UnspentNote } from "@hisoka/pss-client";
 import type { ChainReader } from "./chain/chainReader.js";
 import {
   newestCanonical,
@@ -6,7 +7,7 @@ import {
   type LogSource,
 } from "./chain/logs.js";
 import type { BlockId, BlockRef } from "./chain/rpc.js";
-import type { ChainConfig } from "./config.js";
+import { deploymentBlock, type ChainConfig } from "./config.js";
 import type { DiscoveryHead, DiscoveryPort } from "./discovery/ports.js";
 import {
   discoverWallet,
@@ -17,6 +18,7 @@ import { sweepNullifiers } from "./history/nullifiers.js";
 import {
   mirrorNotes,
   reverifyPssHints,
+  type HintCheck,
   type MirrorResult,
   type PssStatePort,
 } from "./pss/noteMirror.js";
@@ -72,13 +74,17 @@ function blockKey(b: BlockId): string {
   return `${b.number}:${b.hash}`;
 }
 
-/** Every block the store recorded something at: cursor, earlier heads, inclusions, spends, submissions. */
+/**
+ * Every block the store recorded something at: cursor, earlier heads, sweep head, inclusions, spends,
+ * submissions.
+ */
 function recordedBlocks(notes: NoteStore): BlockId[] {
   const points = new Map<string, BlockId>();
   const add = (b: BlockId | null | undefined): void => {
     if (b !== null && b !== undefined) points.set(blockKey(b), b);
   };
   add(notes.cursor);
+  add(notes.sweptHead);
   for (const h of notes.heads) add(h);
   for (const n of notes.notes) {
     add(n.block);
@@ -147,6 +153,45 @@ async function establishReorg(
 }
 
 /**
+ * Rejects a PSS hint discovery did not find only when the chain disproves it: its block left the chain, the
+ * head holds no leaf at its index, or this device holds a different verified note there. Otherwise the hint
+ * stays pending; a device whose derivation window lags must not tombstone a note it cannot reach yet.
+ */
+async function refuteHint(
+  deps: Pick<WalletSyncDeps, "chain" | "notes">,
+  head: DiscoveryHead,
+  hint: UnspentNote,
+): Promise<HintCheck> {
+  const held = deps.notes.notes.find(
+    (n) => n.leafIndex === hint.leafIndex && n.verification === "verified",
+  );
+  if (held !== undefined) {
+    return {
+      kind: "rejected",
+      reason: `leaf ${hint.leafIndex} holds this device's note with nullifier ${nullifierHex(held.nullifier)}, not ${hint.nullifier}`,
+    };
+  }
+  if (hint.leafIndex >= head.leafCount) {
+    return {
+      kind: "rejected",
+      reason: `the tree at block ${head.block.number} has ${head.leafCount} leaves, none at ${hint.leafIndex}`,
+    };
+  }
+  if (
+    !(await stillCanonical(deps.chain, {
+      number: hint.block,
+      hash: hint.blockHash,
+    }))
+  ) {
+    return {
+      kind: "rejected",
+      reason: `block ${hint.block} ${hint.blockHash} is no longer on the chain`,
+    };
+  }
+  return { kind: "pending" };
+}
+
+/**
  * One wallet sync, in order: discovery to `latest`, a local rollback when the chain reorged under what the
  * store holds, note discovery over the self and incoming families, re-verification of PSS hints against
  * what discovery found, the whole-set nullifier sweep, the settlement of submitted plans whose deadline
@@ -173,10 +218,15 @@ export async function syncWallet(deps: WalletSyncDeps): Promise<SyncReport> {
     await deps.highWater(),
     deps.config.maxOccurrencesPerTag,
   );
-  await notes.record(found.notes.map(storedFrom), {
-    head: head.block,
-    maxReorgBlocks: deps.config.maxReorgBlocks,
-  });
+  // A note filed under the sync head can sit in any earlier block, so its spend is looked for from the start.
+  const blockless = found.notes.some(
+    (n) => !n.blockReported && notes.find(noteKey(n)) === undefined,
+  );
+  await notes.record(
+    found.notes.map(storedFrom),
+    { head: head.block, maxReorgBlocks: deps.config.maxReorgBlocks },
+    blockless ? deploymentBlock(deps.config) : null,
+  );
 
   let hints = { confirmed: 0, rejected: 0 };
   if (deps.pss !== undefined) {
@@ -193,10 +243,8 @@ export async function syncWallet(deps: WalletSyncDeps): Promise<SyncReport> {
         `${hint.leafIndex}:${hint.nullifier}:${hint.blockHash}`,
       );
       if (match === undefined) {
-        return {
-          kind: "rejected",
-          reason: `discovery at block ${head.block.number} finds no note at leaf ${hint.leafIndex} with that nullifier in block ${hint.blockHash}`,
-        };
+        // Discovery covers only this device's derivation window, so a miss alone disproves nothing.
+        return refuteHint(deps, head, hint);
       }
       const stored = notes.find(noteKey(match));
       return stored === undefined

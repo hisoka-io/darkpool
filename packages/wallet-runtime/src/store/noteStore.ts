@@ -52,7 +52,10 @@ export interface PlanRecord {
     readonly txHash: string;
     readonly block: BlockId | null;
   };
-  /** Nox `executionId` and `validUntilUnix` of an `unknown` paid result, kept so a retry resumes. */
+  /**
+   * Nox `executionId` and `validUntilUnix` of an `unknown` paid result. They keep the plan's notes leased until
+   * the entry point can no longer execute it, so no second action spends them while the first can still land.
+   */
   readonly resume: null | {
     readonly executionId: string;
     readonly validUntilUnix: bigint;
@@ -111,7 +114,10 @@ interface State {
   readonly cursor: BlockId | null;
   /** Earlier cursors: those within the reorg bound and the newest below it, for the reorg walk-back. */
   readonly heads: readonly BlockId[];
+  /** The whole-set nullifier sweep has covered every block up to this one, for every stored note. */
   readonly sweptThrough: number;
+  /** The head the last applied sweep read to, kept so a reorg under it is found from its hash. */
+  readonly sweptHead: BlockId | null;
   /** Notes a rollback dropped after they reached PSS; the next mirror write tombstones them. */
   readonly pendingTombstones: readonly DroppedNote[];
 }
@@ -122,6 +128,7 @@ const EMPTY: State = {
   cursor: null,
   heads: [],
   sweptThrough: -1,
+  sweptHead: null,
   pendingTombstones: [],
 };
 
@@ -174,6 +181,10 @@ export class NoteStore {
     return this.#state.sweptThrough;
   }
 
+  get sweptHead(): BlockId | null {
+    return this.#state.sweptHead;
+  }
+
   get pendingTombstones(): readonly DroppedNote[] {
     return this.#state.pendingTombstones;
   }
@@ -189,8 +200,7 @@ export class NoteStore {
         ? "spent"
         : "spent-pending";
     }
-    if (this.#leasedBy(noteKey(note), view.now) !== null)
-      return "spent-pending";
+    if (this.leasedBy(noteKey(note), view.now) !== null) return "spent-pending";
     if (
       note.block.number > view.confirmedHead ||
       note.block.number > view.sweptThrough
@@ -210,15 +220,28 @@ export class NoteStore {
    * a note's block files it under the sync head, and re-dating it to every later head would keep it above
    * the confirmed head forever. A re-added note clears a pending tombstone with its own key, which a reorg
    * that came back would otherwise write beside it.
+   *
+   * A new note can sit in a block the sweep already passed (found late, or minted between the discovery head
+   * and the sweep head), so the checkpoint drops below its block, or below `sweepFrom` when the adapter could
+   * not name the block, and the next sweep re-reads from there. A sync also drops finished plans the reorg
+   * bound has passed.
    */
   async record(
     found: readonly StoredNote[],
     sync: SyncPoint | null,
+    sweepFrom: number | null = null,
   ): Promise<void> {
     await this.#commit((s) => {
       const byKey = new Map(s.notes.map((n) => [noteKey(n), n]));
+      let sweptThrough = s.sweptThrough;
       for (const note of found) {
         const known = byKey.get(noteKey(note));
+        if (known === undefined && note.spent === null) {
+          sweptThrough = Math.min(
+            sweptThrough,
+            Math.min(sweepFrom ?? note.block.number, note.block.number) - 1,
+          );
+        }
         byKey.set(
           noteKey(note),
           known === undefined
@@ -248,37 +271,70 @@ export class NoteStore {
       const pendingTombstones = s.pendingTombstones.filter(
         (t) => !live.has(tombstoneKey(t)),
       );
-      if (sync === null) return { ...s, notes, pendingTombstones };
+      if (sync === null) {
+        return { ...s, notes, pendingTombstones, sweptThrough };
+      }
       const floor = sync.head.number - sync.maxReorgBlocks;
       const heads = s.cursor === null ? s.heads : [...s.heads, s.cursor];
       return {
         ...s,
         notes,
         pendingTombstones,
+        sweptThrough,
+        plans: s.plans.filter(
+          (p) =>
+            LIVE.has(p.status) ||
+            (p.submission?.block?.number ?? Number.NEGATIVE_INFINITY) > floor,
+        ),
         cursor: sync.head,
         heads: recentHeads(heads, floor, sync.head.number),
       };
     });
   }
 
-  /** Applies a whole-set nullifier sweep through `throughBlock`. */
+  /**
+   * Applies a whole-set nullifier sweep that read every block after `startedAfter` through `head`. Returns false
+   * and changes nothing when the checkpoint dropped below `startedAfter` while the sweep read (a rollback, or a
+   * note recorded in an older block): the read missed blocks it now has to cover, and may hold an orphaned
+   * fork's spends.
+   */
   async markSpent(
     spends: readonly {
       readonly nullifier: Fr;
       readonly block: BlockId;
       readonly txHash: string;
     }[],
-    throughBlock: number,
-  ): Promise<void> {
+    head: BlockId,
+    startedAfter: number,
+  ): Promise<boolean> {
     const byNullifier = new Map(spends.map((s) => [s.nullifier.toString(), s]));
+    return this.#commitWith((s) => {
+      if (s.sweptThrough < startedAfter) return { state: s, value: false };
+      const advanced = head.number >= s.sweptThrough;
+      return {
+        state: {
+          ...s,
+          notes: s.notes.map((n) => {
+            const spend = byNullifier.get(n.nullifier.toString());
+            if (spend === undefined || n.spent !== null) return n;
+            return {
+              ...n,
+              spent: { block: spend.block, txHash: spend.txHash },
+            };
+          }),
+          sweptThrough: advanced ? head.number : s.sweptThrough,
+          sweptHead: advanced ? blockJson(head) : s.sweptHead,
+        },
+        value: true,
+      };
+    });
+  }
+
+  /** Drops the sweep checkpoint below `block`, so the next sweep re-reads every spend from there. */
+  async resweepFrom(block: number): Promise<void> {
     await this.#commit((s) => ({
       ...s,
-      notes: s.notes.map((n) => {
-        const spend = byNullifier.get(n.nullifier.toString());
-        if (spend === undefined || n.spent !== null) return n;
-        return { ...n, spent: { block: spend.block, txHash: spend.txHash } };
-      }),
-      sweptThrough: Math.max(s.sweptThrough, throughBlock),
+      sweptThrough: Math.min(s.sweptThrough, block - 1),
     }));
   }
 
@@ -457,6 +513,11 @@ export class NoteStore {
           cursor: ancestor,
           heads: s.heads.filter((h) => !off(h) && h.number < below),
           sweptThrough: Math.min(s.sweptThrough, below),
+          // Every orphaned block lies above the ancestor, so a sweep head at or below it is still canonical.
+          sweptHead:
+            s.sweptHead !== null && s.sweptHead.number <= below
+              ? s.sweptHead
+              : null,
           pendingTombstones: [...s.pendingTombstones, ...tombstones],
         },
         value: { droppedNotes: dropped, unspent, orphanedPlans },
@@ -515,7 +576,8 @@ export class NoteStore {
     });
   }
 
-  #leasedBy(key: string, now: bigint): string | null {
+  /** The live plan holding `key` at chain time `now`, or null. */
+  leasedBy(key: string, now: bigint): string | null {
     return leaseHolder(this.#state, key, now);
   }
 
@@ -579,7 +641,9 @@ export function tombstoneKey(t: {
   return `${t.leafIndex}:${t.nullifier}:${t.blockHash}`;
 }
 
-const STATE_VERSION = 2;
+const STATE_VERSION = 3;
+/** The version before the sweep head was kept; its checkpoint is not trusted, so it re-sweeps from the start. */
+const UNANCHORED_SWEEP_VERSION = 2;
 
 function blockJson(b: BlockId): BlockId {
   return { number: b.number, hash: b.hash };
@@ -637,6 +701,7 @@ function encodeState(s: State): string {
     cursor: s.cursor === null ? null : blockJson(s.cursor),
     heads: s.heads.map(blockJson),
     sweptThrough: s.sweptThrough,
+    sweptHead: s.sweptHead === null ? null : blockJson(s.sweptHead),
     pendingTombstones: s.pendingTombstones,
   });
 }
@@ -701,7 +766,9 @@ const PLAN_STATUSES: ReadonlySet<string> = new Set([
 function decodeState(raw: string, key: string): State {
   try {
     const s = obj(JSON.parse(raw), "note store");
-    if (s.v !== STATE_VERSION) throw new Error(`version ${String(s.v)}`);
+    if (s.v !== STATE_VERSION && s.v !== UNANCHORED_SWEEP_VERSION)
+      throw new Error(`version ${String(s.v)}`);
+    const anchored = s.v === STATE_VERSION;
     return {
       notes: arr(s.notes, "notes").map((value, i) => {
         const n = obj(value, `notes[${i}]`);
@@ -782,7 +849,11 @@ function decodeState(raw: string, key: string): State {
       }),
       cursor: s.cursor === null ? null : block(s.cursor, "cursor"),
       heads: arr(s.heads, "heads").map((h, i) => block(h, `heads[${i}]`)),
-      sweptThrough: int(s.sweptThrough, "sweptThrough", -1),
+      sweptThrough: anchored ? int(s.sweptThrough, "sweptThrough", -1) : -1,
+      sweptHead:
+        anchored && s.sweptHead !== null
+          ? block(s.sweptHead, "sweptHead")
+          : null,
       pendingTombstones: arr(s.pendingTombstones, "pendingTombstones").map(
         (value, i) => {
           const t = obj(value, `pendingTombstones[${i}]`);
