@@ -316,6 +316,24 @@ describe("spend pipeline", () => {
     ).toBe("INPUT_SPENT");
   });
 
+  it("does not take the submitter's word for inclusion: a block without the action's logs is SUBMIT_UNKNOWN", async () => {
+    const env = await runtimeEnv();
+    const [note] = await funded(env, [100n]);
+    env.submitter.next = {
+      status: "included",
+      txHash: `0x${"ab".repeat(32)}`,
+      blockNumber: env.pool.chain.head,
+    };
+    const err = await failure(env.pipeline.withdraw(note!, 30n, RECIPIENT));
+    expect(err.code).toBe("SUBMIT_UNKNOWN");
+    expect(err.message).toContain(`nullifier ${note!.nullifier.toString()}`);
+    const plan = env.notes.plans[env.notes.plans.length - 1]!;
+    expect(plan).toMatchObject({
+      status: "submitted",
+      leased: [noteKey(note!)],
+    });
+  });
+
   it("refuses to mint on a read-only install before reserving any ephemeral index", async () => {
     const env = await runtimeEnv();
     const [note] = await funded(env, [100n]);

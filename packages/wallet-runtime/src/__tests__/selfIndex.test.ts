@@ -233,6 +233,41 @@ describe("self-index discovery", () => {
     expect(head.root.equals(pool.root())).toBe(true);
   });
 
+  it("discards a replayed batch and retries when the pool check fails because its head was reorged away", async () => {
+    const { pool } = await populated();
+    const reader = RpcChainReader.over(pool.chain.rpc, pool.config);
+    let checks = 0;
+    const chain = {
+      latest: () => reader.latest(),
+      blockByNumber: (n: number) => reader.blockByNumber(n),
+      confirmedHead: (p: Parameters<typeof reader.confirmedHead>[0]) =>
+        reader.confirmedHead(p),
+      treeState: async (at: Parameters<typeof reader.treeState>[0]) => {
+        checks += 1;
+        if (checks === 1) {
+          // The head this batch was read at leaves the chain before the pool check: the node refuses the pinned call.
+          pool.reorgFrom(15);
+          await pool.insertSelf(
+            15,
+            await selfNote(alice, selfIdx[1]!, 21n, COMPLIANCE_PK[0]!),
+          );
+        }
+        return reader.treeState(at);
+      },
+    };
+    const index = await SelfIndexDiscovery.open({
+      config: pool.config,
+      chain,
+      logs: RpcLogSource.over(pool.chain.rpc, pool.config),
+      store: new MemoryStore(),
+    });
+    const head = await index.sync();
+    expect(checks).toBe(2);
+    expect(head.leafCount).toBe(5);
+    expect(head.root.equals(pool.root())).toBe(true);
+    expect(index.leafCount).toBe(5);
+  });
+
   it("restores from its store without a new full download", async () => {
     const { pool, tags } = await populated();
     const store = new MemoryStore();
@@ -258,5 +293,11 @@ describe("self-index discovery", () => {
     expect(tags[1]!.toBigInt()).toBe(inPub[0]);
     const eph = await alice.getSelfEphemeral(BigInt(selfIdx[0]!));
     expect(tags[0]!.toBigInt()).toBe(publicKey(eph)[0]);
+    const [memo, self] = await index.match([
+      new Fr(inPub[0]),
+      new Fr(publicKey(eph)[0]),
+    ]);
+    expect(memo!.positions).toEqual([2]);
+    expect(self!.positions).toEqual([1, 4]);
   });
 });

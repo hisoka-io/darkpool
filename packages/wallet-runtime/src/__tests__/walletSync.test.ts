@@ -126,6 +126,35 @@ describe("wallet sync", () => {
     expect(env.notes.cursor?.hash).toBe(env.pool.chain.blocks[22]!.hash);
   });
 
+  it("rolls back what the adapter reports rewound even while the store's cursor is still canonical", async () => {
+    const env = await runtimeEnv(20);
+    await funded(env, [100n, 20n]);
+    let rewind = true;
+    const rewinding: DiscoveryPort = {
+      sync: async () => {
+        const head = await env.index.sync();
+        if (!rewind) return head;
+        rewind = false;
+        return {
+          ...head,
+          rewoundTo: 2,
+          ancestor: {
+            number: 10,
+            hash: env.pool.chain.blocks[10]!.hash,
+          },
+        };
+      },
+      match: (tags) => env.index.match(tags),
+      leafAt: (i) => env.index.leafAt(i),
+    };
+    const report = await syncWallet(syncDeps(env, undefined, rewinding));
+    expect(report.rolledBack?.droppedNotes.map((n) => n.leafIndex)).toEqual([
+      2,
+    ]);
+    // Discovery finds the note again at the same position, since the chain still holds it.
+    expect(env.notes.notes.map((n) => n.leafIndex)).toEqual([1, 2]);
+  });
+
   it("tombstones a PSS hint discovery does not back, and leaves one above the chain head alone", async () => {
     const env = await runtimeEnv(20);
     const pss = new FakePss();
