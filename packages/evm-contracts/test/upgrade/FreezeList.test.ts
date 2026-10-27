@@ -447,6 +447,8 @@ const ROOTS_AFTER_LEAVES_1_TO_5 = [
   "0x25634a4969d5037e1bfce8a4295ce02e77dcb5cd344c684ce9516c2771031090",
 ];
 
+const ROOT_HISTORY_INSERTS = 300;
+
 const ERC1967_IMPLEMENTATION_SLOT =
   "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
 const REENTRANT_CALL_SELECTOR = "0x3ee5aeb5";
@@ -844,6 +846,12 @@ async function runAndPinLogs(f: PinnedPool, entry: ProofEntry): Promise<void> {
   });
   const lastRoot = parsed[starts[starts.length - 1]].args.root as string;
   expect(await f.pool.getCurrentRoot()).to.equal(lastRoot);
+  if (entry === "settle") {
+    const settled = parsed[parsed.length - 1];
+    expect(settled.args.controller).to.equal(await f.controller.getAddress());
+    expect(settled.args.firstLeafIndex).to.equal(firstIndex);
+    expect(settled.args.outputCount).to.equal(BigInt(v.inserts.length));
+  }
 }
 
 // Runtime bytecode of a token whose every call except balanceOf re-enters `target` with `inner` and reverts
@@ -1045,7 +1053,7 @@ describe("Freeze list: values every pool reader depends on", function () {
     }
 
     // Distinct from the ModuleDisabled event: a module controller decodes this revert when its module is off.
-    it("a disabled module's settle reverts with ModuleNotActive(address) 0x377e7f86", function () {
+    it("a disabled module's settle reverts with ModuleNotActive(address) 0x377e7f86", async function () {
       const err = POOL_ABI.getError("ModuleNotActive");
       if (err === null)
         throw new Error("ModuleNotActive missing from DarkPool ABI");
@@ -1054,6 +1062,17 @@ describe("Freeze list: values every pool reader depends on", function () {
       expect(POOL_ABI.getEvent("ModuleDisabled")?.format("sighash")).to.equal(
         "ModuleDisabled(address,address)",
       );
+
+      const f = await loadFixture(deployPinnedPool);
+      const controllerAddr = await f.controller.getAddress();
+      await mined(f.pool.connect(f.pauser).disableModule(controllerAddr));
+      const v = vectorFor("settle", await contextFor(f, "settle"));
+      const leavesBefore = await f.pool.getNextLeafIndex();
+      const revert = await revertData(send(f, v));
+      expect(revert).to.equal(
+        "0x377e7f86" + addrWord(controllerAddr).slice(2).toLowerCase(),
+      );
+      expect(await f.pool.getNextLeafIndex()).to.equal(leavesBefore);
     });
 
     it("a fresh pool reads: one leaf (genesis), genesis root known, compliance version 1, ids 0..9 bound", async function () {
@@ -1696,17 +1715,18 @@ describe("Freeze list: values every pool reader depends on", function () {
   });
 
   describe("roots are kept forever", function () {
-    it("every root seen across 40 inserts stays known", async function () {
+    // More inserts than any bounded root ring up to 256, so a future windowed history cannot pass.
+    it(`every root seen across ${ROOT_HISTORY_INSERTS} inserts stays known`, async function () {
       const f = await loadFixture(deployPinnedPool);
       const roots = [GENESIS["31337"]];
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < ROOT_HISTORY_INSERTS; i++) {
         const v = vectorFor("deposit", await contextFor(f, "deposit"));
         const saved = parsePool(f.pool, (await mined(send(f, v))).logs).find(
           (p) => p.name === "RootSaved",
         );
         roots.push(saved!.args.root as string);
       }
-      expect(new Set(roots).size).to.equal(41);
+      expect(new Set(roots).size).to.equal(ROOT_HISTORY_INSERTS + 1);
       for (const root of roots) {
         expect(await f.pool.isKnownRoot(root), root).to.equal(true);
       }
@@ -1963,6 +1983,7 @@ describe("Freeze list: values every pool reader depends on", function () {
       const { darkPool, controller } = await loadFixture(
         deployGoldenSettlementFixture,
       );
+      const leavesBefore = await darkPool.getNextLeafIndex();
       const receipt = await mined(
         controller.settle(KAGE_PROOF, KAGE_PUBLIC_INPUTS),
       );
@@ -1976,8 +1997,12 @@ describe("Freeze list: values every pool reader depends on", function () {
         );
         expectFrozenShape(l);
       }
-      const names = parsePool(darkPool, receipt.logs).map((p) => p.name);
-      expect(names).to.deep.equal(EXPECTED_LOGS.settle);
+      const parsed = parsePool(darkPool, receipt.logs);
+      expect(parsed.map((p) => p.name)).to.deep.equal(EXPECTED_LOGS.settle);
+      const settled = parsed[parsed.length - 1];
+      expect(settled.args.controller).to.equal(await controller.getAddress());
+      expect(settled.args.firstLeafIndex).to.equal(leavesBefore);
+      expect(settled.args.outputCount).to.equal(4n);
     });
   });
 
