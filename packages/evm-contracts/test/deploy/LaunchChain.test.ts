@@ -10,8 +10,10 @@ import {
   KAGE_MODULE_LAYOUT,
   LAUNCH_TOKENS,
   MULTISIG_CIRCUIT_IDS,
+  SAFE_SINGLETONS,
   assertFeeAssets,
   assertSafeControls,
+  assertSafeSingleton,
   assertSafeOwnersDisjoint,
   assertStakingToken,
   deploy,
@@ -29,7 +31,11 @@ import {
   type SafeOwnership,
 } from "../../scripts/deploy";
 import { assertSokaChain } from "../../scripts/deploy-soka";
-import { checkKageModule } from "../../scripts/check-kage-module";
+import {
+  checkKageModule,
+  checkScheduledKageRegistration,
+  scheduledKageRegistrationProblems,
+} from "../../scripts/check-kage-module";
 
 const ARBITRUM_ONE = 42161n;
 const ETHEREUM = 1n;
@@ -41,6 +47,7 @@ const BN254_FR =
 const OTHER_TOKEN = "0x1111111111111111111111111111111111111111";
 const SAFE_SENTINEL = "0x0000000000000000000000000000000000000001";
 const SAFE_GUARD_SLOT = ethers.id("guard_manager.guard.address");
+const SAFE_V141_L2_SINGLETON = "0x29fcB43b46531BcA003ddC8FCB67FFE91900C762";
 
 function tokensOf(chainId: bigint): { usdc: string; weth: string } {
   const tokens = LAUNCH_TOKENS.get(chainId);
@@ -166,6 +173,7 @@ function controls(
   threshold: bigint,
   modules: readonly string[] = [],
   guardWord: string = ethers.ZeroHash,
+  singletonWord: string = ethers.zeroPadValue(SAFE_V141_L2_SINGLETON, 32),
 ): SafeControls {
   return {
     ...ownership(
@@ -175,6 +183,7 @@ function controls(
     ),
     modules,
     guardWord,
+    singletonWord,
   };
 }
 
@@ -486,6 +495,58 @@ describe("launch-chain rules: pure checks", function () {
     });
   });
 
+  describe("Safe singleton", function () {
+    const singletonWord = (address: string): string =>
+      ethers.zeroPadValue(address, 32);
+    const withSingleton = (word: string): SafeControls =>
+      controls("GOV_SAFE", 3n, [], ethers.ZeroHash, word);
+
+    it("lists exactly the reviewed v1.3.0 and v1.4.1 singletons", function () {
+      expect([...SAFE_SINGLETONS.keys()]).to.deep.equal([
+        "0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552",
+        "0x69f4D1788e39c87893C980c06EdF4b7f686e2938",
+        "0x3E5c63644E683549055b9Be8653de26E0B4CD36E",
+        "0xfb1bffC9d739B8D520DaF37dF666da4C687191EA",
+        "0x41675C099F32341bf84BFc5382aF534df5C7461a",
+        "0x29fcB43b46531BcA003ddC8FCB67FFE91900C762",
+      ]);
+    });
+
+    it("accepts a Safe proxy on every official singleton off the test chains", function () {
+      for (const [address, description] of SAFE_SINGLETONS) {
+        for (const chain of [ETHEREUM, ARBITRUM_ONE]) {
+          expect(
+            assertSafeSingleton(chain, withSingleton(singletonWord(address))),
+          ).to.equal(description);
+        }
+      }
+    });
+
+    it("refuses a contract whose slot 0 is empty or an unreviewed address off the test chains", function () {
+      const imposter = ethers.Wallet.createRandom().address;
+      for (const word of [ethers.ZeroHash, singletonWord(imposter)]) {
+        expect(
+          errorOf(() => assertSafeSingleton(ARBITRUM_ONE, withSingleton(word))),
+        ).to.contain(
+          `has storage slot 0 ${word}, which is not an official Safe v1.3.0 or v1.4.1 singleton`,
+        );
+      }
+    });
+
+    it("refuses a slot 0 word with bytes above the address set", function () {
+      const dirty = `0x01${"00".repeat(11)}${SAFE_V141_L2_SINGLETON.slice(2)}`;
+      expect(
+        errorOf(() => assertSafeSingleton(ETHEREUM, withSingleton(dirty))),
+      ).to.contain("is not an official Safe");
+    });
+
+    it("leaves an unreviewed singleton to the operator on a test chain", function () {
+      expect(
+        assertSafeSingleton(ARBITRUM_SEPOLIA, withSingleton(ethers.ZeroHash)),
+      ).to.equal(null);
+    });
+  });
+
   describe("FORCE_LAUNCH_RULES", function () {
     const FORCED = { FORCE_LAUNCH_RULES: "1" };
     const UNFORCED = { FORCE_LAUNCH_RULES: "" };
@@ -549,6 +610,15 @@ describe("launch-chain rules: pure checks", function () {
           "Safe module",
           () => assertSafeControls(HARDHAT, controls("GOV_SAFE", 3n, [f])),
           `module(s) enabled: ${f}`,
+        ],
+        [
+          "Safe singleton",
+          () =>
+            assertSafeSingleton(
+              HARDHAT,
+              controls("GOV_SAFE", 3n, [], ethers.ZeroHash, ethers.ZeroHash),
+            ),
+          "is not an official Safe v1.3.0 or v1.4.1 singleton",
         ],
         [
           "multisig verifiers",
@@ -935,8 +1005,7 @@ describe("launch-shaped deployment on the in-process chain", function () {
   this.timeout(600000);
 
   const pk = mulPointEscalar(Base8, 987654321n);
-  // Record and secrets names carry a one-second timestamp, so in the shared directory an earlier deploy in
-  // the same second can leave a secrets file under this run's name.
+  // Its own directory, so the secrets-file assertions see this run's files only.
   const deployDir = fs.mkdtempSync(path.join(os.tmpdir(), "launch-shaped-"));
   let run: Awaited<ReturnType<typeof quietDeploy>>;
   let record: LaunchRecord;
@@ -1126,8 +1195,12 @@ describe("Kage module deployment on the in-process chain", function () {
   let kage: NonNullable<LaunchRecord["kage"]>;
   let kageToken: string;
   let recordFile: string;
+  let registrationOperation: string;
 
-  async function throughTimelock(target: string, data: string): Promise<void> {
+  async function throughTimelock(
+    target: string,
+    data: string,
+  ): Promise<string> {
     const gov = await ethers.getSigner(GOV);
     const timelock = await ethers.getContractAt(
       "TimelockController",
@@ -1141,6 +1214,74 @@ describe("Kage module deployment on the in-process chain", function () {
     await (
       await timelock.execute(target, 0, data, ethers.ZeroHash, salt)
     ).wait();
+    return timelock.hashOperation(target, 0, data, ethers.ZeroHash, salt);
+  }
+
+  /** Schedules without executing, as governance queues a call for review; returns the operation id. */
+  async function scheduleOnly(
+    calls: readonly { target: string; data: string }[],
+  ): Promise<string> {
+    const gov = await ethers.getSigner(GOV);
+    const timelock = await ethers.getContractAt(
+      "TimelockController",
+      record.governance.timelock,
+      gov,
+    );
+    const salt = ethers.hexlify(ethers.randomBytes(32));
+    const targets = calls.map((c) => c.target);
+    const values = calls.map(() => 0);
+    const payloads = calls.map((c) => c.data);
+    await (
+      await timelock.scheduleBatch(
+        targets,
+        values,
+        payloads,
+        ethers.ZeroHash,
+        salt,
+        0,
+      )
+    ).wait();
+    return timelock.hashOperationBatch(
+      targets,
+      values,
+      payloads,
+      ethers.ZeroHash,
+      salt,
+    );
+  }
+
+  async function scheduledCheckError(operationId: string): Promise<string> {
+    const realLog = console.log;
+    console.log = () => undefined;
+    try {
+      await checkScheduledKageRegistration(recordFile, operationId);
+      return "";
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    } finally {
+      console.log = realLog;
+    }
+  }
+
+  function registration(
+    overrides: Partial<{
+      controller: string;
+      verifier: string;
+      maxPast: bigint;
+    }>,
+  ): string {
+    const iface = new ethers.Interface([
+      "function registerSettlementModule(address,address,uint8,uint8,uint8,uint32,uint32)",
+    ]);
+    return iface.encodeFunctionData("registerSettlementModule", [
+      overrides.controller ?? kage.settlement,
+      overrides.verifier ?? kage.verifier,
+      2,
+      4,
+      0,
+      overrides.maxPast ?? 0n,
+      2n ** 32n - 1n,
+    ]);
   }
 
   before(async function () {
@@ -1244,8 +1385,121 @@ describe("Kage module deployment on the in-process chain", function () {
     expect(error).to.contain("no settlement module is registered");
   });
 
+  it("passes the recorded registration call while it waits in the Timelock", async function () {
+    const id = await scheduleOnly([
+      {
+        target: kage.moduleRegistration.target,
+        data: kage.moduleRegistration.data,
+      },
+    ]);
+    expect(await scheduledCheckError(id)).to.equal("");
+    const darkPool = await ethers.getContractAt(
+      "DarkPool",
+      record.contracts.darkPool,
+    );
+    expect(
+      await kageModuleProblems(darkPool, kage.settlement, kage.verifier),
+    ).to.deep.equal([
+      `no settlement module is registered for ${kage.settlement}`,
+    ]);
+  });
+
+  it("refuses a scheduled registration with an unbounded past window, another verifier or another controller", async function () {
+    const target = record.contracts.darkPool;
+    const unbounded = await scheduleOnly([
+      { target, data: registration({ maxPast: 2n ** 32n - 1n }) },
+    ]);
+    expect(await scheduledCheckError(unbounded)).to.contain(
+      "maxPast is 4294967295, expected 0",
+    );
+    const otherVerifier = record.verifierSlots[0].address;
+    const wrongVerifier = await scheduleOnly([
+      { target, data: registration({ verifier: otherVerifier }) },
+    ]);
+    expect(await scheduledCheckError(wrongVerifier)).to.contain(
+      `module verifier is ${otherVerifier}, expected ${kage.verifier}`,
+    );
+    const otherController = ethers.Wallet.createRandom().address;
+    const wrongController = await scheduleOnly([
+      { target, data: registration({ controller: otherController }) },
+    ]);
+    expect(await scheduledCheckError(wrongController)).to.contain(
+      `controller is ${otherController}, expected ${kage.settlement}`,
+    );
+  });
+
+  it("refuses an operation that batches the registration with another call", async function () {
+    const target = record.contracts.darkPool;
+    const darkPool = await ethers.getContractAt("DarkPool", target);
+    const batched = await scheduleOnly([
+      { target, data: kage.moduleRegistration.data },
+      {
+        target,
+        data: darkPool.interface.encodeFunctionData("disableModule", [
+          kage.settlement,
+        ]),
+      },
+    ]);
+    expect(await scheduledCheckError(batched)).to.contain(
+      "operation holds 2 calls; the Kage registration must be scheduled as a single call",
+    );
+  });
+
+  it("refuses an operation id the Timelock does not hold, and a malformed id", async function () {
+    const unknown = ethers.hexlify(ethers.randomBytes(32));
+    expect(await scheduledCheckError(unknown)).to.contain(
+      `holds no pending operation ${unknown}`,
+    );
+    expect(await scheduledCheckError("0x1234")).to.contain(
+      "must be a 0x-prefixed 32-byte Timelock operation id",
+    );
+  });
+
+  it("checks the scheduled call's target, value, selector and encoding", function () {
+    const darkPool = record.contracts.darkPool;
+    const data = kage.moduleRegistration.data;
+    const problems = (call: { target: string; value: bigint; data: string }) =>
+      scheduledKageRegistrationProblems(
+        [call],
+        darkPool,
+        kage.settlement,
+        kage.verifier,
+      );
+    expect(problems({ target: darkPool, value: 0n, data })).to.deep.equal([]);
+    expect(problems({ target: kage.registry, value: 0n, data })).to.deep.equal([
+      `target is ${kage.registry}, expected DarkPool ${darkPool}`,
+    ]);
+    expect(problems({ target: darkPool, value: 1n, data })).to.deep.equal([
+      "value is 1, expected 0",
+    ]);
+    expect(
+      problems({
+        target: darkPool,
+        value: 0n,
+        data: `0xdeadbeef${data.slice(10)}`,
+      }),
+    ).to.deep.equal([
+      "calldata selector 0xdeadbeef is not registerSettlementModule",
+    ]);
+    expect(
+      problems({ target: darkPool, value: 0n, data: `${data}00` }),
+    ).to.deep.equal([
+      "calldata decodes to the Kage registration but is not its canonical encoding",
+    ]);
+    expect(
+      scheduledKageRegistrationProblems(
+        [],
+        darkPool,
+        kage.settlement,
+        kage.verifier,
+      ),
+    ).to.deep.equal([
+      "operation holds 0 calls; the Kage registration must be scheduled as a single call",
+    ]);
+  });
+
   it("registers with maxPast 0 through the Timelock and passes the post-registration check", async function () {
-    await throughTimelock(
+    registrationOperation = await throughTimelock(
       kage.moduleRegistration.target,
       kage.moduleRegistration.data,
     );
@@ -1266,6 +1520,12 @@ describe("Kage module deployment on the in-process chain", function () {
     } finally {
       console.log = realLog;
     }
+  });
+
+  it("refuses the pre-execution check once the registration has executed", async function () {
+    expect(await scheduledCheckError(registrationOperation)).to.contain(
+      "has already executed; run without KAGE_OPERATION_ID",
+    );
   });
 
   it("flags a Kage controller registered with the generic 300-second past window", async function () {
@@ -1408,6 +1668,9 @@ describe("archive-deployment.sh", function () {
   it("archives the stub verifier, the hook interface and both payment adapters' identity", function () {
     const r = archive(name);
     expect(r.status, r.output).to.equal(0);
+    expect(r.output).to.contain(
+      "Circuit artifacts and verifier VK hashes match the record",
+    );
     const dir = path.join(deployments, "archives", name);
     expect(
       fs.existsSync(path.join(dir, "verifiers/RevertingVerifier.sol")),
@@ -1455,6 +1718,68 @@ describe("archive-deployment.sh", function () {
         constructorArgs: record.constructorArgs.howlMultisigPaymentAdapter,
       },
     });
+  });
+
+  it("refuses a record whose circuit or verifier hashes are not the working tree's build", function () {
+    const source = JSON.parse(
+      fs.readFileSync(path.join(deployments, `${name}.json`), "utf8"),
+    ) as {
+      multisigVerifiers: string;
+      circuitHashes: Record<string, string>;
+      vkHashes: Record<string, string>;
+    };
+    // A stub deploy never deployed the multisig verifiers, so the record has no VK hash for them to match.
+    expect(source.multisigVerifiers).to.equal("stub");
+    expect(source.vkHashes).to.not.have.property("WithdrawMultisigVerifier");
+    const actualDeposit = source.circuitHashes.deposit;
+    const otherHash = (hash: string): string =>
+      hash.replace(/.$/, (c) => (c === "0" ? "1" : "0"));
+    const cases: [string, (r: typeof source) => void, string][] = [
+      [
+        "circuit",
+        (r) => {
+          r.circuitHashes.deposit = otherHash(actualDeposit);
+        },
+        `deposit.json sha256 ${actualDeposit}, record circuitHashes.deposit ${otherHash(actualDeposit)}`,
+      ],
+      [
+        "vk",
+        (r) => {
+          r.vkHashes.TransferVerifier = otherHash(r.vkHashes.TransferVerifier);
+        },
+        `TransferVerifier.sol VK_HASH ${source.vkHashes.TransferVerifier}, record vkHashes.TransferVerifier ${otherHash(source.vkHashes.TransferVerifier)}`,
+      ],
+      [
+        "missing-vk",
+        (r) => {
+          delete r.vkHashes.KageVerifier;
+        },
+        `KageVerifier.sol VK_HASH ${source.vkHashes.KageVerifier}, record vkHashes.KageVerifier missing`,
+      ],
+      [
+        "missing-circuit",
+        (r) => {
+          r.circuitHashes.swap_settle = "NOT_FOUND";
+        },
+        "record circuitHashes.swap_settle NOT_FOUND",
+      ],
+    ];
+    for (const [label, tamper, message] of cases) {
+      const record = JSON.parse(JSON.stringify(source)) as typeof source;
+      tamper(record);
+      const broken = `${name}-${label}`;
+      const brokenFile = path.join(deployments, `${broken}.json`);
+      fs.writeFileSync(brokenFile, JSON.stringify(record));
+      created.push(brokenFile, path.join(deployments, "archives", broken));
+      const r = archive(broken);
+      expect(r.status, label).to.equal(1);
+      expect(r.output, label).to.contain("is not the build");
+      expect(r.output, label).to.contain(message);
+      expect(
+        fs.existsSync(path.join(deployments, "archives", broken)),
+        label,
+      ).to.equal(false);
+    }
   });
 
   it("refuses a record that lacks the multisig adapter or the verifier identity", function () {
@@ -1619,11 +1944,17 @@ describe("Safe controls and forced launch rules on the in-process chain", functi
     threshold: number,
     modules: readonly string[] = [],
     guard: string | null = null,
+    singleton: string = SAFE_V141_L2_SINGLETON,
   ): Promise<string> {
     const address = ethers.Wallet.createRandom().address;
     await ethers.provider.send("hardhat_setCode", [
       address,
       safeCode(owners, threshold, modules),
+    ]);
+    await ethers.provider.send("hardhat_setStorageAt", [
+      address,
+      "0x0",
+      ethers.zeroPadValue(singleton, 32),
     ]);
     if (guard !== null) {
       await ethers.provider.send("hardhat_setStorageAt", [
@@ -1733,6 +2064,7 @@ describe("Safe controls and forced launch rules on the in-process chain", functi
     const moduleAddr = ethers.Wallet.createRandom().address;
     const guardAddr = ethers.Wallet.createRandom().address;
     const eoa = ethers.Wallet.createRandom().address;
+    const imposterSingleton = ethers.Wallet.createRandom().address;
     const cases: [string, Record<string, string>, string][] = [
       [
         "short governance delay",
@@ -1805,6 +2137,19 @@ describe("Safe controls and forced launch rules on the in-process chain", functi
         `guard ${guardAddr.toLowerCase()} is set`,
       ],
       [
+        "unofficial Safe singleton",
+        {
+          GUARDIAN_SAFE: await installSafe(
+            guardianOwners,
+            2,
+            [],
+            null,
+            imposterSingleton,
+          ),
+        },
+        "which is not an official Safe v1.3.0 or v1.4.1 singleton",
+      ],
+      [
         "missing staking token",
         { STAKING_TOKEN: "" },
         "STAKING_TOKEN is required on network hardhat",
@@ -1832,6 +2177,12 @@ describe("Safe controls and forced launch rules on the in-process chain", functi
     }
     expect(lastOutput).to.contain(
       "FORCE_LAUNCH_RULES=1: launch-chain rules enforced, evaluated for chain id 31337",
+    );
+    expect(lastOutput).to.contain(
+      "GOV_SAFE singleton: v1.4.1 SafeL2 (canonical)",
+    );
+    expect(lastOutput).to.contain(
+      "GUARDIAN_SAFE singleton: v1.4.1 SafeL2 (canonical)",
     );
   });
 });
