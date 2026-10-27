@@ -55,6 +55,18 @@ jobs:
             || { echo "::error::vendored noir-edwards did not report exactly 17 passing tests"; exit 1; }
       - name: VK byte-identity (recompile, re-derive every VK, compare to the committed pins)
         run: bash scripts/check-vk-identity.sh
+      - name: Check soundness harness formatting
+        run: |
+          # Each harness is its own nargo project outside the circuits workspace, so the formatting step
+          # above never reaches it.
+          shopt -s nullglob
+          n=0
+          for toml in packages/prover/test-harness/*/Nargo.toml; do
+            h="$(dirname "$toml")"
+            ( cd "$h" && nargo fmt --check ) || { echo "::error::$h is not nargo-fmt clean; run nargo fmt there"; exit 1; }
+            n=$((n + 1))
+          done
+          test "$n" -gt 0 || { echo "::error::no soundness harness crate found under packages/prover/test-harness"; exit 1; }
       - name: Witness-injection soundness harnesses
         run: |
           for h in frost-forgery psi-cek-forgery leaf-index-forgery; do
