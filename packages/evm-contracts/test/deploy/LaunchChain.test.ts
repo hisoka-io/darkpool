@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { spawnSync } from "child_process";
 import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
@@ -934,6 +935,9 @@ describe("launch-shaped deployment on the in-process chain", function () {
   this.timeout(600000);
 
   const pk = mulPointEscalar(Base8, 987654321n);
+  // Record and secrets names carry a one-second timestamp, so in the shared directory an earlier deploy in
+  // the same second can leave a secrets file under this run's name.
+  const deployDir = fs.mkdtempSync(path.join(os.tmpdir(), "launch-shaped-"));
   let run: Awaited<ReturnType<typeof quietDeploy>>;
   let record: LaunchRecord;
   let govSafe: string;
@@ -966,6 +970,7 @@ describe("launch-shaped deployment on the in-process chain", function () {
     ]);
     run = await quietDeploy({
       ...NO_KEY_ENV,
+      DEPLOYMENTS_DIR: deployDir,
       GOV_SAFE: govSafe,
       GUARDIAN_SAFE: guardianSafe,
       STAKING_TOKEN: await usdcLike.getAddress(),
@@ -977,6 +982,10 @@ describe("launch-shaped deployment on the in-process chain", function () {
       COMPLIANCE_PUBLIC_KEY_Y: pk[1].toString(),
     });
     if (run.record !== null) record = run.record;
+  });
+
+  after(function () {
+    fs.rmSync(deployDir, { recursive: true, force: true });
   });
 
   it("runs to completion", function () {
@@ -1099,8 +1108,11 @@ describe("launch-shaped deployment on the in-process chain", function () {
   it("does not leave a secrets file behind for this run", function () {
     const deployFile = /Deployment record: (\S+)/.exec(run.output)?.[1];
     expect(deployFile, "record path").to.be.a("string");
-    const secrets = (deployFile as string).replace(/\.json$/, ".secrets.json");
-    expect(fs.existsSync(secrets)).to.equal(false);
+    expect(path.dirname(deployFile as string)).to.equal(deployDir);
+    expect(fs.existsSync(deployFile as string)).to.equal(true);
+    expect(
+      fs.readdirSync(deployDir).filter((f) => f.endsWith(".secrets.json")),
+    ).to.deep.equal([]);
   });
 });
 
