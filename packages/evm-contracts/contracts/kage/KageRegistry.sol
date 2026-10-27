@@ -32,6 +32,10 @@ contract KageRegistry is
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
     uint256 public constant MIN_EXIT_DELAY = 1 days;
+    /// @dev The delay is the slasher's window to act on evidence before a stake leaves. A month covers that window
+    ///      with margin; a longer one would lock honest capital, and a unit error (ms for s) would freeze exits.
+    ///      It also keeps `block.timestamp + exitDelay` far inside uint64, so exit and slash never overflow.
+    uint256 public constant MAX_EXIT_DELAY = 30 days;
 
     uint256 private constant NOT_ENTERED = 1;
     uint256 private constant ENTERED = 2;
@@ -155,7 +159,8 @@ contract KageRegistry is
         ) revert ZeroAddress();
         if (p.minStakeFloor == 0) revert InvalidAmount();
         if (p.minStake < p.minStakeFloor) revert MinStakeBelowFloor();
-        if (p.exitDelay < MIN_EXIT_DELAY) revert InvalidDelay();
+        if (p.exitDelay < MIN_EXIT_DELAY || p.exitDelay > MAX_EXIT_DELAY)
+            revert InvalidDelay();
 
         __AccessControlDefaultAdminRules_init(
             p.initialAdminDelay,
@@ -317,7 +322,8 @@ contract KageRegistry is
     ) external onlyRole(CONFIG_ROLE) {
         RegistryStorage storage $ = _registry();
         if (newMinStake < $.minStakeFloor) revert MinStakeBelowFloor();
-        if (newExitDelay < MIN_EXIT_DELAY) revert InvalidDelay();
+        if (newExitDelay < MIN_EXIT_DELAY || newExitDelay > MAX_EXIT_DELAY)
+            revert InvalidDelay();
         $.minStake = newMinStake;
         $.exitDelay = newExitDelay;
         emit ConfigUpdated(newMinStake, newExitDelay);
