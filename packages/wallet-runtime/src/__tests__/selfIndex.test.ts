@@ -197,16 +197,42 @@ describe("self-index discovery", () => {
     expect(second!.blocks[0]?.hash).toBe(pool.chain.blocks[14]!.hash);
   });
 
-  it("re-indexes from the deployment block after a reorg deeper than maxReorgBlocks", async () => {
+  it("fails REORG_TOO_DEEP and keeps every leaf after a reorg deeper than maxReorgBlocks", async () => {
     const { pool } = await populated();
     const index = await open(pool);
     await index.sync();
     pool.reorgFrom(15);
+    const err = await index.sync().catch((e: unknown) => e);
+    expect((err as WalletRuntimeError).code).toBe("REORG_TOO_DEEP");
+    expect((err as WalletRuntimeError).context).toMatchObject({
+      block: "16",
+      floor: "44",
+    });
+    expect(index.leafCount).toBe(5);
+  });
+
+  it("rewinds a shallow tip reorg to the last sync head kept below the bound, not to the start", async () => {
+    const { pool } = await populated();
+    const index = await open(pool);
+    await index.sync();
+    pool.chain.mine(30);
+    await index.sync();
+    pool.reorgFrom(pool.chain.head);
+    const head = await index.sync();
+    expect(head.rewoundTo).toBe(5);
+    expect(head.ancestor?.number).toBe(60);
+    expect(head.leafCount).toBe(5);
+  });
+
+  it("starts over only when every block it recorded left the chain inside the bound", async () => {
+    const { pool } = await populated(20);
+    const index = await open(pool);
+    await index.sync();
+    pool.reorgFrom(DEPLOY);
     const head = await index.sync();
     expect(head.rewoundTo).toBe(0);
     expect(head.ancestor).toBeUndefined();
-    expect(head.leafCount).toBe(4);
-    expect(head.root.equals(pool.root())).toBe(true);
+    expect(head.leafCount).toBe(0);
   });
 
   it("retries a sync whose head reorged mid-read and never applies a half-read", async () => {

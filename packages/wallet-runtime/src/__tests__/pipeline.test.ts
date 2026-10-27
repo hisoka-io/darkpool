@@ -12,7 +12,11 @@ import { AbiCoder, getBytes, hexlify } from "ethers";
 import { howlPaymentIntent } from "@hisoka/adaptors";
 import { DARK_POOL_INTERFACE } from "../abi.js";
 import { RpcLogSource } from "../chain/logs.js";
-import { NoxSubmitter, type NoxPaidExecutor } from "../submit/nox.js";
+import {
+  encodeNoxResume,
+  NoxSubmitter,
+  type NoxPaidExecutor,
+} from "../submit/nox.js";
 import { readPublicMemos } from "../history/publicMemos.js";
 import { funded, runtimeEnv, type RuntimeEnv } from "./fixtures/env.js";
 import { evenIncomingIndex } from "./fixtures/mint.js";
@@ -299,17 +303,18 @@ describe("spend pipeline", () => {
       detail: "relayer timed out",
       resumeToken: JSON.stringify({
         executionId: `0x${"12".repeat(32)}`,
-        validUntilUnix: "99",
+        validUntilUnix: "9999999999",
       }),
     };
     const unknown = await failure(env.pipeline.withdraw(note!, 30n, RECIPIENT));
     expect(unknown.code).toBe("SUBMIT_UNKNOWN");
+    expect(unknown.message).toContain("later than chain time 9999999999");
     const plan = env.notes.plans[env.notes.plans.length - 1]!;
     expect(plan.status).toBe("submitted");
     expect(plan.leased).toEqual([noteKey(note!)]);
     expect(plan.resume).toEqual({
       executionId: `0x${"12".repeat(32)}`,
-      validUntilUnix: 99n,
+      validUntilUnix: 9999999999n,
     });
     expect(
       (await failure(env.pipeline.withdraw(note!, 30n, RECIPIENT))).code,
@@ -332,6 +337,123 @@ describe("spend pipeline", () => {
       status: "submitted",
       leased: [noteKey(note!)],
     });
+  });
+
+  it("refuses inclusion from a block that spends the nullifier but lacks the new leaf", async () => {
+    const env = await runtimeEnv();
+    const [note] = await funded(env, [100n]);
+    env.submitter.onSubmit = () => {
+      env.pool.chain.mine();
+      env.pool.spend(env.pool.chain.head, note!.nullifier);
+    };
+    env.submitter.next = {
+      status: "included",
+      txHash: `0x${"ac".repeat(32)}`,
+      blockNumber: env.pool.chain.head + 1,
+    };
+    const err = await failure(env.pipeline.withdraw(note!, 30n, RECIPIENT));
+    expect(err.code).toBe("SUBMIT_UNKNOWN");
+    expect(err.message).toContain("lack leaf");
+    expect(err.message).not.toContain("nullifier");
+    expect(env.notes.plans[env.notes.plans.length - 1]?.status).toBe(
+      "submitted",
+    );
+  });
+
+  it("releases an unknown action's notes once a confirmed block passes validUntilUnix, and counts a late landing once", async () => {
+    const env = await runtimeEnv();
+    const [note] = await funded(env, [100n]);
+    let sent = "";
+    const submit = env.submitter.submit.bind(env.submitter);
+    env.submitter.submit = async (call, context) => {
+      sent = call.data;
+      return submit(call, context);
+    };
+    const validUntil = (await env.chain.latest()).timestamp + 60n;
+    env.submitter.next = {
+      status: "unknown",
+      detail: "exit went silent",
+      resumeToken: encodeNoxResume({
+        executionId: `0x${"12".repeat(32)}`,
+        validUntilUnix: validUntil,
+      }),
+    };
+    expect(
+      (await failure(env.pipeline.withdraw(note!, 30n, RECIPIENT))).code,
+    ).toBe("SUBMIT_UNKNOWN");
+    const unknownPlan = env.notes.plans[env.notes.plans.length - 1]!.planId;
+
+    // Up to the deadline the lease holds, through a sync too.
+    env.pool.chain.mine(5);
+    await env.refresh();
+    expect(
+      (await failure(env.pipeline.withdraw(note!, 30n, RECIPIENT))).code,
+    ).toBe("INPUT_SPENT");
+
+    // A confirmed block past validUntilUnix with the nullifier unspent: the sync releases the note.
+    env.pool.chain.mine(1);
+    await env.refresh();
+    const view = {
+      confirmedHead: env.pool.chain.head,
+      sweptThrough: env.notes.sweptThrough,
+      now: (await env.chain.latest()).timestamp,
+    };
+    expect(env.notes.plans.find((p) => p.planId === unknownPlan)).toMatchObject(
+      { status: "failed", leased: [] },
+    );
+    expect(env.notes.spendable(view).map((n) => n.leafIndex)).toEqual([1]);
+
+    // The late transaction lands while a new action on the same note proves: refused before sending.
+    const withdrawsBefore = env.submitter.calls.filter(
+      (c) => c.name === "withdraw",
+    ).length;
+    env.prover.onProve = async () => {
+      env.prover.onProve = null;
+      env.pool.chain.mine();
+      await env.submitter.play(sent, env.pool.chain.head);
+    };
+    const late = await failure(env.pipeline.withdraw(note!, 30n, RECIPIENT));
+    expect(late.code).toBe("INPUT_SPENT");
+    expect(
+      env.submitter.calls.filter((c) => c.name === "withdraw").length,
+    ).toBe(withdrawsBefore);
+
+    // After a sync the funds are the change alone: the input is spent, never counted beside its change.
+    await env.refresh();
+    const after = {
+      confirmedHead: env.pool.chain.head,
+      sweptThrough: env.notes.sweptThrough,
+      now: (await env.chain.latest()).timestamp,
+    };
+    const spendable = env.notes.spendable(after);
+    expect(spendable.map((n) => n.note.value)).toEqual([70n]);
+    expect(env.notes.state(env.notes.find(noteKey(note!))!, after)).toBe(
+      "spent",
+    );
+  });
+
+  it("stops before proving when discovery rewinds past an input during preflight", async () => {
+    const env = await runtimeEnv(20);
+    const [note] = await funded(env, [100n]);
+    let proved = false;
+    env.prover.onProve = async () => {
+      proved = true;
+    };
+    const chain = env.chain as unknown as {
+      isKnownRoot: (...a: unknown[]) => Promise<boolean>;
+    };
+    const known = chain.isKnownRoot.bind(env.chain);
+    chain.isKnownRoot = async (...a: unknown[]) => {
+      const answer = await known(...a);
+      chain.isKnownRoot = known;
+      env.pool.reorgFrom(10);
+      return answer;
+    };
+    const err = await failure(env.pipeline.withdraw(note!, 30n, RECIPIENT));
+    expect(err.code).toBe("HEAD_REORGED");
+    expect(err.context).toMatchObject({ rewoundTo: "1", leafIndex: "1" });
+    expect(proved).toBe(false);
+    expect(env.notes.plans[0]).toMatchObject({ status: "failed", leased: [] });
   });
 
   it("refuses to mint on a read-only install before reserving any ephemeral index", async () => {

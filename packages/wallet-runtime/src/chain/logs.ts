@@ -7,6 +7,7 @@ import {
   parseSafeNumber,
   quantity,
   RpcClient,
+  type BlockId,
   type BlockRef,
   type JsonRpc,
 } from "./rpc.js";
@@ -165,6 +166,67 @@ export async function stillCanonical(
       return false;
     throw e;
   }
+}
+
+/**
+ * The sync heads worth keeping below a new head: every one above the reorg floor, plus the newest at or below
+ * it, which anchors the walk-back so a shallow reorg always finds a canonical point even when syncs are
+ * sparse.
+ */
+export function recentHeads(
+  heads: readonly BlockId[],
+  floor: number,
+  below: number,
+): BlockId[] {
+  const older = heads.filter((h) => h.number < below);
+  const anchor = older
+    .filter((h) => h.number <= floor)
+    .reduce<BlockId | null>(
+      (best, h) => (best === null || h.number > best.number ? h : best),
+      null,
+    );
+  return [
+    ...(anchor === null ? [] : [anchor]),
+    ...older.filter((h) => h.number > floor),
+  ];
+}
+
+/**
+ * The newest of `points` still canonical, walking newest first. A point at or below `floor` is final under
+ * the configured reorg bound, so finding one off the chain fails `REORG_TOO_DEEP` instead of guessing a fork
+ * point. Null when every point is off the chain and all of them lie above `floor`: the fork is then below
+ * everything recorded.
+ */
+export async function newestCanonical(
+  chain: Pick<ChainReader, "blockByNumber">,
+  points: Iterable<BlockId>,
+  floor: number,
+  maxReorgBlocks: number,
+): Promise<BlockId | null> {
+  const seen = new Set<string>();
+  const ordered = [...points]
+    .filter((p) => {
+      const key = `${p.number}:${p.hash}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => b.number - a.number);
+  for (const point of ordered) {
+    if (await stillCanonical(chain, point)) return point;
+    if (point.number <= floor) {
+      throw new WalletRuntimeError(
+        "REORG_TOO_DEEP",
+        `block ${point.number} (${point.hash}) left the canonical chain, which is at or below the reorg bound (block ${floor}, maxReorgBlocks ${maxReorgBlocks}); nothing was rolled back. Raise maxReorgBlocks for this chain and sync again`,
+        {
+          block: String(point.number),
+          floor: String(floor),
+          maxReorgBlocks: String(maxReorgBlocks),
+        },
+      );
+    }
+  }
+  return null;
 }
 
 /**

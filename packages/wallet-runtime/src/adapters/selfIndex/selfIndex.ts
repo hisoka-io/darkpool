@@ -9,7 +9,9 @@ import {
 import { DARK_POOL_INTERFACE, EVENT_TOPICS } from "../../abi.js";
 import type { ChainReader } from "../../chain/chainReader.js";
 import {
+  newestCanonical,
   readAtStableHead,
+  recentHeads,
   stillCanonical,
   MAX_STABLE_READ_ATTEMPTS,
   type LogSource,
@@ -271,12 +273,7 @@ export class SelfIndexDiscovery implements DiscoveryPort, WitnessPort {
     this.#meta = {
       leafCount: this.#leaves.length,
       processed,
-      heads: [
-        ...this.#meta.heads.filter(
-          (h) => h.number >= floor && h.number < head.number,
-        ),
-        processed,
-      ],
+      heads: [...recentHeads(this.#meta.heads, floor, head.number), processed],
     };
     await this.#persist(firstNew);
     return {
@@ -287,9 +284,10 @@ export class SelfIndexDiscovery implements DiscoveryPort, WitnessPort {
   }
 
   /**
-   * When the processed head is no longer canonical, walks the stored block hashes newest first, no deeper
-   * than `maxReorgBlocks`, to the newest one still canonical, and drops every leaf above it. Past that
-   * depth the index starts over from the deployment block.
+   * When the processed head is no longer canonical, walks the stored block hashes (sync heads and leaf blocks)
+   * newest first to the newest one still canonical, and drops every leaf above it. A stored block at or below
+   * `maxReorgBlocks` under the processed head that left the chain fails `REORG_TOO_DEEP` and changes nothing.
+   * Only when every stored block left the chain, all inside the bound, does the index start over.
    */
   async #rewindIfReorged(): Promise<{
     rewoundTo: number;
@@ -299,34 +297,34 @@ export class SelfIndexDiscovery implements DiscoveryPort, WitnessPort {
     if (processed === null) return null;
     if (await stillCanonical(this.deps.chain, processed)) return null;
 
-    const floor = processed.number - this.deps.config.maxReorgBlocks;
-    const points = new Map<number, BlockId>();
-    for (const h of this.#meta.heads) points.set(h.number, h);
-    for (const l of this.#leaves) points.set(l.block.number, l.block);
-    const candidates = [...points.values()]
-      .filter((b) => b.number >= floor && b.number < processed.number)
-      .sort((a, b) => b.number - a.number);
-    for (const point of candidates) {
-      if (await stillCanonical(this.deps.chain, point)) {
-        const keep = this.#leaves.findIndex(
-          (l) => l.block.number > point.number,
-        );
-        const rewoundTo = keep === -1 ? this.#leaves.length : keep;
-        await this.#truncate(rewoundTo);
-        this.#meta = {
-          leafCount: this.#leaves.length,
-          processed: point,
-          heads: this.#meta.heads.filter((h) => h.number <= point.number),
-        };
-        await this.#persist(rewoundTo);
-        return { rewoundTo, ancestor: point };
-      }
+    const { maxReorgBlocks } = this.deps.config;
+    const floor = processed.number - maxReorgBlocks;
+    const points: BlockId[] = [
+      ...this.#meta.heads,
+      ...this.#leaves.map((l) => l.block),
+    ].filter((b) => b.number < processed.number);
+    const point = await newestCanonical(
+      this.deps.chain,
+      points,
+      floor,
+      maxReorgBlocks,
+    );
+    if (point === null) {
+      await this.#truncate(0);
+      this.#meta = { leafCount: 0, processed: null, heads: [] };
+      await this.#persist(0);
+      return { rewoundTo: 0, ancestor: null };
     }
-    // Deeper than maxReorgBlocks: correct but slow, start over.
-    await this.#truncate(0);
-    this.#meta = { leafCount: 0, processed: null, heads: [] };
-    await this.#persist(0);
-    return { rewoundTo: 0, ancestor: null };
+    const keep = this.#leaves.findIndex((l) => l.block.number > point.number);
+    const rewoundTo = keep === -1 ? this.#leaves.length : keep;
+    await this.#truncate(rewoundTo);
+    this.#meta = {
+      leafCount: this.#leaves.length,
+      processed: point,
+      heads: this.#meta.heads.filter((h) => h.number <= point.number),
+    };
+    await this.#persist(rewoundTo);
+    return { rewoundTo, ancestor: point };
   }
 
   async #advanceConfirmed(head: BlockRef): Promise<void> {

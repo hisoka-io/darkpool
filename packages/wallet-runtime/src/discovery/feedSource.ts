@@ -11,7 +11,7 @@ import {
 } from "@hisoka/wallets";
 import { WalletRuntimeError } from "../errors.js";
 import { checkMatches } from "./sync.js";
-import type { DiscoveryPort, TagMatches } from "./ports.js";
+import type { DiscoveryHead, DiscoveryPort, TagMatches } from "./ports.js";
 
 /** What a padded probe returns on a miss: a well-formed row that opens as nothing. */
 function paddedMiss(): HowlNoteRecord {
@@ -30,16 +30,21 @@ function paddedMiss(): HowlNoteRecord {
  * The wallets `DiscoverySource` that self-mint preflight and counter reconcile take, served from a
  * `DiscoveryPort`. Each probe syncs the port to `latest` first and reports the FULL matched count, so
  * `occurrenceCount` sees unconfirmed notes and every coincidental prefix match: under the skip rule any
- * candidate with a match is burned, and only a zero-match candidate is free.
+ * candidate with a match is burned, and only a zero-match candidate is free. A sync that rewound is handed
+ * to `onRewind` before the probe is answered; it may throw to stop the caller.
  */
 export function discoverySourceOver(
   port: DiscoveryPort,
   cap: number,
+  onRewind: (head: DiscoveryHead & { readonly rewoundTo: number }) => void,
 ): DiscoverySource {
   let last = new Map<string, TagMatches>();
   return {
     async probeFirst(tags): Promise<readonly FirstOccurrence[]> {
-      await port.sync();
+      const head = await port.sync();
+      if (head.rewoundTo !== undefined) {
+        onRewind({ ...head, rewoundTo: head.rewoundTo });
+      }
       const matches = await port.match(tags);
       checkMatches(tags, matches, cap);
       last = new Map(matches.map((m) => [m.tag.toString(), m]));

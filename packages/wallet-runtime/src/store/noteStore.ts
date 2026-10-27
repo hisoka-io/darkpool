@@ -2,6 +2,7 @@ import { Fr } from "@aztec/foundation/fields";
 import type { Note } from "@hisoka/wallets";
 import type { DroppedNote } from "@hisoka/pss-client";
 import type { BlockId } from "../chain/rpc.js";
+import { recentHeads } from "../chain/logs.js";
 import { describeCause, WalletRuntimeError } from "../errors.js";
 import type { RuntimeStore } from "./runtimeStore.js";
 
@@ -71,8 +72,23 @@ export interface NoteView {
   readonly confirmedHead: number;
   /** The whole-set nullifier sweep has covered every block up to this one. */
   readonly sweptThrough: number;
-  /** Chain time, for lease expiry. */
+  /** Timestamp of the `confirmedHead` block, for lease expiry. */
   readonly now: bigint;
+}
+
+/** The discovery head a sync recorded, and the reorg bound that decides which older heads it keeps. */
+export interface SyncPoint {
+  readonly head: BlockId;
+  readonly maxReorgBlocks: number;
+}
+
+/**
+ * A reorg as the caller established it from block hashes: every recorded block now off the chain, and the
+ * newest recorded block still on it below them (null when none is).
+ */
+export interface Reorg {
+  readonly ancestor: BlockId | null;
+  readonly orphaned: readonly BlockId[];
 }
 
 const LIVE: ReadonlySet<PlanStatus> = new Set([
@@ -93,6 +109,8 @@ interface State {
   readonly plans: readonly PlanRecord[];
   /** The discovery head every stored note was found against; null before the first sync. */
   readonly cursor: BlockId | null;
+  /** Earlier cursors: those within the reorg bound and the newest below it, for the reorg walk-back. */
+  readonly heads: readonly BlockId[];
   readonly sweptThrough: number;
   /** Notes a rollback dropped after they reached PSS; the next mirror write tombstones them. */
   readonly pendingTombstones: readonly DroppedNote[];
@@ -102,6 +120,7 @@ const EMPTY: State = {
   notes: [],
   plans: [],
   cursor: null,
+  heads: [],
   sweptThrough: -1,
   pendingTombstones: [],
 };
@@ -147,6 +166,10 @@ export class NoteStore {
     return this.#state.cursor;
   }
 
+  get heads(): readonly BlockId[] {
+    return this.#state.heads;
+  }
+
   get sweptThrough(): number {
     return this.#state.sweptThrough;
   }
@@ -183,11 +206,14 @@ export class NoteStore {
 
   /**
    * Adds notes and, when discovery found them, advances its cursor in the same write. A known note is
-   * updated in place and keeps its spent mark and mirror flag.
+   * updated in place and keeps its inclusion block, spent mark and mirror flag: an adapter that cannot name
+   * a note's block files it under the sync head, and re-dating it to every later head would keep it above
+   * the confirmed head forever. A re-added note clears a pending tombstone with its own key, which a reorg
+   * that came back would otherwise write beside it.
    */
   async record(
     found: readonly StoredNote[],
-    cursor: BlockId | null,
+    sync: SyncPoint | null,
   ): Promise<void> {
     await this.#commit((s) => {
       const byKey = new Map(s.notes.map((n) => [noteKey(n), n]));
@@ -199,6 +225,7 @@ export class NoteStore {
             ? note
             : {
                 ...note,
+                block: known.block,
                 spent: known.spent,
                 mirrored: known.mirrored,
                 verification:
@@ -208,10 +235,28 @@ export class NoteStore {
               },
         );
       }
+      const notes = sortNotes([...byKey.values()]);
+      const live = new Set(
+        notes.map((n) =>
+          tombstoneKey({
+            leafIndex: n.leafIndex,
+            nullifier: nullifierHex(n.nullifier),
+            blockHash: n.block.hash,
+          }),
+        ),
+      );
+      const pendingTombstones = s.pendingTombstones.filter(
+        (t) => !live.has(tombstoneKey(t)),
+      );
+      if (sync === null) return { ...s, notes, pendingTombstones };
+      const floor = sync.head.number - sync.maxReorgBlocks;
+      const heads = s.cursor === null ? s.heads : [...s.heads, s.cursor];
       return {
         ...s,
-        notes: sortNotes([...byKey.values()]),
-        cursor: cursor ?? s.cursor,
+        notes,
+        pendingTombstones,
+        cursor: sync.head,
+        heads: recentHeads(heads, floor, sync.head.number),
       };
     });
   }
@@ -354,27 +399,27 @@ export class NoteStore {
   }
 
   /**
-   * Undoes everything above `ancestor` in ONE write: notes included above it or at a leaf index the
-   * discovery source dropped are deleted, spent marks above it are cleared, plans whose submission landed
-   * above it become `orphaned` and release their notes, and the cursor and sweep move back to it. Dropped
-   * notes that reached PSS are queued as tombstones in the same write. A null `ancestor` (a reorg deeper
-   * than the walk-back, re-indexed from the deployment block) undoes everything.
+   * Undoes a reorg in ONE write: notes whose inclusion block is in `orphaned` are deleted, spent marks in
+   * those blocks are cleared, plans whose submission landed in one become `orphaned` and release their
+   * notes, and the cursor and sweep move back to `ancestor`. Nothing recorded in a block still on the chain
+   * is touched, so a note below the fork never gets a tombstone. Dropped notes that reached PSS are queued as
+   * tombstones in the same write. A null `ancestor` (every recorded block left the chain) resets the cursor
+   * and makes the next sweep start from the deployment block.
    */
-  async rollback(
-    ancestor: BlockId | null,
-    rewoundTo: number,
-  ): Promise<RollbackResult> {
-    const above = ancestor === null ? -1 : ancestor.number;
+  async rollback(reorg: Reorg): Promise<RollbackResult> {
+    const gone = new Set(reorg.orphaned.map(blockKey));
+    const off = (b: BlockId): boolean => gone.has(blockKey(b));
+    const { ancestor } = reorg;
     return this.#commitWith((s) => {
       const dropped: StoredNote[] = [];
       const unspent: StoredNote[] = [];
       const notes: StoredNote[] = [];
       for (const n of s.notes) {
-        if (n.block.number > above || n.leafIndex >= rewoundTo) {
+        if (off(n.block)) {
           dropped.push(n);
           continue;
         }
-        if (n.spent !== null && n.spent.block.number > above) {
+        if (n.spent !== null && off(n.spent.block)) {
           unspent.push(n);
           notes.push({ ...n, spent: null });
           continue;
@@ -386,7 +431,7 @@ export class NoteStore {
         const landed = p.submission?.block ?? null;
         if (
           landed !== null &&
-          landed.number > above &&
+          off(landed) &&
           (p.status === "included" || p.status === "submitted")
         ) {
           orphanedPlans.push(p.planId);
@@ -404,17 +449,68 @@ export class NoteStore {
             blockHash: n.block.hash,
           }),
         );
-      const cursor =
-        s.cursor === null || s.cursor.number <= above ? s.cursor : ancestor;
+      const below = ancestor === null ? -1 : ancestor.number;
       return {
         state: {
           notes,
           plans,
-          cursor,
-          sweptThrough: Math.min(s.sweptThrough, above),
+          cursor: ancestor,
+          heads: s.heads.filter((h) => !off(h) && h.number < below),
+          sweptThrough: Math.min(s.sweptThrough, below),
           pendingTombstones: [...s.pendingTombstones, ...tombstones],
         },
         value: { droppedNotes: dropped, unspent, orphanedPlans },
+      };
+    });
+  }
+
+  /**
+   * Ends the lease of every `submitted` plan whose outcome the chain has now decided. A plan's deadline is
+   * the Nox `validUntilUnix` when it has one (the entry point refuses execution after it), else its lease
+   * end. Once the confirmed head is past the deadline and the sweep has covered that head, the plan becomes
+   * `included` if every note it leased is spent at or below that head, `reverted` if only some are (the fee
+   * was paid and the action failed), and `failed` if none are; the last two release the unspent notes. A
+   * plan with a spend still above the confirmed head waits. Returns the plans it changed.
+   */
+  async settleSubmitted(view: NoteView): Promise<readonly PlanRecord[]> {
+    if (view.sweptThrough < view.confirmedHead) return [];
+    const due = this.#state.plans.some(
+      (p) => p.status === "submitted" && view.now > submittedDeadline(p),
+    );
+    if (!due) return [];
+    return this.#commitWith((s) => {
+      const changed: PlanRecord[] = [];
+      const plans = s.plans.map((p) => {
+        if (p.status !== "submitted") return p;
+        if (view.now <= submittedDeadline(p)) return p;
+        const leased = p.leased.map(
+          (key) => s.notes.find((n) => noteKey(n) === key) ?? null,
+        );
+        const spends = leased.map((n) => n?.spent ?? null);
+        const unconfirmed = spends.some(
+          (x) => x !== null && x.block.number > view.confirmedHead,
+        );
+        if (unconfirmed) return p;
+        const landed = spends.filter((x) => x !== null);
+        const first = landed[0];
+        const next: PlanRecord =
+          first !== undefined && landed.length === spends.length
+            ? {
+                ...p,
+                status: "included",
+                submission: { txHash: first.txHash, block: first.block },
+              }
+            : {
+                ...p,
+                status: first === undefined ? "failed" : "reverted",
+                leased: [],
+              };
+        changed.push(next);
+        return next;
+      });
+      return {
+        state: changed.length === 0 ? s : { ...s, plans },
+        value: changed,
       };
     });
   }
@@ -443,6 +539,15 @@ export class NoteStore {
     );
     return run;
   }
+}
+
+/** Chain time after which a submitted plan's transaction can no longer land through its submitter. */
+export function submittedDeadline(plan: PlanRecord): bigint {
+  return plan.resume?.validUntilUnix ?? plan.leaseUntil;
+}
+
+function blockKey(b: BlockId): string {
+  return `${b.number}:${b.hash}`;
 }
 
 function leaseHolder(s: State, key: string, now: bigint): string | null {
@@ -474,7 +579,7 @@ export function tombstoneKey(t: {
   return `${t.leafIndex}:${t.nullifier}:${t.blockHash}`;
 }
 
-const STATE_VERSION = 1;
+const STATE_VERSION = 2;
 
 function blockJson(b: BlockId): BlockId {
   return { number: b.number, hash: b.hash };
@@ -530,6 +635,7 @@ function encodeState(s: State): string {
             },
     })),
     cursor: s.cursor === null ? null : blockJson(s.cursor),
+    heads: s.heads.map(blockJson),
     sweptThrough: s.sweptThrough,
     pendingTombstones: s.pendingTombstones,
   });
@@ -675,6 +781,7 @@ function decodeState(raw: string, key: string): State {
         };
       }),
       cursor: s.cursor === null ? null : block(s.cursor, "cursor"),
+      heads: arr(s.heads, "heads").map((h, i) => block(h, `heads[${i}]`)),
       sweptThrough: int(s.sweptThrough, "sweptThrough", -1),
       pendingTombstones: arr(s.pendingTombstones, "pendingTombstones").map(
         (value, i) => {

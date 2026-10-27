@@ -8,12 +8,21 @@ import {
   requireWriter,
   reverifyPssHints,
 } from "../pss/noteMirror.js";
-import { NoteStore, noteKey, type StoredNote } from "../store/noteStore.js";
+import {
+  NoteStore,
+  noteKey,
+  type StoredNote,
+  type SyncPoint,
+} from "../store/noteStore.js";
 import { FakePss, INSTALL } from "./fixtures/pss.js";
 import { MemoryStore } from "./fixtures/store.js";
 import { note } from "./fixtures/tree.js";
 
 const KEY = "hisoka.runtime.v1.test.notes";
+
+function at(n: number): SyncPoint {
+  return { head: block(n), maxReorgBlocks: 16 };
+}
 
 function block(n: number): { number: number; hash: string } {
   return {
@@ -55,7 +64,7 @@ describe("PSS note mirror", () => {
         await stored(4, 10, { spent: { block: block(15), txHash: "0x01" } }),
         await stored(5, 10, { spent: { block: block(25), txHash: "0x02" } }),
       ],
-      block(30),
+      at(30),
     );
     await notes.markSpent([], 30);
     const pss = new FakePss();
@@ -84,14 +93,14 @@ describe("PSS note mirror", () => {
     const notes = await NoteStore.open(new MemoryStore(), KEY);
     const pss = new FakePss();
     const x = await stored(1, 10);
-    await notes.record([x, await stored(2, 9)], block(10));
+    await notes.record([x, await stored(2, 9)], at(10));
     await notes.markSpent([], 10);
     await mirrorNotes(pss, notes, block(10));
     expect(pss.payload.known.unspentNotes.map((n) => n.leafIndex)).toEqual([
       1, 2,
     ]);
 
-    await notes.rollback(block(9), 3);
+    await notes.rollback({ ancestor: block(9), orphaned: [block(10)] });
     expect(notes.pendingTombstones).toHaveLength(1);
     await mirrorNotes(pss, notes, block(9));
     expect(pss.payload.known.unspentNotes.map((n) => n.leafIndex)).toEqual([2]);
@@ -108,7 +117,7 @@ describe("PSS note mirror", () => {
 
   it("writes nothing from a read-only install, and refuses to mint there", async () => {
     const notes = await NoteStore.open(new MemoryStore(), KEY);
-    await notes.record([await stored(1, 10)], block(10));
+    await notes.record([await stored(1, 10)], at(10));
     const pss = new FakePss();
     pss.state = {
       mode: "readonly",

@@ -1,6 +1,10 @@
 import type { CompleteComplianceHistory, IDarkAccount } from "@hisoka/wallets";
 import type { ChainReader } from "./chain/chainReader.js";
-import { stillCanonical, type LogSource } from "./chain/logs.js";
+import {
+  newestCanonical,
+  stillCanonical,
+  type LogSource,
+} from "./chain/logs.js";
 import type { BlockId, BlockRef } from "./chain/rpc.js";
 import type { ChainConfig } from "./config.js";
 import type { DiscoveryHead, DiscoveryPort } from "./discovery/ports.js";
@@ -20,6 +24,8 @@ import {
   noteKey,
   nullifierHex,
   type NoteStore,
+  type PlanRecord,
+  type Reorg,
   type RollbackResult,
 } from "./store/noteStore.js";
 
@@ -57,57 +63,106 @@ export interface SyncReport {
   readonly phantoms: readonly number[];
   readonly hints: { readonly confirmed: number; readonly rejected: number };
   readonly sweptTo: BlockRef;
+  /** Submitted plans this sync settled because their deadline passed at the confirmed head. */
+  readonly settled: readonly PlanRecord[];
   readonly mirror: MirrorResult | null;
 }
 
+function blockKey(b: BlockId): string {
+  return `${b.number}:${b.hash}`;
+}
+
+/** Every block the store recorded something at: cursor, earlier heads, inclusions, spends, submissions. */
+function recordedBlocks(notes: NoteStore): BlockId[] {
+  const points = new Map<string, BlockId>();
+  const add = (b: BlockId | null | undefined): void => {
+    if (b !== null && b !== undefined) points.set(blockKey(b), b);
+  };
+  add(notes.cursor);
+  for (const h of notes.heads) add(h);
+  for (const n of notes.notes) {
+    add(n.block);
+    add(n.spent?.block);
+  }
+  for (const p of notes.plans) add(p.submission?.block);
+  return [...points.values()];
+}
+
 /**
- * The newest block the store recorded that is still canonical, no deeper than `maxReorgBlocks` below the
- * cursor; null when none is (the store then undoes everything).
+ * Whether the chain reorged under what the store recorded, from block hashes alone. The cursor and anything
+ * recorded above it (spends, submissions) are checked first; when all are still canonical nothing moved.
+ * Otherwise every recorded block within `maxReorgBlocks` of the cursor is checked one by one, and the newest
+ * recorded block at or below that bound must still be canonical (else `REORG_TOO_DEEP`, nothing changes).
+ * The result names exactly the recorded blocks that left the chain, so the rollback never touches a note in a
+ * block still on it.
  */
-async function storeAncestor(
+async function establishReorg(
   deps: Pick<WalletSyncDeps, "chain" | "config" | "notes">,
-  cursor: BlockId,
-): Promise<BlockId | null> {
-  const floor = cursor.number - deps.config.maxReorgBlocks;
-  const points = new Map<number, BlockId>();
-  for (const n of deps.notes.notes) {
-    points.set(n.block.number, n.block);
-    if (n.spent !== null) points.set(n.spent.block.number, n.spent.block);
+): Promise<Reorg | null> {
+  const cursor = deps.notes.cursor;
+  if (cursor === null) return null;
+  const { maxReorgBlocks } = deps.config;
+  const floor = cursor.number - maxReorgBlocks;
+  const points = recordedBlocks(deps.notes);
+  const alive = new Map<string, boolean>();
+  const check = async (b: BlockId): Promise<boolean> => {
+    const known = alive.get(blockKey(b));
+    if (known !== undefined) return known;
+    const canonical = await stillCanonical(deps.chain, b);
+    alive.set(blockKey(b), canonical);
+    return canonical;
+  };
+
+  let moved = false;
+  for (const b of points.filter((p) => p.number >= cursor.number)) {
+    if (!(await check(b))) moved = true;
   }
-  const candidates = [...points.values()]
-    .filter((b) => b.number >= floor && b.number < cursor.number)
-    .sort((a, b) => b.number - a.number);
-  for (const point of candidates) {
-    if (await stillCanonical(deps.chain, point)) return point;
-  }
-  return null;
+  if (!moved) return null;
+
+  for (const b of points.filter((p) => p.number > floor)) await check(b);
+  const orphaned = points.filter((b) => alive.get(blockKey(b)) === false);
+  const anchor = await newestCanonical(
+    deps.chain,
+    [
+      ...orphaned.filter((b) => b.number <= floor),
+      ...points.filter((p) => p.number <= floor && !alive.has(blockKey(p))),
+    ],
+    floor,
+    maxReorgBlocks,
+  );
+  const lowest = Math.min(...orphaned.map((b) => b.number));
+  const ancestor = [
+    ...points.filter(
+      (b) =>
+        alive.get(blockKey(b)) === true &&
+        b.number < lowest &&
+        b.number <= cursor.number,
+    ),
+    ...(anchor === null ? [] : [anchor]),
+  ].reduce<BlockId | null>(
+    (best, b) => (best === null || b.number > best.number ? b : best),
+    null,
+  );
+  return { ancestor, orphaned };
 }
 
 /**
  * One wallet sync, in order: discovery to `latest`, a local rollback when the chain reorged under what the
  * store holds, note discovery over the self and incoming families, re-verification of PSS hints against
- * what discovery found, the whole-set nullifier sweep, and the PSS mirror at the PSS write depth.
+ * what discovery found, the whole-set nullifier sweep, the settlement of submitted plans whose deadline
+ * passed, and the PSS mirror at the PSS write depth.
  *
- * A reorg is seen two ways: the discovery adapter reports `rewoundTo` (it dropped leaves), or the store's
- * cursor is no longer canonical (a reorg the adapter absorbed without dropping a leaf can still have moved
- * a spend). Either way the store rolls back in one write before anything new is recorded.
+ * The reorg is established from the block hashes the store recorded, never from the adapter's report alone:
+ * an adapter rewind (or one it absorbed during a spend's preflight) says leaves moved, but only a hash that
+ * left the chain says which notes did. The store rolls back exactly those, in one write, before anything new
+ * is recorded.
  */
 export async function syncWallet(deps: WalletSyncDeps): Promise<SyncReport> {
   const { notes } = deps;
   const head = await deps.discovery.sync();
 
-  let rolledBack: RollbackResult | null = null;
-  if (head.rewoundTo !== undefined) {
-    rolledBack = await notes.rollback(head.ancestor ?? null, head.rewoundTo);
-  } else if (
-    notes.cursor !== null &&
-    !(await stillCanonical(deps.chain, notes.cursor))
-  ) {
-    rolledBack = await notes.rollback(
-      await storeAncestor(deps, notes.cursor),
-      Number.POSITIVE_INFINITY,
-    );
-  }
+  const reorg = await establishReorg(deps);
+  const rolledBack = reorg === null ? null : await notes.rollback(reorg);
 
   const history = await deps.history();
   const found = await discoverWallet(
@@ -118,7 +173,10 @@ export async function syncWallet(deps: WalletSyncDeps): Promise<SyncReport> {
     await deps.highWater(),
     deps.config.maxOccurrencesPerTag,
   );
-  await notes.record(found.notes.map(storedFrom), head.block);
+  await notes.record(found.notes.map(storedFrom), {
+    head: head.block,
+    maxReorgBlocks: deps.config.maxReorgBlocks,
+  });
 
   let hints = { confirmed: 0, rejected: 0 };
   if (deps.pss !== undefined) {
@@ -148,6 +206,14 @@ export async function syncWallet(deps: WalletSyncDeps): Promise<SyncReport> {
   }
 
   const sweptTo = await sweepNullifiers(deps, notes);
+  const confirmed = await deps.chain.confirmedHead(
+    deps.config.confirmations.spendableNotes,
+  );
+  const settled = await notes.settleSubmitted({
+    confirmedHead: confirmed.number,
+    sweptThrough: notes.sweptThrough,
+    now: confirmed.timestamp,
+  });
 
   let mirror: MirrorResult | null = null;
   if (deps.pss !== undefined) {
@@ -165,6 +231,7 @@ export async function syncWallet(deps: WalletSyncDeps): Promise<SyncReport> {
     phantoms: found.phantoms,
     hints,
     sweptTo,
+    settled,
     mirror,
   };
 }

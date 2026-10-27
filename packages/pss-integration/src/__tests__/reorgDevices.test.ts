@@ -203,7 +203,7 @@ describe("a reorg across two devices against a real server", () => {
 
     // A, the writer, mirrors confirmed note X at leaf 7 (PSS write depth 0, as on hardhat).
     const x = await owned(1n, block(20, 0));
-    await notesA.record([x], block(20, 0));
+    await notesA.record([x], { head: block(20, 0), maxReorgBlocks: 16 });
     await a.update((p) => p);
     await a.flushNow();
     expect(a.state.mode).toBe("writer");
@@ -218,7 +218,10 @@ describe("a reorg across two devices against a real server", () => {
     expect(leaves(b)).toEqual([LEAF]);
 
     // A reorg drops X. A rolls back in one write and its next mirror tombstones X.
-    const rolled = await notesA.rollback(block(19, 0), LEAF);
+    const rolled = await notesA.rollback({
+      ancestor: block(19, 0),
+      orphaned: [block(20, 0)],
+    });
     expect(rolled.droppedNotes.map((n) => n.leafIndex)).toEqual([LEAF]);
     await mirrorNotes(a, notesA, block(21, 1));
     await a.flushNow();
@@ -249,7 +252,7 @@ describe("a reorg across two devices against a real server", () => {
 
     // On B's fork leaf 7 now holds Y, and B mirrors it.
     const y = await owned(2n, block(20, 1));
-    await notesB.record([y], block(21, 1));
+    await notesB.record([y], { head: block(21, 1), maxReorgBlocks: 16 });
     await mirrorNotes(b, notesB, block(21, 1));
     await b.flushNow();
     expect(b.state.degraded).toBeNull();

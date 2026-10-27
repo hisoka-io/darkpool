@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { RpcLogSource } from "../chain/logs.js";
 import type { DiscoveryPort } from "../discovery/ports.js";
 import { readComplianceHistory } from "../history/compliance.js";
-import { nullifierHex, type NoteView } from "../store/noteStore.js";
+import { mergeStatePayloads } from "@hisoka/pss-client";
+import { WalletRuntimeError } from "../errors.js";
+import { noteKey, nullifierHex, type NoteView } from "../store/noteStore.js";
 import { syncWallet, type WalletSyncDeps } from "../walletSync.js";
 import { funded, runtimeEnv, type RuntimeEnv } from "./fixtures/env.js";
 import { ASSET, evenSelfIndex, selfNote } from "./fixtures/mint.js";
@@ -126,7 +128,7 @@ describe("wallet sync", () => {
     expect(env.notes.cursor?.hash).toBe(env.pool.chain.blocks[22]!.hash);
   });
 
-  it("rolls back what the adapter reports rewound even while the store's cursor is still canonical", async () => {
+  it("drops nothing on an adapter rewind when every block the store recorded is still canonical", async () => {
     const env = await runtimeEnv(20);
     await funded(env, [100n, 20n]);
     let rewind = true;
@@ -148,11 +150,105 @@ describe("wallet sync", () => {
       leafAt: (i) => env.index.leafAt(i),
     };
     const report = await syncWallet(syncDeps(env, undefined, rewinding));
-    expect(report.rolledBack?.droppedNotes.map((n) => n.leafIndex)).toEqual([
-      2,
-    ]);
-    // Discovery finds the note again at the same position, since the chain still holds it.
+    expect(report.head.rewoundTo).toBe(2);
+    expect(report.rolledBack).toBeNull();
     expect(env.notes.notes.map((n) => n.leafIndex)).toEqual([1, 2]);
+  });
+
+  for (const shape of ["self-index", "silent adapter"] as const) {
+    it(`keeps a canonical mirrored note through a tip reorg with nothing recorded near the tip (${shape})`, async () => {
+      const env = await runtimeEnv(20);
+      const pss = new FakePss();
+      const silent: DiscoveryPort = {
+        sync: async () => {
+          const head = await env.index.sync();
+          return {
+            leafCount: head.leafCount,
+            root: head.root,
+            block: head.block,
+          };
+        },
+        match: (tags) => env.index.match(tags),
+        leafAt: (i) => env.index.leafAt(i),
+      };
+      const port = shape === "self-index" ? env.index : silent;
+      const [note] = await funded(env, [100n]);
+      env.pool.chain.mine(31);
+      await syncWallet(syncDeps(env, pss, port));
+      expect(pss.payload.known.unspentNotes.map((n) => n.leafIndex)).toEqual([
+        1,
+      ]);
+
+      env.pool.reorgFrom(env.pool.chain.head);
+      const report = await syncWallet(syncDeps(env, pss, port));
+      expect(report.rolledBack?.droppedNotes).toEqual([]);
+      expect(env.notes.notes.map((n) => n.block)).toEqual([note!.block]);
+      expect(pss.payload.known.droppedNotes).toEqual([]);
+      const merged = mergeStatePayloads([
+        { payload: pss.current(), noteListComplete: true },
+      ]);
+      expect(merged.known.unspentNotes.map((n) => n.leafIndex)).toEqual([1]);
+    });
+  }
+
+  for (const shape of ["self-index", "adapter that saw no reorg"] as const) {
+    it(`fails REORG_TOO_DEEP and changes nothing when a block below the reorg bound left the chain (${shape})`, async () => {
+      const env = await runtimeEnv(20);
+      await funded(env, [100n]);
+      env.pool.chain.mine(31);
+      const last = await env.index.sync();
+      const frozen: DiscoveryPort = {
+        sync: async () => last,
+        match: (tags) => env.index.match(tags),
+        leafAt: (i) => env.index.leafAt(i),
+      };
+      const port = shape === "self-index" ? env.index : frozen;
+      await syncWallet(syncDeps(env, undefined, port));
+      const before = env.notes.notes;
+      const cursor = env.notes.cursor;
+
+      env.pool.reorgFrom(10);
+      const err = await syncWallet(syncDeps(env, undefined, port)).catch(
+        (e: unknown) => e,
+      );
+      expect((err as WalletRuntimeError).code).toBe("REORG_TOO_DEEP");
+      expect((err as WalletRuntimeError).context.block).toBe("20");
+      expect(env.notes.notes).toBe(before);
+      expect(env.notes.cursor).toEqual(cursor);
+    });
+  }
+
+  it("keeps the block a blockless adapter first found a note at, so the note confirms", async () => {
+    const env = await runtimeEnv(20);
+    const blockless: DiscoveryPort = {
+      sync: () => env.index.sync(),
+      match: async (tags) =>
+        (await env.index.match(tags)).map((m) => ({
+          ...m,
+          blocks: m.positions.map(() => null),
+        })),
+      leafAt: (i) => env.index.leafAt(i),
+    };
+    await funded(env, [100n]);
+    const first = env.pool.chain.blocks[20]!;
+    // funded() synced through the self-index; start this store over under the blockless adapter.
+    for (const n of env.notes.notes) await env.notes.discard(noteKey(n), null);
+    await syncWallet(syncDeps(env, undefined, blockless));
+    expect(env.notes.notes[0]!.block).toEqual({
+      number: 20,
+      hash: first.hash,
+    });
+
+    env.pool.chain.mine(5);
+    await syncWallet(syncDeps(env, undefined, blockless));
+    expect(env.notes.notes[0]!.block.number).toBe(20);
+    expect(
+      env.notes.state(env.notes.notes[0]!, {
+        confirmedHead: 23,
+        sweptThrough: 25,
+        now: 0n,
+      }),
+    ).toBe("spendable");
   });
 
   it("tombstones a PSS hint discovery does not back, and leaves one above the chain head alone", async () => {

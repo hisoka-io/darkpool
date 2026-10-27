@@ -484,7 +484,10 @@ describe("preflight view", () => {
     const a = await selfNote(alice, s0, 10n, pk);
     await pool.insertSelf(10, a);
     const index = await indexed(pool);
-    const source = discoverySourceOver(index, 100);
+    const rewinds: number[] = [];
+    const source = discoverySourceOver(index, 100, (head) =>
+      rewinds.push(head.rewoundTo),
+    );
     // A second occurrence lands after the adapter's last sync: the probe must see it.
     await pool.insertSelf(61, await selfNote(alice, s0, 11n, pk));
     pool.chain.mine(2);
@@ -499,5 +502,12 @@ describe("preflight view", () => {
     expect(second?.leafIndex).toBe(2);
     const err = await source.fetchLeafBlock(0).catch((e: unknown) => e);
     expect((err as WalletRuntimeError).code).toBe("DISCOVERY_UNAVAILABLE");
+    expect(rewinds).toEqual([]);
+
+    // A reorg the probe's sync absorbs is handed on, not swallowed.
+    pool.reorgFrom(61);
+    pool.chain.mine(1);
+    await source.probeFirst([a.tag]);
+    expect(rewinds).toEqual([2]);
   });
 });

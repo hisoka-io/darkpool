@@ -211,4 +211,28 @@ describe("compliance key history", () => {
     expect((await readComplianceHistory(d)).history.currentVersion).toBe(3);
     expect(Math.min(...logStarts(chain))).toBe(DEPLOY);
   });
+  it("reads the current key at the head its logs reach, so a rotation landing mid-read cannot split them", async () => {
+    const chain = rotatingChain({ initEvent: true });
+    const d = deps(chain);
+    const real = d.logs;
+    let rotated = false;
+    const logs = {
+      logs: async (q: Parameters<typeof real.logs>[0]) => {
+        const out = await real.logs(q);
+        if (!rotated) {
+          rotated = true;
+          chain.mine();
+          chain.emit(41, "ComplianceKeyRotated", [3n, 4n, K[3]![0], K[3]![1]]);
+          const before = chain.compliance;
+          chain.compliance = (n) =>
+            n >= 41 ? { x: K[3]![0], y: K[3]![1], version: 4 } : before(n);
+        }
+        return out;
+      },
+    };
+    const { history, head } = await readComplianceHistory({ ...d, logs });
+    expect(head.number).toBe(40);
+    expect(history.currentVersion).toBe(3);
+    expect(history.currentPk).toEqual(K[2]);
+  });
 });

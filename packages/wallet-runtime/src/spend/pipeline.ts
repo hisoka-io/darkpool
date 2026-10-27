@@ -44,6 +44,7 @@ import type { DiscoveryPort, WitnessPort } from "../discovery/ports.js";
 import { requireWriter, type PssStatePort } from "../pss/noteMirror.js";
 import {
   noteKey,
+  submittedDeadline,
   type NoteStore,
   type StoredNote,
 } from "../store/noteStore.js";
@@ -537,6 +538,7 @@ export class SpendPipeline {
         sweptThrough: notes.sweptThrough,
         now: pin.block.timestamp,
       };
+      await notes.settleSubmitted(view);
       for (const input of held) {
         const state = notes.state(input, view);
         if (state !== "spendable") {
@@ -585,7 +587,7 @@ export class SpendPipeline {
             { reason: "CURRENT_KEY_MISMATCH" },
           );
         }
-        const mints = await this.#reserve(mintCount, history);
+        const mints = await this.#reserve(mintCount, history, held);
         const ctx: AssemblyContext = {
           compliancePk: history.currentPk,
           complianceVersion: history.currentVersion,
@@ -778,7 +780,7 @@ export class SpendPipeline {
           );
         }
         const recipientFr = addressFr(recipient);
-        const [changeMint] = await this.#reserve(1, history);
+        const [changeMint] = await this.#reserve(1, history, [fee]);
         const assembled = await assembleWithdraw(ctx, {
           input: this.#one(spend),
           value: amount,
@@ -832,17 +834,40 @@ export class SpendPipeline {
     return { prover, proven: () => proven };
   }
 
+  /**
+   * Self-mint preflight syncs discovery to `latest`. A rewind there that reaches an input's leaf stops the
+   * action before it proves: the input may be gone from the chain, and the next wallet sync rolls the store
+   * back from block hashes. A rewind above every input changes only occupancy, which preflight reads after it.
+   */
   async #reserve(
     count: 0 | 1 | 2,
     history: CompleteComplianceHistory,
+    held: readonly StoredNote[],
   ): Promise<readonly SelfMintAuthorization[]> {
     if (count === 0) return [];
     requireWriter(this.deps.pss);
+    const onRewind = (head: {
+      readonly rewoundTo: number;
+      readonly block: { readonly number: number };
+    }): void => {
+      const hit = held.find((i) => i.leafIndex >= head.rewoundTo);
+      if (hit === undefined) return;
+      throw new WalletRuntimeError(
+        "HEAD_REORGED",
+        `discovery dropped every leaf from ${head.rewoundTo} on while this action was assembling, which includes input leaf ${hit.leafIndex}; sync the wallet and plan the action again`,
+        {
+          head: String(head.block.number),
+          rewoundTo: String(head.rewoundTo),
+          leafIndex: String(hit.leafIndex),
+        },
+      );
+    };
     const preflight = new SelfMintPreflight({
       allocator: this.deps.allocator,
       discovery: discoverySourceOver(
         this.deps.discovery,
         this.deps.config.maxOccurrencesPerTag,
+        onRewind,
       ),
       history,
       ownerCommitment: await pubkeyOwner(
@@ -861,6 +886,10 @@ export class SpendPipeline {
         requireWriter(this.deps.pss);
       }
       if (cause instanceof WalletRuntimeError) throw cause;
+      // Preflight wraps what its discovery source threw; a runtime error there keeps its own code.
+      if (cause instanceof Error && cause.cause instanceof WalletRuntimeError) {
+        throw cause.cause;
+      }
       throw new WalletRuntimeError(
         "PSS_UNAVAILABLE",
         `reserving ${count} self ephemeral(s) failed: ${describeCause(cause)}`,
@@ -899,10 +928,13 @@ export class SpendPipeline {
         outcome.resumeToken === null
           ? null
           : decodeNoxResume(outcome.resumeToken);
-      await this.deps.notes.updatePlan(planId, (p) => ({ ...p, resume }));
+      const plan = await this.deps.notes.updatePlan(planId, (p) => ({
+        ...p,
+        resume,
+      }));
       throw new WalletRuntimeError(
         "SUBMIT_UNKNOWN",
-        `${circuit} submission outcome is unknown: ${outcome.detail}; the notes stay leased until the resume token expires`,
+        `${circuit} submission outcome is unknown: ${outcome.detail}; the notes stay leased until a confirmed block is later than chain time ${submittedDeadline(plan)}${resume === null ? " (the lease end; with no resume token the transaction can still land after it)" : " (the execution's validUntilUnix)"}, then a sync or the next action releases the ones the sweep shows unspent`,
         {
           resumeToken:
             resume === null
