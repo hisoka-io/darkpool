@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { ethers } from "hardhat";
+import { artifacts, ethers } from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import {
@@ -34,6 +34,7 @@ import {
   HOWL_WITHDRAW_MULTISIG_PROFILE,
   HOWL_WITHDRAW_PROFILE,
   howlMultisigPaymentSource,
+  howlPaymentSource,
   howlWithdrawActionGasLimit,
 } from "@hisoka/adaptors";
 
@@ -642,6 +643,7 @@ describe("HowlPaymentAdapter on withdrawMultisig", function () {
 
     const source = howlMultisigPaymentSource({
       adapter: adapterAddress,
+      runner: ethers.provider,
       feeAsset: asset,
       feeNoteNullifier: multisigPaymentId,
       feeNoteValue,
@@ -995,13 +997,242 @@ describe("HowlPaymentAdapter on withdrawMultisig", function () {
     expect(multisigActionGas).to.be.lessThanOrEqual(
       howlWithdrawActionGasLimit(HOWL_WITHDRAW_MULTISIG_PROFILE),
     );
+  });
+
+  it("refuses a payment source pointed at the other adapter instance before proving", async function () {
+    const ctx = await loadFixture(deployMultisigFixture);
+    const {
+      multisigAdapter,
+      standardAdapter,
+      darkPool,
+      asset,
+      feeNoteValue,
+      totalFee,
+      multisigPaymentId,
+      standardPaymentId,
+    } = ctx;
+    const reachedProving = "reached proving";
+    const sourceArgs = (adapter: string, feeNoteNullifier: string) => ({
+      adapter,
+      runner: ethers.provider,
+      feeAsset: asset,
+      feeNoteNullifier,
+      feeNoteValue,
+      proveFeeWithdraw: () => Promise.reject(new Error(reachedProving)),
+    });
+    const request = {
+      executionId: ethers.getBytes(ethers.id("adapter-kind")),
+      amount: totalFee,
+      feeAsset: asset,
+    };
+    const rejection = async (pending: Promise<unknown>) => {
+      try {
+        await pending;
+      } catch (error) {
+        return (error as Error).message;
+      }
+      throw new Error("buildPaymentData must reject");
+    };
+    const standardAddress = await standardAdapter.getAddress();
+    const multisigAddress = await multisigAdapter.getAddress();
+
     expect(
-      HOWL_WITHDRAW_MULTISIG_PROFILE.payFrameGas -
-        HOWL_WITHDRAW_PROFILE.payFrameGas,
-    ).to.be.greaterThanOrEqual(multisigPayGas - standardPayGas);
+      await rejection(
+        howlMultisigPaymentSource(
+          sourceArgs(standardAddress, multisigPaymentId),
+        ).buildPaymentData(request),
+      ),
+    ).to.match(
+      /pulls fees through withdraw \(MULTISIG\(\) is false\).*use the instance whose MULTISIG\(\) is true/,
+    );
     expect(
-      HOWL_WITHDRAW_MULTISIG_PROFILE.withdrawFrameGas -
-        HOWL_WITHDRAW_PROFILE.withdrawFrameGas,
-    ).to.be.greaterThanOrEqual(multisigActionGas - standardActionGas);
+      await rejection(
+        howlPaymentSource(
+          sourceArgs(multisigAddress, standardPaymentId),
+        ).buildPaymentData(request),
+      ),
+    ).to.match(
+      /pulls fees through withdrawMultisig \(MULTISIG\(\) is true\).*use the instance whose MULTISIG\(\) is false/,
+    );
+    expect(
+      await rejection(
+        howlPaymentSource(
+          sourceArgs(await darkPool.getAddress(), standardPaymentId),
+        ).buildPaymentData(request),
+      ),
+    ).to.match(/Reading MULTISIG\(\) from payment adapter .* failed/);
+
+    expect(
+      await rejection(
+        howlPaymentSource(
+          sourceArgs(standardAddress, standardPaymentId),
+        ).buildPaymentData(request),
+      ),
+    ).to.equal(reachedProving);
+    expect(
+      await rejection(
+        howlMultisigPaymentSource(
+          sourceArgs(multisigAddress, multisigPaymentId),
+        ).buildPaymentData(request),
+      ),
+    ).to.equal(reachedProving);
+  });
+});
+
+describe("Howl payment source spend veto against the compiled pool", function () {
+  this.timeout(180_000);
+
+  /** Circuit id, input count, compliance and root positions per entrypoint, as `DarkPool` reads them. */
+  const SPENDS = [
+    { fn: "withdraw", circuit: 1, inputs: 17, compliance: 3, root: 6 },
+    { fn: "withdrawMultisig", circuit: 6, inputs: 17, compliance: 3, root: 6 },
+    { fn: "privateTransfer", circuit: 2, inputs: 24, compliance: 0, root: 3 },
+    { fn: "transferMultisig", circuit: 7, inputs: 24, compliance: 0, root: 3 },
+    { fn: "split", circuit: 4, inputs: 22, compliance: 0, root: 3 },
+    { fn: "splitMultisig", circuit: 8, inputs: 22, compliance: 0, root: 3 },
+    { fn: "join", circuit: 3, inputs: 14, compliance: 0, root: 4 },
+    { fn: "joinMultisig", circuit: 9, inputs: 14, compliance: 0, root: 4 },
+  ] as const;
+
+  async function stubVerifiedPoolFixture() {
+    const base = await deployDarkPoolFixture();
+    const stub = await (
+      await ethers.getContractFactory("StubVerifier")
+    ).deploy();
+    for (const spend of SPENDS) {
+      await base.darkPool.setVerifier(spend.circuit, await stub.getAddress());
+    }
+    return base;
+  }
+
+  const sourceFor = (feeNoteNullifier: string) =>
+    howlPaymentSource({
+      adapter: ethers.ZeroAddress,
+      runner: ethers.provider,
+      feeAsset: ethers.ZeroAddress,
+      feeNoteNullifier,
+      feeNoteValue: 1n,
+      proveFeeWithdraw: () => Promise.reject(new Error("not proving")),
+    });
+
+  const vetoes = (feeNoteNullifier: string, data: string) => {
+    try {
+      sourceFor(feeNoteNullifier).checkAction({ data: ethers.getBytes(data) });
+      return false;
+    } catch (error) {
+      expect((error as Error).message).to.match(/spends the fee note/);
+      return true;
+    }
+  };
+
+  it("vetoes exactly the inputs each pool entrypoint spends as nullifiers", async function () {
+    const { darkPool, alice, token } = await loadFixture(
+      stubVerifiedPoolFixture,
+    );
+    const pool = new ethers.Interface(darkPool.interface.fragments);
+    for (const [k, spend] of SPENDS.entries()) {
+      const words = Array.from({ length: spend.inputs }, (_, i) =>
+        ethers.toBeHex(0x10_000n + 0x100n * BigInt(k) + BigInt(i), 32),
+      );
+      words[spend.compliance] = ethers.toBeHex(COMPLIANCE_PK[0], 32);
+      words[spend.compliance + 1] = ethers.toBeHex(COMPLIANCE_PK[1], 32);
+      words[spend.root] = await darkPool.getCurrentRoot();
+      if (spend.inputs === 17) {
+        words[0] = ethers.ZeroHash;
+        words[1] = ethers.zeroPadValue(alice.address, 32);
+        words[7] = ethers.zeroPadValue(await token.getAddress(), 32);
+      }
+      const receipt = await (
+        await alice.sendTransaction({
+          to: await darkPool.getAddress(),
+          data: pool.encodeFunctionData(spend.fn, ["0x", words]),
+        })
+      ).wait();
+      const spent = receipt!.logs
+        .map((log) => pool.parseLog(log))
+        .filter((log) => log?.name === "NullifierSpent")
+        .map((log) => words.indexOf(log!.args[0] as string));
+      expect(spent.length, spend.fn).to.be.greaterThan(0);
+
+      const action = pool.encodeFunctionData(spend.fn, ["0x", words]);
+      const vetoed = words
+        .map((word, i) =>
+          word !== ethers.ZeroHash && vetoes(word, action) ? i : -1,
+        )
+        .filter((i) => i >= 0);
+      expect(vetoed, spend.fn).to.deep.equal(spent);
+
+      const short = pool.encodeFunctionData(spend.fn, [
+        "0x",
+        words.slice(0, -1),
+      ]);
+      expect(() =>
+        sourceFor(words[spent[0]!]!).checkAction({
+          data: ethers.getBytes(short),
+        }),
+      ).to.throw(`requires ${spend.inputs} public inputs`);
+      await expect(
+        alice.sendTransaction({ to: await darkPool.getAddress(), data: short }),
+      ).to.be.revertedWithCustomError(darkPool, "InvalidInputsLength");
+    }
+  });
+
+  it("vetoes the fee note in the compiled swap and bundle entrypoints", async function () {
+    const { darkPool } = await loadFixture(stubVerifiedPoolFixture);
+    const swap = new ethers.Interface(
+      (await artifacts.readArtifact("UniswapAdaptor")).abi,
+    );
+    const bundle = new ethers.Interface(
+      (await artifacts.readArtifact("BundleExecutor")).abi,
+    );
+    const fee = ethers.toBeHex(0xfee, 32);
+    const other = ethers.toBeHex(0x0be, 32);
+    const withdrawWords = (nullifier: string) =>
+      Array.from({ length: 17 }, (_, i) =>
+        i === 5 ? nullifier : ethers.toBeHex(i + 1, 32),
+      );
+
+    const swapAction = (nullifier: string) =>
+      swap.encodeFunctionData("executeSwap", [
+        "0x",
+        withdrawWords(nullifier),
+        0,
+        "0x",
+        1n,
+      ]);
+    expect(vetoes(fee, swapAction(fee))).to.equal(true);
+    expect(vetoes(fee, swapAction(other))).to.equal(false);
+
+    const boundCall = (data: string) => ({
+      target: ethers.ZeroAddress,
+      data,
+      value: 0n,
+      requireSuccess: true,
+      approveToken: ethers.ZeroAddress,
+      approveAmount: 0n,
+      gasLimit: 1n,
+      returnDataLimit: 0n,
+    });
+    const bundleAction = (nullifier: string, calls: readonly string[]) =>
+      bundle.encodeFunctionData("execute", [
+        "0x",
+        withdrawWords(nullifier),
+        calls.map(boundCall),
+        1n,
+        [],
+        [],
+      ]);
+    const nestedWithdraw = (nullifier: string) =>
+      darkPool.interface.encodeFunctionData("withdraw", [
+        "0x",
+        withdrawWords(nullifier),
+      ]);
+    expect(vetoes(fee, bundleAction(fee, []))).to.equal(true);
+    expect(vetoes(fee, bundleAction(other, [nestedWithdraw(fee)]))).to.equal(
+      true,
+    );
+    expect(
+      vetoes(fee, bundleAction(other, [nestedWithdraw(other), "0x"])),
+    ).to.equal(false);
   });
 });
