@@ -7,6 +7,7 @@ import {
   deployController,
   deployGoldenSettlementFixture,
 } from "../helpers/settlementFixtures";
+import { revertData } from "../helpers/revertData";
 import { Fr } from "@hisoka/wallets";
 import {
   KAGE_PROOF,
@@ -18,6 +19,10 @@ import {
 
 // Layout of the golden vector: [0,1] compliance; [2] timestamp; [3,4] nullifiers; [5] root; outputs at 6/15/24/33.
 const OUTPUT_LEAF_INDICES = [6, 15, 24, 33];
+
+// Error selectors of the generated UltraHonk verifier (`*_SELECTOR` constants in KageVerifier.sol).
+const HONK_VALUE_GE_LIMB_MAX = "0xeb73e0bd";
+const HONK_SUMCHECK_FAILED = "0x9fc3a218";
 
 describe("settle (real recursive Kage proof through a registered module)", function () {
   it("genesis + seed reach the golden root", async function () {
@@ -94,28 +99,42 @@ describe("settle (real recursive Kage proof through a registered module)", funct
     ).to.be.revertedWithCustomError(darkPool, "NullifierAlreadySpent");
   });
 
-  it("rejects a corrupted proof, a mutated output leaf and a mutated root", async function () {
+  it("rejects a corrupted proof, a mutated output leaf and a mutated root, each with its exact error and no effect", async function () {
     const { darkPool, controller } = await loadFixture(
       deployGoldenSettlementFixture,
     );
     const pi = KAGE_PUBLIC_INPUTS;
+    const rootBefore = await darkPool.getCurrentRoot();
 
+    const expectUnchanged = async () => {
+      expect(await darkPool.isNullifierSpent(pi[3])).to.equal(false);
+      expect(await darkPool.isNullifierSpent(pi[4])).to.equal(false);
+      expect(await darkPool.getNextLeafIndex()).to.equal(3n);
+      expect(await darkPool.getCurrentRoot()).to.equal(rootBefore);
+    };
+
+    // The generated verifier reverts with raw selectors it does not declare in its ABI, so the data is matched
+    // as bytes. DarkPool forwards it unchanged; a DarkPool guard firing first would carry a different selector.
     const corrupt = ethers.getBytesCopy(KAGE_PROOF);
     corrupt[32] ^= 0x01;
-    await expect(controller.settle(ethers.hexlify(corrupt), pi)).to.be.reverted;
+    expect(
+      await revertData(controller.settle(ethers.hexlify(corrupt), pi)),
+    ).to.equal(HONK_VALUE_GE_LIMB_MAX);
+    await expectUnchanged();
 
     const mutO = [...pi];
     mutO[6] = b32(BigInt(pi[6]) + 1n);
-    await expect(controller.settle(KAGE_PROOF, mutO)).to.be.reverted;
+    expect(await revertData(controller.settle(KAGE_PROOF, mutO))).to.equal(
+      HONK_SUMCHECK_FAILED,
+    );
+    await expectUnchanged();
 
     const mutR = [...pi];
     mutR[5] = b32(BigInt(pi[5]) + 1n);
     await expect(
       controller.settle(KAGE_PROOF, mutR),
     ).to.be.revertedWithCustomError(darkPool, "InvalidRoot");
-
-    expect(await darkPool.isNullifierSpent(pi[3])).to.equal(false);
-    expect(await darkPool.getNextLeafIndex()).to.equal(3n);
+    await expectUnchanged();
   });
 
   it("rejects the golden proof from an EOA and from an unregistered controller", async function () {

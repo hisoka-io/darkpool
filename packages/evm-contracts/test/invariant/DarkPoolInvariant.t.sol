@@ -61,6 +61,7 @@ contract DarkPoolHandler {
 
     bytes32[] internal openMemos;
     uint256 public feeTokenDepositsAccepted;
+    uint256 public settlesAccepted;
 
     constructor(
         DarkPool _pool,
@@ -279,6 +280,7 @@ contract DarkPoolHandler {
         pi[34] = _leaf(leafSeed + 7);
 
         try settlementModule.settle("", pi) {
+            settlesAccepted += 1;
             _recordNullifier(takerNullifier);
             _recordNullifier(makerNullifier);
         } catch {} // solhint-disable-line no-empty-blocks
@@ -516,6 +518,26 @@ contract DarkPoolInvariant {
         require(
             handler.feeTokenDepositsAccepted() == 0,
             "fee-on-transfer deposit was credited"
+        );
+    }
+
+    /// @dev The handler swallows every settle revert, so the settle invariants hold vacuously if a guard starts
+    ///      rejecting the handler's vector. One deterministic call proves the vector settles.
+    function test_handlerSettleVectorSettles() public {
+        uint256 leavesBefore = pool.getNextLeafIndex();
+        handler.settle(1, 2, 7);
+        require(
+            handler.settlesAccepted() == 1,
+            "handler settle vector was rejected"
+        );
+        require(
+            pool.getNextLeafIndex() == leavesBefore + 4,
+            "settle did not insert four outputs"
+        );
+        require(
+            pool.isNullifierSpent(handler.spentNullifiers(0)) &&
+                pool.isNullifierSpent(handler.spentNullifiers(1)),
+            "settle did not spend both nullifiers"
         );
     }
 
