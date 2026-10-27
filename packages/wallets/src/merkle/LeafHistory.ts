@@ -16,6 +16,8 @@ export class LeafHistoryError extends Error {
   constructor(
     readonly reason:
       | "LOG_GAP"
+      | "ZERO_LEAF"
+      | "TREE_FULL"
       | "ROOT_MISMATCH"
       | "UNKNOWN_ROOT"
       | "SIZE_HINT_MISMATCH"
@@ -54,12 +56,25 @@ export class LeafHistory {
     const tree = new LeanIMT(depth);
     const rootBySize: Fr[] = [];
     const sizeByRoot = new Map<bigint, number>();
+    const capacity = 1n << BigInt(depth);
     for (let i = 0; i < logs.length; i++) {
       const log = logs[i]!;
       if (log.leafIndex !== BigInt(i)) {
         throw new LeafHistoryError(
           "LOG_GAP",
           `LeafInserted log ${i} carries leafIndex ${log.leafIndex}; logs must be contiguous from index 0`,
+        );
+      }
+      if (log.leaf.isZero()) {
+        throw new LeafHistoryError(
+          "ZERO_LEAF",
+          `LeafInserted log ${i} carries a zero leaf; the pool never inserts one`,
+        );
+      }
+      if (BigInt(i) >= capacity) {
+        throw new LeafHistoryError(
+          "TREE_FULL",
+          `LeafInserted log ${i} exceeds the depth-${depth} tree capacity of ${capacity} leaves`,
         );
       }
       const root = await tree.insert(log.leaf);

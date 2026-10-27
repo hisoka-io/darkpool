@@ -128,6 +128,29 @@ describe("LeafHistory (solver tree at a historical size)", () => {
     await expectReason(() => LeafHistory.fromLogs(forged), "ROOT_MISMATCH");
   });
 
+  it("refuses a zero leaf and a log past the tree capacity with a typed error", async () => {
+    const zeroed = logs.slice(0, 3).map((l) => ({ ...l }));
+    zeroed[2] = { ...zeroed[2]!, leaf: new Fr(0n) };
+    await expectReason(() => LeafHistory.fromLogs(zeroed), "ZERO_LEAF");
+
+    const depth = 1;
+    const shallow = new LeanIMT(depth);
+    const overflow: LeafInsertedLog[] = [];
+    for (let i = 0; i < 3; i++) {
+      const leaf = leaves[i]!;
+      const newRoot =
+        i < 2 ? await shallow.insert(leaf) : overflow[i - 1]!.newRoot;
+      overflow.push({ leafIndex: BigInt(i), leaf, newRoot });
+    }
+    await expect(
+      LeafHistory.fromLogs(overflow.slice(0, 2), depth),
+    ).resolves.toBeInstanceOf(LeafHistory);
+    await expectReason(
+      () => LeafHistory.fromLogs(overflow, depth),
+      "TREE_FULL",
+    );
+  });
+
   it("reproduces the root the on-chain pool reached in the Kage golden fixture", async () => {
     // [genesis(31337), leaf_A, leaf_B]: the tree the committed swap_settle proof was proven against, and whose
     // root a deployed DarkPool reaches after the same two inserts.
