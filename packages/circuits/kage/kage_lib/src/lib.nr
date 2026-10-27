@@ -15,7 +15,8 @@ use shared::verify_spend;
 global CT_LEN: u32 = 7;
 
 // `verification_key` is a solver-supplied WITNESS; this pinned constant is all that stops a solver proving his
-// own circuit to forge the taker's half (`0` = not pinned = total forgery). hash(vk) == key_hash is enforced by
+// own circuit to forge the taker's half. It must equal hash(swap_intent VK): barretenberg enforces
+// hash(vk) == key_hash literally, so any other value (zero included) rejects every proof. That check lives in
 // barretenberg, not the stdlib, so this must stay a compile-time constant.
 pub global INTENT_VK_HASH: Field =
     0x23a046bae6af32b5e02a21ef5713d7106b9676d49173825f82da7c4fdeae1dca;

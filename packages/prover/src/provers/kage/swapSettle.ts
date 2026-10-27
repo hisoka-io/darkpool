@@ -1,41 +1,12 @@
-import { CompiledCircuit, InputMap, Noir } from "@noir-lang/noir_js";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { UltraHonkBackend } from "@aztec/bb.js";
+import { CompiledCircuit } from "@noir-lang/noir_js";
 import { Buffer } from "node:buffer";
-import { circuit } from "../../generated/swap_settle_circuit.js";
-import { SwapSettleInputs, ProofData } from "../../types.js";
-import { marshalNote, pointHex } from "../../marshal.js";
+import { circuit as intentCircuit } from "../../generated/swap_intent_circuit.js";
+import { SwapSettleInputs, SwapIntentProof, ProofData } from "../../types.js";
 import { ProofError } from "../../errors.js";
-import {
-  BB_NATIVE_PATH,
-  BB_NATIVE_VERSION,
-  SETTLE_PI_LEN,
-  SETTLE_PROOF_FIELDS,
-} from "../../config.js";
-
-// swap_settle proves on native bb: verify_proof_with_type is excluded from the bb.js WASM build.
-function assertNativeBb(): void {
-  let version: string;
-  try {
-    version = execFileSync(BB_NATIVE_PATH, ["--version"], {
-      encoding: "utf8",
-    }).trim();
-  } catch (err) {
-    throw new ProofError(
-      "swap_settle",
-      `native bb missing at ${BB_NATIVE_PATH} (set BB_NATIVE_PATH; obtain via bbup)`,
-      err,
-    );
-  }
-  if (version !== BB_NATIVE_VERSION) {
-    throw new ProofError(
-      "swap_settle",
-      `native bb version mismatch: got ${version} want ${BB_NATIVE_VERSION}`,
-    );
-  }
-}
+import { ensureBBInitialized } from "../../prover-base.js";
+import { INTENT_VK_HASH } from "../../config.js";
+import { assertNativeBb, proveSwapSettleNative } from "./settleNative.js";
 
 export function nativeBbAvailable(): boolean {
   try {
@@ -46,101 +17,71 @@ export function nativeBbAvailable(): boolean {
   }
 }
 
+/** The taker's intent proof is not under the pinned swap_intent key; swap_settle would reject it after a full prove. */
+export class IntentVkMismatchError extends ProofError {
+  constructor(detail: string) {
+    super("swap_settle", `intent proof is not a swap_intent proof: ${detail}`);
+    this.name = "IntentVkMismatchError";
+  }
+}
+
+const FIELD_HEX = /^0x[0-9a-fA-F]{1,64}$/;
+
+function fieldOf(word: string): bigint | null {
+  return FIELD_HEX.test(word) ? BigInt(word) : null;
+}
+
+let pinnedIntentVk: Promise<readonly bigint[]> | undefined;
+
+function pinnedIntentVkFields(): Promise<readonly bigint[]> {
+  pinnedIntentVk ??= (async () => {
+    const backend = new UltraHonkBackend(
+      (intentCircuit as CompiledCircuit).bytecode,
+      await ensureBBInitialized(),
+    );
+    const vk = await backend.getVerificationKey({
+      verifierTarget: "noir-recursive",
+    });
+    const fields: bigint[] = [];
+    for (let i = 0; i < vk.length; i += 32) {
+      fields.push(
+        BigInt("0x" + Buffer.from(vk.subarray(i, i + 32)).toString("hex")),
+      );
+    }
+    return fields;
+  })().catch((err: unknown) => {
+    pinnedIntentVk = undefined;
+    throw err;
+  });
+  return pinnedIntentVk;
+}
+
+/** The vkHash a taker reports is only a claim, so the key itself is compared word by word as well. */
+async function assertPinnedIntentVk(intent: SwapIntentProof): Promise<void> {
+  if (fieldOf(intent.vkHash) !== BigInt(INTENT_VK_HASH)) {
+    throw new IntentVkMismatchError(
+      `vkHash ${intent.vkHash} != pinned ${INTENT_VK_HASH}`,
+    );
+  }
+  const pinned = await pinnedIntentVkFields();
+  if (intent.vkAsFields.length !== pinned.length) {
+    throw new IntentVkMismatchError(
+      `verification key has ${intent.vkAsFields.length} fields, pinned key has ${pinned.length}`,
+    );
+  }
+  const drift = intent.vkAsFields.findIndex(
+    (word, i) => fieldOf(word) !== pinned[i],
+  );
+  if (drift !== -1) {
+    throw new IntentVkMismatchError(
+      `verification key field ${drift} differs from the pinned swap_intent key`,
+    );
+  }
+}
+
 export async function proveSwapSettle(
   inputs: SwapSettleInputs,
 ): Promise<ProofData> {
-  assertNativeBb();
-  const c = pointHex(inputs.compliancePk);
-  const noirInputs: InputMap = {
-    compliance_pubkey_x: c.x,
-    compliance_pubkey_y: c.y,
-    current_timestamp: inputs.currentTimestamp.toString(),
-    verification_key: inputs.intent.vkAsFields,
-    intent_proof: inputs.intent.proofAsFields,
-    intent_public_inputs: inputs.intent.publicInputs,
-    maker_note_in: marshalNote("swap_settle", inputs.makerNoteIn),
-    maker_spend_scalar: inputs.makerSpendScalar.toString(),
-    maker_index: inputs.makerIndex.toString(),
-    maker_path: inputs.makerPath.map((p) => p.toString()),
-    maker_received: marshalNote("swap_settle", inputs.makerReceived),
-    maker_received_eph: inputs.makerReceivedEph.toString(),
-    maker_change: marshalNote("swap_settle", inputs.makerChange),
-    maker_change_eph: inputs.makerChangeEph.toString(),
-  };
-
-  const dir = mkdtempSync(join(tmpdir(), "kage-settle-"));
-  try {
-    const { witness } = await new Noir(circuit as CompiledCircuit).execute(
-      noirInputs,
-    );
-    const witPath = join(dir, "witness.gz");
-    const bytecodePath = join(dir, "swap_settle.json");
-    const outDir = join(dir, "out");
-    writeFileSync(witPath, witness);
-    writeFileSync(bytecodePath, JSON.stringify(circuit));
-
-    execFileSync(
-      BB_NATIVE_PATH,
-      [
-        "prove",
-        "-b",
-        bytecodePath,
-        "-w",
-        witPath,
-        "-o",
-        outDir,
-        "-t",
-        "evm",
-        "--write_vk",
-      ],
-      { stdio: "pipe" },
-    );
-    // bb verify exits non-zero on failure, so reaching here means verified.
-    execFileSync(
-      BB_NATIVE_PATH,
-      [
-        "verify",
-        "-k",
-        join(outDir, "vk"),
-        "-p",
-        join(outDir, "proof"),
-        "-i",
-        join(outDir, "public_inputs"),
-        "-t",
-        "evm",
-      ],
-      { stdio: "pipe" },
-    );
-
-    const proof = readFileSync(join(outDir, "proof"));
-    if (proof.length !== SETTLE_PROOF_FIELDS * 32) {
-      throw new ProofError(
-        "swap_settle",
-        `outer-proof field-count drift: got ${proof.length / 32} want ${SETTLE_PROOF_FIELDS}`,
-      );
-    }
-    const pubsBuf = readFileSync(join(outDir, "public_inputs"));
-    const publicInputs: string[] = [];
-    for (let i = 0; i < pubsBuf.length; i += 32) {
-      publicInputs.push(
-        "0x" + Buffer.from(pubsBuf.subarray(i, i + 32)).toString("hex"),
-      );
-    }
-    if (publicInputs.length !== SETTLE_PI_LEN) {
-      throw new ProofError(
-        "swap_settle",
-        `public-input width drift: got ${publicInputs.length} want ${SETTLE_PI_LEN}`,
-      );
-    }
-    return { proof: new Uint8Array(proof), publicInputs, verified: true };
-  } catch (err) {
-    if (err instanceof ProofError) throw err;
-    throw new ProofError(
-      "swap_settle",
-      err instanceof Error ? err.message : String(err),
-      err,
-    );
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  await assertPinnedIntentVk(inputs.intent);
+  return proveSwapSettleNative(inputs);
 }

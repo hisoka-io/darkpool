@@ -1,0 +1,8 @@
+[package]
+name = "kage_intent_forger"
+type = "bin"
+authors = [""]
+compiler_version = ">=1.0.0"
+
+[dependencies]
+kage_lib = { path = "../../../circuits/kage/kage_lib" }
