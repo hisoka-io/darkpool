@@ -3,7 +3,13 @@ import { ethers } from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 import { Fr } from "@hisoka/wallets";
 import { newSeededTree } from "../helpers/fixtures";
-import { NO_BOUND, b32 } from "../helpers/settlementFixtures";
+import { COMPLIANCE_PK } from "../helpers/fixtures";
+import {
+  NO_BOUND,
+  OUTPUT_WORDS,
+  b32,
+  deployController,
+} from "../helpers/settlementFixtures";
 import {
   KAGE_PROOF,
   KAGE_PUBLIC_INPUTS,
@@ -28,6 +34,15 @@ import type { Erc1271SolverWallet } from "../../typechain-types";
 const PI = KAGE_PUBLIC_INPUTS;
 const PROOF_TS = BigInt(PI[2]);
 const OUTPUT_LEAF_INDICES = [6, 15, 24, 33];
+// A losing submission may pay its calldata and the guard, never proof verification (~600k over the calldata).
+const RACE_LOSER_GAS_OVER_CALLDATA_FLOOR = 50_000n;
+
+/** EIP-7623 floor: a call costs at least 21000 + 10 per calldata token (a zero byte is 1 token, any other 4). */
+function calldataFloor(data: string): bigint {
+  const bytes = ethers.getBytes(data);
+  const zero = bytes.filter((b) => b === 0).length;
+  return 21_000n + 10n * BigInt(zero + 4 * (bytes.length - zero));
+}
 
 async function deadlineFromNow(): Promise<bigint> {
   return BigInt(await time.latest()) + SETTLE_WINDOW;
@@ -145,13 +160,115 @@ describe("KageSettlement", function () {
         .withArgs(walletId, PI[3], PI[4]);
     });
 
-    it("replay of a settled package reverts NullifierAlreadySpent", async function () {
+    it("replay of a settled package reverts NoteAlreadySpent with the taker nullifier", async function () {
       const d = await loadFixture(deployKageFixture);
       const { deadline, sig } = await signedPackage(d);
       await d.settlement.settleSwap(d.solverId, deadline, sig, KAGE_PROOF, PI);
       await expect(
         d.settlement.settleSwap(d.solverId, deadline, sig, KAGE_PROOF, PI),
-      ).to.be.revertedWithCustomError(d.darkPool, "NullifierAlreadySpent");
+      )
+        .to.be.revertedWithCustomError(d.settlement, "NoteAlreadySpent")
+        .withArgs(PI[3]);
+    });
+  });
+
+  describe("spent-note pre-check", function () {
+    /** Spends `nullifier` through a second, stub-verified module (k=1, m=1), as another route would. */
+    async function spendElsewhere(d: KageDeployment, nullifier: string) {
+      const other = await deployController(d.darkPool);
+      await d.darkPool
+        .connect(d.upgrader)
+        .registerSettlementModule(
+          await other.getAddress(),
+          await d.stub.getAddress(),
+          1,
+          1,
+          0,
+          NO_BOUND,
+          NO_BOUND,
+        );
+      const pi = new Array<string>(5 + OUTPUT_WORDS).fill(b32(0n));
+      pi[0] = b32(COMPLIANCE_PK[0]);
+      pi[1] = b32(COMPLIANCE_PK[1]);
+      pi[2] = b32(BigInt(await time.latest()));
+      pi[3] = nullifier;
+      pi[4] = await d.darkPool.getCurrentRoot();
+      pi[5] = b32(0xa11cen);
+      await other.settle("0x", pi);
+      expect(await d.darkPool.isNullifierSpent(nullifier)).to.equal(true);
+    }
+
+    it("a race loser in the same block reverts NoteAlreadySpent without verifying the proof", async function () {
+      const d = await loadFixture(deployKageFixture);
+      const { deadline, sig } = await signedPackage(d);
+      const args = [d.solverId, deadline, sig, KAGE_PROOF, PI] as const;
+      await ethers.provider.send("evm_setAutomine", [false]);
+      let winnerHash: string;
+      let loserHash: string;
+      let loserData: string;
+      try {
+        winnerHash = (await d.settlement.settleSwap(...args)).hash;
+        const loserTx = await d.settlement.settleSwap(...args, {
+          gasLimit: 3_000_000,
+        });
+        loserHash = loserTx.hash;
+        loserData = loserTx.data;
+        await ethers.provider.send("evm_mine", []);
+      } finally {
+        await ethers.provider.send("evm_setAutomine", [true]);
+      }
+      const winner = await ethers.provider.getTransactionReceipt(winnerHash);
+      const loser = await ethers.provider.getTransactionReceipt(loserHash);
+      expect(winner!.blockNumber).to.equal(loser!.blockNumber);
+      expect(winner!.status).to.equal(1);
+      expect(loser!.status).to.equal(0);
+      const floor = calldataFloor(loserData);
+      console.log(
+        `      race: winner gasUsed ${winner!.gasUsed}, loser gasUsed ${loser!.gasUsed}, calldata floor ${floor}`,
+      );
+      expect(loser!.gasUsed).to.be.lessThan(
+        floor + RACE_LOSER_GAS_OVER_CALLDATA_FLOOR,
+      );
+      await expect(d.settlement.settleSwap(...args))
+        .to.be.revertedWithCustomError(d.settlement, "NoteAlreadySpent")
+        .withArgs(PI[3]);
+    });
+
+    it("a taker note spent through another route reverts NoteAlreadySpent(taker)", async function () {
+      const d = await loadFixture(deployKageFixture);
+      await spendElsewhere(d, PI[3]);
+      const { deadline, sig } = await signedPackage(d);
+      await expect(
+        d.settlement.settleSwap(d.solverId, deadline, sig, KAGE_PROOF, PI),
+      )
+        .to.be.revertedWithCustomError(d.settlement, "NoteAlreadySpent")
+        .withArgs(PI[3]);
+      expect(await d.darkPool.isNullifierSpent(PI[4])).to.equal(false);
+    });
+
+    it("a maker note spent through another route reverts NoteAlreadySpent(maker)", async function () {
+      const d = await loadFixture(deployKageFixture);
+      await spendElsewhere(d, PI[4]);
+      const { deadline, sig } = await signedPackage(d);
+      await expect(
+        d.settlement.settleSwap(d.solverId, deadline, sig, KAGE_PROOF, PI),
+      )
+        .to.be.revertedWithCustomError(d.settlement, "NoteAlreadySpent")
+        .withArgs(PI[4]);
+      expect(await d.darkPool.isNullifierSpent(PI[3])).to.equal(false);
+    });
+
+    it("a signed vector too short to hold both nullifiers reaches DarkPool's length check", async function () {
+      const d = await loadFixture(deployKageFixture);
+      const short = PI.slice(0, 4);
+      const deadline = await deadlineFromNow();
+      const sig = await signSettlement(
+        HOT_KEY,
+        await messageFor(d, short, deadline),
+      );
+      await expect(
+        d.settlement.settleSwap(d.solverId, deadline, sig, KAGE_PROOF, short),
+      ).to.be.revertedWithCustomError(d.darkPool, "InvalidInputsLength");
     });
   });
 
