@@ -54,7 +54,8 @@ use poseidon::poseidon2::Poseidon2;
 // keccak256("hisoka.psi.v1") % BN254_Fr -- circuits/shared/src/common/domains.nr:4
 global PSI_DOMAIN: Field = 0x138d495e7a5c1b3f504318dd6cfcf0a7cf7bb6d69cf9eadb049cc35d6831ef5b;
 // BabyJubJub prime-order subgroup order -- circuits/shared/src/lib.nr
-global SUBORDER: Field = 2736030358979909402780800718157159386076813972158567259200215660948447373041;
+global SUBORDER: Field =
+    2736030358979909402780800718157159386076813972158567259200215660948447373041;
 
 // copied from vendored scalar_field.nr
 global TWO_POW_128: Field = 0x100000000000000000000000000000000;
@@ -141,6 +142,8 @@ fn check_binding<let N: u32>(slices: [u8; N], skew: bool, x: Field) {
         rlo.assert_max_bit_size::<128>();
         rhi.assert_max_bit_size::<128>();
 
+        hi.assert_max_bit_size::<128>();
+
         assert(hi * TWO_POW_128 + lo == x);
     }
     for i in 0..N {
@@ -188,6 +191,8 @@ fn check_binding_ablated<let N: u32>(slices: [u8; N], skew: bool, x: Field) {
             + (1 - is_positive as Field) * (PHI - hi + threshold_flag as Field);
         rlo.assert_max_bit_size::<128>();
         rhi.assert_max_bit_size::<128>();
+
+        hi.assert_max_bit_size::<128>();
 
         // binding `assert(hi * TWO_POW_128 + lo == x)` REMOVED
         assert(x == x);
@@ -275,7 +280,10 @@ fn mirror_reproduces_production_kem_and_psi_kats() {
     let note_psi = psi(cek);
     assert(note_psi == 0x0441d9b1006cd55062a6458b5dd1db14869f1a5c8fbc66f73032208c2b109956);
 
-    assert(nullifier(note_psi, 3) == 0x0ced8160f191dfff5c3432bc36f182188226143b294192021ea754f282075897);
+    assert(
+        nullifier(note_psi, 3)
+            == 0x0ced8160f191dfff5c3432bc36f182188226143b294192021ea754f282075897,
+    );
 }
 
 // CONTROL
