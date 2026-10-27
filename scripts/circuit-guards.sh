@@ -21,15 +21,17 @@ decomment() { grep -vE '^[^:]*:[0-9]+:[[:space:]]*//'; }
 # `quote` or `unquote`, no `fn main` declaration, and no attribute other than #[test]. Noir rejects any reference
 # to a private item from another module ("is private and not visible from the current module"), and a trait impl
 # is the only item with effect outside its module, so no code in such a file can reach a circuit. A file is a
-# crate root only as main.nr/lib.nr or through a Nargo.toml `entry` key, which guard 0 rejects. `fn main` is
-# matched over the whole file, so a newline or comment between `fn` and `main` cannot split the pair. The checks
-# read raw text, so a keyword inside a comment or string only keeps a file counted. The prohibition guards (1-3)
-# still scan every file.
+# crate root only as main.nr/lib.nr or through a Nargo.toml `entry` key, which guard 0 rejects (guard 7 rejects
+# any Nargo.toml under a target dir, which guard 0 skips). A leaf holds no block comment: Noir nests them, so no
+# regex strips them reliably. `fn main` is matched over the whole file, so a newline or line comment between `fn`
+# and `main` cannot split the pair. The checks read raw text, so a keyword inside a comment or string only keeps
+# a file counted. The prohibition guards (1-3) still scan every file.
 NL=$'\001'
-FN_MAIN_RE="(^|[^A-Za-z0-9_])fn([[:space:]]|${NL}|/\\*([^*]|\\*+[^*/])*\\*+/|//[^${NL}]*${NL})+main([^A-Za-z0-9_]|$)"
+FN_MAIN_RE="(^|[^A-Za-z0-9_])fn([[:space:]]|${NL}|//[^${NL}]*${NL})+main([^A-Za-z0-9_]|$)"
 is_test_leaf() {
   case "$(basename "$1")" in main.nr|lib.nr) return 1 ;; esac
   grep -qE '#\[test' "$1" || return 1
+  grep -qF '/*' "$1" && return 1
   grep -qwE 'pub|impl|trait|mod|comptime|quote|unquote' "$1" && return 1
   tr '\n' "$NL" < "$1" | grep -aqE "$FN_MAIN_RE" && return 1
   grep -oE '#!?\[[^]]*' "$1" | grep -qvE '^#\[test(\(|$)' && return 1
@@ -89,9 +91,10 @@ else
   echo "NOTE: python3+tomllib unavailable; guards 0/8 deep TOML parse skipped (grep + realpath layers still ran)."
 fi
 
-# Guard 1: no ScalarField<64> (accepts a negative representative); force <63>.
+# Guard 1: no ScalarField<64>. No circuit uses that width, and any width change moves the VKs, so adopting one
+# stays a reviewed change.
 if src_grep 'ScalarField[[:space:]]*(::)?[[:space:]]*<[[:space:]]*64[[:space:]]*>' | decomment | grep .; then
-  red 1 "ScalarField<64> in circuit code (accepts a negative representative); use <63>, or a fixed edwards build."
+  red 1 "ScalarField<64> in circuit code; every circuit uses <63> and a width change moves the VKs, so use <63> or land the width change as a reviewed VK re-pin that updates this guard."
 fi
 
 # Guard 2: no msm(). The vendored msm asserts its points on-curve, but guard 4 counts only `.mul(` sites,
@@ -135,6 +138,12 @@ fi
 if find "$CIRCUITS_DIR" -type l | grep -q .; then
   red 7 "symlink under packages/circuits; circuit source must be real files (a symlinked dir escapes find/grep guards)."
   find "$CIRCUITS_DIR" -type l | sed 's/^/  guard7-symlink: /' >&2
+fi
+# Guards 0 and 8 skip Nargo.toml files under a target dir (build output), so no crate may live there.
+TARGET_TOML="$(find "$CIRCUITS_DIR" -name Nargo.toml -printf '%P\n' | grep -E '(^|/)target/')"
+if [ -n "$TARGET_TOML" ]; then
+  red 7 "a Nargo.toml under a 'target' directory is skipped by the TOML guards; move the crate out of the build-output path."
+  printf '%s\n' "$TARGET_TOML" | sed 's/^/  guard7-target-toml: /' >&2
 fi
 NESTED_MODDIR="$(find "$CIRCUITS_DIR" -type d \( -name vendor -o -name target \) -path '*/src/*')"
 if [ -n "$NESTED_MODDIR" ]; then
