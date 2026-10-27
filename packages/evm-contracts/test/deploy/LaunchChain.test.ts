@@ -1046,6 +1046,67 @@ describe("Kage module deployment on the in-process chain", function () {
       await kageModuleProblems(darkPool, controller, kage.verifier),
     ).to.deep.equal(["maxPast is 300, expected 0"]);
   });
+
+  it("flags a Kage controller registered with a verifier other than the Kage verifier", async function () {
+    const settlement = await (
+      await ethers.getContractFactory("KageSettlement")
+    ).deploy(record.contracts.darkPool, kage.registry);
+    const controller = await settlement.getAddress();
+    const otherVerifier = record.verifierSlots[0].address;
+    expect(otherVerifier).to.not.equal(kage.verifier);
+    const iface = new ethers.Interface([
+      "function registerSettlementModule(address,address,uint8,uint8,uint8,uint32,uint32)",
+    ]);
+    await throughTimelock(
+      record.contracts.darkPool,
+      iface.encodeFunctionData("registerSettlementModule", [
+        controller,
+        otherVerifier,
+        2,
+        4,
+        0,
+        0,
+        2n ** 32n - 1n,
+      ]),
+    );
+    const darkPool = await ethers.getContractAt(
+      "DarkPool",
+      record.contracts.darkPool,
+    );
+    expect(
+      await kageModuleProblems(darkPool, controller, kage.verifier),
+    ).to.deep.equal([
+      `module verifier is ${otherVerifier}, expected ${kage.verifier}`,
+    ]);
+  });
+
+  it("flags the registered Kage module once the pauser disables it", async function () {
+    const darkPool = await ethers.getContractAt(
+      "DarkPool",
+      record.contracts.darkPool,
+      await ethers.getSigner(GUARDIAN),
+    );
+    await (await darkPool.disableModule(kage.settlement)).wait();
+    try {
+      expect(
+        await kageModuleProblems(darkPool, kage.settlement, kage.verifier),
+      ).to.deep.equal(["module is not active"]);
+      let error = "";
+      try {
+        await checkKageModule(recordFile);
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e);
+      }
+      expect(error).to.contain("module is not active");
+    } finally {
+      await throughTimelock(
+        record.contracts.darkPool,
+        darkPool.interface.encodeFunctionData("enableModule", [
+          kage.settlement,
+        ]),
+      );
+    }
+  });
 });
 
 describe("archive-deployment.sh", function () {
@@ -1080,6 +1141,9 @@ describe("archive-deployment.sh", function () {
       MULTISIG_VERIFIERS: "stub",
     });
     expect(r.ok, r.output.slice(-2000)).to.equal(true);
+    expect(r.output).to.contain(
+      "multisig actions and multisig Nox fees revert until the Timelock sets the real verifiers",
+    );
     const deployFile = /Deployment record: (\S+)/.exec(r.output)?.[1] ?? "";
     name = path.basename(deployFile, ".json");
     created.push(path.join(deployments, "archives", name));
@@ -1148,6 +1212,7 @@ describe("archive-deployment.sh", function () {
       fs.readFileSync(path.join(deployments, `${name}.json`), "utf8"),
     ) as Record<string, Record<string, unknown>>;
     delete record.contracts.howlMultisigPaymentAdapter;
+    delete record.constructorArgs.howlMultisigPaymentAdapter;
     delete record.verifierSlots;
     const broken = `${name}-incomplete`;
     const brokenFile = path.join(deployments, `${broken}.json`);
@@ -1156,6 +1221,9 @@ describe("archive-deployment.sh", function () {
     const r = archive(broken);
     expect(r.status).to.equal(1);
     expect(r.output).to.contain("contracts.howlMultisigPaymentAdapter missing");
+    expect(r.output).to.contain(
+      "constructorArgs.howlMultisigPaymentAdapter missing",
+    );
     expect(r.output).to.contain("verifierSlots must list 10 circuit slots");
     expect(fs.existsSync(path.join(deployments, "archives", broken))).to.equal(
       false,

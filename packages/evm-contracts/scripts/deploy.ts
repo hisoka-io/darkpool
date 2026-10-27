@@ -40,7 +40,8 @@
  *                          and off test chains exactly the chain's USDC
  *   MULTISIG_VERIFIERS     "stub" or "real": what the four multisig circuit slots hold. Off test chains only
  *                          "stub" (a RevertingVerifier until the Timelock installs the real ones); default
- *                          "real" on test chains.
+ *                          "real" on test chains. While the stub holds them, every multisig action reverts,
+ *                          including multisig Nox fee payments through the multisig payment adapter.
  *   KAGE_MODULE            "on" deploys the Kage settlement module (KageRegistry proxy + KageSettlement) and
  *                          writes the Timelock call that registers it; default "off", and refused off test chains
  *                          while the Kage launch is parked. With it on:
@@ -1186,7 +1187,11 @@ export async function deploy(
     `  Staking token decimals: ${stakingDecimals}; min stake ${ethers.formatUnits(minStake, stakingDecimals)}, ` +
       `floor ${ethers.formatUnits(minStakeFloor, stakingDecimals)}`,
   );
-  console.log(`  Multisig verifier slots: ${multisigVerifiers}`);
+  console.log(
+    multisigVerifiers === "stub"
+      ? "  Multisig verifier slots: stub (multisig actions and multisig Nox fees revert until the Timelock sets the real verifiers)"
+      : "  Multisig verifier slots: real",
+  );
   console.log(`  Kage module: ${kageEnabled ? "on" : "off"}`);
   console.log();
 
