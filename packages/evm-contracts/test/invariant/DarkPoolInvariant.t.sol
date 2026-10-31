@@ -5,6 +5,8 @@ import {DarkPool} from "../../contracts/DarkPool.sol";
 import {MockERC20} from "../../contracts/mocks/MockERC20.sol";
 import {MockFeeOnTransferERC20} from "../../contracts/mocks/MockFeeOnTransferERC20.sol";
 import {StubVerifier} from "../../contracts/mocks/StubVerifier.sol";
+import {SettlementControllerHarness} from "../../contracts/test/SettlementHarness.sol";
+import {NO_BOUND} from "../../contracts/interfaces/IDarkPoolSettlement.sol";
 import {Poseidon2} from "../../contracts/Poseidon/Poseidon2.sol";
 import {Field} from "../../contracts/Poseidon/Field.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -44,6 +46,7 @@ contract DarkPoolHandler {
     MockERC20 public immutable tokenA;
     MockERC20 public immutable tokenB;
     MockFeeOnTransferERC20 public immutable feeToken;
+    SettlementControllerHarness public immutable settlementModule;
 
     mapping(address => uint256) public valueIn;
     mapping(address => uint256) public valueOut;
@@ -58,17 +61,20 @@ contract DarkPoolHandler {
 
     bytes32[] internal openMemos;
     uint256 public feeTokenDepositsAccepted;
+    uint256 public settlesAccepted;
 
     constructor(
         DarkPool _pool,
         MockERC20 _tokenA,
         MockERC20 _tokenB,
-        MockFeeOnTransferERC20 _feeToken
+        MockFeeOnTransferERC20 _feeToken,
+        SettlementControllerHarness _settlementModule
     ) {
         pool = _pool;
         tokenA = _tokenA;
         tokenB = _tokenB;
         feeToken = _feeToken;
+        settlementModule = _settlementModule;
     }
 
     function deposit(
@@ -248,7 +254,8 @@ contract DarkPoolHandler {
         }
     }
 
-    function kageSwap(
+    /// @dev A registered two-in, four-out module (the Kage layout) settling through the hook.
+    function settle(
         uint256 nullifierSeedA,
         uint256 nullifierSeedB,
         uint256 leafSeed
@@ -272,7 +279,8 @@ contract DarkPoolHandler {
         pi[33] = _leaf(leafSeed + 6);
         pi[34] = _leaf(leafSeed + 7);
 
-        try pool.kageSwap("", pi) {
+        try settlementModule.settle("", pi) {
+            settlesAccepted += 1;
             _recordNullifier(takerNullifier);
             _recordNullifier(makerNullifier);
         } catch {} // solhint-disable-line no-empty-blocks
@@ -418,7 +426,6 @@ contract DarkPoolInvariant {
             transferMultisigVerifier: stub,
             splitMultisigVerifier: stub,
             joinMultisigVerifier: stub,
-            kageVerifier: stub,
             compliancePkX: BASE8_X,
             compliancePkY: BASE8_Y,
             initialAdminDelay: 0,
@@ -433,7 +440,19 @@ contract DarkPoolInvariant {
                 new ERC1967Proxy(impl, abi.encodeCall(DarkPool.initialize, (p)))
             )
         );
-        handler = new DarkPoolHandler(pool, tokenA, tokenB, feeToken);
+        SettlementControllerHarness module = new SettlementControllerHarness(
+            pool
+        );
+        pool.registerSettlementModule(
+            address(module),
+            stub,
+            2,
+            4,
+            0,
+            300,
+            NO_BOUND
+        );
+        handler = new DarkPoolHandler(pool, tokenA, tokenB, feeToken, module);
     }
 
     /// @dev The tokens expose a permissionless mint(), so the fuzzer must be confined to the handler or it would
@@ -499,6 +518,26 @@ contract DarkPoolInvariant {
         require(
             handler.feeTokenDepositsAccepted() == 0,
             "fee-on-transfer deposit was credited"
+        );
+    }
+
+    /// @dev The handler swallows every settle revert, so the settle invariants hold vacuously if a guard starts
+    ///      rejecting the handler's vector. One deterministic call proves the vector settles.
+    function test_handlerSettleVectorSettles() public {
+        uint256 leavesBefore = pool.getNextLeafIndex();
+        handler.settle(1, 2, 7);
+        require(
+            handler.settlesAccepted() == 1,
+            "handler settle vector was rejected"
+        );
+        require(
+            pool.getNextLeafIndex() == leavesBefore + 4,
+            "settle did not insert four outputs"
+        );
+        require(
+            pool.isNullifierSpent(handler.spentNullifiers(0)) &&
+                pool.isNullifierSpent(handler.spentNullifiers(1)),
+            "settle did not spend both nullifiers"
         );
     }
 

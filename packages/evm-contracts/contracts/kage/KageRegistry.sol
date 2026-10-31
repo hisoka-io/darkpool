@@ -1,239 +1,417 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.25;
 
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+// solhint-disable-next-line max-line-length
+import {AccessControlDefaultAdminRulesUpgradeable} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {IKageRegistry} from "./IKageRegistry.sol";
 
 /**
  * @title KageRegistry
- * @notice Staked registry of kage solver nodes: the orderbook only routes orders to solvers listed here.
- **/
-contract KageRegistry is AccessControl, ReentrancyGuard {
+ * @notice Staked Kage solvers. Each solver id has a cold owner (stake, exit, key rotation) and a hot signer that
+ *         approves settlements. Stake is one ERC20 fixed at initialize, in that token's base units.
+ * @dev UUPS proxy over an ERC-7201 namespace. Every settlement reads `settlementSigner` at execution time, so
+ *      rotation, exit, freeze and slashing take effect from the block they land; nothing is grandfathered.
+ */
+contract KageRegistry is
+    IKageRegistry,
+    Initializable,
+    UUPSUpgradeable,
+    AccessControlDefaultAdminRulesUpgradeable,
+    PausableUpgradeable
+{
     using SafeERC20 for IERC20;
 
     bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE");
+    bytes32 public constant CONFIG_ROLE = keccak256("CONFIG_ROLE");
+    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
-    /// @notice Delay between deregister and unstake; leaving solvers stay slashable.
-    uint256 public constant UNSTAKE_COOLDOWN = 1 days;
+    uint256 public constant MIN_EXIT_DELAY = 1 days;
+    /// @dev The delay is the slasher's window to act on evidence before a stake leaves. A month covers that window
+    ///      with margin; a longer one would lock honest capital, and a unit error (ms for s) would freeze exits.
+    ///      It also keeps `block.timestamp + exitDelay` far inside uint64, so exit and slash never overflow.
+    uint256 public constant MAX_EXIT_DELAY = 30 days;
+
+    uint256 private constant NOT_ENTERED = 1;
+    uint256 private constant ENTERED = 2;
 
     enum SolverStatus {
         None,
-        Registered,
-        InCooldown,
-        Deregistered
+        Active,
+        Exiting,
+        Exited
     }
 
-    struct SolverProfile {
-        bytes32 noiseKey;
-        uint256 stakedAmount;
-        uint256 unlockTime;
+    /// @dev Two slots: owner, status, frozen, unlockTime | signer, stake.
+    struct Solver {
+        address owner;
         SolverStatus status;
         bool frozen;
+        uint64 unlockTime;
+        address signer;
+        uint96 stake;
     }
 
-    IERC20 public immutable STAKING_TOKEN;
-    uint256 public immutable MIN_STAKE;
+    /// @custom:storage-location erc7201:hisoka.kage.registry
+    struct RegistryStorage {
+        IERC20 stakingToken;
+        // Fixed at initialize: a dust minimum stake would make solver ids free to mint.
+        uint256 minStakeFloor;
+        uint256 minStake;
+        uint256 exitDelay;
+        uint256 solverCount;
+        mapping(uint256 => Solver) solvers;
+    }
 
-    mapping(address => SolverProfile) public solvers;
-    uint256 public solverCount;
+    /// @dev Inlined on OZ's canonical namespace; contracts-upgradeable 5.6.1 dropped ReentrancyGuardUpgradeable.
+    /// @custom:storage-location erc7201:openzeppelin.storage.ReentrancyGuard
+    struct ReentrancyStorage {
+        uint256 status;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("hisoka.kage.registry")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant REGISTRY_LOCATION =
+        0x102b9fa007d4c73faa68f63651f6c057c7e7cb4c5454c9575e84d8c78e4a1b00;
+    // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ReentrancyGuard")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant REENTRANCY_LOCATION =
+        0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
+
+    struct InitParams {
+        uint48 initialAdminDelay;
+        address initialAdmin;
+        address stakingToken;
+        uint256 minStake;
+        uint256 minStakeFloor;
+        uint256 exitDelay;
+        address slasher;
+        address configManager;
+        address upgrader;
+    }
 
     event SolverRegistered(
-        address indexed solver,
-        bytes32 noiseKey,
+        uint256 indexed solverId,
+        address indexed owner,
+        address indexed signer,
         uint256 stake
     );
-    event NoiseKeyUpdated(address indexed solver, bytes32 newNoiseKey);
-    event StakeAdded(address indexed solver, uint256 amount);
-    event SolverDeregistered(address indexed solver, uint256 unlockTime);
-    event CooldownReset(address indexed solver, uint256 unlockTime);
-    event Unstaked(address indexed solver, uint256 amount);
-    event Slashed(
-        address indexed solver,
-        uint256 amount,
-        address indexed slasher
+    event SignerRotated(
+        uint256 indexed solverId,
+        address indexed oldSigner,
+        address indexed newSigner
     );
-    event SolverFrozen(address indexed solver, address indexed by);
-    event SolverUnfrozen(address indexed solver, address indexed by);
+    event StakeAdded(uint256 indexed solverId, uint256 amount);
+    event ExitRequested(uint256 indexed solverId, uint256 unlockTime);
+    event ExitCancelled(uint256 indexed solverId);
+    event Unstaked(
+        uint256 indexed solverId,
+        address indexed owner,
+        uint256 amount
+    );
+    event Slashed(uint256 indexed solverId, uint256 amount, address slasher);
+    event SolverFrozen(uint256 indexed solverId, address by);
+    event SolverUnfrozen(uint256 indexed solverId, address by);
+    event ConfigUpdated(uint256 minStake, uint256 exitDelay);
 
     error ZeroAddress();
-    error InvalidKey();
     error InvalidAmount();
-    error AlreadyRegistered();
-    error NotRegistered();
-    error NotInCooldown();
+    error InvalidDelay();
+    error MinStakeBelowFloor();
     error InsufficientStake();
-    error CooldownNotOver();
+    error FeeOnTransferUnsupported();
+    error NotSolverOwner(uint256 solverId);
+    error SolverNotActive(uint256 solverId);
+    error SolverNotExiting(uint256 solverId);
+    error SolverNotRegistered(uint256 solverId);
+    error SolverIsFrozen(uint256 solverId);
+    error SolverNotFrozen(uint256 solverId);
+    error SignerUnchanged();
+    error ExitTooEarly(uint256 unlockTime);
     error NothingToSlash();
-    error NodeFrozen();
-    error AlreadyFrozen();
-    error NotFrozen();
+    error ReentrancyGuardReentrantCall();
 
-    /// @dev Blocks the action while `_solver` is frozen by the slasher.
-    modifier notFrozen(address _solver) {
-        if (solvers[_solver].frozen) revert NodeFrozen();
+    modifier nonReentrant() {
+        ReentrancyStorage storage $ = _reentrancyStorage();
+        if ($.status == ENTERED) revert ReentrancyGuardReentrantCall();
+        $.status = ENTERED;
         _;
+        $.status = NOT_ENTERED;
     }
 
-    /// @dev Restricts the action to callers currently registered as solvers.
-    modifier onlyRegistered() {
-        if (solvers[msg.sender].status != SolverStatus.Registered)
-            revert NotRegistered();
-        _;
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
     }
 
-    /// @dev Rejects the zero value as a Noise pubkey.
-    modifier validKey(bytes32 _key) {
-        if (_key == bytes32(0)) revert InvalidKey();
-        _;
+    /// @notice One-time proxy init. Roles go to the passed-in governance addresses, never msg.sender. Stake
+    ///         amounts are in the staking token's base units (6 decimals for USDC, 18 for WETH).
+    function initialize(InitParams calldata p) external initializer {
+        if (
+            p.initialAdmin == address(0) ||
+            p.stakingToken == address(0) ||
+            p.slasher == address(0) ||
+            p.configManager == address(0) ||
+            p.upgrader == address(0)
+        ) revert ZeroAddress();
+        if (p.minStakeFloor == 0) revert InvalidAmount();
+        if (p.minStake < p.minStakeFloor) revert MinStakeBelowFloor();
+        if (p.exitDelay < MIN_EXIT_DELAY || p.exitDelay > MAX_EXIT_DELAY)
+            revert InvalidDelay();
+
+        __AccessControlDefaultAdminRules_init(
+            p.initialAdminDelay,
+            p.initialAdmin
+        );
+        __Pausable_init();
+        _reentrancyStorage().status = NOT_ENTERED;
+
+        _grantRole(CONFIG_ROLE, p.configManager);
+        _grantRole(SLASHER_ROLE, p.slasher);
+        _grantRole(UPGRADER_ROLE, p.upgrader);
+
+        RegistryStorage storage $ = _registry();
+        $.stakingToken = IERC20(p.stakingToken);
+        $.minStakeFloor = p.minStakeFloor;
+        $.minStake = p.minStake;
+        $.exitDelay = p.exitDelay;
     }
 
-    constructor(
-        address _stakingToken,
-        uint256 _minStake,
-        address _admin,
-        address _slasher
-    ) {
-        if (_stakingToken == address(0)) revert ZeroAddress();
-        if (_admin == address(0)) revert ZeroAddress();
-        if (_slasher == address(0)) revert ZeroAddress();
-        if (_minStake == 0) revert InvalidAmount();
+    // solhint-disable no-empty-blocks
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyRole(UPGRADER_ROLE) {}
+    // solhint-enable no-empty-blocks
 
-        STAKING_TOKEN = IERC20(_stakingToken);
-        MIN_STAKE = _minStake;
-        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
-        _grantRole(SLASHER_ROLE, _slasher);
-    }
-
-    /// @dev Pulls _amount from the caller, returning what the contract actually received
-    ///      so fee-on-transfer tokens can never make recorded stake exceed the balance.
-    function _pullStake(uint256 _amount) private returns (uint256 received) {
-        if (_amount == 0) return 0;
-        uint256 balanceBefore = STAKING_TOKEN.balanceOf(address(this));
-        STAKING_TOKEN.safeTransferFrom(msg.sender, address(this), _amount);
-        return STAKING_TOKEN.balanceOf(address(this)) - balanceBefore;
-    }
-
-    /// @notice Join instantly with MIN_STAKE total; InCooldown stake counts, cancelling the cooldown.
+    /// @notice Stake `amount` and open a new solver id owned by the caller, settling through `signer`.
     function register(
-        bytes32 _noiseKey,
-        uint256 _stakeAmount
-    ) external nonReentrant notFrozen(msg.sender) validKey(_noiseKey) {
-        SolverProfile storage profile = solvers[msg.sender];
-        if (profile.status == SolverStatus.Registered)
-            revert AlreadyRegistered();
+        address signer,
+        uint256 amount
+    ) external nonReentrant whenNotPaused returns (uint256 solverId) {
+        RegistryStorage storage $ = _registry();
+        if (signer == address(0)) revert ZeroAddress();
+        if (amount < $.minStake) revert InsufficientStake();
+        uint96 stake = SafeCast.toUint96(amount);
+        _pullExact($.stakingToken, amount);
 
-        uint256 totalStake = profile.stakedAmount + _pullStake(_stakeAmount);
-        if (totalStake < MIN_STAKE) revert InsufficientStake();
-
-        profile.noiseKey = _noiseKey;
-        profile.stakedAmount = totalStake;
-        profile.unlockTime = 0;
-        profile.status = SolverStatus.Registered;
-        solverCount++;
-        emit SolverRegistered(msg.sender, _noiseKey, totalStake);
+        solverId = ++$.solverCount;
+        $.solvers[solverId] = Solver({
+            owner: msg.sender,
+            status: SolverStatus.Active,
+            frozen: false,
+            unlockTime: 0,
+            signer: signer,
+            stake: stake
+        });
+        emit SolverRegistered(solverId, msg.sender, signer, amount);
     }
 
-    /// @notice Rotate the caller's Noise pubkey.
-    function updateNoiseKey(
-        bytes32 _newNoiseKey
-    ) external onlyRegistered notFrozen(msg.sender) validKey(_newNoiseKey) {
-        solvers[msg.sender].noiseKey = _newNoiseKey;
-        emit NoiseKeyUpdated(msg.sender, _newNoiseKey);
+    /// @notice Replace the settlement key. Pause-exempt and allowed while frozen or exiting: it is how a leaked
+    ///         hot key is revoked. Approvals by the old key stop working in the same block.
+    function rotateSigner(uint256 solverId, address newSigner) external {
+        Solver storage s = _ownedSolver(solverId);
+        if (s.status != SolverStatus.Active && s.status != SolverStatus.Exiting)
+            revert SolverNotRegistered(solverId);
+        if (newSigner == address(0)) revert ZeroAddress();
+        address oldSigner = s.signer;
+        if (newSigner == oldSigner) revert SignerUnchanged();
+        s.signer = newSigner;
+        emit SignerRotated(solverId, oldSigner, newSigner);
     }
 
-    /// @notice Top up the caller's stake while registered.
+    /// @notice Top up an active, unfrozen solver's stake.
     function addStake(
-        uint256 _amount
-    ) external nonReentrant onlyRegistered notFrozen(msg.sender) {
-        if (_amount == 0) revert InvalidAmount();
-
-        uint256 received = _pullStake(_amount);
-        solvers[msg.sender].stakedAmount += received;
-        emit StakeAdded(msg.sender, received);
+        uint256 solverId,
+        uint256 amount
+    ) external nonReentrant whenNotPaused {
+        Solver storage s = _ownedSolver(solverId);
+        if (s.status != SolverStatus.Active) revert SolverNotActive(solverId);
+        if (s.frozen) revert SolverIsFrozen(solverId);
+        if (amount == 0) revert InvalidAmount();
+        uint96 stake = SafeCast.toUint96(uint256(s.stake) + amount);
+        _pullExact(_registry().stakingToken, amount);
+        s.stake = stake;
+        emit StakeAdded(solverId, amount);
     }
 
-    /// @notice Leave the network immediately; stake stays locked and slashable for the cooldown.
-    function deregister() external onlyRegistered notFrozen(msg.sender) {
-        SolverProfile storage profile = solvers[msg.sender];
-        profile.status = SolverStatus.InCooldown;
-        profile.unlockTime = block.timestamp + UNSTAKE_COOLDOWN;
-        solverCount--;
-        emit SolverDeregistered(msg.sender, profile.unlockTime);
+    /// @notice Stop settling and start the exit delay. The stake stays slashable until `withdrawStake`.
+    function requestExit(uint256 solverId) external whenNotPaused {
+        Solver storage s = _ownedSolver(solverId);
+        if (s.status != SolverStatus.Active) revert SolverNotActive(solverId);
+        if (s.frozen) revert SolverIsFrozen(solverId);
+        uint64 unlockTime = SafeCast.toUint64(
+            block.timestamp + _registry().exitDelay
+        );
+        s.status = SolverStatus.Exiting;
+        s.unlockTime = unlockTime;
+        emit ExitRequested(solverId, unlockTime);
     }
 
-    /// @notice After the cooldown, anyone may release the stake — always to the solver's own address.
-    function unstake(address _solver) external nonReentrant notFrozen(_solver) {
-        SolverProfile storage profile = solvers[_solver];
-        if (profile.status != SolverStatus.InCooldown) revert NotInCooldown();
-        if (block.timestamp < profile.unlockTime) revert CooldownNotOver();
-
-        uint256 amount = profile.stakedAmount;
-        profile.stakedAmount = 0;
-        profile.unlockTime = 0;
-        profile.status = SolverStatus.Deregistered;
-
-        if (amount > 0) {
-            STAKING_TOKEN.safeTransfer(_solver, amount);
-        }
-        emit Unstaked(_solver, amount);
+    /// @notice Abort a pending exit; the solver can settle again from this block.
+    function cancelExit(uint256 solverId) external whenNotPaused {
+        Solver storage s = _ownedSolver(solverId);
+        if (s.status != SolverStatus.Exiting) revert SolverNotExiting(solverId);
+        if (s.frozen) revert SolverIsFrozen(solverId);
+        s.status = SolverStatus.Active;
+        s.unlockTime = 0;
+        emit ExitCancelled(solverId);
     }
 
-    /// @notice Slash stake (registered or in cooldown); dropping below MIN_STAKE forces the cooldown.
+    /// @notice Pay a matured exit's stake to the owner. Anyone may call; pause-exempt so honest stake is never
+    ///         trapped by a halt.
+    function withdrawStake(uint256 solverId) external nonReentrant {
+        Solver storage s = _registry().solvers[solverId];
+        if (s.status != SolverStatus.Exiting) revert SolverNotExiting(solverId);
+        if (s.frozen) revert SolverIsFrozen(solverId);
+        if (block.timestamp < s.unlockTime) revert ExitTooEarly(s.unlockTime);
+
+        uint256 amount = s.stake;
+        address solverOwner = s.owner;
+        s.status = SolverStatus.Exited;
+        s.stake = 0;
+        if (amount > 0)
+            _registry().stakingToken.safeTransfer(solverOwner, amount);
+        emit Unstaked(solverId, solverOwner, amount);
+    }
+
+    /// @notice Block a solver from settling, exiting or withdrawing while evidence is reviewed.
+    function freeze(uint256 solverId) external onlyRole(SLASHER_ROLE) {
+        Solver storage s = _registeredSolver(solverId);
+        if (s.frozen) revert SolverIsFrozen(solverId);
+        s.frozen = true;
+        emit SolverFrozen(solverId, msg.sender);
+    }
+
+    /// @notice Lift a freeze.
+    function unfreeze(uint256 solverId) external onlyRole(SLASHER_ROLE) {
+        Solver storage s = _registeredSolver(solverId);
+        if (!s.frozen) revert SolverNotFrozen(solverId);
+        s.frozen = false;
+        emit SolverUnfrozen(solverId, msg.sender);
+    }
+
+    /// @notice Take up to `amount` of a solver's stake to the slasher. An exiting solver's delay restarts, so
+    ///         a slash cannot be raced by a withdrawal. A solver left below `minStake` cannot settle until it
+    ///         tops up.
     function slash(
-        address _solver,
-        uint256 _amount
+        uint256 solverId,
+        uint256 amount
     ) external onlyRole(SLASHER_ROLE) nonReentrant {
-        SolverProfile storage profile = solvers[_solver];
-        if (profile.status == SolverStatus.None) revert NotRegistered();
-
-        uint256 currentStake = profile.stakedAmount;
-        uint256 slashAmount = _amount > currentStake ? currentStake : _amount;
-        if (slashAmount == 0) revert NothingToSlash();
-
-        uint256 remaining = currentStake - slashAmount;
-        profile.stakedAmount = remaining;
-
-        if (
-            profile.status == SolverStatus.Registered && remaining < MIN_STAKE
-        ) {
-            profile.status = SolverStatus.InCooldown;
-            profile.unlockTime = block.timestamp + UNSTAKE_COOLDOWN;
-            solverCount--;
-            emit SolverDeregistered(_solver, profile.unlockTime);
-        } else if (profile.status == SolverStatus.InCooldown) {
-            profile.unlockTime = block.timestamp + UNSTAKE_COOLDOWN;
-            emit CooldownReset(_solver, profile.unlockTime);
+        Solver storage s = _registeredSolver(solverId);
+        uint256 current = s.stake;
+        uint256 taken = amount > current ? current : amount;
+        if (taken == 0) revert NothingToSlash();
+        s.stake = SafeCast.toUint96(current - taken);
+        if (s.status == SolverStatus.Exiting) {
+            s.unlockTime = SafeCast.toUint64(
+                block.timestamp + _registry().exitDelay
+            );
         }
-
-        STAKING_TOKEN.safeTransfer(msg.sender, slashAmount);
-        emit Slashed(_solver, slashAmount, msg.sender);
+        _registry().stakingToken.safeTransfer(msg.sender, taken);
+        emit Slashed(solverId, taken, msg.sender);
     }
 
-    /// @notice Suspend a solver while a slash is pending: not routable, cannot act or unstake. Slasher-only.
-    function freeze(address _solver) external onlyRole(SLASHER_ROLE) {
-        SolverProfile storage profile = solvers[_solver];
-        if (
-            profile.status != SolverStatus.Registered &&
-            profile.status != SolverStatus.InCooldown
-        ) revert NotRegistered();
-        if (profile.frozen) revert AlreadyFrozen();
-        profile.frozen = true;
-        emit SolverFrozen(_solver, msg.sender);
+    /// @notice Change the minimum stake and exit delay; existing stakes are not touched, and a solver below a
+    ///         raised minimum stops settling until it tops up.
+    function updateConfig(
+        uint256 newMinStake,
+        uint256 newExitDelay
+    ) external onlyRole(CONFIG_ROLE) {
+        RegistryStorage storage $ = _registry();
+        if (newMinStake < $.minStakeFloor) revert MinStakeBelowFloor();
+        if (newExitDelay < MIN_EXIT_DELAY || newExitDelay > MAX_EXIT_DELAY)
+            revert InvalidDelay();
+        $.minStake = newMinStake;
+        $.exitDelay = newExitDelay;
+        emit ConfigUpdated(newMinStake, newExitDelay);
     }
 
-    /// @notice Lift a freeze, restoring the solver's ability to act and unstake. Slasher-only.
-    function unfreeze(address _solver) external onlyRole(SLASHER_ROLE) {
-        SolverProfile storage profile = solvers[_solver];
-        if (!profile.frozen) revert NotFrozen();
-        profile.frozen = false;
-        emit SolverUnfrozen(_solver, msg.sender);
+    /// @notice Halt registration, top-ups and exit requests. Rotation, withdrawal, freeze and slash stay open.
+    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
     }
 
-    /// @notice True only for a solver currently in the network and not frozen.
-    function isActiveSolver(address _solver) external view returns (bool) {
-        SolverProfile storage profile = solvers[_solver];
-        return profile.status == SolverStatus.Registered && !profile.frozen;
+    /// @notice Resume the paused lifecycle calls.
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
+    }
+
+    /// @inheritdoc IKageRegistry
+    function settlementSigner(
+        uint256 solverId
+    ) external view returns (address) {
+        RegistryStorage storage $ = _registry();
+        Solver storage s = $.solvers[solverId];
+        if (s.status != SolverStatus.Active || s.frozen || s.stake < $.minStake)
+            return address(0);
+        return s.signer;
+    }
+
+    /// @notice The full record of `solverId` (all zero for an unissued id).
+    function solver(uint256 solverId) external view returns (Solver memory) {
+        return _registry().solvers[solverId];
+    }
+
+    function stakingToken() external view returns (IERC20) {
+        return _registry().stakingToken;
+    }
+
+    function minStakeFloor() external view returns (uint256) {
+        return _registry().minStakeFloor;
+    }
+
+    function minStake() external view returns (uint256) {
+        return _registry().minStake;
+    }
+
+    function exitDelay() external view returns (uint256) {
+        return _registry().exitDelay;
+    }
+
+    /// @notice Number of solver ids issued; ids run from 1 to this value.
+    function solverCount() external view returns (uint256) {
+        return _registry().solverCount;
+    }
+
+    /// @dev Credits exactly `amount` or reverts, so a fee-on-transfer token can never overstate a stake.
+    function _pullExact(IERC20 token, uint256 amount) private {
+        uint256 before = token.balanceOf(address(this));
+        token.safeTransferFrom(msg.sender, address(this), amount);
+        if (token.balanceOf(address(this)) - before != amount)
+            revert FeeOnTransferUnsupported();
+    }
+
+    function _ownedSolver(
+        uint256 solverId
+    ) private view returns (Solver storage s) {
+        s = _registry().solvers[solverId];
+        if (s.owner != msg.sender) revert NotSolverOwner(solverId);
+    }
+
+    function _registeredSolver(
+        uint256 solverId
+    ) private view returns (Solver storage s) {
+        s = _registry().solvers[solverId];
+        if (s.status != SolverStatus.Active && s.status != SolverStatus.Exiting)
+            revert SolverNotRegistered(solverId);
+    }
+
+    function _registry() private pure returns (RegistryStorage storage $) {
+        assembly {
+            $.slot := REGISTRY_LOCATION
+        }
+    }
+
+    function _reentrancyStorage()
+        private
+        pure
+        returns (ReentrancyStorage storage $)
+    {
+        assembly {
+            $.slot := REENTRANCY_LOCATION
+        }
     }
 }

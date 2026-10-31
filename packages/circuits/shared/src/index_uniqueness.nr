@@ -1,13 +1,9 @@
-// Index uniqueness under the membership proof.
+// Index uniqueness under the membership proof: a (leaf, root) pair opens at one index per real inserted copy.
 //
-// The predecessor of this file guarded the wrong axis. `packages/prover/test-harness/leaf-index-forgery`
-// proves `leaf_index.to_le_bits::<32>()` bounds the index to 32 bits, which stops `k` aliasing `2^32 + k`.
-// It says nothing about aliasing WITHIN 32 bits, and that is where the real forgery lived: an empty level is
-// a pass-through, so the same sibling sequence placed in different slots reproduced one root under many
-// indices, and `nullifier = Poseidon2(psi, leaf_index)` turned that into unlimited spends of one note.
-//
-// The binding is that the level is absorbed into every tree hash, so a sibling cannot move between levels.
-// These tests pin the property itself, not the mechanism that delivers it.
+// `to_le_bits::<32>()` only stops `k` aliasing `2^32 + k`. Within 32 bits an empty level is a pass-through,
+// so without more a sibling moved to another level would reproduce the root under another index, and
+// `nullifier = Poseidon2(psi, leaf_index)` would give one note many nullifiers. The level absorbed into every
+// node hash pins each sibling to its depth. These tests pin the property itself, not the mechanism.
 use crate::{lean_imt_inclusion_proof, TREE_DEPTH};
 
 global S: Field = 0x038682aa1cb5ae4e0a3f13da432a95c77c5c111f6f030faf9cad641ce1ed7383;

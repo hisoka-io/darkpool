@@ -17,7 +17,7 @@ uint256 constant NUMBER_UNSHIFTED = 37;
 uint256 constant NUMBER_TO_BE_SHIFTED = 5;
 uint256 constant PAIRING_POINTS_SIZE = 8;
 
-uint256 constant VK_HASH = 0x2715d4aa7cbcf45d02ba4eb95cec331dfb905cb8a317a54ee73b9c19c4821c56;
+uint256 constant VK_HASH = 0x2da6079bf596cc400c6ec39c7cacd3af94448352d7a03b2ac1ac4555e878eac2;
 uint256 constant CIRCUIT_SIZE = 1048576;
 uint256 constant LOG_N = 20;
 uint256 constant NUMBER_PUBLIC_INPUTS = 50;
@@ -2055,8 +2055,8 @@ uint256 internal constant SS_GEMINI_EVALS_LOC = 0x40;
                 mstore(Q_4_Y_LOC, 0x2628500f83aaa8fe392a540772e4c61d9ff65ba66bad6a67e9682db136f11fb9)
                 mstore(Q_M_X_LOC, 0x21760857de56a1cd0408f4b33bd5d99e9408bcb6e53bf77fef8b1f879ea496df)
                 mstore(Q_M_Y_LOC, 0x00895543d091e4c2870cbfb0807a8e1ae98ae16ea6ee226e5d3c1398a2c5663a)
-                mstore(Q_C_X_LOC, 0x30507aec98567f63351f3a69e9acd1ce302c3e4a62ce49bfcb14aa7a89d5296b)
-                mstore(Q_C_Y_LOC, 0x18a32baf69917ab6b2f92821dc09aba696c179927ba4123520e7f1a23927d3d5)
+                mstore(Q_C_X_LOC, 0x27e293780d265d65efaaccb11a9bf7cc21b8d7c47a77615891fbf75bf07a2450)
+                mstore(Q_C_Y_LOC, 0x29caea2ca3285540945f0c7290994c5fb77ead707c690f5ab1e3d01740260698)
                 mstore(Q_LOOKUP_X_LOC, 0x0000000000000000000000000000000000000000000000000000000000000000)
                 mstore(Q_LOOKUP_Y_LOC, 0x0000000000000000000000000000000000000000000000000000000000000000)
                 mstore(Q_ARITH_X_LOC, 0x0a2a61cd9375cdcde47c6b91f8de1c83bf80a62b01b6740aac7893b17a2b665a)

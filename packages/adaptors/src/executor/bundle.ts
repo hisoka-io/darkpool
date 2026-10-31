@@ -8,6 +8,7 @@ import {
   keccak256,
 } from "ethers";
 import { AdaptorError } from "../errors.js";
+import { BUNDLE_CALL_TUPLE, BUNDLE_EXECUTE_FRAGMENT } from "./abi.js";
 import { BundleCall, BundleDomain, BuiltBundle } from "./types.js";
 import {
   HOWL_WITHDRAW_ACTION_GAS_LIMIT,
@@ -16,17 +17,11 @@ import {
 
 const BUNDLE_VERSION = 2n;
 
-/** Field order MUST match the Solidity `BundleExecutor.BundleCall` struct, or the intent hash diverges. */
-const BUNDLE_CALL_TUPLE =
-  "tuple(address target, bytes data, uint256 value, bool requireSuccess, address approveToken, uint256 approveAmount, uint256 gasLimit, uint256 returnDataLimit)[]";
-
 const REWARD_POOL_IFACE = new Interface([
   "function depositRewards(address asset, uint256 amount)",
 ]);
 
-const BUNDLE_EXECUTOR_IFACE = new Interface([
-  `function execute(bytes proof, bytes32[] publicInputs, ${BUNDLE_CALL_TUPLE} boundCalls, uint256 deadline, address[] trackedAssets, address[] recipients)`,
-]);
+const BUNDLE_EXECUTOR_IFACE = new Interface([BUNDLE_EXECUTE_FRAGMENT]);
 
 const WITHDRAW_PUBLIC_INPUTS = 17;
 const RECIPIENT_INPUT = 1;

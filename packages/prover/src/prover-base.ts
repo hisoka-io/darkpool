@@ -1,7 +1,7 @@
 import { Barretenberg, UltraHonkBackend } from "@aztec/bb.js";
 import { CompiledCircuit, InputMap, Noir } from "@noir-lang/noir_js";
 import { ProofData } from "./types.js";
-import { ProofError } from "./errors.js";
+import { ProofError, UnverifiedProofError } from "./errors.js";
 
 const BB_THREADS = Math.max(
   1,
@@ -28,17 +28,16 @@ export async function generateProof(
   const api = await ensureBBInitialized();
   const backend = new UltraHonkBackend(circuit.bytecode, api);
 
+  let generated: { proof: Uint8Array; publicInputs: string[] };
+  let verified: boolean;
   try {
     const { witness } = await noir.execute(noirInputs);
-    const { proof, publicInputs } = await backend.generateProof(witness, {
+    generated = await backend.generateProof(witness, {
       verifierTarget: "evm",
     });
-    const verified = await backend.verifyProof(
-      { proof, publicInputs },
-      { verifierTarget: "evm" },
-    );
-
-    return { proof, publicInputs, verified };
+    verified = await backend.verifyProof(generated, {
+      verifierTarget: "evm",
+    });
   } catch (err) {
     throw new ProofError(
       circuitName,
@@ -46,4 +45,10 @@ export async function generateProof(
       err,
     );
   }
+  if (!verified) throw new UnverifiedProofError(circuitName);
+  return {
+    proof: generated.proof,
+    publicInputs: generated.publicInputs,
+    verified,
+  };
 }

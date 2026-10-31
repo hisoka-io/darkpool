@@ -109,7 +109,8 @@ export interface PublicClaimInputs {
 export interface ProofData {
   proof: Uint8Array;
   publicInputs: string[];
-  verified: boolean;
+  /** Always true: a proof that fails local verification is never returned (`UnverifiedProofError`). */
+  verified: true;
 }
 
 export interface SwapIntentInputs {
@@ -137,7 +138,8 @@ export interface SwapIntentProof {
   publicInputs: string[];
   vkAsFields: string[];
   vkHash: string;
-  verified: boolean;
+  /** Always true: an intent proof that fails local verification is never returned (`UnverifiedIntentProofError`). */
+  verified: true;
 }
 
 export interface SwapSettleInputs {

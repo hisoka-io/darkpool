@@ -44,6 +44,10 @@ contract MerkleTreeInvariant {
         handler = new MerkleTreeHandler();
     }
 
+    // Each run starts from an empty tree, so a depth above 256 makes a bounded history of up to 256 roots fail
+    // inside one run; at a depth of 32 a 64-root ring passes.
+    /// forge-config: default.invariant.runs = 32
+    /// forge-config: default.invariant.depth = 300
     function invariant_allPastRootsRemainKnown() public view {
         uint256 n = handler.rootCount();
         for (uint256 i = 0; i < n; i++) {

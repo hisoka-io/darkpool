@@ -31,7 +31,7 @@ fn main(
     let (nullifier_b, root_b) = open_multisig_note(note_b, gpk_b, index_b, path_b);
     assert(root_a == root_b, "inputs must share a root");
     assert(nullifier_a != nullifier_b, "cannot join a note with itself");
-    // verify_spend's to_le_bits::<TREE_DEPTH> already range-bound both indexes, so the u32 compare is exact.
+    // open_multisig_note's to_le_bits::<TREE_DEPTH> already range-bound both indexes, so the u32 compare is exact.
     assert((index_a as u32) < (index_b as u32), "join inputs must be strictly index-ordered");
 
     // Cross-account join is barred: with an unbound output owner either signer could redirect the merged value.

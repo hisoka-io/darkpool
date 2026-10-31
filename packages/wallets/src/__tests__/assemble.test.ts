@@ -1,9 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { Fr } from "@aztec/foundation/fields";
-import { Base8, mulPointEscalar } from "@zk-kit/baby-jubjub";
+import { Base8, mulPointEscalar, type Point } from "@zk-kit/baby-jubjub";
 import { toFr } from "../crypto/fields.js";
-import { PARENTS_HIDDEN, packParents } from "../note/note.js";
-import { publicKey, pubkeyOwner } from "../note/keys.js";
+import { BJJ_SUBGROUP_ORDER } from "../crypto/constants.js";
+import { unwrapCek } from "../crypto/kem.js";
+import { demDecrypt, demEncrypt } from "../crypto/dem.js";
+import { LeanIMT } from "../merkle/LeanIMT.js";
+import { TREE_DEPTH } from "../merkle/genesis.js";
+import { computePsi } from "../note/nullifier.js";
+import { leaf, PARENTS_HIDDEN, packParents } from "../note/note.js";
+import { isEvenY, publicKey, pubkeyOwner, recoverEvenY } from "../note/keys.js";
 import {
   markDerivedSelfMintCandidate,
   type DerivedEph,
@@ -18,8 +24,9 @@ import {
   type AssemblyContext,
   type SpendableNote,
 } from "../tx/assemble.js";
-import { mintSelfNote } from "../note/mint.js";
+import { MemoMintError, mintSelfNote } from "../note/mint.js";
 import type { MerkleWitnessSource } from "../tx/ports.js";
+import { LocalTreeWitnessSource } from "../tx/witnessSources.js";
 import { completeComplianceHistory } from "../note/complianceKeys.js";
 import { SelfMintPreflight } from "../discovery/preflight.js";
 import {
@@ -30,11 +37,12 @@ import {
   type DiscoverySource,
   type HowlNoteRecord,
 } from "../discovery/types.js";
+import { canonicalSelfEph } from "./canonicalSelfEph.js";
 
 const COMPLIANCE_PK = mulPointEscalar(Base8, 987654321n);
 const ASSET = toFr(0x1234567890123456789012345678901234567890n);
 const SPEND = toFr(789n);
-const eph = (n: bigint): DerivedEph => toFr(n) as DerivedEph;
+const eph = (n: bigint): DerivedEph => canonicalSelfEph(n);
 const COMPLIANCE_HISTORY = completeComplianceHistory({
   genesisPk: COMPLIANCE_PK,
   rotations: [],
@@ -92,17 +100,26 @@ async function preflighted(n: bigint) {
   return (await preflight.take(1))[0];
 }
 
-/** Populated by `spendable()` so the stub agrees with the wallet about where each note sits. */
-const byLeaf = new Map<string, number>();
+/** The latest leaf placed at each index, so the tree agrees with the wallet about where each note sits. */
+const placed = new Map<number, Fr>();
 
-/** Stub source. Resolves the index per LEAF, because the assembler cross-checks it against the wallet's. */
-function source(index: number, root = toFr(0xf00dn)): MerkleWitnessSource {
+/** A real LeanIMT over the placed notes, filler leaves elsewhere, so every witness folds to its root. */
+async function placedTree(): Promise<LeanIMT> {
+  const tree = new LeanIMT(TREE_DEPTH);
+  const top = Math.max(0, ...placed.keys());
+  for (let i = 0; i <= top; i++) {
+    await tree.insert(placed.get(i) ?? toFr(BigInt(0x10000 + i)));
+  }
+  return tree;
+}
+
+function source(): MerkleWitnessSource {
   return {
-    witnessFor: async (leaf: Fr) => ({
-      leafIndex: byLeaf.get(leaf.toString()) ?? index,
-      siblings: Array.from({ length: 32 }, () => toFr(0n)),
-      root,
-    }),
+    witnessFor: async (leafValue: Fr, expectedLeafIndex: number) =>
+      new LocalTreeWitnessSource(await placedTree()).witnessFor(
+        leafValue,
+        expectedLeafIndex,
+      ),
   };
 }
 
@@ -118,21 +135,33 @@ async function spendable(
     ASSET,
     COMPLIANCE_PK,
   );
-  byLeaf.set(m.commitment.toString(), leafIndex);
+  placed.set(leafIndex, m.commitment);
   return { note: m.note, leaf: m.commitment, leafIndex, spendScalar: SPEND };
 }
 
-const ctx = (index: number, root?: Fr): AssemblyContext => ({
+const ctx = (): AssemblyContext => ({
   compliancePk: COMPLIANCE_PK,
   complianceVersion: 1,
   complianceHistory: COMPLIANCE_HISTORY,
   ...DOMAIN,
-  merkle: source(index, root),
+  merkle: source(),
 });
+
+async function expectAssemblyError(
+  pending: Promise<unknown>,
+  reason: string,
+): Promise<void> {
+  const err: unknown = await pending.then(
+    () => null,
+    (e: unknown) => e,
+  );
+  expect(err).toBeInstanceOf(AssemblyError);
+  expect((err as AssemblyError).reason).toBe(reason);
+}
 
 describe("assembleDeposit", () => {
   it("mints a self note the depositor owns", async () => {
-    const a = await assembleDeposit(ctx(1), {
+    const a = await assembleDeposit(ctx(), {
       value: 100n,
       assetId: ASSET,
       spendScalar: SPEND,
@@ -152,12 +181,12 @@ describe("assembleDeposit", () => {
       spendScalar: SPEND,
       selfMint: authorization,
     };
-    await expect(assembleDeposit(ctx(1), request)).resolves.toBeDefined();
-    await expect(assembleDeposit(ctx(1), request)).rejects.toThrow(/consumed/);
+    await expect(assembleDeposit(ctx(), request)).resolves.toBeDefined();
+    await expect(assembleDeposit(ctx(), request)).rejects.toThrow(/consumed/);
 
     await expect(
       Reflect.apply(assembleDeposit, undefined, [
-        ctx(1),
+        ctx(),
         { ...request, selfMint: {} },
       ]),
     ).rejects.toThrow(/unknown|copied/);
@@ -166,7 +195,7 @@ describe("assembleDeposit", () => {
   it("checks owner and compliance context before consuming", async () => {
     const authorization = await preflighted(71n);
     await expect(
-      assembleDeposit(ctx(1), {
+      assembleDeposit(ctx(), {
         value: 10n,
         assetId: ASSET,
         spendScalar: toFr(999n),
@@ -175,7 +204,7 @@ describe("assembleDeposit", () => {
     ).rejects.toThrow(/context/);
     await expect(
       assembleDeposit(
-        { ...ctx(1), complianceVersion: 2 },
+        { ...ctx(), complianceVersion: 2 },
         {
           value: 10n,
           assetId: ASSET,
@@ -185,7 +214,7 @@ describe("assembleDeposit", () => {
       ),
     ).rejects.toThrow(/context/);
     await expect(
-      assembleDeposit(ctx(1), {
+      assembleDeposit(ctx(), {
         value: 10n,
         assetId: ASSET,
         spendScalar: SPEND,
@@ -197,7 +226,7 @@ describe("assembleDeposit", () => {
   it("does not burn authorization on request validation failure", async () => {
     const authorization = await preflighted(72n);
     await expect(
-      assembleDeposit(ctx(1), {
+      assembleDeposit(ctx(), {
         value: -1n,
         assetId: ASSET,
         spendScalar: SPEND,
@@ -205,7 +234,7 @@ describe("assembleDeposit", () => {
       }),
     ).rejects.toThrow(AssemblyError);
     await expect(
-      assembleDeposit(ctx(1), {
+      assembleDeposit(ctx(), {
         value: 1n,
         assetId: ASSET,
         spendScalar: SPEND,
@@ -218,7 +247,7 @@ describe("assembleDeposit", () => {
 describe("assembleWithdraw", () => {
   it("computes change and binds it to the consumed leaf", async () => {
     const input = await spendable(100n, 7);
-    const a = await assembleWithdraw(ctx(7), {
+    const a = await assembleWithdraw(ctx(), {
       input,
       value: 30n,
       recipient: toFr(0xbeefn),
@@ -234,7 +263,7 @@ describe("assembleWithdraw", () => {
   it("fails CLOSED when the value exceeds the note", async () => {
     const input = await spendable(10n, 3);
     await expect(
-      assembleWithdraw(ctx(3), {
+      assembleWithdraw(ctx(), {
         input,
         value: 999n,
         recipient: toFr(1n),
@@ -249,7 +278,7 @@ describe("assembleWithdraw", () => {
     // A LYING source: says index 9 while the wallet holds 3. Building on it would derive a nullifier for a
     // leaf the wallet does not own, so assembly must refuse rather than emit an unusable proof.
     const lying: AssemblyContext = {
-      ...ctx(3),
+      ...ctx(),
       merkle: {
         witnessFor: async () => ({
           leafIndex: 9,
@@ -268,33 +297,276 @@ describe("assembleWithdraw", () => {
       }),
     ).rejects.toThrow(/MERKLE_INDEX_MISMATCH|index/);
   });
+
+  it("asks the merkle source for the wallet's own index, so a duplicated leaf opens the right copy", async () => {
+    const input = await spendable(10n, 6);
+    const asked: number[] = [];
+    const recording: AssemblyContext = {
+      ...ctx(),
+      merkle: {
+        witnessFor: async (leafValue: Fr, expectedLeafIndex: number) => {
+          asked.push(expectedLeafIndex);
+          return source().witnessFor(leafValue, expectedLeafIndex);
+        },
+      },
+    };
+    const a = await assembleWithdraw(recording, {
+      input,
+      value: 1n,
+      recipient: toFr(1n),
+      selfSpendScalar: SPEND,
+      changeMint: await preflighted(3n),
+    });
+    expect(asked).toEqual([6]);
+    expect(a.inputs.oldNoteIndex).toBe(6);
+  });
+
+  /** A source that answers with the real path for the index it was asked, then lets `tamper` edit it. */
+  function tampered(
+    tamper: (w: { leafIndex: number; siblings: readonly Fr[]; root: Fr }) => {
+      leafIndex: number;
+      siblings: readonly Fr[];
+      root: Fr;
+    },
+  ): AssemblyContext {
+    return {
+      ...ctx(),
+      merkle: {
+        witnessFor: async (leafValue: Fr, expectedLeafIndex: number) =>
+          tamper(await source().witnessFor(leafValue, expectedLeafIndex)),
+      },
+    };
+  }
+
+  const withdrawFrom = async (c: AssemblyContext, input: SpendableNote) =>
+    assembleWithdraw(c, {
+      input,
+      value: 1n,
+      recipient: toFr(1n),
+      selfSpendScalar: SPEND,
+      changeMint: await preflighted(4n),
+    });
+
+  it("refuses a witness whose path does not fold to the root it claims", async () => {
+    const input = await spendable(10n, 6);
+    await expectAssemblyError(
+      withdrawFrom(
+        tampered((w) => ({ ...w, root: toFr(0xf00dn) })),
+        input,
+      ),
+      "MERKLE_ROOT_MISMATCH",
+    );
+  });
+
+  it("refuses a path with a right child at an empty level", async () => {
+    // Index 6 has bits 1 and 2 set; all-zero siblings make those empty levels, which LeanIMT never produces.
+    const input = await spendable(10n, 6);
+    await expectAssemblyError(
+      withdrawFrom(
+        tampered((w) => ({
+          ...w,
+          siblings: Array.from({ length: TREE_DEPTH }, () => toFr(0n)),
+        })),
+        input,
+      ),
+      "MERKLE_PATH_NONCANONICAL",
+    );
+  });
+
+  it("refuses a path that is not exactly the circuit depth", async () => {
+    const input = await spendable(10n, 6);
+    await expectAssemblyError(
+      withdrawFrom(
+        tampered((w) => ({ ...w, siblings: w.siblings.slice(0, -1) })),
+        input,
+      ),
+      "MERKLE_PATH_LENGTH",
+    );
+  });
+
+  it("refuses an index the circuit's 32-bit decomposition rejects", async () => {
+    // 2^32 + 6 folds exactly like 6, because only the low TREE_DEPTH bits pick sides.
+    const input = await spendable(10n, 6);
+    const aliased = 2 ** TREE_DEPTH + 6;
+    const aliasing: AssemblyContext = {
+      ...ctx(),
+      merkle: {
+        witnessFor: async (leafValue: Fr) => ({
+          ...(await source().witnessFor(leafValue, 6)),
+          leafIndex: aliased,
+        }),
+      },
+    };
+    await expectAssemblyError(
+      withdrawFrom(aliasing, { ...input, leafIndex: aliased }),
+      "MERKLE_INDEX_RANGE",
+    );
+  });
 });
 
 describe("assembleTransfer", () => {
+  // 76 and 31 are even-y scalars; the circuit rejects an odd-y memo ephemeral or recipient key.
+  const MEMO_EPH = toFr(76n);
+  const RECIPIENT_IN_KEY = toFr(31n);
+
   it("forces the memo parents to PARENTS_HIDDEN", async () => {
     const input = await spendable(100n, 4);
-    const a = await assembleTransfer(ctx(4), {
+    const a = await assembleTransfer(ctx(), {
       input,
       value: 25n,
-      recipientInPub: publicKey(toFr(31n)),
-      recipientInKey: toFr(31n),
+      recipientInPub: publicKey(RECIPIENT_IN_KEY),
       selfSpendScalar: SPEND,
-      memoEph: toFr(77n),
+      memoEph: MEMO_EPH,
       changeMint: await preflighted(78n),
     });
     // The circuit asserts this, and it is what hides the sender's leaf index from the recipient.
     expect(a.memo.note.parents.toString()).toBe(PARENTS_HIDDEN.toString());
     expect(a.change.note.value.toBigInt()).toBe(75n);
     // An incoming note's tag is the RECIPIENT's key, never the ephemeral's.
-    expect(a.memo.tag.toBigInt()).toBe(publicKey(toFr(31n))[0]);
+    expect(a.memo.tag.toBigInt()).toBe(publicKey(RECIPIENT_IN_KEY)[0]);
     expect(a.memo.cekWrap).toBeDefined();
+  });
+
+  it("builds a memo the recipient opens from the event fields and its own key alone", async () => {
+    const input = await spendable(100n, 5);
+    const a = await assembleTransfer(ctx(), {
+      input,
+      value: 25n,
+      recipientInPub: publicKey(RECIPIENT_IN_KEY),
+      selfSpendScalar: SPEND,
+      memoEph: toFr(79n),
+      changeMint: await preflighted(80n),
+    });
+    expect("spendScalar" in a.memo).toBe(false);
+
+    // What the chain carries: eph_pub.x, cek_wrap, and the ciphertext the circuit computes under the cek.
+    const n = a.memo.note;
+    const ciphertext = await demEncrypt(a.memo.cek, [
+      n.noteVersion,
+      n.assetId,
+      n.noteType,
+      n.conditionsHash,
+      n.value,
+      n.owner,
+      n.parents,
+    ]);
+
+    const cek = await unwrapCek(
+      a.memo.cekWrap,
+      RECIPIENT_IN_KEY,
+      recoverEvenY(a.memo.ephPub[0]),
+    );
+    const [
+      noteVersion,
+      assetId,
+      noteType,
+      conditionsHash,
+      value,
+      owner,
+      parents,
+    ] = await demDecrypt(cek, ciphertext);
+    const rebuilt = await leaf({
+      noteVersion: noteVersion!,
+      assetId: assetId!,
+      noteType: noteType!,
+      conditionsHash: conditionsHash!,
+      value: value!.toBigInt(),
+      owner: owner!,
+      psi: await computePsi(cek),
+      parents: parents!,
+    });
+    expect(rebuilt.toString()).toBe(a.memo.commitment.toString());
+    expect(owner!.toString()).toBe(
+      (await pubkeyOwner(publicKey(RECIPIENT_IN_KEY))).toString(),
+    );
+    expect(value!.toBigInt()).toBe(25n);
+  });
+
+  async function transferWith(memoEph: Fr, recipientInPub: Point<bigint>) {
+    return assembleTransfer(ctx(), {
+      input: await spendable(100n, 4),
+      value: 25n,
+      recipientInPub,
+      selfSpendScalar: SPEND,
+      memoEph,
+      changeMint: await preflighted(81n),
+    });
+  }
+
+  async function expectMemoError(
+    pending: Promise<unknown>,
+    reason: MemoMintError["reason"],
+  ): Promise<void> {
+    const err: unknown = await pending.then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(MemoMintError);
+    expect((err as MemoMintError).reason).toBe(reason);
+  }
+
+  it("refuses an odd-y memo ephemeral", async () => {
+    expect(isEvenY(publicKey(toFr(77n)))).toBe(false);
+    await expectMemoError(
+      transferWith(toFr(77n), publicKey(RECIPIENT_IN_KEY)),
+      "MEMO_EPH_ODD_Y",
+    );
+  });
+
+  it("refuses a memo ephemeral outside [1, subgroup order)", async () => {
+    await expectMemoError(
+      transferWith(toFr(0n), publicKey(RECIPIENT_IN_KEY)),
+      "MEMO_EPH_RANGE",
+    );
+    await expectMemoError(
+      transferWith(toFr(BJJ_SUBGROUP_ORDER), publicKey(RECIPIENT_IN_KEY)),
+      "MEMO_EPH_RANGE",
+    );
+  });
+
+  it("refuses a recipient key that is the identity, low order or off the curve", async () => {
+    const BN254_P = Fr.MODULUS;
+    const lowOrder: Point<bigint> = [0n, BN254_P - 1n];
+    for (const bad of [[0n, 1n], lowOrder, [1n, 2n]] as Point<bigint>[]) {
+      await expectMemoError(
+        transferWith(MEMO_EPH, bad),
+        "RECIPIENT_KEY_INVALID",
+      );
+    }
+  });
+
+  it("refuses an odd-y recipient key, whose x would not identify it", async () => {
+    const oddKey = publicKey(toFr(55n));
+    expect(isEvenY(oddKey)).toBe(false);
+    await expectMemoError(
+      transferWith(MEMO_EPH, oddKey),
+      "RECIPIENT_KEY_ODD_Y",
+    );
+  });
+
+  it("checks the memo before consuming the change authorization", async () => {
+    const changeMint = await preflighted(82n);
+    const request = {
+      input: await spendable(100n, 4),
+      value: 25n,
+      recipientInPub: publicKey(RECIPIENT_IN_KEY),
+      selfSpendScalar: SPEND,
+      changeMint,
+    };
+    await expectMemoError(
+      assembleTransfer(ctx(), { ...request, memoEph: toFr(77n) }),
+      "MEMO_EPH_ODD_Y",
+    );
+    await expect(
+      assembleTransfer(ctx(), { ...request, memoEph: MEMO_EPH }),
+    ).resolves.toBeDefined();
   });
 });
 
 describe("assembleSplit", () => {
   it("conserves value across both outputs", async () => {
     const input = await spendable(100n, 2);
-    const a = await assembleSplit(ctx(2), {
+    const a = await assembleSplit(ctx(), {
       input,
       value1: 40n,
       selfSpendScalar: SPEND,
@@ -309,7 +581,7 @@ describe("assembleSplit", () => {
     const input = await spendable(100n, 2);
     const repeated = await preflighted(51n);
     await expect(
-      assembleSplit(ctx(2), {
+      assembleSplit(ctx(), {
         input,
         value1: 40n,
         selfSpendScalar: SPEND,
@@ -323,7 +595,7 @@ describe("assembleJoin", () => {
   it("sorts the pair ascending regardless of argument order", async () => {
     const hi = await spendable(30n, 9);
     const lo = await spendable(20n, 4);
-    const a = await assembleJoin(ctx(0), {
+    const a = await assembleJoin(ctx(), {
       inputA: hi,
       inputB: lo,
       selfSpendScalar: SPEND,
@@ -336,7 +608,7 @@ describe("assembleJoin", () => {
   it("refuses to join a note with itself", async () => {
     const n = await spendable(20n, 4);
     await expect(
-      assembleJoin(ctx(4), {
+      assembleJoin(ctx(), {
         inputA: n,
         inputB: n,
         selfSpendScalar: SPEND,
@@ -348,7 +620,7 @@ describe("assembleJoin", () => {
   it("sums both inputs into the output", async () => {
     const a1 = await spendable(20n, 4);
     const b1 = await spendable(30n, 9);
-    const a = await assembleJoin(ctx(0), {
+    const a = await assembleJoin(ctx(), {
       inputA: a1,
       inputB: b1,
       selfSpendScalar: SPEND,
@@ -372,9 +644,9 @@ describe("output ownership is independent of input ownership", () => {
       ASSET,
       COMPLIANCE_PK,
     );
-    byLeaf.set(received.commitment.toString(), 5);
+    placed.set(5, received.commitment);
 
-    const a = await assembleWithdraw(ctx(5), {
+    const a = await assembleWithdraw(ctx(), {
       input: {
         note: received.note,
         leaf: received.commitment,

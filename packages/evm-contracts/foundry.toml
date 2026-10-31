@@ -25,7 +25,9 @@ remappings = [
   "@uniswap/=node_modules/@uniswap/",
 ]
 
+# 256 runs of 128 calls per invariant reach multi-note ledger states the old 64 x 32 budget did not; the Merkle
+# root-retention invariant sets its own depth in its file.
 [invariant]
-runs = 64
-depth = 32
+runs = 256
+depth = 128
 fail_on_revert = false

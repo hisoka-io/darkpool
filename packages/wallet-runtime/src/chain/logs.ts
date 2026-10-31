@@ -1,0 +1,313 @@
+import type { ChainConfig } from "../config.js";
+import { WalletRuntimeError } from "../errors.js";
+import type { ChainReader } from "./chainReader.js";
+import {
+  invalidResponse,
+  parseHash,
+  parseSafeNumber,
+  quantity,
+  RpcClient,
+  type BlockId,
+  type BlockRef,
+  type JsonRpc,
+} from "./rpc.js";
+
+export interface RawLog {
+  readonly address: string;
+  readonly topics: readonly string[];
+  readonly data: string;
+  readonly blockNumber: number;
+  readonly blockHash: string;
+  readonly logIndex: number;
+  readonly transactionHash: string;
+  readonly removed: boolean;
+}
+
+export interface LogQuery {
+  /** topic0 alternatives. Nothing else is filtered on. */
+  readonly topic0: readonly [string, ...string[]];
+  readonly fromBlock: number;
+  readonly toBlock: number;
+}
+
+export interface LogSource {
+  /** Every pool log with one of the topic0 values in `[fromBlock, toBlock]`, ordered by (block, logIndex). */
+  logs(query: LogQuery): Promise<readonly RawLog[]>;
+}
+
+/**
+ * `eth_getLogs` over the pool, filtered by address and topic0 only. Filtering on an indexed argument (leaf
+ * index, tag, commitment, nullifier, memoId) would tell the node which notes are ours.
+ */
+export class RpcLogSource implements LogSource {
+  private readonly pool: string;
+  private readonly rangeBlocks: number;
+
+  constructor(
+    private readonly client: RpcClient,
+    config: ChainConfig,
+  ) {
+    this.pool = config.deployment.dark_pool.toLowerCase();
+    this.rangeBlocks = config.logRangeBlocks;
+  }
+
+  static over(rpc: JsonRpc, config: ChainConfig): RpcLogSource {
+    return new RpcLogSource(new RpcClient(rpc, config.rpcTimeoutMs), config);
+  }
+
+  async logs(query: LogQuery): Promise<readonly RawLog[]> {
+    const { fromBlock, toBlock } = query;
+    const wanted = new Set(query.topic0.map((t) => t.toLowerCase()));
+    const out: RawLog[] = [];
+    for (let from = fromBlock; from <= toBlock; from += this.rangeBlocks) {
+      const to = Math.min(toBlock, from + this.rangeBlocks - 1);
+      const raw = await this.client.request("eth_getLogs", [
+        {
+          address: this.pool,
+          topics: [[...wanted]],
+          fromBlock: quantity(from),
+          toBlock: quantity(to),
+        },
+      ]);
+      if (!Array.isArray(raw)) {
+        invalidResponse("eth_getLogs", raw, "is not an array");
+      }
+      for (const entry of raw) {
+        const log = parseLog(entry);
+        if (log.address !== this.pool) {
+          invalidResponse(
+            "eth_getLogs",
+            entry,
+            `is from ${log.address}, not the pool`,
+          );
+        }
+        if (!wanted.has(log.topics[0] ?? "")) {
+          invalidResponse(
+            "eth_getLogs",
+            entry,
+            "carries a topic0 that was not asked for",
+          );
+        }
+        if (log.blockNumber < from || log.blockNumber > to) {
+          invalidResponse(
+            "eth_getLogs",
+            entry,
+            `is outside the requested range [${from}, ${to}]`,
+          );
+        }
+        out.push(log);
+      }
+    }
+    return out.sort(
+      (a, b) => a.blockNumber - b.blockNumber || a.logIndex - b.logIndex,
+    );
+  }
+}
+
+function parseLog(entry: unknown): RawLog {
+  if (typeof entry !== "object" || entry === null) {
+    invalidResponse("eth_getLogs", entry, "entry is not a log");
+  }
+  const log = entry as Record<string, unknown>;
+  const { address, topics, data } = log;
+  if (typeof address !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(address)) {
+    invalidResponse("eth_getLogs", entry, "has no address");
+  }
+  if (!Array.isArray(topics) || topics.length === 0) {
+    invalidResponse("eth_getLogs", entry, "has no topics");
+  }
+  if (typeof data !== "string" || !/^0x([0-9a-fA-F]{2})*$/.test(data)) {
+    invalidResponse("eth_getLogs", entry, "has no hex data");
+  }
+  return Object.freeze({
+    address: address.toLowerCase(),
+    topics: Object.freeze(
+      topics.map((t) => parseHash(t, "eth_getLogs.topics")),
+    ),
+    data,
+    blockNumber: parseSafeNumber(log.blockNumber, "eth_getLogs.blockNumber"),
+    blockHash: parseHash(log.blockHash, "eth_getLogs.blockHash"),
+    logIndex: parseSafeNumber(log.logIndex, "eth_getLogs.logIndex"),
+    transactionHash: parseHash(
+      log.transactionHash,
+      "eth_getLogs.transactionHash",
+    ),
+    removed: log.removed === true,
+  });
+}
+
+/** Logs with one of the topic0 values from `fromBlock` up to the pinned head. */
+export type LogsToHead = (
+  topic0: readonly [string, ...string[]],
+  fromBlock: number,
+) => Promise<readonly RawLog[]>;
+
+/** A read of every log up to one head, its result, and that head. */
+export interface StableRead<T> {
+  readonly head: BlockRef;
+  readonly value: T;
+}
+
+/** Attempts before a read that keeps straddling a reorg gives up. */
+export const MAX_STABLE_READ_ATTEMPTS = 3;
+
+class Reorged extends Error {}
+
+/** True while `block` is still the canonical block at its height. */
+export async function stillCanonical(
+  chain: Pick<ChainReader, "blockByNumber">,
+  block: { readonly number: number; readonly hash: string },
+): Promise<boolean> {
+  try {
+    return (await chain.blockByNumber(block.number)).hash === block.hash;
+  } catch (e) {
+    // A reorg onto a shorter fork leaves no block at the old height.
+    if (e instanceof WalletRuntimeError && e.code === "RPC_RESPONSE_INVALID")
+      return false;
+    throw e;
+  }
+}
+
+/**
+ * The sync heads worth keeping below a new head: every one above the reorg floor, plus the newest at or below
+ * it, which anchors the walk-back so a shallow reorg always finds a canonical point even when syncs are
+ * sparse.
+ */
+export function recentHeads(
+  heads: readonly BlockId[],
+  floor: number,
+  below: number,
+): BlockId[] {
+  const older = heads.filter((h) => h.number < below);
+  const anchor = older
+    .filter((h) => h.number <= floor)
+    .reduce<BlockId | null>(
+      (best, h) => (best === null || h.number > best.number ? h : best),
+      null,
+    );
+  return [
+    ...(anchor === null ? [] : [anchor]),
+    ...older.filter((h) => h.number > floor),
+  ];
+}
+
+/**
+ * The newest of `points` still canonical, walking newest first. A point at or below `floor` is final under
+ * the configured reorg bound, so finding one off the chain fails `REORG_TOO_DEEP` instead of guessing a fork
+ * point. Null when every point is off the chain and all of them lie above `floor`: the fork is then below
+ * everything recorded.
+ */
+export async function newestCanonical(
+  chain: Pick<ChainReader, "blockByNumber">,
+  points: Iterable<BlockId>,
+  floor: number,
+  maxReorgBlocks: number,
+): Promise<BlockId | null> {
+  const seen = new Set<string>();
+  const ordered = [...points]
+    .filter((p) => {
+      const key = `${p.number}:${p.hash}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => b.number - a.number);
+  for (const point of ordered) {
+    if (await stillCanonical(chain, point)) return point;
+    if (point.number <= floor) {
+      throw new WalletRuntimeError(
+        "REORG_TOO_DEEP",
+        `block ${point.number} (${point.hash}) left the canonical chain, which is at or below the reorg bound (block ${floor}, maxReorgBlocks ${maxReorgBlocks}); nothing was rolled back. Raise maxReorgBlocks for this chain and sync again`,
+        {
+          block: String(point.number),
+          floor: String(floor),
+          maxReorgBlocks: String(maxReorgBlocks),
+        },
+      );
+    }
+  }
+  return null;
+}
+
+/**
+ * Runs `read` against `latest` and accepts the result only if that head is still canonical afterwards and no
+ * log came back `removed`. Any reorg at or below the head replaces the block at its height, so the re-check
+ * catches a fetch that mixed two forks. A removed log is never applied; it restarts the read. A read that
+ * fails while its head has left the canonical chain (a node refusing a hash-pinned call into a reorged
+ * block, or logs from two forks that do not fit together) is a reorg too and restarts; a failure on a
+ * head that is still canonical is surfaced as it is.
+ */
+export async function readAtStableHead<T>(
+  chain: Pick<ChainReader, "latest" | "blockByNumber">,
+  read: (head: BlockRef, logs: LogsToHead) => Promise<T>,
+  source: LogSource,
+): Promise<StableRead<T>> {
+  let lastHead: BlockRef | undefined;
+  let lastFailure: unknown;
+  for (let attempt = 1; attempt <= MAX_STABLE_READ_ATTEMPTS; attempt++) {
+    const head = await chain.latest();
+    lastHead = head;
+    const logs: LogsToHead = async (topic0, fromBlock) => {
+      const result = await source.logs({
+        topic0,
+        fromBlock,
+        toBlock: head.number,
+      });
+      if (result.some((l) => l.removed)) throw new Reorged();
+      return result;
+    };
+    let value: T;
+    try {
+      value = await read(head, logs);
+    } catch (e) {
+      if (e instanceof Reorged) continue;
+      if (
+        e instanceof WalletRuntimeError &&
+        !(await stillCanonical(chain, head))
+      ) {
+        lastFailure = e;
+        continue;
+      }
+      throw e;
+    }
+    if (await stillCanonical(chain, head)) return { head, value };
+  }
+  throw new WalletRuntimeError(
+    "HEAD_REORGED",
+    `the head left the canonical chain during each of ${MAX_STABLE_READ_ATTEMPTS} reads (last head ${lastHead?.number ?? "none"})`,
+    {
+      attempts: String(MAX_STABLE_READ_ATTEMPTS),
+      head: String(lastHead?.number ?? ""),
+    },
+    lastFailure,
+  );
+}
+
+/**
+ * Runs a read pinned to `pin` by block hash. A transport failure while `pin` is no longer canonical is the
+ * node refusing a reorged block, so it surfaces as `HEAD_REORGED` (re-pin and retry), not `RPC_TRANSPORT`
+ * (node down).
+ */
+export async function readPinned<T>(
+  chain: Pick<ChainReader, "blockByNumber">,
+  pin: { readonly number: number; readonly hash: string },
+  read: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await read();
+  } catch (e) {
+    if (
+      e instanceof WalletRuntimeError &&
+      e.code === "RPC_TRANSPORT" &&
+      !(await stillCanonical(chain, pin))
+    ) {
+      throw new WalletRuntimeError(
+        "HEAD_REORGED",
+        `block ${pin.number} (${pin.hash}) left the canonical chain during a read pinned to it; re-pin`,
+        { attempts: "1", head: String(pin.number) },
+        e,
+      );
+    }
+    throw e;
+  }
+}

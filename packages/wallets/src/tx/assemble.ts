@@ -4,10 +4,9 @@
  * These functions do NOT prove and do NOT submit. For a shielded action the entrypoint's calldata IS the
  * proof, so nothing downstream of proving can be prepared in advance; the honest seam is the witness.
  *
- * Every circuit invariant below is computed here and never accepted as a parameter. That is deliberate: the
- * deleted MixnetWallet passed real packed parents where transfer demands PARENTS_HIDDEN, and picked join
- * inputs in arbitrary order where the circuit asserts ascending index. Both were unreachable through this
- * surface by construction.
+ * Every circuit invariant below is computed here and never accepted as a parameter, so a caller cannot pass
+ * real packed parents where transfer demands PARENTS_HIDDEN, or join inputs out of the ascending index order
+ * the circuit asserts.
  */
 import { Fr } from "@aztec/foundation/fields";
 import { Point } from "@zk-kit/baby-jubjub";
@@ -18,13 +17,17 @@ import type { CompleteComplianceHistory } from "../note/complianceKeys.js";
 import { toFr } from "../crypto/fields.js";
 import { packParents, PARENTS_HIDDEN } from "../note/note.js";
 import { publicKey, pubkeyOwner } from "../note/keys.js";
+import { TREE_DEPTH } from "../merkle/genesis.js";
 import {
+  assertMemoInputs,
   mintSelfNote,
-  mintIncomingNote,
+  mintMemoNote,
   type MintedNote,
+  type SentMemoNote,
 } from "../note/mint.js";
 import type { ProverNoteInput } from "../public/publicClaim.js";
 import type { MerkleWitnessSource } from "./ports.js";
+import { foldPath, WitnessSourceError } from "./witnessSources.js";
 import type {
   AssembledTransferWitness,
   DepositWitness,
@@ -66,13 +69,50 @@ export class AssemblyError extends Error {
   }
 }
 
-/** Recompute the root from the returned witness and refuse to build on one that does not reproduce it. */
+/**
+ * Fold the returned path and refuse a witness that does not reproduce the root it came with, so a stale or
+ * hostile source fails here with a typed error instead of inside proving. Whether that root is known on chain
+ * is the caller's check (`ChainView.isKnownRoot`) before proving: assembly makes no chain read.
+ */
 async function openSpend(ctx: AssemblyContext, input: SpendableNote) {
-  const w = await ctx.merkle.witnessFor(input.leaf);
+  const w = await ctx.merkle.witnessFor(input.leaf, input.leafIndex);
   if (w.leafIndex !== input.leafIndex) {
     throw new AssemblyError(
       "MERKLE_INDEX_MISMATCH",
       `merkle source placed the note at index ${w.leafIndex}, wallet has ${input.leafIndex}`,
+    );
+  }
+  if (w.siblings.length !== TREE_DEPTH) {
+    throw new AssemblyError(
+      "MERKLE_PATH_LENGTH",
+      `merkle source returned ${w.siblings.length} siblings for leaf index ${w.leafIndex}, the circuit takes ${TREE_DEPTH}`,
+    );
+  }
+  // foldPath reads only the low TREE_DEPTH bits; the circuit's to_le_bits rejects any index above them.
+  if (
+    !Number.isSafeInteger(w.leafIndex) ||
+    w.leafIndex < 0 ||
+    w.leafIndex >= 2 ** TREE_DEPTH
+  ) {
+    throw new AssemblyError(
+      "MERKLE_INDEX_RANGE",
+      `leaf index ${w.leafIndex} is outside the ${TREE_DEPTH}-bit tree`,
+    );
+  }
+  let folded: Fr;
+  try {
+    folded = await foldPath(input.leaf, w.leafIndex, w.siblings);
+  } catch (e) {
+    if (!(e instanceof WitnessSourceError)) throw e;
+    throw new AssemblyError(
+      "MERKLE_PATH_NONCANONICAL",
+      `merkle path for leaf index ${w.leafIndex} is not a LeanIMT path: ${e.message}`,
+    );
+  }
+  if (!folded.equals(w.root)) {
+    throw new AssemblyError(
+      "MERKLE_ROOT_MISMATCH",
+      `merkle path for leaf index ${w.leafIndex} folds to ${folded.toString()}, source claimed root ${w.root.toString()}`,
     );
   }
   return { index: w.leafIndex, path: [...w.siblings], root: w.root };
@@ -195,7 +235,7 @@ export async function assembleWithdraw(
 
 export interface AssembledTransfer {
   readonly inputs: AssembledTransferWitness;
-  readonly memo: MintedNote;
+  readonly memo: SentMemoNote;
   readonly change: MintedNote;
   readonly root: Fr;
 }
@@ -212,13 +252,13 @@ export async function assembleTransfer(
     readonly input: SpendableNote;
     readonly value: bigint;
     readonly recipientInPub: Point<bigint>;
-    readonly recipientInKey: Fr;
     /** Owns the CHANGE, never the input's key. Spending a received note is the case that separates them. */
     readonly selfSpendScalar: Fr;
     readonly memoEph: Fr;
     readonly changeMint: SelfMintAuthorization;
   },
 ): Promise<AssembledTransfer> {
+  assertMemoInputs(req.memoEph, req.recipientInPub);
   const spend = await openSpend(ctx, req.input);
   const changeValue = req.input.note.value.toBigInt() - req.value;
   assertPositive(changeValue, "transfer change");
@@ -229,11 +269,10 @@ export async function assembleTransfer(
     selfMintContext(ctx, ownerCommitment),
   );
 
-  const memo = await mintIncomingNote(
+  const memo = await mintMemoNote(
     req.memoEph,
     req.value,
     req.recipientInPub,
-    req.recipientInKey,
     req.input.note.assetId,
     ctx.compliancePk,
     PARENTS_HIDDEN,

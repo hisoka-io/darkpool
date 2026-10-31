@@ -8,6 +8,7 @@ import { deriveSelfEphemeral } from "../note/keys.js";
 import { deriveCek } from "../crypto/kem.js";
 import type { DerivedEph } from "../types/ephemeral.js";
 import type { SelfEphemeral } from "../repositories.js";
+import type { SentMemoNote, mintIncomingNote } from "../note/mint.js";
 
 const MNEMONIC = "test test test test test test test test test test test junk";
 
@@ -29,6 +30,18 @@ describe("the derived-ephemeral brand", () => {
       index: 0,
     };
     expect(witness).toBeDefined();
+  });
+
+  it("leaves a memo's sampled ephemeral unbranded on both memo results", () => {
+    const sent = (note: SentMemoNote): DerivedEph =>
+      // @ts-expect-error SentMemoNote.eph is the sampled memo ephemeral
+      note.eph;
+    const received = (
+      note: Awaited<ReturnType<typeof mintIncomingNote>>,
+    ): DerivedEph =>
+      // @ts-expect-error mintIncomingNote returns the sampled memo ephemeral
+      note.eph;
+    expect([sent, received]).toHaveLength(2);
   });
 
   it("stays additive, so a derived value flows into any Fr sink", async () => {

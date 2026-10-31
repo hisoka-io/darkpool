@@ -1,4 +1,514 @@
 {
   "storage": [],
-  "types": null
+  "types": null,
+  "namespaces": {
+    "erc7201:hisoka.darkpool.compliance": [
+      {
+        "contract": "DarkPool",
+        "label": "pkX",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_uint256"
+      },
+      {
+        "contract": "DarkPool",
+        "label": "pkY",
+        "slot": "1",
+        "offset": 0,
+        "type": "t_uint256"
+      },
+      {
+        "contract": "DarkPool",
+        "label": "version",
+        "slot": "2",
+        "offset": 0,
+        "type": "t_uint256"
+      }
+    ],
+    "erc7201:hisoka.darkpool.memos": [
+      {
+        "contract": "DarkPool",
+        "label": "isValidPublicMemo",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_mapping(t_bytes32,t_bool)"
+      },
+      {
+        "contract": "DarkPool",
+        "label": "isPublicMemoSpent",
+        "slot": "1",
+        "offset": 0,
+        "type": "t_mapping(t_bytes32,t_bool)"
+      }
+    ],
+    "erc7201:hisoka.darkpool.nullifiers": [
+      {
+        "contract": "DarkPool",
+        "label": "isNullifierSpent",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_mapping(t_bytes32,t_bool)"
+      }
+    ],
+    "erc7201:hisoka.darkpool.settlement": [
+      {
+        "contract": "DarkPool",
+        "label": "modules",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_mapping(t_address,t_struct(SettlementModule)_storage)"
+      }
+    ],
+    "erc7201:hisoka.darkpool.tree": [
+      {
+        "contract": "DarkPool",
+        "label": "tree",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_struct(Tree)_storage"
+      }
+    ],
+    "erc7201:hisoka.darkpool.verifiers": [
+      {
+        "contract": "DarkPool",
+        "label": "verifiers",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_mapping(t_uint256,t_address)"
+      }
+    ],
+    "erc7201:openzeppelin.storage.AccessControl": [
+      {
+        "contract": "AccessControlUpgradeable",
+        "label": "_roles",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_mapping(t_bytes32,t_struct(RoleData)_storage)"
+      }
+    ],
+    "erc7201:openzeppelin.storage.AccessControlDefaultAdminRules": [
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_pendingDefaultAdmin",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_address"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_pendingDefaultAdminSchedule",
+        "slot": "0",
+        "offset": 20,
+        "type": "t_uint48"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_currentDelay",
+        "slot": "0",
+        "offset": 26,
+        "type": "t_uint48"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_currentDefaultAdmin",
+        "slot": "1",
+        "offset": 0,
+        "type": "t_address"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_pendingDelay",
+        "slot": "1",
+        "offset": 20,
+        "type": "t_uint48"
+      },
+      {
+        "contract": "AccessControlDefaultAdminRulesUpgradeable",
+        "label": "_pendingDelaySchedule",
+        "slot": "1",
+        "offset": 26,
+        "type": "t_uint48"
+      }
+    ],
+    "erc7201:openzeppelin.storage.Initializable": [
+      {
+        "contract": "Initializable",
+        "label": "_initialized",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_uint64"
+      },
+      {
+        "contract": "Initializable",
+        "label": "_initializing",
+        "slot": "0",
+        "offset": 8,
+        "type": "t_bool"
+      }
+    ],
+    "erc7201:openzeppelin.storage.Pausable": [
+      {
+        "contract": "PausableUpgradeable",
+        "label": "_paused",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_bool"
+      }
+    ],
+    "erc7201:openzeppelin.storage.ReentrancyGuard": [
+      {
+        "contract": "DarkPool",
+        "label": "status",
+        "slot": "0",
+        "offset": 0,
+        "type": "t_uint256"
+      }
+    ]
+  },
+  "namespaceTypes": {
+    "t_address": {
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_bool": {
+      "label": "bool",
+      "numberOfBytes": "1"
+    },
+    "t_bytes32": {
+      "label": "bytes32",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_address,t_bool)": {
+      "label": "mapping(address => bool)",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_address,t_struct(SettlementModule)_storage)": {
+      "label": "mapping(address => struct DarkPool.SettlementModule)",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_bytes32,t_bool)": {
+      "label": "mapping(bytes32 => bool)",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_bytes32,t_struct(RoleData)_storage)": {
+      "label": "mapping(bytes32 => struct AccessControlUpgradeable.RoleData)",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_uint256,t_address)": {
+      "label": "mapping(uint256 => address)",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_uint256,t_bytes32)": {
+      "label": "mapping(uint256 => bytes32)",
+      "numberOfBytes": "32"
+    },
+    "t_struct(AccessControlDefaultAdminRulesStorage)_storage": {
+      "label": "struct AccessControlDefaultAdminRulesUpgradeable.AccessControlDefaultAdminRulesStorage",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "label": "_pendingDefaultAdmin",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_address"
+        },
+        {
+          "label": "_pendingDefaultAdminSchedule",
+          "slot": "0",
+          "offset": 20,
+          "type": "t_uint48"
+        },
+        {
+          "label": "_currentDelay",
+          "slot": "0",
+          "offset": 26,
+          "type": "t_uint48"
+        },
+        {
+          "label": "_currentDefaultAdmin",
+          "slot": "1",
+          "offset": 0,
+          "type": "t_address"
+        },
+        {
+          "label": "_pendingDelay",
+          "slot": "1",
+          "offset": 20,
+          "type": "t_uint48"
+        },
+        {
+          "label": "_pendingDelaySchedule",
+          "slot": "1",
+          "offset": 26,
+          "type": "t_uint48"
+        }
+      ]
+    },
+    "t_struct(AccessControlStorage)_storage": {
+      "label": "struct AccessControlUpgradeable.AccessControlStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "_roles",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_mapping(t_bytes32,t_struct(RoleData)_storage)"
+        }
+      ]
+    },
+    "t_struct(ComplianceStorage)_storage": {
+      "label": "struct DarkPool.ComplianceStorage",
+      "numberOfBytes": "96",
+      "members": [
+        {
+          "label": "pkX",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_uint256"
+        },
+        {
+          "label": "pkY",
+          "slot": "1",
+          "offset": 0,
+          "type": "t_uint256"
+        },
+        {
+          "label": "version",
+          "slot": "2",
+          "offset": 0,
+          "type": "t_uint256"
+        }
+      ]
+    },
+    "t_struct(InitializableStorage)_storage": {
+      "label": "struct Initializable.InitializableStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "_initialized",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_uint64"
+        },
+        {
+          "label": "_initializing",
+          "slot": "0",
+          "offset": 8,
+          "type": "t_bool"
+        }
+      ]
+    },
+    "t_struct(MemoStorage)_storage": {
+      "label": "struct DarkPool.MemoStorage",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "label": "isValidPublicMemo",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_mapping(t_bytes32,t_bool)"
+        },
+        {
+          "label": "isPublicMemoSpent",
+          "slot": "1",
+          "offset": 0,
+          "type": "t_mapping(t_bytes32,t_bool)"
+        }
+      ]
+    },
+    "t_struct(NullifierStorage)_storage": {
+      "label": "struct DarkPool.NullifierStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "isNullifierSpent",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_mapping(t_bytes32,t_bool)"
+        }
+      ]
+    },
+    "t_struct(PausableStorage)_storage": {
+      "label": "struct PausableUpgradeable.PausableStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "_paused",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_bool"
+        }
+      ]
+    },
+    "t_struct(ReentrancyStorage)_storage": {
+      "label": "struct DarkPool.ReentrancyStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "status",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_uint256"
+        }
+      ]
+    },
+    "t_struct(RoleData)_storage": {
+      "label": "struct AccessControlUpgradeable.RoleData",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "label": "hasRole",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_bool)"
+        },
+        {
+          "label": "adminRole",
+          "slot": "1",
+          "offset": 0,
+          "type": "t_bytes32"
+        }
+      ]
+    },
+    "t_struct(SettlementModule)_storage": {
+      "label": "struct DarkPool.SettlementModule",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "verifier",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_address"
+        },
+        {
+          "label": "nullifierCount",
+          "slot": "0",
+          "offset": 20,
+          "type": "t_uint8"
+        },
+        {
+          "label": "outputCount",
+          "slot": "0",
+          "offset": 21,
+          "type": "t_uint8"
+        },
+        {
+          "label": "extraCount",
+          "slot": "0",
+          "offset": 22,
+          "type": "t_uint8"
+        },
+        {
+          "label": "maxPast",
+          "slot": "0",
+          "offset": 23,
+          "type": "t_uint32"
+        },
+        {
+          "label": "maxFuture",
+          "slot": "0",
+          "offset": 27,
+          "type": "t_uint32"
+        },
+        {
+          "label": "active",
+          "slot": "0",
+          "offset": 31,
+          "type": "t_bool"
+        }
+      ]
+    },
+    "t_struct(SettlementStorage)_storage": {
+      "label": "struct DarkPool.SettlementStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "modules",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_mapping(t_address,t_struct(SettlementModule)_storage)"
+        }
+      ]
+    },
+    "t_struct(Tree)_storage": {
+      "label": "struct MerkleTreeLib.Tree",
+      "numberOfBytes": "160",
+      "members": [
+        {
+          "label": "TREE_DEPTH",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_uint256"
+        },
+        {
+          "label": "sideNodes",
+          "slot": "1",
+          "offset": 0,
+          "type": "t_mapping(t_uint256,t_bytes32)"
+        },
+        {
+          "label": "nextLeafIndex",
+          "slot": "2",
+          "offset": 0,
+          "type": "t_uint256"
+        },
+        {
+          "label": "latestRoot",
+          "slot": "3",
+          "offset": 0,
+          "type": "t_bytes32"
+        },
+        {
+          "label": "isKnownRoot",
+          "slot": "4",
+          "offset": 0,
+          "type": "t_mapping(t_bytes32,t_bool)"
+        }
+      ]
+    },
+    "t_struct(TreeStorage)_storage": {
+      "label": "struct DarkPool.TreeStorage",
+      "numberOfBytes": "160",
+      "members": [
+        {
+          "label": "tree",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_struct(Tree)_storage"
+        }
+      ]
+    },
+    "t_struct(VerifierStorage)_storage": {
+      "label": "struct DarkPool.VerifierStorage",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "label": "verifiers",
+          "slot": "0",
+          "offset": 0,
+          "type": "t_mapping(t_uint256,t_address)"
+        }
+      ]
+    },
+    "t_uint256": {
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_uint32": {
+      "label": "uint32",
+      "numberOfBytes": "4"
+    },
+    "t_uint48": {
+      "label": "uint48",
+      "numberOfBytes": "6"
+    },
+    "t_uint64": {
+      "label": "uint64",
+      "numberOfBytes": "8"
+    },
+    "t_uint8": {
+      "label": "uint8",
+      "numberOfBytes": "1"
+    }
+  }
 }

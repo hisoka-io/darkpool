@@ -119,7 +119,7 @@ export async function mintIncomingNote(
   inKey: Fr,
   assetFr: Fr,
   parents: Fr = ZERO,
-): Promise<BuiltNote> {
+): ReturnType<typeof walletsMintIncomingNote> {
   return walletsMintIncomingNote(
     eph,
     value,
@@ -237,9 +237,6 @@ export async function deployDarkPoolFixture() {
   const JoinMultisigVerifier = await deployVerifier(
     "contracts/verifiers/JoinMultisigVerifier.sol",
   );
-  const KageVerifier = await deployVerifier(
-    "contracts/verifiers/KageVerifier.sol",
-  );
 
   const MockRegistryFactory =
     await ethers.getContractFactory("MockNoxRegistry");
@@ -293,7 +290,6 @@ export async function deployDarkPoolFixture() {
         await TrfMultisigVerifier.getAddress(),
         await SplitMultisigVerifier.getAddress(),
         await JoinMultisigVerifier.getAddress(),
-        await KageVerifier.getAddress(),
         COMPLIANCE_PK[0],
         COMPLIANCE_PK[1],
         0,

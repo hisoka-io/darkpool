@@ -416,6 +416,8 @@ describe("attack 13 (mine): unknown-field amplification", () => {
           assetId: "0x1234567890123456789012345678901234567890",
           amount: "1000",
           nullifier: `0x${i.toString(16).padStart(64, "0")}`,
+          block: i,
+          blockHash: `0x${i.toString(16).padStart(64, "0")}`,
         })),
       },
       extra: p.extra,

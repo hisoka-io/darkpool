@@ -39,6 +39,8 @@ function note(leafIndex: number, nullifier?: string): UnspentNote {
     assetId: "0x1234567890123456789012345678901234567890",
     amount: "1000",
     nullifier: nullifier ?? `0x${leafIndex.toString(16).padStart(64, "0")}`,
+    block: leafIndex,
+    blockHash: `0x${(0xb10c00 + leafIndex).toString(16).padStart(64, "0")}`,
   };
 }
 
@@ -746,6 +748,50 @@ describe("degraded mode", () => {
   });
 });
 
+describe("reorg tombstones across installs", () => {
+  it("a stale install pulls a tombstone and loses the reorged note instead of re-uploading it", async () => {
+    const transport = new FakeTransport();
+    const a = await rig({}, new MemoryPssStore(), transport);
+    const x = note(5);
+    await a.sync.update((p) => ({
+      known: { ...p.known, unspentNotes: [x, note(9)] },
+      extra: p.extra,
+    }));
+    await a.sync.flushNow();
+
+    const b = await rig({}, new MemoryPssStore(), transport);
+    expect(b.sync.state.mode).toBe("readonly");
+    expect(b.sync.current().known.unspentNotes.map((n) => n.leafIndex)).toEqual(
+      [5, 9],
+    );
+
+    await a.sync.update((p) => ({
+      known: {
+        ...p.known,
+        unspentNotes: p.known.unspentNotes.filter((n) => n.leafIndex !== 5),
+        droppedNotes: [
+          {
+            leafIndex: x.leafIndex,
+            nullifier: x.nullifier,
+            block: x.block,
+            blockHash: x.blockHash,
+          },
+        ],
+      },
+      extra: p.extra,
+    }));
+    await a.sync.flushNow();
+
+    await b.sync.pull();
+    expect(b.sync.current().known.unspentNotes.map((n) => n.leafIndex)).toEqual(
+      [9],
+    );
+    expect(b.sync.current().known.droppedNotes).toHaveLength(1);
+    const stored = await openStored(a);
+    expect(stored.known.unspentNotes.map((n) => n.leafIndex)).toEqual([9]);
+  });
+});
+
 describe("spent-note prune", () => {
   const payload = (notes: readonly UnspentNote[]): ParsedStatePayload => ({
     known: {
@@ -757,6 +803,7 @@ describe("spent-note prune", () => {
       incomingIssueHighwater: 0,
       issuedAddresses: [],
       unspentNotes: [...notes],
+      droppedNotes: [],
       syncCursor: { block: 0, logIndex: 0 },
       nullifierCheckedAt: { block: 100 },
       ephemeralCounters: {},

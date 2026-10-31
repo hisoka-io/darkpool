@@ -44,6 +44,15 @@ fn new_rejects_offcurve_y3_free() {
     let _ = BabyJubJub::new(0x29da35670cdb640a2b6e763c0012aba803937ddf46736ee7b8e2b15b9d51c107, 1);
 }
 
+// msm shares mul's incomplete-addition degeneracy; the on-curve gate at msm entry rejects an off-curve input.
+#[test(should_fail)]
+fn msm_rejects_offcurve() {
+    let points: [BabyJubJub; 2] =
+        [BabyJubJub { x: BASE8[0], y: BASE8[1] }, BabyJubJub { x: 0, y: 0 }];
+    let scalars: [ScalarField<63>; 2] = [ScalarField::from(5), ScalarField::from(5)];
+    let _ = Curve::msm(points, scalars);
+}
+
 // The N == 64 branch now binds the wNAF slices to the input. Completeness: for a value that fits both widths,
 // ScalarField<64> and ScalarField<63> reconstruct the same scalar, so multiplying a point by each is equal.
 #[test]

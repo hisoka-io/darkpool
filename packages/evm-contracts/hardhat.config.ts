@@ -48,27 +48,85 @@ function getTestFiles(dir: string): string[] {
   return files;
 }
 
+const FAST_TEST_DIRS = [
+  "test/adversarial",
+  "test/behaviors",
+  "test/deploy",
+  "test/integration",
+  "test/kage",
+  "test/nox",
+  "test/upgrade",
+];
+const FAST_TEST_FILES = [
+  "test/merkle-tree.test.ts",
+  "test/poseidon-parity.test.ts",
+];
+// Every other directory under test/, with the suite that owns it. test:fast refuses to run while a directory is in
+// neither list, so a new directory cannot drop out of every gate unnoticed.
+const EXCLUDED_TEST_DIRS: Record<string, string> = {
+  "test/adaptors": "mainnet-fork suite, run by test:fork",
+  "test/benchmark": "env-gated gas benches, run by the CI gas guard",
+  "test/helpers": "shared fixtures, no test files",
+  "test/invariant": "Foundry invariants, run by test:invariant",
+  "test/setup": "mocha setup file, loaded first by test:fast and test:slow",
+};
+// Excluded directories whose suite is not mocha, so a *.test.ts there would run nowhere.
+const NO_MOCHA_DIRS = [
+  "test/benchmark",
+  "test/helpers",
+  "test/invariant",
+  "test/setup",
+];
+
+function assertTestTreeCovered(): void {
+  const listed = new Set([
+    ...FAST_TEST_DIRS,
+    ...Object.keys(EXCLUDED_TEST_DIRS),
+  ]);
+  const problems: string[] = [];
+  for (const entry of fs.readdirSync("test", { withFileTypes: true })) {
+    const rel = `test/${entry.name}`;
+    if (entry.isDirectory() && !listed.has(rel)) {
+      problems.push(
+        `${rel}/ is in neither FAST_TEST_DIRS nor EXCLUDED_TEST_DIRS`,
+      );
+    } else if (
+      entry.isFile() &&
+      entry.name.endsWith(".test.ts") &&
+      !FAST_TEST_FILES.includes(rel)
+    ) {
+      problems.push(`${rel} is not in FAST_TEST_FILES`);
+    }
+  }
+  for (const dir of NO_MOCHA_DIRS) {
+    for (const f of getTestFiles(dir)) {
+      problems.push(`${f} is a mocha test inside ${dir}, which no suite runs`);
+    }
+  }
+  for (const listedPath of [...FAST_TEST_DIRS, ...FAST_TEST_FILES]) {
+    if (!fs.existsSync(listedPath)) {
+      problems.push(`${listedPath} is listed for test:fast but does not exist`);
+    }
+  }
+  if (problems.length > 0) {
+    throw new Error(
+      `test:fast does not cover the test tree (hardhat.config.ts):\n  ${problems.join("\n  ")}`,
+    );
+  }
+}
+
 task("test:fast", "Runs core logic tests (no fork)")
   .addFlag("parallel", "Run tests in parallel")
   .setAction(async (args, hre) => {
-    // Define the exact folders/files for fast tests
-    const dirs = [
-      "test/adversarial",
-      "test/behaviors",
-      "test/deploy",
-      "test/integration",
-      "test/kage",
-      "test/nox",
-      "test/upgrade",
-    ];
+    assertTestTreeCovered();
     // The setup file is loaded first so its process handlers are installed before any test executes;
     // hardhat's programmatic (serial) Mocha ignores the `mocha.require` list, so it is wired here instead.
     const setup = "test/setup/fail-on-unhandled-rejection.ts";
-    const files = ["test/merkle-tree.test.ts", "test/poseidon-parity.test.ts"];
 
     let testFiles: string[] = fs.existsSync(setup) ? [setup] : [];
-    for (const d of dirs) testFiles = testFiles.concat(getTestFiles(d));
-    testFiles = testFiles.concat(files.filter((f) => fs.existsSync(f)));
+    for (const d of FAST_TEST_DIRS)
+      testFiles = testFiles.concat(getTestFiles(d));
+    testFiles = testFiles.concat(FAST_TEST_FILES);
 
     // Exclude heavy tests that make 100+ deposits with proof generation.
     // These need dedicated CI time (test:slow) rather than the parallel suite.

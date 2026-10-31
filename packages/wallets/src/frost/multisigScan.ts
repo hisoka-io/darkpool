@@ -286,7 +286,7 @@ export class MultisigScanner {
     console.error(
       `[MultisigScanner] self-tagged note at leaf ${event.args.leafIndex} (block ${event.blockNumber}) ` +
         `could not be opened by any known compliance key (tried versions ${tried.join(", ")}). ` +
-        `Balance is UNDER-reported. Rebuild the ring from the pool's ComplianceKeyRotated log.`,
+        `Balance is UNDER-reported. Rebuild the ring with ComplianceKeyRing.fromRotations(genesisKey, logs) from every ComplianceKeyRotated log since deployment, the initialization event (0 -> 1) included.`,
     );
     return null;
   }

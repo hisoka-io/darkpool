@@ -343,7 +343,6 @@ export class TestWallet {
       },
       value: amount,
       recipientInPub,
-      recipientInKey: toFr(0n),
       selfSpendScalar: await this.account.getSelfSpendKey(),
       memoEph,
       changeMint,

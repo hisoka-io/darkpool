@@ -47,7 +47,8 @@ use poseidon::poseidon2::Poseidon2;
 // keccak256("hisoka.frost.v1") % BN254_Fr -- circuits/shared/src/common/domains.nr
 global SCHNORR_DOMAIN: Field = 0x2107179dff41b3dd7a3f1dafc51478ba9cf2daee14867e12f614e781f5aeba85;
 // BabyJubJub prime-order subgroup order -- circuits/shared/src/lib.nr
-global SUBORDER: Field = 2736030358979909402780800718157159386076813972158567259200215660948447373041;
+global SUBORDER: Field =
+    2736030358979909402780800718157159386076813972158567259200215660948447373041;
 
 // copied from vendored scalar_field.nr
 global TWO_POW_128: Field = 0x100000000000000000000000000000000;
@@ -79,7 +80,7 @@ unconstrained fn get_wnaf_slices<let N: u32>(x: Field) -> ([u8; N], bool) {
     nibbles[0] += skew as u8;
     result[N - 1] = (nibbles[0] + 15) / 2;
     for i in 1..N {
-        let mut nibble: u8 = nibbles[i];
+        let nibble: u8 = nibbles[i];
         result[N - 1 - i] = (nibble + 15) / 2;
         if (nibble & 1 == 0) {
             result[N - 1 - i] += 1;
@@ -134,6 +135,8 @@ fn check_binding<let N: u32>(slices: [u8; N], skew: bool, x: Field) {
         rlo.assert_max_bit_size::<128>();
         rhi.assert_max_bit_size::<128>();
 
+        hi.assert_max_bit_size::<128>();
+
         assert(hi * TWO_POW_128 + lo == x);
     }
     for i in 0..N {
@@ -181,6 +184,8 @@ fn check_binding_ablated<let N: u32>(slices: [u8; N], skew: bool, x: Field) {
             + (1 - is_positive as Field) * (PHI - hi + threshold_flag as Field);
         rlo.assert_max_bit_size::<128>();
         rhi.assert_max_bit_size::<128>();
+
+        hi.assert_max_bit_size::<128>();
 
         // binding `assert(hi * TWO_POW_128 + lo == x)` REMOVED
         assert(x == x);

@@ -2,6 +2,7 @@ export const ASSET_ID_SHAPE = /^0x[0-9a-f]{40}$/;
 export const NULLIFIER_SHAPE = /^0x[0-9a-f]{64}$/;
 export const AMOUNT_SHAPE = /^(0|[1-9][0-9]*)$/;
 export const INSTALL_ID_SHAPE = /^0x[0-9a-f]{32}$/;
+export const BLOCK_HASH_SHAPE = /^0x[0-9a-f]{64}$/;
 
 // The two scope families that exist: the standard path's single "self" line, and one multisig line per
 // (view secret, member). The multisig segment is a field element rendered as 0x hex, not decimal.
@@ -19,6 +20,11 @@ export const MAX_COUNTER_SCOPES = 64;
 // Note values are u128 in-circuit; a decimal string wider than that could never have come from a note.
 export const MAX_NOTE_AMOUNT = (1n << 128n) - 1n;
 
+// Tombstones are written only for notes dropped by a reorg deeper than the PSS write depth, so a real
+// wallet holds a handful. The cap bounds what a hostile payload can make a client carry; evicting one is
+// safe because every note read back from PSS is re-verified against the chain before use.
+export const MAX_DROPPED_NOTES = 64;
+
 export interface IssuedAddress {
   readonly index: number;
 }
@@ -28,6 +34,21 @@ export interface UnspentNote {
   readonly assetId: string;
   readonly amount: string;
   readonly nullifier: string;
+  /** Inclusion block. A reorg can put a different note at the same leaf index in another block. */
+  readonly block: number;
+  readonly blockHash: string;
+}
+
+/**
+ * A note a device dropped because its inclusion block left the canonical chain. Merged as a union so a
+ * stale device cannot resurrect the note; keyed by `(leafIndex, nullifier, blockHash)` so the same note
+ * re-mined in another block is not suppressed. `block` only orders eviction under the cap.
+ */
+export interface DroppedNote {
+  readonly leafIndex: number;
+  readonly nullifier: string;
+  readonly block: number;
+  readonly blockHash: string;
 }
 
 export interface SyncCursor {
@@ -48,6 +69,7 @@ export interface PssStatePayload {
   readonly incomingIssueHighwater: number;
   readonly issuedAddresses: readonly IssuedAddress[];
   readonly unspentNotes: readonly UnspentNote[];
+  readonly droppedNotes: readonly DroppedNote[];
   readonly syncCursor: SyncCursor;
   readonly nullifierCheckedAt: NullifierCheckpoint;
   /**
@@ -77,6 +99,7 @@ export const STATE_PAYLOAD_KNOWN_KEYS: readonly (keyof PssStatePayload)[] = [
   "incomingIssueHighwater",
   "issuedAddresses",
   "unspentNotes",
+  "droppedNotes",
   "syncCursor",
   "nullifierCheckedAt",
   "ephemeralCounters",

@@ -38,6 +38,7 @@ import {
 import { deriveCek } from "../crypto/kem";
 import { computePsi } from "../note/nullifier";
 import { leaf as computeLeaf, type Note } from "../note/note";
+import { canonicalSelfEph } from "./canonicalSelfEph";
 
 const KEY_V0: Point<bigint> = mulPointEscalar(Base8, 111111n);
 const KEY_V1: Point<bigint> = mulPointEscalar(Base8, 222222n);
@@ -45,7 +46,7 @@ const KEY_V2: Point<bigint> = mulPointEscalar(Base8, 333333n);
 const SELF_SPEND = new Fr(789n);
 const IN_KEY = new Fr(31n);
 const ASSET = toFr(0x1234567890123456789012345678901234567890n);
-const eph = (n: bigint): DerivedEph => new Fr(n) as DerivedEph;
+const eph = (n: bigint): DerivedEph => canonicalSelfEph(n);
 
 /** A memo event carries only eph_pub.x, so the scanner recovers the EVEN-y point; roll until it is one. */
 function evenYEph(seed: bigint): Fr {

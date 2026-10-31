@@ -38,16 +38,23 @@ export interface ProverPort {
 /**
  * Where a spend's Merkle witness comes from.
  *
- * Keyed by the LEAF, not by an index: `pathFor(leafIndex)` would hand the provider the exact position of
- * the note you are about to spend, which is the one thing a private-retrieval layer exists to hide.
+ * The caller names the index it expects, because a leaf value is not unique: an identical deposit replayed
+ * inserts the same leaf again, so a source that resolves an index from the leaf alone can return the wrong
+ * copy. A source returns the path for `expectedLeafIndex` or fails with a typed error, never another match.
+ * What an implementation sends to a remote provider is its own choice; a private-retrieval layer exists to
+ * hide this position from the provider.
  *
- * It needs NO TRUST. Roots are retained forever on chain, so any historical root is provable against; and
- * because `leaf_index` is uniquely determined by (leaf, root), a wrong or malicious witness can only make a
- * proof FAIL, never make it prove something false. Callers must still verify: recompute the root locally and
- * check it is known on chain.
+ * It needs NO TRUST. Roots are retained forever on chain, and a path that folds to a known root places a real
+ * inserted copy of the leaf at that index, so a wrong or malicious witness can only make a proof FAIL or name
+ * another copy, never make it prove something false. Assembly folds the returned path and refuses a root it
+ * does not reproduce; checking that the root is known on chain (`ChainView.isKnownRoot`) is the caller's step
+ * before proving.
  */
 export interface MerkleWitnessSource {
-  witnessFor(leaf: Fr): Promise<{
+  witnessFor(
+    leaf: Fr,
+    expectedLeafIndex: number,
+  ): Promise<{
     readonly leafIndex: number;
     readonly siblings: readonly Fr[];
     readonly root: Fr;
