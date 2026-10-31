@@ -1,21 +1,45 @@
 name: Setup bb
-description: Install the pinned native Barretenberg CLI at ~/.bb/bb.
+description: Install the pinned native Barretenberg CLI at ~/.bb/bb from a checksummed release asset.
 
 # Native bb is needed wherever bb.js cannot go: --optimized verifier generation (and the VK identity check that
 # re-derives those verifiers) and the Kage outer recursive prove. The version must equal BB_VERSION in
 # packages/prover/scripts/generate_verifier.js; the consumers check it and fail on a mismatch.
+#
+# The release asset is fetched directly and checked against a pinned sha256 before it is unpacked, so no installer
+# script from a moving branch runs on the runner. The digest is the one GitHub publishes for
+# barretenberg-amd64-linux.tar.gz on the v5.0.0 release of both AztecProtocol/barretenberg and
+# AztecProtocol/aztec-packages; its bb binary is byte-identical to the one the committed verifiers were generated
+# with. A version bump changes both inputs together.
 inputs:
   version:
     description: bb version to install
     required: false
     default: 5.0.0
+  sha256:
+    description: sha256 of barretenberg-amd64-linux.tar.gz for that version
+    required: false
+    default: 4b42a64a0587e1e15089f7a20c87fa2d8a092acb4fc95465a798a73b98ba794d
 
 runs:
   using: composite
   steps:
     - shell: bash
+      env:
+        BB_VERSION: ${{ inputs.version }}
+        BB_SHA256: ${{ inputs.sha256 }}
       run: |
-        curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/master/barretenberg/bbup/install | bash
-        export PATH="$HOME/.bb:$PATH"
-        bbup -v ${{ inputs.version }}
-        echo "$HOME/.bb" >> $GITHUB_PATH
+        set -euo pipefail
+        test "$(uname -s)-$(uname -m)" = "Linux-x86_64" \
+          || { echo "::error::setup-bb pins the amd64-linux asset only, runner is $(uname -s)-$(uname -m)"; exit 1; }
+        asset="barretenberg-amd64-linux.tar.gz"
+        tmp="$(mktemp -d "${RUNNER_TEMP:-/tmp}/setup-bb.XXXXXX")"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL --retry 3 -o "$tmp/$asset" \
+          "https://github.com/AztecProtocol/barretenberg/releases/download/v${BB_VERSION}/${asset}"
+        echo "${BB_SHA256}  $tmp/$asset" | sha256sum -c - \
+          || { echo "::error::$asset for bb ${BB_VERSION} does not match the pinned sha256"; exit 1; }
+        mkdir -p "$HOME/.bb"
+        tar -xzf "$tmp/$asset" -C "$HOME/.bb" bb
+        got="$("$HOME/.bb/bb" --version | tr -d '[:space:]')"
+        test "$got" = "${BB_VERSION}" || { echo "::error::installed bb reports '$got', want ${BB_VERSION}"; exit 1; }
+        echo "$HOME/.bb" >> "$GITHUB_PATH"
