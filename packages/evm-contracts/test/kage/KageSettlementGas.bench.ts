@@ -31,6 +31,16 @@ const TREE_LOCATION =
   0xbdd00c81e71bd165e3ff2099ca204334ffd58a8d7225a33b4761542b7a86e200n;
 // Bits 10..19 set: 10 hashing levels for the first insert, near 2^20 leaves.
 const MATURE_INDEX = 0b11111111110000000000n;
+// Ceilings, not targets: measured on this tree plus 3%, rounded up to the next thousand. The proof and the synthetic
+// vectors are fixed bytes; only the solver signature and deadline vary, by a few tens of gas between runs. A breach
+// is a regression to explain and re-pin deliberately, never a budget to widen.
+const GAS_CEILING = {
+  settleSwap: 1_487_000,
+  solverGuard: 30_000,
+  verify: 823_000,
+  hookBody: 425_000,
+  matureSettleSwap: 1_503_000,
+};
 
 function calldataGas(data: string): bigint {
   const bytes = ethers.getBytes(data);
@@ -202,6 +212,19 @@ run("Benchmark: KageSettlement.settleSwap gas breakdown", function () {
           .join("\n"),
     );
     expect(guard > 0n && verify > 0n && hookBody > 0n).to.equal(true);
+    const ceilings: [string, bigint, number][] = [
+      ["settleSwap total", real.total, GAS_CEILING.settleSwap],
+      ["solver guard", guard, GAS_CEILING.solverGuard],
+      ["verify", verify, GAS_CEILING.verify],
+      ["hook body + forward", hookBody, GAS_CEILING.hookBody],
+      ["mature-tree settleSwap", mature.total, GAS_CEILING.matureSettleSwap],
+    ];
+    for (const [label, used, ceiling] of ceilings) {
+      expect(Number(used)).to.be.at.most(
+        ceiling,
+        `${label} gas regressed past its pinned ceiling`,
+      );
+    }
     expect(matureDelta > 0n).to.equal(true);
     expect(real.total).to.equal(INTRINSIC + real.calldata + real.execution);
   });
