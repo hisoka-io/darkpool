@@ -3,10 +3,12 @@ set -u
 
 CIRCUITS_DIR="${CIRCUITS_DIR:-packages/circuits}"
 CIRCUITS_ABS="$(realpath -m "$CIRCUITS_DIR")"
+# Baselines count tokens in comment-free source (see code_only below), not lines.
 BASELINE_MUL_SITES=44          # guard 4: .mul( / derive_* / assert_subgroup_scalar / check_subgroup /
                                # assert_in_prime_subgroup surface
 BASELINE_POS_SITES=23          # guard 5: Poseidon2::hash( call surface
-BASELINE_SCALARFIELD_SITES=2   # guard 9: ScalarField occurrences (alias / generic-propagation tripwire)
+BASELINE_SCALARFIELD_SITES=3   # guard 9: ScalarField tokens (alias / generic-propagation tripwire); frost.nr's
+                               # `let e_scalar: ScalarField<63> = ScalarField::from(e)` holds two
 BASELINE_HINT_SITES=2          # guard 11: `unconstrained`/`unsafe` sites outside vendor; each must be bound
                                # by a following constraint
 
@@ -40,9 +42,90 @@ is_test_leaf() {
 TEST_LEAVES="$(find "$CIRCUITS_DIR" -name '*.nr' -not -path "${CIRCUITS_DIR}/vendor/*" -not -path '*/target/*' \
   | LC_ALL=C sort | while IFS= read -r f; do is_test_leaf "$f" && printf '%s\n' "$f"; done)"
 TEST_LEAF_COUNT=$(printf '%s' "$TEST_LEAVES" | grep -c .)
-surface_grep() {
-  src_grep "$1" | awk -F: 'NR == FNR { if ($0 != "") leaf[$0] = 1; next } !($1 in leaf)' <(printf '%s\n' "$TEST_LEAVES") -
-}
+
+# The counting guards read a code-only copy of every surface file: line comments, block comments (nested, as Noir
+# nests them) and string literal contents are blanked by the lexer below, so a trailing comment, a /* */ block or a
+# string that names a call cannot hold a count at baseline. They count tokens, not lines, so two call sites on one
+# line count twice. An unterminated comment or string fails the guards rather than being guessed at.
+command -v python3 >/dev/null 2>&1 || { echo "FAIL (guards 4/5/9/11): python3 is required to strip comments before counting."; exit 1; }
+CODE_DIR="$(mktemp -d)"
+trap 'rm -rf "$CODE_DIR"' EXIT
+find "$CIRCUITS_DIR" -name '*.nr' -not -path "${CIRCUITS_DIR}/vendor/*" -not -path '*/target/*' | LC_ALL=C sort \
+  | awk 'NR == FNR { if ($0 != "") leaf[$0] = 1; next } !($0 in leaf)' <(printf '%s\n' "$TEST_LEAVES") - \
+  > "$CODE_DIR/surface-files"
+if ! python3 - "$CIRCUITS_DIR" "$CODE_DIR/code" "$CODE_DIR/surface-files" <<'PY'
+import os, sys
+
+def code_only(src):
+    out, i, n = [], 0, len(src)
+    while i < n:
+        c, nxt = src[i], src[i + 1:i + 2]
+        if c == '/' and nxt == '/':
+            j = src.find('\n', i)
+            i = n if j < 0 else j
+        elif c == '/' and nxt == '*':
+            depth, i = 1, i + 2
+            while depth:
+                if i >= n:
+                    raise ValueError('unterminated block comment')
+                if src.startswith('/*', i):
+                    depth, i = depth + 1, i + 2
+                elif src.startswith('*/', i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    out.append('\n' if src[i] == '\n' else '')
+                    i += 1
+            out.append(' ')
+        elif c == 'r' and nxt in ('"', '#') and not (i and (src[i - 1].isalnum() or src[i - 1] == '_')):
+            j = i + 1
+            while j < n and src[j] == '#':
+                j += 1
+            if j < n and src[j] == '"':
+                close = '"' + '#' * (j - i - 1)
+                k = src.find(close, j + 1)
+                if k < 0:
+                    raise ValueError('unterminated raw string')
+                out.append('""' + '\n' * src.count('\n', j, k))
+                i = k + len(close)
+            else:
+                out.append(c)
+                i += 1
+        elif c == '"':
+            j = i + 1
+            while j < n and src[j] != '"':
+                j += 2 if src[j] == '\\' else 1
+            if j >= n:
+                raise ValueError('unterminated string literal')
+            out.append('""' + '\n' * src.count('\n', i, j))
+            i = j + 1
+        else:
+            out.append(c)
+            i += 1
+    return ''.join(out)
+
+root, dest, listing = sys.argv[1:4]
+bad = 0
+with open(listing, encoding='utf-8') as fh:
+    paths = [line for line in fh.read().split('\n') if line]
+for path in paths:
+    try:
+        with open(path, encoding='utf-8') as fh:
+            text = code_only(fh.read())
+    except (ValueError, UnicodeDecodeError) as e:
+        print(f"  guards-strip: {path}: {e}")
+        bad = 1
+        continue
+    target = os.path.join(dest, os.path.relpath(path, root))
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, 'w', encoding='utf-8') as fh:
+        fh.write(text)
+sys.exit(bad)
+PY
+then
+  echo "FAIL (guards 4/5/9/11): a circuit source could not be lexed (unterminated comment or string); fix the source."
+  exit 1
+fi
+surface_count() { { grep -rhoE "$1" "$CODE_DIR/code" --include='*.nr' || true; } | wc -l | tr -d ' '; }
 
 # Guard 0: no remote git dependencies in Nargo.toml (vendor locally instead).
 if grep -rnE '(^|[^A-Za-z_])("|'"'"')?(git|tag|rev|branch|directory)("|'"'"')?[[:space:]]*=' "$CIRCUITS_DIR" --include=Nargo.toml; then
@@ -110,13 +193,13 @@ if src_grep 'Poseidon2Hasher|std::hash::Hasher|perform_duplex|\.absorb[[:space:]
 fi
 
 # Guard 4: pins the scalar-mul surface; a deviation forces manual bounds review.
-MUL=$(surface_grep '\.mul[[:space:]]*\(|derive_public_key|derive_shared_key|assert_subgroup_scalar|check_subgroup|assert_in_prime_subgroup' | decomment | wc -l | tr -d ' ')
+MUL=$(surface_count '\.mul[[:space:]]*\(|derive_public_key|derive_shared_key|assert_subgroup_scalar|check_subgroup|assert_in_prime_subgroup')
 if [ "$MUL" -ne "$BASELINE_MUL_SITES" ]; then
   red 4 "scalar-mul/subgroup-gate surface changed ($MUL vs baseline $BASELINE_MUL_SITES); confirm every non-BASE8 mul/derive is dominated by assert_subgroup_scalar/check_subgroup, then re-baseline."
 fi
 
 # Guard 5: pins the Poseidon2::hash surface; a deviation forces manual array-length review.
-POS=$(surface_grep 'Poseidon2::hash[[:space:]]*\(' | decomment | wc -l | tr -d ' ')
+POS=$(surface_count 'Poseidon2::hash[[:space:]]*\(')
 if [ "$POS" -ne "$BASELINE_POS_SITES" ]; then
   red 5 "Poseidon2::hash surface changed ($POS vs baseline $BASELINE_POS_SITES); confirm each passes message length == array length, then re-baseline."
 fi
@@ -165,13 +248,13 @@ if [ -n "$ESCAPES" ]; then
 fi
 
 # Guard 9: pins ScalarField occurrences so an alias or generic cannot evade guard 1's width check.
-SFCNT=$(surface_grep 'ScalarField' | decomment | wc -l | tr -d ' ')
+SFCNT=$(surface_count 'ScalarField')
 if [ "$SFCNT" -ne "$BASELINE_SCALARFIELD_SITES" ]; then
   red 9 "ScalarField surface changed ($SFCNT vs baseline $BASELINE_SCALARFIELD_SITES); confirm no <64> width (direct, aliased, or generic-propagated) is introduced, then re-baseline."
 fi
 
 # Guard 11: pins the unconstrained-hint surface; a hint is only as safe as the constraint that binds it.
-HINTS=$(surface_grep 'unconstrained[[:space:]]+fn|unsafe[[:space:]]*\{' | decomment | wc -l | tr -d ' ')
+HINTS=$(surface_count 'unconstrained[[:space:]]+fn|unsafe[[:space:]]*\{')
 if [ "$HINTS" -ne "$BASELINE_HINT_SITES" ]; then
   red 11 "unconstrained-hint surface changed ($HINTS vs baseline $BASELINE_HINT_SITES); every hint MUST be bound by a following constraint -- prove it, then re-baseline."
 fi
