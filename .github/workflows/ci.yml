@@ -33,55 +33,28 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup-nargo
       - uses: ./.github/actions/setup-bb
+      # Every step with logic runs a script under scripts/, so a local mirror runs the same code as this file.
       - name: Check circuit formatting
         working-directory: packages/circuits
         run: nargo fmt --check
       - name: Test circuits
-        working-directory: packages/circuits
-        run: nargo test
+        run: bash scripts/ci/circuits-test.sh
       - name: Circuit regression guards
         run: bash scripts/circuit-guards.sh
       - name: Vendored noir-edwards tests
-        run: |
-          # nargo refuses a package that is not a workspace member ("Selected package `edwards` was not
-          # found"), so test a copy outside the workspace. The guards step above has already pinned the
-          # vendored bytes to VENDOR-HASHES.sha256, so the copy is the reviewed source.
-          cp -r packages/circuits/vendor/noir-edwards "$RUNNER_TEMP/noir-edwards"
-          out="$(nargo test --program-dir "$RUNNER_TEMP/noir-edwards" 2>&1)" || rc=$?
-          echo "$out"
-          test "${rc:-0}" -eq 0 || { echo "::error::vendored noir-edwards tests exited ${rc}"; exit 1; }
-          # The crate is frozen by hash, so its count moves only with a reviewed re-vendor.
-          echo "$out" | grep -qE "[^0-9]20 tests passed" \
-            || { echo "::error::vendored noir-edwards did not report exactly 20 passing tests"; exit 1; }
+        run: bash scripts/ci/edwards-vendored.sh
       - name: VK byte-identity (recompile, re-derive every VK, compare to the committed pins)
         run: bash scripts/check-vk-identity.sh
       - name: Check soundness harness formatting
-        run: |
-          # Each harness is its own nargo project outside the circuits workspace, so the formatting step
-          # above never reaches it.
-          shopt -s nullglob
-          n=0
-          for toml in packages/prover/test-harness/*/Nargo.toml; do
-            h="$(dirname "$toml")"
-            ( cd "$h" && nargo fmt --check ) || { echo "::error::$h is not nargo-fmt clean; run nargo fmt there"; exit 1; }
-            n=$((n + 1))
-          done
-          test "$n" -gt 0 || { echo "::error::no soundness harness crate found under packages/prover/test-harness"; exit 1; }
+        run: bash scripts/ci/harness-fmt.sh
       - name: Witness-injection soundness harnesses
-        run: |
-          for h in frost-forgery psi-cek-forgery leaf-index-forgery; do
-            echo "::group::$h"
-            ( cd "packages/prover/test-harness/$h" && ./check-byte-identity.sh && nargo test ) \
-              || { echo "::error::soundness harness $h failed"; exit 1; }
-            echo "::endgroup::"
-          done
+        run: bash scripts/run-forgery-harnesses.sh --reject-only
 
   ts-tests:
     name: TS Tests
     runs-on: ubuntu-latest
-    # vitest and turbo colourise on CI, and the exact-count assertions below match on literal spaces.
-    # Without this the escape codes sit between "Tests" and the number, so every assertion fails on a
-    # suite that passed. The guard against a false green was otherwise a guaranteed false red.
+    # vitest and turbo colourise on CI, and the exact-count assertions in scripts/ci match on literal spaces.
+    # The scripts also set NO_COLOR and strip escape codes themselves, so a local run matches the same way.
     env:
       NO_COLOR: "1"
     steps:
@@ -101,91 +74,38 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build packages
         run: pnpm turbo run build --filter=@hisoka/wallets --filter=@hisoka/adaptors --filter=@hisoka/prover --filter=@hisoka/pss-client --filter=@hisoka/pss-server --filter=@hisoka/howl-protocol
+      # Each test step requires the exact passed and skipped counts pinned in scripts/ci/lib/test-counts.sh.
       - name: Typecheck TS packages
-        run: |
-          out="$(pnpm turbo run typecheck --filter=@hisoka/pss-client --filter=@hisoka/pss-server --filter=@hisoka/pss-integration --filter=@hisoka/wallets --filter=@hisoka/prover --filter=@hisoka/howl-e2e --filter=@hisoka/howl-protocol --filter=@hisoka/wallet-runtime --force 2>&1)" || rc=$?
-          echo "$out"
-          test "${rc:-0}" -eq 0 || { echo "::error::typecheck exited ${rc}"; exit 1; }
-          # turbo exits 0 when a package lacks the task, so assert the measured count instead. Eight
-          # typecheck tasks plus the builds their ^build dependency pulls in. The wallets entry covers
-          # its TESTS, which is the only enforcement of the derived-ephemeral brand pin: the package
-          # tsconfig excludes test files and vitest strips types.
-          # The filter names every package that HAS a typecheck script except evm-contracts, which the
-          # evm-tests job runs itself. Adding a script without adding it here leaves it unenforced.
-          echo "$out" | grep -qE "Tasks: +15 successful, 15 total" \
-            || { echo "::error::expected 15 typecheck tasks; a filter or a package script is missing"; exit 1; }
+        run: bash scripts/ci/typecheck.sh
       - name: Test howl-protocol
-        run: |
-          out="$(pnpm --filter @hisoka/howl-protocol run test 2>&1)" || rc=$?
-          echo "$out"
-          test "${rc:-0}" -eq 0 || { echo "::error::howl-protocol tests exited ${rc}"; exit 1; }
-          echo "$out" | grep -qE "Tests +276 passed \(276\)" \
-            || { echo "::error::howl-protocol did not report exactly 276 passing tests"; exit 1; }
+        run: bash scripts/ci/test-package.sh howl-protocol
       - name: Test howl-protocol exports
         run: pnpm --filter @hisoka/howl-protocol run test:exports
       - name: Browser bundle gate (howl-protocol)
         run: pnpm --filter @hisoka/howl-protocol run test:bundle
       - name: Test wallets
-        run: pnpm --filter @hisoka/wallets run test
+        run: bash scripts/ci/test-package.sh wallets
       - name: Test adaptors
-        run: pnpm --filter @hisoka/adaptors run test
+        run: bash scripts/ci/test-package.sh adaptors
       - name: Test prover
-        run: pnpm --filter @hisoka/prover run test
+        run: bash scripts/ci/test-package.sh prover
+      # The seam Raven has to satisfy. Pure TS, no proofs.
       - name: Test howl-e2e (discovery seam)
-        run: |
-          # The seam Raven has to satisfy. Pure TS, no proofs, seconds to run, and it was in no job at all.
-          out="$(pnpm --filter @hisoka/howl-e2e run test 2>&1)" || rc=$?
-          echo "$out"
-          test "${rc:-0}" -eq 0 || { echo "::error::howl-e2e tests exited ${rc}"; exit 1; }
-          echo "$out" | grep -qE "Tests +[0-9]+ passed" \
-            || { echo "::error::howl-e2e reported no passing tests"; exit 1; }
+        run: bash scripts/ci/test-package.sh howl-e2e
+      # Resolves @hisoka/wallets and @hisoka/howl-protocol through dist, which the build step above produced.
       - name: Test wallet-runtime
-        run: |
-          # Resolves @hisoka/wallets and @hisoka/howl-protocol through dist, which the build step above produced.
-          out="$(pnpm --filter @hisoka/wallet-runtime run test 2>&1)" || rc=$?
-          echo "$out"
-          test "${rc:-0}" -eq 0 || { echo "::error::wallet-runtime tests exited ${rc}"; exit 1; }
-          echo "$out" | grep -qE "Tests +185 passed \(185\)" \
-            || { echo "::error::wallet-runtime did not report exactly 185 passing tests"; exit 1; }
+        run: bash scripts/ci/test-package.sh wallet-runtime
+      # Bundle-only: proves the crypto core still resolves for a browser target, which is what breaks when a
+      # node-only import lands in it. The Chromium runtime-parity run (test:browser) is deliberately not here; it
+      # costs a browser download to re-prove a property that only changes when this bundle step would already fail.
       - name: Browser bundle gate (wallets)
-        run: |
-          # Bundle-only: proves the crypto core still resolves for a browser target, which is what breaks
-          # when a node-only import lands in it. The Chromium runtime-parity run (test:browser) is
-          # deliberately NOT here; it costs a browser download to re-prove a property that only changes
-          # when this bundle step would already have failed.
-          pnpm --filter @hisoka/wallets run test:bundle
+        run: pnpm --filter @hisoka/wallets run test:bundle
       - name: Test pss-client
-        run: |
-          out="$(pnpm --filter @hisoka/pss-client run test 2>&1)" || rc=$?
-          echo "$out"
-          test "${rc:-0}" -eq 0 || { echo "::error::pss-client tests exited ${rc}"; exit 1; }
-          # pnpm exits 0 when the filter matches nothing and when the script is missing, so a green
-          # step is not evidence the suite ran. Assert a non-zero pass count.
-          # Exact, not a wildcard: vitest prints "Tests N passed | M skipped" and exits 0, so a
-          # partially skipped suite would satisfy a [0-9]+ match while covering less than it claims.
-          echo "$out" | grep -qE "Tests +206 passed \(206\)" \
-            || { echo "::error::pss-client did not report exactly 206 passing tests"; exit 1; }
+        run: bash scripts/ci/test-package.sh pss-client
       - name: Test pss-server
-        run: |
-          out="$(pnpm --filter @hisoka/pss-server run test 2>&1)" || rc=$?
-          echo "$out"
-          test "${rc:-0}" -eq 0 || { echo "::error::pss-server tests exited ${rc}"; exit 1; }
-          echo "$out" | grep -qE "Tests +103 passed \(103\)" \
-            || { echo "::error::pss-server did not report exactly 103 passing tests"; exit 1; }
+        run: bash scripts/ci/test-package.sh pss-server
       - name: Test pss-integration
-        run: |
-          # Through turbo, not pnpm --filter, so `test.dependsOn: ["^build"]` rebuilds pss-client and
-          # pss-server first. This suite resolves them through dist, so a pnpm --filter run would grade
-          # whatever bundle happened to be on disk. Seven tasks: the test plus the pss-client, pss-server,
-          # wallets, howl-protocol, wallet-runtime and adaptors builds (wallets imports howl-protocol and
-          # wallet-runtime imports adaptors at runtime).
-          out="$(pnpm turbo run test --filter=@hisoka/pss-integration --force 2>&1)" || rc=$?
-          echo "$out"
-          test "${rc:-0}" -eq 0 || { echo "::error::pss-integration tests exited ${rc}"; exit 1; }
-          echo "$out" | grep -qE "Tests +19 passed \(19\)" \
-            || { echo "::error::pss-integration did not report exactly 19 passing tests"; exit 1; }
-          echo "$out" | grep -qE "Tasks: +7 successful, 7 total" \
-            || { echo "::error::expected 7 turbo tasks; a build dependency is missing"; exit 1; }
+        run: bash scripts/ci/test-pss-integration.sh
 
   kage-native-gate:
     name: Kage native VK-pin gate
@@ -205,32 +125,9 @@ jobs:
       - name: Build prover
         run: pnpm turbo run build --filter=@hisoka/wallets --filter=@hisoka/prover
       - name: Run gate (must execute, never skip)
-        run: |
-          test -x "$HOME/.bb/bb" || { echo "::error::native bb not installed at ~/.bb/bb"; exit 1; }
-          "$HOME/.bb/bb" --version | grep -q '5.0.0' || { echo "::error::native bb is not 5.0.0"; exit 1; }
-          rc=0
-          out="$(KAGE_NATIVE=1 pnpm --filter @hisoka/prover run test:native 2>&1)" || rc=$?
-          echo "$out"
-          echo "$out" | grep -q 'skipping (not passing)' && { echo "::error::Kage native gate SKIPPED"; exit 1; }
-          echo "$out" | grep -q 'opt-in only' && { echo "::error::gate did not receive KAGE_NATIVE=1"; exit 1; }
-          # Two cases: the tamper battery and the forged-circuit (kage-intent-forger) VK-hash rejection.
-          echo "$out" | grep -qE 'Tests +2 passed \(2\)' || { echo "::error::gate did not report exactly 2 passing tests"; exit 1; }
-          exit "$rc"
+        run: bash scripts/ci/kage-native.sh
       - name: Forgery accept-path controls, all 3 harnesses (must execute, never skip)
-        run: |
-          test -x "$HOME/.bb/bb" || { echo "::error::native bb not installed at ~/.bb/bb"; exit 1; }
-          "$HOME/.bb/bb" --version | grep -q '5.0.0' || { echo "::error::native bb is not 5.0.0"; exit 1; }
-          # The circuits job runs each harness's reject battery. Only this step proves the UN-ABLATED
-          # harness still yields a bb-verifying proof, so a reject battery cannot pass by rejecting
-          # everything. `out=$(cmd)` under bash -e aborts at the assignment when cmd fails, so a separate
-          # `rc=$?` line would never run; capture the status in the same command instead.
-          rc=0
-          out="$(bash scripts/run-forgery-harnesses.sh 2>&1)" || rc=$?
-          echo "$out"
-          test "$rc" -eq 0 || { echo "::error::forgery harness runner exited $rc"; exit 1; }
-          echo "$out" | grep -q 'all 3 harnesses PASS' || { echo "::error::runner did not reach its all-3-pass assertion"; exit 1; }
-          test "$(echo "$out" | grep -c 'Proof verified successfully')" -ge 3 \
-            || { echo "::error::fewer than 3 accept paths reported a verified proof"; exit 1; }
+        run: bash scripts/ci/forgery-accept.sh
 
   evm-tests:
     name: EVM Tests
@@ -249,21 +146,15 @@ jobs:
       - name: Typecheck evm-contracts (scripts + tests)
         run: pnpm --filter evm-contracts run typecheck
       - name: Run Solidity tests
-        run: pnpm --filter evm-contracts run test:fast
+        run: bash scripts/ci/evm-suite.sh test:fast
       - name: Run slow Solidity tests
-        run: pnpm --filter evm-contracts run test:slow
-      - name: Gas regression guard (per-entrypoint ceilings)
-        run: |
-          # The bench self-skips without GAS_BENCH=1, so assert it actually ran rather than trusting exit 0.
-          rc=0
-          out="$(GAS_BENCH=1 pnpm --filter evm-contracts exec hardhat test test/benchmark/Gas.bench.ts 2>&1)" || rc=$?
-          echo "$out"
-          test "$rc" -eq 0 || { echo "::error::gas guard exited $rc"; exit 1; }
-          echo "$out" | grep -qE '11 passing' || { echo "::error::gas guard did not run all 10 entrypoints and settleSwap"; exit 1; }
+        run: bash scripts/ci/evm-suite.sh test:slow
+      - name: Gas regression guard (per-entrypoint, Kage settlement and frontier-tree ceilings)
+        run: bash scripts/ci/evm-gas.sh
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
       - name: Run invariant tests (Foundry)
-        run: pnpm --filter evm-contracts run test:invariant
+        run: bash scripts/ci/evm-invariant.sh
       - name: Validate upgrade safety
         run: pnpm --filter evm-contracts run validate:upgrades
       - name: Check storage-layout snapshots
@@ -286,16 +177,7 @@ jobs:
       - name: Run adaptor tests against a mainnet fork (must execute, never skip)
         env:
           MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
-        run: |
-          # test/adaptors runs in NO other job: hardhat binds it to the test:fork task. Fail loudly on a
-          # missing secret rather than skipping, because a skipped job reads as a passing gate.
-          test -n "$MAINNET_FORK_URL" \
-            || { echo "::error::MAINNET_FORK_URL secret is not set; the adaptor suite cannot run"; exit 1; }
-          rc=0
-          out="$(pnpm --filter evm-contracts run test:fork 2>&1)" || rc=$?
-          echo "$out"
-          test "$rc" -eq 0 || { echo "::error::adaptor fork suite exited $rc"; exit 1; }
-          echo "$out" | grep -qE '[0-9]+ passing' || { echo "::error::fork suite reported no passing tests"; exit 1; }
+        run: bash scripts/ci/evm-fork.sh
 
   security:
     name: Secrets + Deps
