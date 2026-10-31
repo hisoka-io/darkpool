@@ -224,8 +224,8 @@ describe("Howl Nox payment source", () => {
   });
 
   it("pins the Howl gas limits", () => {
-    expect(HOWL_PAYMENT_GAS_LIMIT).toBe(1_955_800n);
-    expect(HOWL_WITHDRAW_ACTION_GAS_LIMIT).toBe(1_914_000n);
+    expect(HOWL_PAYMENT_GAS_LIMIT).toBe(1_977_800n);
+    expect(HOWL_WITHDRAW_ACTION_GAS_LIMIT).toBe(1_977_600n);
   });
 
   it("proves the quoted amount to the adapter under the execution intent", async () => {
@@ -419,8 +419,8 @@ describe("Howl withdraw profiles", () => {
   it("pins the multisig withdraw profile", () => {
     expect(HOWL_WITHDRAW_MULTISIG_PROFILE).toEqual({
       proofBytes: 8_384,
-      payFrameGas: 1_010_000n,
-      withdrawFrameGas: 827_000n,
+      payFrameGas: 1_030_000n,
+      withdrawFrameGas: 880_000n,
     });
   });
 });

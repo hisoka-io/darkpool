@@ -112,13 +112,13 @@ export interface HowlWithdrawProfile {
 }
 
 /**
- * `withdraw`: proof length read from the deployed `WithdrawVerifier` (LOG_N 15); frames traced on the
- * deployed pool.
+ * `withdraw`: proof length read from the deployed `WithdrawVerifier` (LOG_N 15); frames rounded up from the
+ * highest traced on the Arbitrum Sepolia pool at leaves 28 to 31: pay 1,027,697, withdraw 879,320.
  */
 export const HOWL_WITHDRAW_PROFILE: HowlWithdrawProfile = {
   proofBytes: 8_384,
-  payFrameGas: 1_010_000n,
-  withdrawFrameGas: 827_000n,
+  payFrameGas: 1_030_000n,
+  withdrawFrameGas: 880_000n,
 };
 
 /**
@@ -128,8 +128,8 @@ export const HOWL_WITHDRAW_PROFILE: HowlWithdrawProfile = {
  */
 export const HOWL_WITHDRAW_MULTISIG_PROFILE: HowlWithdrawProfile = {
   proofBytes: 8_384,
-  payFrameGas: 1_010_000n,
-  withdrawFrameGas: 827_000n,
+  payFrameGas: 1_030_000n,
+  withdrawFrameGas: 880_000n,
 };
 
 function withMargin(gas: bigint, marginBps: bigint): bigint {

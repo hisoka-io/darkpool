@@ -33,9 +33,9 @@ permissions:
   contents: read
 
 env:
-  NOX_PIN: 5bafb1f8f4c10db9d8a1f00e1c7b1e796ec3f6d2
+  NOX_PIN: 676bb8000e709acedd21fa357a5724ed798d5292
   # Has to export executePaid, planPaidGas, paidExecuteCalldata and rpcChainReader.
-  NOX_SDK_PIN: a74c3d08a2f6f7aee1a9924b7e9ae8a1b714aa59
+  NOX_SDK_PIN: ab50ca1a30a957f0995c3a4cb1310f9b3a371cbf
   EXPECTED_PASSING: "4"
   # The nox checkout builds for the local CPU; runners differ, so cached artifacts need a fixed baseline.
   NOX_RUSTFLAGS: "-C target-cpu=x86-64-v2"
