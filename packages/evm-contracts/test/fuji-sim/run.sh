@@ -63,8 +63,16 @@ wave() { # n final out-subdir -> rc
   mkdir -p "$dir"
   SIM_WAVE=$n SIM_FINAL=$final SIM_OUT_DIR="$dir" \
     npx hardhat test test/fuji-sim/FujiSim.test.ts > "$dir/wave.log" 2>&1 || rc=$?
-  echo "wave $n: rc=$rc ($(date -u +%FT%TZ))" | tee -a "$OUT/waves.log"
-  return "$rc"
+  # The verdict is the wave's own record, not the exit code: hardhat can exit non-zero after mocha has finished
+  # (a lazily loaded dependency of its own), so a wave passes when mocha reports it passing with nothing failing
+  # and its summary records no failure and no mismatch.
+  local verdict=fail
+  if grep -aqE '^[[:space:]]*1 passing' "$dir/wave.log" && ! grep -aqE '^[[:space:]]*[0-9]+ failing' "$dir/wave.log" \
+    && [ "$(jq -r '(.failure == null) and (.mismatches == 0)' "$dir/summary.json" 2>/dev/null)" = true ]; then
+    verdict=pass
+  fi
+  echo "wave $n: $verdict (exit $rc, $(date -u +%FT%TZ))" | tee -a "$OUT/waves.log"
+  [ "$verdict" = pass ]
 }
 
 leaf_count() { # rpc
