@@ -16,7 +16,9 @@ import {
   assertSafeSingleton,
   assertSafeOwnersDisjoint,
   assertStakingToken,
+  ForkedNetworkMetadataError,
   deploy,
+  forkedChainIdFromMetadata,
   governanceDelays,
   isTestChain,
   kageExitDelay,
@@ -687,6 +689,52 @@ describe("launch-chain rules: pure checks", function () {
         expect(() => assertFeeAssets(rules, [usdc], weth)).to.not.throw();
         expect(() => assertStakingToken(rules, weth, 18n)).to.not.throw();
       });
+    });
+  });
+
+  describe("forked chain id from hardhat_metadata", function () {
+    const BASE = 8453n;
+
+    it("reads an absent forkedNetwork (Hardhat, unforked) as no fork", function () {
+      expect(forkedChainIdFromMetadata({ chainId: 31337 })).to.equal(null);
+    });
+
+    it("reads a null forkedNetwork (anvil, unforked) as no fork", function () {
+      expect(
+        forkedChainIdFromMetadata({ chainId: 31337, forkedNetwork: null }),
+      ).to.equal(null);
+    });
+
+    it("returns the forked chain id", function () {
+      expect(
+        forkedChainIdFromMetadata({
+          chainId: 31337,
+          forkedNetwork: { chainId: 8453, forkBlockNumber: 1 },
+        }),
+      ).to.equal(BASE);
+    });
+
+    it("reads null or non-object metadata as no fork", function () {
+      expect(forkedChainIdFromMetadata(null)).to.equal(null);
+      expect(forkedChainIdFromMetadata(undefined)).to.equal(null);
+      expect(forkedChainIdFromMetadata("hardhat")).to.equal(null);
+    });
+
+    it("refuses a forkedNetwork without a positive integer chainId", function () {
+      for (const forkedNetwork of [
+        {},
+        { chainId: "8453" },
+        { chainId: 8453.5 },
+        { chainId: -1 },
+        { chainId: 0 },
+        { chainId: null },
+        8453,
+      ]) {
+        expect(
+          () => forkedChainIdFromMetadata({ forkedNetwork }),
+          JSON.stringify(forkedNetwork),
+        ).to.throw(ForkedNetworkMetadataError, "forkedNetwork is malformed");
+      }
     });
   });
 

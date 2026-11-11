@@ -69,6 +69,8 @@ jobs:
       # spentOracle suite spawns `anvil` directly (src/__tests__/spentOracle.test.ts:165). Removing this
       # because "no step in this job uses forge" breaks that suite with `spawn anvil ENOENT`.
       - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
+        with:
+          version: v1.3.2
       - name: Check Node version
         run: bash scripts/check-node.sh
       - run: pnpm install --frozen-lockfile
@@ -153,6 +155,8 @@ jobs:
         run: bash scripts/ci/evm-gas.sh
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
+        with:
+          version: v1.3.2
       - name: Run invariant tests (Foundry)
         run: bash scripts/ci/evm-invariant.sh
       - name: Validate upgrade safety

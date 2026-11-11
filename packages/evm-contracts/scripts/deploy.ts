@@ -134,18 +134,44 @@ export function launchRulesChainId(
   return forkedChainId;
 }
 
-// Hardhat's own metadata call names the forked chain; any other node (anvil, a live RPC) does not answer it, and a
-// fork there is rehearsed under the forked chain's own id instead.
+export class ForkedNetworkMetadataError extends Error {
+  constructor(detail: string) {
+    super(
+      `hardhat_metadata forkedNetwork is malformed (${detail}); expected null, absent, or { chainId: positive integer }.`,
+    );
+    this.name = "ForkedNetworkMetadataError";
+  }
+}
+
+// Hardhat leaves forkedNetwork absent when unforked and anvil answers null, so both read as no fork.
+export function forkedChainIdFromMetadata(metadata: unknown): bigint | null {
+  if (typeof metadata !== "object" || metadata === null) return null;
+  const forkedNetwork: unknown = (metadata as { forkedNetwork?: unknown })
+    .forkedNetwork;
+  if (forkedNetwork === undefined || forkedNetwork === null) return null;
+  if (typeof forkedNetwork !== "object") {
+    throw new ForkedNetworkMetadataError(`got ${typeof forkedNetwork}`);
+  }
+  const chainId: unknown = (forkedNetwork as { chainId?: unknown }).chainId;
+  if (
+    typeof chainId !== "number" ||
+    !Number.isSafeInteger(chainId) ||
+    chainId <= 0
+  ) {
+    throw new ForkedNetworkMetadataError(`chainId ${String(chainId)}`);
+  }
+  return BigInt(chainId);
+}
+
+// Hardhat's own metadata call names the forked chain; a node that does not answer it is rehearsed under its own id.
 async function forkedChainId(): Promise<bigint | null> {
-  let metadata: { forkedNetwork?: { chainId: number } };
+  let metadata: unknown;
   try {
     metadata = await ethers.provider.send("hardhat_metadata", []);
   } catch {
     return null;
   }
-  return metadata.forkedNetwork === undefined
-    ? null
-    : BigInt(metadata.forkedNetwork.chainId);
+  return forkedChainIdFromMetadata(metadata);
 }
 
 export interface LaunchTokens {
