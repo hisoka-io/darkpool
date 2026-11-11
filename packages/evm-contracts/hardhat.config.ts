@@ -90,6 +90,8 @@ const FAST_TEST_FILES = [
 const EXCLUDED_TEST_DIRS: Record<string, string> = {
   "test/adaptors": "mainnet-fork suite, run by test:fork",
   "test/benchmark": "env-gated gas benches, run by the CI gas guard",
+  "test/fuji-sim":
+    "Fuji test-build simulation with a Raven node, run by test/fuji-sim/run.sh",
   "test/helpers": "shared fixtures, no test files",
   "test/invariant": "Foundry invariants, run by test:invariant",
   "test/setup": "mocha setup file, loaded first by test:fast and test:slow",
