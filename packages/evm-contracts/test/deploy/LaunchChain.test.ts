@@ -19,6 +19,8 @@ import {
   ForkedNetworkMetadataError,
   deploy,
   forkedChainIdFromMetadata,
+  logQueryMaxBlocks,
+  queryFilterChunked,
   governanceDelays,
   isTestChain,
   kageExitDelay,
@@ -689,6 +691,68 @@ describe("launch-chain rules: pure checks", function () {
         expect(() => assertFeeAssets(rules, [usdc], weth)).to.not.throw();
         expect(() => assertStakingToken(rules, weth, 18n)).to.not.throw();
       });
+    });
+  });
+
+  describe("chunked log queries", function () {
+    // A provider that, like Avalanche Fuji's public RPC, refuses any range wider than its cap.
+    function cappedContract(cap: number, logs: number[]) {
+      const windows: [number, number][] = [];
+      return {
+        windows,
+        async queryFilter(
+          _filter: never,
+          from: number,
+          to: number,
+        ): Promise<number[]> {
+          if (to - from + 1 > cap) {
+            throw new Error(
+              `block range too large: exceeds the maximum of ${cap} blocks`,
+            );
+          }
+          windows.push([from, to]);
+          return logs.filter((b) => b >= from && b <= to);
+        },
+      };
+    }
+
+    it("reads a range wider than the provider cap in windows that each fit it", async function () {
+      const contract = cappedContract(100, [5, 150, 250, 301]);
+      const events = await queryFilterChunked(contract, "f", 1, 301, 100);
+      expect(events).to.deep.equal([5, 150, 250, 301]);
+      expect(contract.windows).to.deep.equal([
+        [1, 100],
+        [101, 200],
+        [201, 300],
+        [301, 301],
+      ]);
+    });
+
+    it("reads an empty range with no query and a one-block range with one", async function () {
+      const contract = cappedContract(100, [7]);
+      expect(await queryFilterChunked(contract, "f", 8, 7, 100)).to.deep.equal(
+        [],
+      );
+      expect(await queryFilterChunked(contract, "f", 7, 7, 100)).to.deep.equal([
+        7,
+      ]);
+      expect(contract.windows).to.deep.equal([[7, 7]]);
+    });
+
+    it("defaults to 100-block windows and refuses a malformed LOG_QUERY_MAX_BLOCKS", function () {
+      withEnv({ LOG_QUERY_MAX_BLOCKS: "" }, () =>
+        expect(logQueryMaxBlocks()).to.equal(100),
+      );
+      withEnv({ LOG_QUERY_MAX_BLOCKS: "2000" }, () =>
+        expect(logQueryMaxBlocks()).to.equal(2000),
+      );
+      for (const bad of ["0", "-5", "1.5", "lots"]) {
+        withEnv({ LOG_QUERY_MAX_BLOCKS: bad }, () =>
+          expect(() => logQueryMaxBlocks()).to.throw(
+            "must be a positive integer block count",
+          ),
+        );
+      }
     });
   });
 

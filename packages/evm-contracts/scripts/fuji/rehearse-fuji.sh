@@ -10,13 +10,16 @@
 # source, gas price). Live mode sends every transaction to Fuji, keeps the deployment records in deployments/, writes
 # the Safe owner keys to SECRETS_DIR, and verifies every contract on Snowtrace.
 #
-# Usage: scripts/fuji/rehearse-fuji.sh <port> <output.json>   (the port is unused in live mode)
+# Usage: scripts/fuji/rehearse-fuji.sh <port> <output.json>
+#   fork mode: the anvil port; live mode: the port of a local retrying relay (rpc-relay.mjs) in front of Fuji
 # Env:
 #   FUJI_DEPLOYER_KEY_FILE  mode-600 file holding the deployer key (never printed)
 #   MODE                    fork (default) or live
 #   SECRETS_DIR             live mode: mode-700 directory for the Safe owner keys and the compliance secret
 #   FORK_RPC_URL            Fuji RPC: fork source, and the live endpoint (default https://api.avax-test.network/ext/bc/C/rpc)
 #   GOV_DELAY_SECS          Timelock and DarkPool admin-transfer delay (default 60)
+#   REUSE_TOKENS_AND_SAFES  live mode: "1" resumes after a failed stack deploy, reusing the recorded test tokens, Safe
+#                           owners and Safes (all three records and the owner keys must exist) instead of creating them
 #
 # Writes <output.json> (addresses, gas per step, AVAX cost) and keeps logs, records and the rehearsal-only Safe
 # owner keys in <output>.work-<UTC>/.
@@ -44,8 +47,9 @@ done
 [ "$(stat -c %a "$FUJI_DEPLOYER_KEY_FILE")" = "600" ] || { echo "ERROR: $FUJI_DEPLOYER_KEY_FILE must be mode 600" >&2; exit 1; }
 [ "$(cast chain-id --rpc-url "$FORK_RPC_URL")" = "$CHAIN_ID" ] || { echo "ERROR: $FORK_RPC_URL is not Fuji" >&2; exit 1; }
 
+RELAY_PID=""
 if [ "$MODE" = live ]; then
-  RPC="$FORK_RPC_URL"
+  RPC="http://127.0.0.1:${PORT}"
   [ -n "${SECRETS_DIR:-}" ] && [ -d "$SECRETS_DIR" ] || { echo "ERROR: live mode needs SECRETS_DIR" >&2; exit 1; }
   [ "$(stat -c %a "$SECRETS_DIR")" = "700" ] || { echo "ERROR: SECRETS_DIR $SECRETS_DIR must be mode 700" >&2; exit 1; }
 else
@@ -65,8 +69,15 @@ echo "Work dir: $WORK (mode $MODE)"
 if [ "$MODE" = live ]; then
   DEPLOY_DIR="$(pwd)/deployments"
   OWNER_KEYS="$SECRETS_DIR/safe-owner-keys.json"
-  [ -e "$OWNER_KEYS" ] && { echo "ERROR: $OWNER_KEYS exists; a live run creates fresh Safe owners once" >&2; exit 1; }
-  [ -e "$DEPLOY_DIR/fuji-tokens.json" ] && { echo "ERROR: $DEPLOY_DIR/fuji-tokens.json exists; tokens are deployed once" >&2; exit 1; }
+  if [ "${REUSE_TOKENS_AND_SAFES:-}" = 1 ]; then
+    for f in "$OWNER_KEYS" "$(pwd)/deployments/fuji-tokens.json" "$(pwd)/deployments/fuji-safe-owners.json" \
+      "$(pwd)/deployments/fuji-safes.json"; do
+      [ -f "$f" ] || { echo "ERROR: REUSE_TOKENS_AND_SAFES=1 needs $f" >&2; exit 1; }
+    done
+  else
+    [ -e "$OWNER_KEYS" ] && { echo "ERROR: $OWNER_KEYS exists; a live run creates fresh Safe owners once" >&2; exit 1; }
+    [ -e "$(pwd)/deployments/fuji-tokens.json" ] && { echo "ERROR: deployments/fuji-tokens.json exists; tokens are deployed once" >&2; exit 1; }
+  fi
 else
   DEPLOY_DIR="$WORK/deployments"
   OWNER_KEYS="$WORK/owner-keys.json"
@@ -74,7 +85,11 @@ fi
 mkdir -p "$DEPLOY_DIR"
 
 ANVIL_PID=""
-cleanup() { [ -n "$ANVIL_PID" ] && kill "$ANVIL_PID" 2>/dev/null || true; }
+cleanup() {
+  [ -n "$ANVIL_PID" ] && kill "$ANVIL_PID" 2>/dev/null
+  [ -n "$RELAY_PID" ] && kill "$RELAY_PID" 2>/dev/null
+  true
+}
 trap cleanup EXIT
 
 if [ "$MODE" = fork ]; then
@@ -89,7 +104,11 @@ for _ in $(seq 1 90); do
 done
 [ "$(cast chain-id --rpc-url "$RPC")" = "$CHAIN_ID" ] || { echo "ERROR: fork chain id is not $CHAIN_ID" >&2; exit 1; }
 else
-  echo "[1/8] Live on Fuji via ${RPC}"
+  echo "[1/8] Live on Fuji via a local relay ${RPC} -> ${FORK_RPC_URL}"
+  node scripts/fuji/rpc-relay.mjs "$PORT" "$FORK_RPC_URL" 2>"$WORK/relay.log" &
+  RELAY_PID=$!
+  for _ in $(seq 1 30); do cast chain-id --rpc-url "$RPC" >/dev/null 2>&1 && break; sleep 1; done
+  [ "$(cast chain-id --rpc-url "$RPC")" = "$CHAIN_ID" ] || { echo "ERROR: relay did not come up; see $WORK/relay.log" >&2; exit 1; }
 fi
 FORK_BLOCK=$(cast block-number --rpc-url "$RPC")
 echo "  start block ${FORK_BLOCK}"
@@ -100,7 +119,7 @@ unset GOV_SAFE GUARDIAN_SAFE STAKING_TOKEN KAGE_STAKING_TOKEN FEE_ASSETS SWAP_RO
   KAGE_MODULE KAGE_EXIT_DELAY_SECS FORCE_LAUNCH_RULES ALLOW_REDEPLOY TIMELOCK_SALT WAIT_FOR_DELAY DRY_RUN \
   SAFES_OUT SAFE_SALT_NONCE ALLOW_ALREADY_EXECUTED KAGE_OPERATION_ID NODE_OPTIONS
 export FUJI_FORK_URL="$RPC"
-export FUJI_RPC_URL="$FORK_RPC_URL"
+if [ "$MODE" = live ]; then export FUJI_RPC_URL="$RPC"; else export FUJI_RPC_URL="$FORK_RPC_URL"; fi
 export DEPLOYMENTS_DIR="$DEPLOY_DIR"
 if [ "$MODE" = fork ]; then export SKIP_EXPLORER_VERIFY=true; else unset SKIP_EXPLORER_VERIFY; fi
 export DOTENV_CONFIG_QUIET=true
@@ -126,22 +145,33 @@ fail() { echo "REHEARSAL FAILED: $*" >&2; exit 1; }
 echo "[2/8] Compiling..."
 npx hardhat compile >"$WORK/compile.log" 2>&1 || fail "hardhat compile; see $WORK/compile.log"
 
+REUSE="${REUSE_TOKENS_AND_SAFES:-}"
+[ "$MODE" = live ] || REUSE=""
+if [ "$REUSE" = 1 ]; then
+  echo "[3/8] Reusing the recorded test tokens"
+  cp "$DEPLOY_DIR/fuji-tokens.json" "$WORK/tokens.json"
+else
 echo "[3/8] Deploying test tokens..."
 step_begin
 TOKENS_OUT="$DEPLOY_DIR/fuji-tokens.json" hh scripts/fuji/deploy-test-tokens.ts | tee "$WORK/tokens.log"
 step_end "tokens"
+fi
 cp "$DEPLOY_DIR/fuji-tokens.json" "$WORK/tokens.json"
 MUSDC=$(jq -r '.tokens.mUSDC.address' "$WORK/tokens.json")
 MWETH=$(jq -r '.tokens.mWETH.address' "$WORK/tokens.json")
 MDAI=$(jq -r '.tokens.mDAI.address' "$WORK/tokens.json")
 
-echo "[4/8] Generating rehearsal Safe owners and creating Gov and Guardian Safes..."
+if [ "$REUSE" = 1 ]; then
+  echo "[4/8] Reusing the recorded Gov and Guardian Safes"
+else
+echo "[4/8] Generating Safe owners and creating Gov and Guardian Safes..."
 OWNER_KEYS_OUT="$OWNER_KEYS" SAFE_OWNERS_OUT="$DEPLOY_DIR/fuji-safe-owners.json" \
   hh scripts/gov/generate-owners.ts | tee "$WORK/owners.log"
 step_begin
 SAFE_OWNERS_FILE="$DEPLOY_DIR/fuji-safe-owners.json" SAFES_OUT="$DEPLOY_DIR/fuji-safes.json" \
   hh scripts/gov/create-safes.ts | tee "$WORK/safes.log"
 step_end "safes"
+fi
 GOV=$(jq -r '.gov.address' "$DEPLOY_DIR/fuji-safes.json")
 GUARD=$(jq -r '.guardian.address' "$DEPLOY_DIR/fuji-safes.json")
 

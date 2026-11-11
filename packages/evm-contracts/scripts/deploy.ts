@@ -136,6 +136,51 @@ export function launchRulesChainId(
   return forkedChainId;
 }
 
+// Public RPCs cap eth_getLogs ranges (Avalanche Fuji's public endpoint allows 100 blocks), so every log scan from a
+// deploy block reads the range in windows no wider than LOG_QUERY_MAX_BLOCKS.
+const DEFAULT_LOG_QUERY_MAX_BLOCKS = 100;
+
+export function logQueryMaxBlocks(): number {
+  const raw = (process.env.LOG_QUERY_MAX_BLOCKS ?? "").trim();
+  if (raw === "") return DEFAULT_LOG_QUERY_MAX_BLOCKS;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(
+      `LOG_QUERY_MAX_BLOCKS=${raw} must be a positive integer block count.`,
+    );
+  }
+  return value;
+}
+
+interface LogQueryable<E> {
+  queryFilter(
+    filter: never,
+    fromBlock: number,
+    toBlock: number,
+  ): Promise<readonly E[]>;
+}
+
+/** Every log matching `filter` from `fromBlock` to `toBlock` inclusive, read in windows of `maxBlocks`. */
+export async function queryFilterChunked<E>(
+  contract: LogQueryable<E>,
+  filter: unknown,
+  fromBlock: number,
+  toBlock: number,
+  maxBlocks: number = logQueryMaxBlocks(),
+): Promise<E[]> {
+  if (!Number.isSafeInteger(maxBlocks) || maxBlocks < 1) {
+    throw new Error(
+      `log query window ${maxBlocks} must be a positive integer.`,
+    );
+  }
+  const events: E[] = [];
+  for (let start = fromBlock; start <= toBlock; start += maxBlocks) {
+    const end = Math.min(toBlock, start + maxBlocks - 1);
+    events.push(...(await contract.queryFilter(filter as never, start, end)));
+  }
+  return events;
+}
+
 export class ForkedNetworkMetadataError extends Error {
   constructor(detail: string) {
     super(
@@ -1088,9 +1133,11 @@ export async function roleHolderProblems(
     for (const holder of entry.holders) add(entry.role, holder);
     for (const account of probe.keys()) add(entry.role, account);
   }
-  for (const event of await contract.queryFilter(
+  for (const event of await queryFilterChunked(
+    contract,
     contract.getEvent("RoleGranted"),
     fromBlock,
+    await ethers.provider.getBlockNumber(),
   )) {
     if ("args" in event) {
       add(
@@ -1916,15 +1963,20 @@ export async function deploy(
   // Timelock was deployed in this run, so scanning from its deploy block sees every grant that exists,
   // including the constructor's automatic grant to each proposer.
   const cancellerHolders = new Set<string>();
-  for (const ev of await timelock.queryFilter(
+  const scanTo = await ethers.provider.getBlockNumber();
+  for (const ev of await queryFilterChunked(
+    timelock,
     timelock.filters.RoleGranted(CANCELLER_ROLE),
     timelockDeployBlock,
+    scanTo,
   )) {
     cancellerHolders.add(ethers.getAddress(ev.args.account));
   }
-  for (const ev of await timelock.queryFilter(
+  for (const ev of await queryFilterChunked(
+    timelock,
     timelock.filters.RoleRevoked(CANCELLER_ROLE),
     timelockDeployBlock,
+    scanTo,
   )) {
     cancellerHolders.delete(ethers.getAddress(ev.args.account));
   }
@@ -2293,15 +2345,19 @@ export async function deploy(
     }
     const operations =
       (
-        await timelock.queryFilter(
+        await queryFilterChunked(
+          timelock,
           timelock.filters.CallScheduled(),
           timelockDeployBlock,
+          await ethers.provider.getBlockNumber(),
         )
       ).length +
       (
-        await timelock.queryFilter(
+        await queryFilterChunked(
+          timelock,
           timelock.filters.CallExecuted(),
           timelockDeployBlock,
+          await ethers.provider.getBlockNumber(),
         )
       ).length;
     if (operations > 0) {

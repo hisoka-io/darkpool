@@ -308,6 +308,7 @@ const config: HardhatUserConfig = {
       url: FUJI_RPC_URL,
       accounts: fujiDeployerAccounts(),
       chainId: 43113,
+      timeout: 180000,
     },
     fujiFork: {
       url: FUJI_FORK_URL,

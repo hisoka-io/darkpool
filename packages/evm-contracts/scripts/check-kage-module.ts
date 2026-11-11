@@ -23,6 +23,7 @@ import {
   KAGE_MODULE_LAYOUT,
   kageModuleProblems,
   kageModuleRegistration,
+  queryFilterChunked,
 } from "./deploy";
 
 interface KageRecordView {
@@ -150,9 +151,11 @@ export async function checkScheduledKageRegistration(
         "cancelled).",
     );
   }
-  const events = await timelock.queryFilter(
+  const events = await queryFilterChunked(
+    timelock,
     timelock.filters.CallScheduled(operationId),
     record.meta.startBlock,
+    await ethers.provider.getBlockNumber(),
   );
   const calls: ScheduledCall[] = events.map((event) => ({
     target: String(event.args.target),
