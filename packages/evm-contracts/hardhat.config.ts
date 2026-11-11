@@ -24,6 +24,30 @@ const ARB_SEPOLIA_FORK_URL =
 const ARB_SEPOLIA_FORK_PRIVATE_KEY =
   process.env.ARB_SEPOLIA_FORK_PRIVATE_KEY || "";
 
+// Avalanche Fuji (43113) pre-freeze test build. The deployer key is read from a mode-600 file outside the repo and
+// never from the environment, so it cannot reach a shell history or a process listing. The fork network signs with
+// the same key so a rehearsal reproduces the live addresses; it only ever talks to a local anvil.
+const FUJI_RPC_URL =
+  process.env.FUJI_RPC_URL || "https://api.avax-test.network/ext/bc/C/rpc";
+const FUJI_FORK_URL = process.env.FUJI_FORK_URL || "http://127.0.0.1:18546";
+function fujiDeployerAccounts(): string[] {
+  const file = process.env.FUJI_DEPLOYER_KEY_FILE;
+  if (file === undefined || file === "") return [];
+  const mode = fs.statSync(file).mode & 0o777;
+  if ((mode & 0o077) !== 0) {
+    throw new Error(
+      `FUJI_DEPLOYER_KEY_FILE ${file} is mode ${mode.toString(8)}; restrict it to 600.`,
+    );
+  }
+  const key = fs.readFileSync(file, "utf8").trim();
+  if (!/^0x[0-9a-fA-F]{64}$/.test(key)) {
+    throw new Error(
+      `FUJI_DEPLOYER_KEY_FILE ${file} does not hold one 0x-prefixed 32-byte hex key.`,
+    );
+  }
+  return [key];
+}
+
 // Validation for fork mode
 if (process.env.FORK_MAINNET === "true" && !MAINNET_FORK_URL) {
   throw new Error("MAINNET_FORK_URL not set in .env but FORK_MAINNET is true");
@@ -280,9 +304,34 @@ const config: HardhatUserConfig = {
         : [],
       chainId: 421614,
     },
+    fuji: {
+      url: FUJI_RPC_URL,
+      accounts: fujiDeployerAccounts(),
+      chainId: 43113,
+    },
+    fujiFork: {
+      url: FUJI_FORK_URL,
+      accounts: fujiDeployerAccounts(),
+      chainId: 43113,
+    },
   },
   etherscan: {
-    apiKey: ARBISCAN_API_KEY,
+    apiKey: {
+      arbitrumSepolia: ARBISCAN_API_KEY,
+      // Routescan serves Snowtrace verification without an account key.
+      fuji: process.env.SNOWTRACE_API_KEY || "snowtrace",
+    },
+    customChains: [
+      {
+        network: "fuji",
+        chainId: 43113,
+        urls: {
+          apiURL:
+            "https://api.routescan.io/v2/network/testnet/evm/43113/etherscan",
+          browserURL: "https://testnet.snowtrace.io",
+        },
+      },
+    ],
   },
   mocha: {
     timeout: 120000,

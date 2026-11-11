@@ -86,15 +86,17 @@ const BJJ_SUBGROUP_ORDER =
 // that matches it.
 const DEFAULT_GOVERNANCE_DELAY = 48n * 60n * 60n;
 const UINT48_MAX = 2n ** 48n - 1n;
-// The test chains: the in-process chain, Arbitrum Sepolia and Sepolia. A delay below the production default is a
-// testnet affordance; anywhere else it would hand governance an instant path around the review window. Every other
-// launch-chain rule below (fee asset, staking token, stake amounts, compliance key source, Safe owners and controls,
-// multisig verifier stub) is likewise relaxed only here.
+// The test chains: the in-process chain, Arbitrum Sepolia, Sepolia and Avalanche Fuji. A delay below the production
+// default is a testnet affordance; anywhere else it would hand governance an instant path around the review window.
+// Every other launch-chain rule below (fee asset, staking token, stake amounts, compliance key source, Safe owners and
+// controls, multisig verifier stub) is likewise relaxed only here.
 const IN_PROCESS_CHAIN_ID = 31337n;
+const AVALANCHE_FUJI_CHAIN_ID = 43113n;
 const SHORT_DELAY_CHAIN_IDS: ReadonlySet<bigint> = new Set([
   IN_PROCESS_CHAIN_ID,
   421614n,
   11155111n,
+  AVALANCHE_FUJI_CHAIN_ID,
 ]);
 
 const UNSTAKE_DELAY = 86400n; // contract minimum (1 day)

@@ -203,8 +203,8 @@ function ownership(
 }
 
 describe("launch-chain rules: pure checks", function () {
-  it("treats exactly the in-process chain, Arbitrum Sepolia and Sepolia as test chains", function () {
-    for (const id of [HARDHAT, ARBITRUM_SEPOLIA, 11155111n]) {
+  it("treats exactly the in-process chain, Arbitrum Sepolia, Sepolia and Avalanche Fuji as test chains", function () {
+    for (const id of [HARDHAT, ARBITRUM_SEPOLIA, 11155111n, 43113n]) {
       expect(isTestChain(id), `${id}`).to.equal(true);
     }
     for (const id of [ETHEREUM, 10n, 8453n, ARBITRUM_ONE, 43114n]) {
