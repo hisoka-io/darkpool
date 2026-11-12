@@ -54,7 +54,7 @@ FORGERY_VERIFIED_PROOFS=3
 
 # evm-contracts mocha suites (scripts/ci/evm-suite.sh).
 declare -A EVM_PASSING=(
-  [test:fast]=694
+  [test:fast]=697
   [test:slow]=2
 )
 # Gas benches in run order, each with its passing count (scripts/ci/evm-gas.sh).
