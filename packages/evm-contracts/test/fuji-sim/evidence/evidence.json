@@ -1,0 +1,3117 @@
+{
+  "label": "Howl pre-freeze test deployment on Avalanche Fuji (testnet): a test deployment with simulated user agents",
+  "chainId": 43113,
+  "pool": "0x44B3d56c0B8260044153378dab383251fe2e1713",
+  "window": {
+    "first": "2026-11-11T14:58:58.158Z",
+    "last": "2026-11-12T21:49:00.456Z"
+  },
+  "waves": [
+    {
+      "wave": "1 (stopped part-way: wave-1-attempt1)",
+      "graded": 0,
+      "refusedCheats": 0,
+      "mismatches": 0,
+      "finalLeaves": 1,
+      "ravenPaths": 0,
+      "allPathRootsKnown": true,
+      "followLagMs": {
+        "p50": 0,
+        "p95": 0,
+        "max": 0
+      },
+      "wallMinutes": 5,
+      "failure": "node did not catch up within 300000 ms: {\"leaves\":1,\"block\":60890529,\"shards\":1,\"sessions\":null}, want 1 leaves at block 60896408, chain root 0x1f3c5cfeced7cbb1eca61342a724bdfb090c48cf8b77381a76a976d186bc2251 (logs to 60896414)"
+    },
+    {
+      "wave": 1,
+      "graded": 54,
+      "refusedCheats": 1,
+      "mismatches": 0,
+      "finalLeaves": 66,
+      "ravenPaths": 32,
+      "allPathRootsKnown": true,
+      "followLagMs": {
+        "p50": 1282,
+        "p95": 15830,
+        "max": 112399
+      },
+      "wallMinutes": 40,
+      "failure": null
+    },
+    {
+      "wave": 2,
+      "graded": 40,
+      "refusedCheats": 2,
+      "mismatches": 0,
+      "finalLeaves": 118,
+      "ravenPaths": 33,
+      "allPathRootsKnown": true,
+      "followLagMs": {
+        "p50": 1525,
+        "p95": 5868,
+        "max": 150934
+      },
+      "wallMinutes": 41,
+      "failure": null
+    },
+    {
+      "wave": 3,
+      "graded": 34,
+      "refusedCheats": 3,
+      "mismatches": 0,
+      "finalLeaves": 159,
+      "ravenPaths": 21,
+      "allPathRootsKnown": true,
+      "followLagMs": {
+        "p50": 1849,
+        "p95": 5549,
+        "max": 31503
+      },
+      "wallMinutes": 41,
+      "failure": null
+    },
+    {
+      "wave": 4,
+      "graded": 30,
+      "refusedCheats": 0,
+      "mismatches": 0,
+      "finalLeaves": 194,
+      "ravenPaths": 19,
+      "allPathRootsKnown": true,
+      "followLagMs": {
+        "p50": 1207,
+        "p95": 2835,
+        "max": 38278
+      },
+      "wallMinutes": 40,
+      "failure": null
+    },
+    {
+      "wave": "5 (stopped part-way: wave-5-attempt1)",
+      "graded": 37,
+      "refusedCheats": 0,
+      "mismatches": 0,
+      "finalLeaves": 242,
+      "ravenPaths": 29,
+      "allPathRootsKnown": null,
+      "followLagMs": null,
+      "wallMinutes": null,
+      "failure": "stopped when the host machine slept; resumed as the next wave-5 attempt"
+    },
+    {
+      "wave": 5,
+      "graded": 2,
+      "refusedCheats": 0,
+      "mismatches": 0,
+      "finalLeaves": 245,
+      "ravenPaths": 0,
+      "allPathRootsKnown": true,
+      "followLagMs": {
+        "p50": 2681,
+        "p95": 2681,
+        "max": 1095133
+      },
+      "wallMinutes": 24,
+      "failure": null
+    }
+  ],
+  "totals": {
+    "transactionsOnChain": 251,
+    "gradedActions": 203,
+    "approvals": 48,
+    "refusedCheats": 6,
+    "mismatches": 0,
+    "ravenMerklePaths": 105,
+    "nodeReadiness": {
+      "samples": 171,
+      "ready200": 170
+    },
+    "gasSpentWei": "28914882497"
+  },
+  "byAgent": {
+    "alice": {
+      "approve": 10,
+      "deposit": 10,
+      "split": 2,
+      "swap": 6,
+      "withdraw": 5,
+      "join": 13,
+      "publicClaim": 8
+    },
+    "bob": {
+      "approve": 5,
+      "deposit": 5,
+      "split": 4,
+      "transfer": 11,
+      "publicClaim": 3,
+      "withdraw": 2,
+      "cheat": 6
+    },
+    "charlie": {
+      "approve": 11,
+      "deposit": 5,
+      "transfer": 12,
+      "split": 4,
+      "publicTransfer": 6,
+      "publicClaim": 2
+    },
+    "david": {
+      "approve": 7,
+      "deposit": 3,
+      "transfer": 12,
+      "publicTransfer": 4,
+      "withdraw": 5,
+      "publicClaim": 1
+    },
+    "ellie": {
+      "approve": 9,
+      "deposit": 9,
+      "join": 3,
+      "swap": 20,
+      "publicClaim": 21,
+      "transfer": 2,
+      "split": 1
+    },
+    "frank": {
+      "approve": 5,
+      "deposit": 5,
+      "split": 1
+    },
+    "grace": {
+      "approve": 1,
+      "deposit": 1,
+      "hop": 5,
+      "split": 3,
+      "join": 2,
+      "publicClaim": 1
+    }
+  },
+  "byKind": {
+    "approve": 48,
+    "deposit": 38,
+    "transfer": 37,
+    "publicClaim": 36,
+    "swap": 26,
+    "join": 18,
+    "split": 15,
+    "withdraw": 12,
+    "publicTransfer": 10,
+    "cheat": 6,
+    "hop": 5
+  },
+  "gasByKind": {
+    "approve": {
+      "n": 48,
+      "mean": 46349,
+      "min": 46319,
+      "max": 46355
+    },
+    "deposit": {
+      "n": 38,
+      "mean": 1011166,
+      "min": 961731,
+      "max": 1095204
+    },
+    "split": {
+      "n": 15,
+      "mean": 1171862,
+      "min": 1081775,
+      "max": 1238045
+    },
+    "transfer": {
+      "n": 37,
+      "mean": 1180115,
+      "min": 1108067,
+      "max": 1261299
+    },
+    "join": {
+      "n": 18,
+      "mean": 1075123,
+      "min": 1042572,
+      "max": 1115130
+    },
+    "swap": {
+      "n": 26,
+      "mean": 1427639,
+      "min": 1386539,
+      "max": 1469471
+    },
+    "withdraw": {
+      "n": 12,
+      "mean": 1076153,
+      "min": 1034193,
+      "max": 1113466
+    },
+    "hop": {
+      "n": 5,
+      "mean": 1188076,
+      "min": 1149427,
+      "max": 1217153
+    },
+    "publicClaim": {
+      "n": 36,
+      "mean": 1028480,
+      "min": 983903,
+      "max": 1083887
+    },
+    "publicTransfer": {
+      "n": 10,
+      "mean": 131717,
+      "min": 131681,
+      "max": 131729
+    }
+  },
+  "cheats": [
+    {
+      "kind": "cheat: replay withdraw",
+      "expected": "NullifierAlreadySpent",
+      "reason": "NullifierAlreadySpent",
+      "asExpected": true,
+      "tx": "0x089f27bf7d0d47ed431b8fbc1f8a99bd5514055d517c4ad34c2422db96ce1a0a",
+      "link": "https://testnet.snowtrace.io/tx/0x089f27bf7d0d47ed431b8fbc1f8a99bd5514055d517c4ad34c2422db96ce1a0a"
+    },
+    {
+      "kind": "cheat: double spend",
+      "expected": "NullifierAlreadySpent",
+      "reason": "NullifierAlreadySpent",
+      "asExpected": true,
+      "tx": "0xea75459de53735b703aed0162bf937bc3fcd90949ed0a2ae4444525398fe3df5",
+      "link": "https://testnet.snowtrace.io/tx/0xea75459de53735b703aed0162bf937bc3fcd90949ed0a2ae4444525398fe3df5"
+    },
+    {
+      "kind": "cheat: phantom note withdraw",
+      "expected": "InvalidRoot",
+      "reason": "InvalidRoot",
+      "asExpected": true,
+      "tx": "0x51cbcaa0f004d7efdb6b9c0c1af348e8a47824ddb8a2351c0810053082a15b97",
+      "link": "https://testnet.snowtrace.io/tx/0x51cbcaa0f004d7efdb6b9c0c1af348e8a47824ddb8a2351c0810053082a15b97"
+    },
+    {
+      "kind": "cheat: withdraw with inflated value",
+      "expected": "ProofRejected",
+      "reason": "SumcheckFailed",
+      "asExpected": true,
+      "tx": "0x5746e9bcff696f83bb5f040d449b6088ab3bf6d74e63db21561a23e3f93c5336",
+      "link": "https://testnet.snowtrace.io/tx/0x5746e9bcff696f83bb5f040d449b6088ab3bf6d74e63db21561a23e3f93c5336"
+    },
+    {
+      "kind": "cheat: withdraw redirected to another recipient",
+      "expected": "ProofRejected",
+      "reason": "SumcheckFailed",
+      "asExpected": true,
+      "tx": "0x1e18aabd60cc9ab43f6b2a20faaeab07d845cdd2f34f359422e0576ec5139a4b",
+      "link": "https://testnet.snowtrace.io/tx/0x1e18aabd60cc9ab43f6b2a20faaeab07d845cdd2f34f359422e0576ec5139a4b"
+    },
+    {
+      "kind": "cheat: replay another wallet's claim",
+      "expected": "MemoSpent",
+      "reason": "MemoSpent",
+      "asExpected": true,
+      "tx": "0xcd55f897dff75c667f9fb85375a94607b5e8d2c9f754c6bc22399b844a645c31",
+      "link": "https://testnet.snowtrace.io/tx/0xcd55f897dff75c667f9fb85375a94607b5e8d2c9f754c6bc22399b844a645c31"
+    }
+  ],
+  "transactions": [
+    {
+      "wave": 1,
+      "step": 0,
+      "at": "2026-11-11T14:58:58.158Z",
+      "agent": "alice",
+      "kind": "approve",
+      "tx": "0x88ee1cbd7376ee4814442cf434ce86e61268d8e5226ef5914ecd8feb360178e1",
+      "link": "https://testnet.snowtrace.io/tx/0x88ee1cbd7376ee4814442cf434ce86e61268d8e5226ef5914ecd8feb360178e1"
+    },
+    {
+      "wave": 1,
+      "step": 1,
+      "at": "2026-11-11T14:59:05.945Z",
+      "agent": "alice",
+      "kind": "deposit",
+      "tx": "0x5884a7d230511fcc767aa2a2ce085abe995c83508473185e2699cf9798a3053b",
+      "link": "https://testnet.snowtrace.io/tx/0x5884a7d230511fcc767aa2a2ce085abe995c83508473185e2699cf9798a3053b"
+    },
+    {
+      "wave": 1,
+      "step": 1,
+      "at": "2026-11-11T14:59:27.188Z",
+      "agent": "bob",
+      "kind": "approve",
+      "tx": "0xcc44de2a0e8f8d1e51f12c3578ddd760182f2e6d7bf5b5d8759f8438f3419f4b",
+      "link": "https://testnet.snowtrace.io/tx/0xcc44de2a0e8f8d1e51f12c3578ddd760182f2e6d7bf5b5d8759f8438f3419f4b"
+    },
+    {
+      "wave": 1,
+      "step": 2,
+      "at": "2026-11-11T14:59:33.502Z",
+      "agent": "bob",
+      "kind": "deposit",
+      "tx": "0x575aa757ed27165965c2c399b8c8c871a372296d3f4f03e76ccf9cd86f7f67d5",
+      "link": "https://testnet.snowtrace.io/tx/0x575aa757ed27165965c2c399b8c8c871a372296d3f4f03e76ccf9cd86f7f67d5"
+    },
+    {
+      "wave": 1,
+      "step": 2,
+      "at": "2026-11-11T14:59:49.449Z",
+      "agent": "charlie",
+      "kind": "approve",
+      "tx": "0x8d4c411374b587e76b61d3514cadf9bdac2beaed9bbaef2384b53a93bd0f3e70",
+      "link": "https://testnet.snowtrace.io/tx/0x8d4c411374b587e76b61d3514cadf9bdac2beaed9bbaef2384b53a93bd0f3e70"
+    },
+    {
+      "wave": 1,
+      "step": 3,
+      "at": "2026-11-11T14:59:56.083Z",
+      "agent": "charlie",
+      "kind": "deposit",
+      "tx": "0x564f20aee0c157d5979b4f4a2063cb5ee005dba4445249ffd4565aa3b3140015",
+      "link": "https://testnet.snowtrace.io/tx/0x564f20aee0c157d5979b4f4a2063cb5ee005dba4445249ffd4565aa3b3140015"
+    },
+    {
+      "wave": 1,
+      "step": 3,
+      "at": "2026-11-11T15:00:12.708Z",
+      "agent": "david",
+      "kind": "approve",
+      "tx": "0x6a1377a0ac93c7d0b18eea572d0998edf2ad2c88f0939587fbda2420dd68c253",
+      "link": "https://testnet.snowtrace.io/tx/0x6a1377a0ac93c7d0b18eea572d0998edf2ad2c88f0939587fbda2420dd68c253"
+    },
+    {
+      "wave": 1,
+      "step": 4,
+      "at": "2026-11-11T15:00:19.132Z",
+      "agent": "david",
+      "kind": "deposit",
+      "tx": "0x2ada6af68f91b2532caaa189de2c029d17bf453175f83af2bfd02bb0eef990d8",
+      "link": "https://testnet.snowtrace.io/tx/0x2ada6af68f91b2532caaa189de2c029d17bf453175f83af2bfd02bb0eef990d8"
+    },
+    {
+      "wave": 1,
+      "step": 4,
+      "at": "2026-11-11T15:00:37.255Z",
+      "agent": "ellie",
+      "kind": "approve",
+      "tx": "0x85529d8f1968056817417abfaeb7ea25a4e6232ef86b9945540c03673df518b4",
+      "link": "https://testnet.snowtrace.io/tx/0x85529d8f1968056817417abfaeb7ea25a4e6232ef86b9945540c03673df518b4"
+    },
+    {
+      "wave": 1,
+      "step": 5,
+      "at": "2026-11-11T15:00:44.087Z",
+      "agent": "ellie",
+      "kind": "deposit",
+      "tx": "0x0c872925314b8808b911652c11bb264e1c64f04bd39a3dd97cf8c7f8d26dd8dc",
+      "link": "https://testnet.snowtrace.io/tx/0x0c872925314b8808b911652c11bb264e1c64f04bd39a3dd97cf8c7f8d26dd8dc"
+    },
+    {
+      "wave": 1,
+      "step": 5,
+      "at": "2026-11-11T15:01:03.266Z",
+      "agent": "frank",
+      "kind": "approve",
+      "tx": "0x036c1d1fa2b872b65c85d0aaaab4c0f879bb46ad6d7097728f9bcf257ff1e0f6",
+      "link": "https://testnet.snowtrace.io/tx/0x036c1d1fa2b872b65c85d0aaaab4c0f879bb46ad6d7097728f9bcf257ff1e0f6"
+    },
+    {
+      "wave": 1,
+      "step": 6,
+      "at": "2026-11-11T15:01:09.839Z",
+      "agent": "frank",
+      "kind": "deposit",
+      "tx": "0x42894e3d8a782086be69f973abf861e1223cee268801e6e50909d6aa6b685902",
+      "link": "https://testnet.snowtrace.io/tx/0x42894e3d8a782086be69f973abf861e1223cee268801e6e50909d6aa6b685902"
+    },
+    {
+      "wave": 1,
+      "step": 6,
+      "at": "2026-11-11T15:01:27.128Z",
+      "agent": "grace",
+      "kind": "approve",
+      "tx": "0xd04059c49bddbdac82cc00efb43c5e7dc70add430a51fa87a59e7a5b3368ad30",
+      "link": "https://testnet.snowtrace.io/tx/0xd04059c49bddbdac82cc00efb43c5e7dc70add430a51fa87a59e7a5b3368ad30"
+    },
+    {
+      "wave": 1,
+      "step": 7,
+      "at": "2026-11-11T15:01:40.375Z",
+      "agent": "grace",
+      "kind": "deposit",
+      "tx": "0x4eb538cb284421aa03b10def1c3040435f842dfa2a2058bc6654c4d239498dab",
+      "link": "https://testnet.snowtrace.io/tx/0x4eb538cb284421aa03b10def1c3040435f842dfa2a2058bc6654c4d239498dab"
+    },
+    {
+      "wave": 1,
+      "step": 7,
+      "at": "2026-11-11T15:02:01.037Z",
+      "agent": "ellie",
+      "kind": "approve",
+      "tx": "0x64666af57c5ab9e6aba78dec60c1758412c4e0d8225bf658591d3ec3e7497ce2",
+      "link": "https://testnet.snowtrace.io/tx/0x64666af57c5ab9e6aba78dec60c1758412c4e0d8225bf658591d3ec3e7497ce2"
+    },
+    {
+      "wave": 1,
+      "step": 8,
+      "at": "2026-11-11T15:02:07.902Z",
+      "agent": "ellie",
+      "kind": "deposit",
+      "tx": "0xab57a8dea7aaae527ea6ab4cfb04bc245c33fc2d613af0550df43cbb481583c4",
+      "link": "https://testnet.snowtrace.io/tx/0xab57a8dea7aaae527ea6ab4cfb04bc245c33fc2d613af0550df43cbb481583c4"
+    },
+    {
+      "wave": 1,
+      "step": 9,
+      "at": "2026-11-11T15:04:34.584Z",
+      "agent": "alice",
+      "kind": "split",
+      "tx": "0x3954fa3834e9714a36670ec4824dec0c56b54dbd4df1ba9ed31df498dd9df590",
+      "link": "https://testnet.snowtrace.io/tx/0x3954fa3834e9714a36670ec4824dec0c56b54dbd4df1ba9ed31df498dd9df590"
+    },
+    {
+      "wave": 1,
+      "step": 9,
+      "at": "2026-11-11T15:05:31.343Z",
+      "agent": "bob",
+      "kind": "approve",
+      "tx": "0x46639d05b8900250885d4d3e040947d237d6e9d6691e85e7dd46690697911276",
+      "link": "https://testnet.snowtrace.io/tx/0x46639d05b8900250885d4d3e040947d237d6e9d6691e85e7dd46690697911276"
+    },
+    {
+      "wave": 1,
+      "step": 10,
+      "at": "2026-11-11T15:05:39.693Z",
+      "agent": "bob",
+      "kind": "deposit",
+      "tx": "0x46c170bc762c9df5f51bb70b2a2a4463dd5e83aec3019ed7f2717f6463afe481",
+      "link": "https://testnet.snowtrace.io/tx/0x46c170bc762c9df5f51bb70b2a2a4463dd5e83aec3019ed7f2717f6463afe481"
+    },
+    {
+      "wave": 1,
+      "step": 10,
+      "at": "2026-11-11T15:06:41.320Z",
+      "agent": "ellie",
+      "kind": "approve",
+      "tx": "0x2b85a83e04462162534aa0d7b0e648e13580f45488c7edcf5385686ef79a2c0e",
+      "link": "https://testnet.snowtrace.io/tx/0x2b85a83e04462162534aa0d7b0e648e13580f45488c7edcf5385686ef79a2c0e"
+    },
+    {
+      "wave": 1,
+      "step": 11,
+      "at": "2026-11-11T15:06:53.062Z",
+      "agent": "ellie",
+      "kind": "deposit",
+      "tx": "0x92dd14c68743951acb35ae84237e3e814cd0ec3dd375bc95b44c6d12f52b8cd7",
+      "link": "https://testnet.snowtrace.io/tx/0x92dd14c68743951acb35ae84237e3e814cd0ec3dd375bc95b44c6d12f52b8cd7"
+    },
+    {
+      "wave": 1,
+      "step": 12,
+      "at": "2026-11-11T15:07:14.868Z",
+      "agent": "charlie",
+      "kind": "transfer",
+      "tx": "0x854b6d0a19c0766bcd79516ea17dfead64fbe7d434d84aeb6e32bb6bab6e9ca4",
+      "link": "https://testnet.snowtrace.io/tx/0x854b6d0a19c0766bcd79516ea17dfead64fbe7d434d84aeb6e32bb6bab6e9ca4"
+    },
+    {
+      "wave": 1,
+      "step": 12,
+      "at": "2026-11-11T15:07:34.218Z",
+      "agent": "david",
+      "kind": "approve",
+      "tx": "0xe862cf539d912d8021f1350614e312907604cf9be2a049f36b3058cec0ce59b8",
+      "link": "https://testnet.snowtrace.io/tx/0xe862cf539d912d8021f1350614e312907604cf9be2a049f36b3058cec0ce59b8"
+    },
+    {
+      "wave": 1,
+      "step": 13,
+      "at": "2026-11-11T15:07:45.605Z",
+      "agent": "david",
+      "kind": "deposit",
+      "tx": "0x6af88975ae5ae21fd193fec129ee96026543addd8fcfdddad810c4fcc2ec5126",
+      "link": "https://testnet.snowtrace.io/tx/0x6af88975ae5ae21fd193fec129ee96026543addd8fcfdddad810c4fcc2ec5126"
+    },
+    {
+      "wave": 1,
+      "step": 13,
+      "at": "2026-11-11T15:08:23.811Z",
+      "agent": "alice",
+      "kind": "approve",
+      "tx": "0x44a50392545ce56a5a7d3d269c4c909f0f4642ad595ef543ef4ab4d2120b191c",
+      "link": "https://testnet.snowtrace.io/tx/0x44a50392545ce56a5a7d3d269c4c909f0f4642ad595ef543ef4ab4d2120b191c"
+    },
+    {
+      "wave": 1,
+      "step": 14,
+      "at": "2026-11-11T15:08:31.850Z",
+      "agent": "alice",
+      "kind": "deposit",
+      "tx": "0xce411aa3cf6a92eb1fd76d7b2aad8b943a520c4efa1faf6f119b60452a1f85d8",
+      "link": "https://testnet.snowtrace.io/tx/0xce411aa3cf6a92eb1fd76d7b2aad8b943a520c4efa1faf6f119b60452a1f85d8"
+    },
+    {
+      "wave": 1,
+      "step": 15,
+      "at": "2026-11-11T15:09:17.713Z",
+      "agent": "bob",
+      "kind": "split",
+      "tx": "0x4956a0c30b57ded41de7042a22ead0a8c685cf6072a8892b5a6fb0009f9a3857",
+      "link": "https://testnet.snowtrace.io/tx/0x4956a0c30b57ded41de7042a22ead0a8c685cf6072a8892b5a6fb0009f9a3857"
+    },
+    {
+      "wave": 1,
+      "step": 16,
+      "at": "2026-11-11T15:09:52.479Z",
+      "agent": "ellie",
+      "kind": "join",
+      "tx": "0xf4ae5f50eb02d4f28114b4939fc5d57a38dcb1bd6f60d25f175268e82d661253",
+      "link": "https://testnet.snowtrace.io/tx/0xf4ae5f50eb02d4f28114b4939fc5d57a38dcb1bd6f60d25f175268e82d661253"
+    },
+    {
+      "wave": 1,
+      "step": 17,
+      "at": "2026-11-11T15:10:33.187Z",
+      "agent": "alice",
+      "kind": "swap",
+      "tx": "0xb94ffa25405c595b8a42c53bbc5af951df3b9ab3585665fb534198c51e8bc57f",
+      "link": "https://testnet.snowtrace.io/tx/0xb94ffa25405c595b8a42c53bbc5af951df3b9ab3585665fb534198c51e8bc57f"
+    },
+    {
+      "wave": 1,
+      "step": 17,
+      "at": "2026-11-11T15:10:56.807Z",
+      "agent": "frank",
+      "kind": "approve",
+      "tx": "0xd27e7a5b33e86f27288833e101d18e6c3d19ed151ef33e5dd9760bf21251c9cc",
+      "link": "https://testnet.snowtrace.io/tx/0xd27e7a5b33e86f27288833e101d18e6c3d19ed151ef33e5dd9760bf21251c9cc"
+    },
+    {
+      "wave": 1,
+      "step": 18,
+      "at": "2026-11-11T15:11:03.149Z",
+      "agent": "frank",
+      "kind": "deposit",
+      "tx": "0x89f60f8f49baa9eb054dc85f151b6c0f8242230a0c45dbc253dbecd30361b64f",
+      "link": "https://testnet.snowtrace.io/tx/0x89f60f8f49baa9eb054dc85f151b6c0f8242230a0c45dbc253dbecd30361b64f"
+    },
+    {
+      "wave": 1,
+      "step": 19,
+      "at": "2026-11-11T15:12:20.198Z",
+      "agent": "alice",
+      "kind": "withdraw",
+      "tx": "0xa32213003359b6ae12d9be3202fdf848c746270966f4c856c8841b8c4cbd57c9",
+      "link": "https://testnet.snowtrace.io/tx/0xa32213003359b6ae12d9be3202fdf848c746270966f4c856c8841b8c4cbd57c9"
+    },
+    {
+      "wave": 1,
+      "step": 20,
+      "at": "2026-11-11T15:13:12.347Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0x5770f8cae829034d67c484c10a3800e808fb274812762b142f0651d7ad6df0fd",
+      "link": "https://testnet.snowtrace.io/tx/0x5770f8cae829034d67c484c10a3800e808fb274812762b142f0651d7ad6df0fd"
+    },
+    {
+      "wave": 1,
+      "step": 21,
+      "at": "2026-11-11T15:13:46.939Z",
+      "agent": "david",
+      "kind": "transfer",
+      "tx": "0xec74345d857e83c74cf3037e3b1695f899ad6a5d1632e554559c17cca7dd6b7e",
+      "link": "https://testnet.snowtrace.io/tx/0xec74345d857e83c74cf3037e3b1695f899ad6a5d1632e554559c17cca7dd6b7e"
+    },
+    {
+      "wave": 1,
+      "step": 21,
+      "at": "2026-11-11T15:14:09.056Z",
+      "agent": "charlie",
+      "kind": "approve",
+      "tx": "0x780ca75606db21f777cb23e57eef0184d6dd7034c8d8804d1650dd650465708e",
+      "link": "https://testnet.snowtrace.io/tx/0x780ca75606db21f777cb23e57eef0184d6dd7034c8d8804d1650dd650465708e"
+    },
+    {
+      "wave": 1,
+      "step": 22,
+      "at": "2026-11-11T15:14:15.450Z",
+      "agent": "charlie",
+      "kind": "deposit",
+      "tx": "0x155a4fe7e7d48f67bd8ae9cb8f76c726c15b214330d1d41a5a0a03a6f179be88",
+      "link": "https://testnet.snowtrace.io/tx/0x155a4fe7e7d48f67bd8ae9cb8f76c726c15b214330d1d41a5a0a03a6f179be88"
+    },
+    {
+      "wave": 1,
+      "step": 23,
+      "at": "2026-11-11T15:14:38.149Z",
+      "agent": "grace",
+      "kind": "hop",
+      "tx": "0x55605c5086fd5887b6acef87bfec2a84618c7098c24f2df3b8b56723c225912e",
+      "link": "https://testnet.snowtrace.io/tx/0x55605c5086fd5887b6acef87bfec2a84618c7098c24f2df3b8b56723c225912e"
+    },
+    {
+      "wave": 1,
+      "step": 23,
+      "at": "2026-11-11T15:14:59.849Z",
+      "agent": "alice",
+      "kind": "approve",
+      "tx": "0x1caa510ccc09a835c7f521b21d8a9513a25cf0bd5873b780a2a17914d0c38817",
+      "link": "https://testnet.snowtrace.io/tx/0x1caa510ccc09a835c7f521b21d8a9513a25cf0bd5873b780a2a17914d0c38817"
+    },
+    {
+      "wave": 1,
+      "step": 24,
+      "at": "2026-11-11T15:15:06.867Z",
+      "agent": "alice",
+      "kind": "deposit",
+      "tx": "0x261042d2e49cdbfbebda1f60f57508014d4bc90dfe737ac7d8bbd1d3a1487581",
+      "link": "https://testnet.snowtrace.io/tx/0x261042d2e49cdbfbebda1f60f57508014d4bc90dfe737ac7d8bbd1d3a1487581"
+    },
+    {
+      "wave": 1,
+      "step": 25,
+      "at": "2026-11-11T15:15:33.186Z",
+      "agent": "bob",
+      "kind": "transfer",
+      "tx": "0x718c37f94e882593668f6ab70b29c0a416e2e593bb9b53a76c82f29070d886de",
+      "link": "https://testnet.snowtrace.io/tx/0x718c37f94e882593668f6ab70b29c0a416e2e593bb9b53a76c82f29070d886de"
+    },
+    {
+      "wave": 1,
+      "step": 26,
+      "at": "2026-11-11T15:16:32.453Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0xfbca6e1513bf334170be84f954da5c7396505ca929e69a35588584d737659fb4",
+      "link": "https://testnet.snowtrace.io/tx/0xfbca6e1513bf334170be84f954da5c7396505ca929e69a35588584d737659fb4"
+    },
+    {
+      "wave": 1,
+      "step": 27,
+      "at": "2026-11-11T15:17:49.873Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0xaf666b26ad959720bfcd62b2813fb67f67a1c50d267975e190416d2acb424808",
+      "link": "https://testnet.snowtrace.io/tx/0xaf666b26ad959720bfcd62b2813fb67f67a1c50d267975e190416d2acb424808"
+    },
+    {
+      "wave": 1,
+      "step": 28,
+      "at": "2026-11-11T15:18:13.064Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0xa8ccf1e937a46cf528e208564e4286a336321b2275d04e2213d3fdf26a8c7bca",
+      "link": "https://testnet.snowtrace.io/tx/0xa8ccf1e937a46cf528e208564e4286a336321b2275d04e2213d3fdf26a8c7bca"
+    },
+    {
+      "wave": 1,
+      "step": 29,
+      "at": "2026-11-11T15:18:38.763Z",
+      "agent": "charlie",
+      "kind": "split",
+      "tx": "0xf7f61ea017418948443938d2492615f65f6e0b95bbe2a73ef65f02f784051270",
+      "link": "https://testnet.snowtrace.io/tx/0xf7f61ea017418948443938d2492615f65f6e0b95bbe2a73ef65f02f784051270"
+    },
+    {
+      "wave": 1,
+      "step": 30,
+      "at": "2026-11-11T15:19:03.327Z",
+      "agent": "alice",
+      "kind": "join",
+      "tx": "0x7e719f433c471418e7c655a4462c950a7858dbd06ce29b421aab32542425992a",
+      "link": "https://testnet.snowtrace.io/tx/0x7e719f433c471418e7c655a4462c950a7858dbd06ce29b421aab32542425992a"
+    },
+    {
+      "wave": 1,
+      "step": 31,
+      "at": "2026-11-11T15:19:50.769Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0xc6850ba6aa73fc46932e02a2df478d7b0a6bef95997431f202babcf28c30fc41",
+      "link": "https://testnet.snowtrace.io/tx/0xc6850ba6aa73fc46932e02a2df478d7b0a6bef95997431f202babcf28c30fc41"
+    },
+    {
+      "wave": 1,
+      "step": 32,
+      "at": "2026-11-11T15:20:23.445Z",
+      "agent": "bob",
+      "kind": "transfer",
+      "tx": "0xe8cf20a526419395913c2ec730c64c03daea6f495d1097328bea4ddb0a82c655",
+      "link": "https://testnet.snowtrace.io/tx/0xe8cf20a526419395913c2ec730c64c03daea6f495d1097328bea4ddb0a82c655"
+    },
+    {
+      "wave": 1,
+      "step": 33,
+      "at": "2026-11-11T15:20:48.769Z",
+      "agent": "david",
+      "kind": "transfer",
+      "tx": "0xe8531610e23e6faa7a333824e8e595630a51e84ea2a1fb6ba190ce5d7887f3a9",
+      "link": "https://testnet.snowtrace.io/tx/0xe8531610e23e6faa7a333824e8e595630a51e84ea2a1fb6ba190ce5d7887f3a9"
+    },
+    {
+      "wave": 1,
+      "step": 33,
+      "at": "2026-11-11T15:21:46.534Z",
+      "agent": "charlie",
+      "kind": "approve",
+      "tx": "0xe76e6a25f570dedd861189d78144231e6326e177fb40b21929b80e18a523136a",
+      "link": "https://testnet.snowtrace.io/tx/0xe76e6a25f570dedd861189d78144231e6326e177fb40b21929b80e18a523136a"
+    },
+    {
+      "wave": 1,
+      "step": 34,
+      "at": "2026-11-11T15:21:52.661Z",
+      "agent": "charlie",
+      "kind": "publicTransfer",
+      "tx": "0x68376c9f86eed9462e38a7ddc14b86afabe2b21ba9ee35ccad8906f1707f9e90",
+      "link": "https://testnet.snowtrace.io/tx/0x68376c9f86eed9462e38a7ddc14b86afabe2b21ba9ee35ccad8906f1707f9e90"
+    },
+    {
+      "wave": 1,
+      "step": 35,
+      "at": "2026-11-11T15:22:18.271Z",
+      "agent": "alice",
+      "kind": "join",
+      "tx": "0x6d979cf49d82aaf5518b5dec31dac3bbfc319adac103efb4d0eb43ad80d783fc",
+      "link": "https://testnet.snowtrace.io/tx/0x6d979cf49d82aaf5518b5dec31dac3bbfc319adac103efb4d0eb43ad80d783fc"
+    },
+    {
+      "wave": 1,
+      "step": 35,
+      "at": "2026-11-11T15:22:43.264Z",
+      "agent": "ellie",
+      "kind": "approve",
+      "tx": "0x373ef9fd8d73e6d22318548d5496b0e9ea469b17dc8cdb5d7a07f644a5f0cd22",
+      "link": "https://testnet.snowtrace.io/tx/0x373ef9fd8d73e6d22318548d5496b0e9ea469b17dc8cdb5d7a07f644a5f0cd22"
+    },
+    {
+      "wave": 1,
+      "step": 36,
+      "at": "2026-11-11T15:22:49.484Z",
+      "agent": "ellie",
+      "kind": "deposit",
+      "tx": "0xe7c15da4063d67632b1978ea32feac13396269de72790313a90507cf301d2fb1",
+      "link": "https://testnet.snowtrace.io/tx/0xe7c15da4063d67632b1978ea32feac13396269de72790313a90507cf301d2fb1"
+    },
+    {
+      "wave": 1,
+      "step": 36,
+      "at": "2026-11-11T15:24:53.219Z",
+      "agent": "david",
+      "kind": "approve",
+      "tx": "0xd4429a16dc3c885fa106c4b5ca36b45b9398a4e123b6765bcd9279fafcc4b51a",
+      "link": "https://testnet.snowtrace.io/tx/0xd4429a16dc3c885fa106c4b5ca36b45b9398a4e123b6765bcd9279fafcc4b51a"
+    },
+    {
+      "wave": 1,
+      "step": 37,
+      "at": "2026-11-11T15:24:59.310Z",
+      "agent": "david",
+      "kind": "publicTransfer",
+      "tx": "0x0a8d35365a1e6c48a19d99d787707d40603488c2ef7315a4352847745e0fa974",
+      "link": "https://testnet.snowtrace.io/tx/0x0a8d35365a1e6c48a19d99d787707d40603488c2ef7315a4352847745e0fa974"
+    },
+    {
+      "wave": 1,
+      "step": 38,
+      "at": "2026-11-11T15:25:24.586Z",
+      "agent": "alice",
+      "kind": "swap",
+      "tx": "0xc8a88306890bd356fe94ca444859a5bac6b50eb919e8a14345174ada9b368c22",
+      "link": "https://testnet.snowtrace.io/tx/0xc8a88306890bd356fe94ca444859a5bac6b50eb919e8a14345174ada9b368c22"
+    },
+    {
+      "wave": 1,
+      "step": 39,
+      "at": "2026-11-11T15:25:49.360Z",
+      "agent": "bob",
+      "kind": "publicClaim",
+      "tx": "0xed87f8d5cb4c347c1491fe8e5b8f6ca6b19b677d9ee48cc26d3cfeac389aebf7",
+      "link": "https://testnet.snowtrace.io/tx/0xed87f8d5cb4c347c1491fe8e5b8f6ca6b19b677d9ee48cc26d3cfeac389aebf7"
+    },
+    {
+      "wave": 1,
+      "step": 40,
+      "at": "2026-11-11T15:26:15.962Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0x4704d525900d5c5fffdf78b5f843153bd4be2bbb0565e2ca50a50bb228002140",
+      "link": "https://testnet.snowtrace.io/tx/0x4704d525900d5c5fffdf78b5f843153bd4be2bbb0565e2ca50a50bb228002140"
+    },
+    {
+      "wave": 1,
+      "step": 41,
+      "at": "2026-11-11T15:27:11.586Z",
+      "agent": "charlie",
+      "kind": "transfer",
+      "tx": "0x29a4a77a95aedb55fd3260939971088428605baa8ef119e55f63363b53b227d2",
+      "link": "https://testnet.snowtrace.io/tx/0x29a4a77a95aedb55fd3260939971088428605baa8ef119e55f63363b53b227d2"
+    },
+    {
+      "wave": 1,
+      "step": 42,
+      "at": "2026-11-11T15:28:08.733Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0x774f371654595cc4dc392b6e25ebcf774532c077a0b4e310b6dc164829d43b37",
+      "link": "https://testnet.snowtrace.io/tx/0x774f371654595cc4dc392b6e25ebcf774532c077a0b4e310b6dc164829d43b37"
+    },
+    {
+      "wave": 1,
+      "step": 43,
+      "at": "2026-11-11T15:28:44.662Z",
+      "agent": "alice",
+      "kind": "swap",
+      "tx": "0xcad4bf7d58e467590b1a8256a775bb27271a7b2ec6ccc13886c08787a38d7fd4",
+      "link": "https://testnet.snowtrace.io/tx/0xcad4bf7d58e467590b1a8256a775bb27271a7b2ec6ccc13886c08787a38d7fd4"
+    },
+    {
+      "wave": 1,
+      "step": 44,
+      "at": "2026-11-11T15:29:12.398Z",
+      "agent": "bob",
+      "kind": "withdraw",
+      "tx": "0xb25b3290572c6d3935e8689096dfff350de8089957a48defd8dfbed9d85464e6",
+      "link": "https://testnet.snowtrace.io/tx/0xb25b3290572c6d3935e8689096dfff350de8089957a48defd8dfbed9d85464e6"
+    },
+    {
+      "wave": 1,
+      "step": 44,
+      "at": "2026-11-11T15:29:40.198Z",
+      "agent": "david",
+      "kind": "approve",
+      "tx": "0xb1e4842213c27b7e529804470c057ec6897622e808966b387fd43b59a067b688",
+      "link": "https://testnet.snowtrace.io/tx/0xb1e4842213c27b7e529804470c057ec6897622e808966b387fd43b59a067b688"
+    },
+    {
+      "wave": 1,
+      "step": 45,
+      "at": "2026-11-11T15:29:46.528Z",
+      "agent": "david",
+      "kind": "deposit",
+      "tx": "0x328a15b98adecdb7f9a38e36a8c65610e9a5268e905f1886e0d3d0516e162a37",
+      "link": "https://testnet.snowtrace.io/tx/0x328a15b98adecdb7f9a38e36a8c65610e9a5268e905f1886e0d3d0516e162a37"
+    },
+    {
+      "wave": 1,
+      "step": 46,
+      "at": "2026-11-11T15:31:17.147Z",
+      "agent": "alice",
+      "kind": "publicClaim",
+      "tx": "0x7903e99018ecc7249ba056df8861f629b46ef7aa5633314034691e36d9911c34",
+      "link": "https://testnet.snowtrace.io/tx/0x7903e99018ecc7249ba056df8861f629b46ef7aa5633314034691e36d9911c34"
+    },
+    {
+      "wave": 1,
+      "step": 47,
+      "at": "2026-11-11T15:31:46.387Z",
+      "agent": "alice",
+      "kind": "publicClaim",
+      "tx": "0x51da935f927836718ddd742c200fc4e501a3be2d9632e761b5fad534bd2d9e26",
+      "link": "https://testnet.snowtrace.io/tx/0x51da935f927836718ddd742c200fc4e501a3be2d9632e761b5fad534bd2d9e26"
+    },
+    {
+      "wave": 1,
+      "step": 48,
+      "at": "2026-11-11T15:32:16.613Z",
+      "agent": "alice",
+      "kind": "publicClaim",
+      "tx": "0x35047072aaac6b9b7c4f8ddffc1a7847618b197420fcf2bbea92f6696c9f67cc",
+      "link": "https://testnet.snowtrace.io/tx/0x35047072aaac6b9b7c4f8ddffc1a7847618b197420fcf2bbea92f6696c9f67cc"
+    },
+    {
+      "wave": 1,
+      "step": 49,
+      "at": "2026-11-11T15:32:46.326Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0xde00ff239a8cf626437878d77b2027a20957a4696118492024ae2e011785ac2d",
+      "link": "https://testnet.snowtrace.io/tx/0xde00ff239a8cf626437878d77b2027a20957a4696118492024ae2e011785ac2d"
+    },
+    {
+      "wave": 1,
+      "step": 50,
+      "at": "2026-11-11T15:33:32.319Z",
+      "agent": "bob",
+      "kind": "cheat: replay withdraw",
+      "tx": "0x089f27bf7d0d47ed431b8fbc1f8a99bd5514055d517c4ad34c2422db96ce1a0a",
+      "link": "https://testnet.snowtrace.io/tx/0x089f27bf7d0d47ed431b8fbc1f8a99bd5514055d517c4ad34c2422db96ce1a0a"
+    },
+    {
+      "wave": 1,
+      "step": 51,
+      "at": "2026-11-11T15:34:11.300Z",
+      "agent": "ellie",
+      "kind": "join",
+      "tx": "0x52c43368c8bb3cda2e29b70dff084e2e4b83f3e1b85dc72a0c5eff313cf88798",
+      "link": "https://testnet.snowtrace.io/tx/0x52c43368c8bb3cda2e29b70dff084e2e4b83f3e1b85dc72a0c5eff313cf88798"
+    },
+    {
+      "wave": 1,
+      "step": 52,
+      "at": "2026-11-11T15:34:46.406Z",
+      "agent": "grace",
+      "kind": "hop",
+      "tx": "0xcc853557ed649992cac5fb65e065c0748e448acc727ff8b077d871a78b3b0580",
+      "link": "https://testnet.snowtrace.io/tx/0xcc853557ed649992cac5fb65e065c0748e448acc727ff8b077d871a78b3b0580"
+    },
+    {
+      "wave": 1,
+      "step": 53,
+      "at": "2026-11-11T15:35:22.288Z",
+      "agent": "charlie",
+      "kind": "transfer",
+      "tx": "0xe507fd11a104d7b6f00a03cf16cf10ebb35dd866d05395a48e8a4818297a48d3",
+      "link": "https://testnet.snowtrace.io/tx/0xe507fd11a104d7b6f00a03cf16cf10ebb35dd866d05395a48e8a4818297a48d3"
+    },
+    {
+      "wave": 1,
+      "step": 54,
+      "at": "2026-11-11T15:35:59.928Z",
+      "agent": "david",
+      "kind": "transfer",
+      "tx": "0xb77f8fd3958c1febf9f31ccd6b314a927177ffe8753b4d041ff1c78abffd2c52",
+      "link": "https://testnet.snowtrace.io/tx/0xb77f8fd3958c1febf9f31ccd6b314a927177ffe8753b4d041ff1c78abffd2c52"
+    },
+    {
+      "wave": 1,
+      "step": 54,
+      "at": "2026-11-11T15:36:44.158Z",
+      "agent": "alice",
+      "kind": "approve",
+      "tx": "0x01c1c372be7de4181a8ddc427d43279a6f361ca04c13cf31aa02fd308564f24a",
+      "link": "https://testnet.snowtrace.io/tx/0x01c1c372be7de4181a8ddc427d43279a6f361ca04c13cf31aa02fd308564f24a"
+    },
+    {
+      "wave": 1,
+      "step": 55,
+      "at": "2026-11-11T15:36:50.850Z",
+      "agent": "alice",
+      "kind": "deposit",
+      "tx": "0x49b90a259b3eeb6ad486e44641d73b662d9dc6acc05639ffa24ae4b9727edfd0",
+      "link": "https://testnet.snowtrace.io/tx/0x49b90a259b3eeb6ad486e44641d73b662d9dc6acc05639ffa24ae4b9727edfd0"
+    },
+    {
+      "wave": 2,
+      "step": 1,
+      "at": "2026-11-11T16:00:36.137Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0xa96833cffe92e7dea52072ac1d0220f217c6c2227c04e72876cbea8c9519ee1e",
+      "link": "https://testnet.snowtrace.io/tx/0xa96833cffe92e7dea52072ac1d0220f217c6c2227c04e72876cbea8c9519ee1e"
+    },
+    {
+      "wave": 2,
+      "step": 2,
+      "at": "2026-11-11T16:01:11.077Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0x50920a174b2fe8163dcc315d665f43fa3c0c383199657a12267f440d61b52426",
+      "link": "https://testnet.snowtrace.io/tx/0x50920a174b2fe8163dcc315d665f43fa3c0c383199657a12267f440d61b52426"
+    },
+    {
+      "wave": 2,
+      "step": 3,
+      "at": "2026-11-11T16:02:15.118Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0x18a46511b163a30e8c2a3fb305e93843872b09383338b6c5d65962cb6b9ac2e1",
+      "link": "https://testnet.snowtrace.io/tx/0x18a46511b163a30e8c2a3fb305e93843872b09383338b6c5d65962cb6b9ac2e1"
+    },
+    {
+      "wave": 2,
+      "step": 4,
+      "at": "2026-11-11T16:02:47.926Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0x200b192ac8ebbd0fbccbef6857f409af39ec8ce3391284858023da00c252bca8",
+      "link": "https://testnet.snowtrace.io/tx/0x200b192ac8ebbd0fbccbef6857f409af39ec8ce3391284858023da00c252bca8"
+    },
+    {
+      "wave": 2,
+      "step": 5,
+      "at": "2026-11-11T16:03:30.899Z",
+      "agent": "alice",
+      "kind": "join",
+      "tx": "0x2b5970c1e58e68af431977f3c3d4a7859527c4917c3e99c16a8e875a95201f2e",
+      "link": "https://testnet.snowtrace.io/tx/0x2b5970c1e58e68af431977f3c3d4a7859527c4917c3e99c16a8e875a95201f2e"
+    },
+    {
+      "wave": 2,
+      "step": 5,
+      "at": "2026-11-11T16:04:07.492Z",
+      "agent": "frank",
+      "kind": "approve",
+      "tx": "0x7c80de7c6bd6b78f5976822a874b48393b57c085947f4e561a381c3e28e6c90d",
+      "link": "https://testnet.snowtrace.io/tx/0x7c80de7c6bd6b78f5976822a874b48393b57c085947f4e561a381c3e28e6c90d"
+    },
+    {
+      "wave": 2,
+      "step": 6,
+      "at": "2026-11-11T16:04:19.697Z",
+      "agent": "frank",
+      "kind": "deposit",
+      "tx": "0xf8d487df34c23174a8c52ba1d383f75f44194aff693b4141042bb4a431c2ee87",
+      "link": "https://testnet.snowtrace.io/tx/0xf8d487df34c23174a8c52ba1d383f75f44194aff693b4141042bb4a431c2ee87"
+    },
+    {
+      "wave": 2,
+      "step": 7,
+      "at": "2026-11-11T16:04:56.995Z",
+      "agent": "david",
+      "kind": "transfer",
+      "tx": "0x122c05741cc03c4de5284498b932ebb7432bec8dc3d9d22672830df1f696bdf3",
+      "link": "https://testnet.snowtrace.io/tx/0x122c05741cc03c4de5284498b932ebb7432bec8dc3d9d22672830df1f696bdf3"
+    },
+    {
+      "wave": 2,
+      "step": 7,
+      "at": "2026-11-11T16:05:32.756Z",
+      "agent": "charlie",
+      "kind": "approve",
+      "tx": "0x02b7c03814dd25515463e8dfc6cb040972fa7516c14e680ea7cfa81f610b7284",
+      "link": "https://testnet.snowtrace.io/tx/0x02b7c03814dd25515463e8dfc6cb040972fa7516c14e680ea7cfa81f610b7284"
+    },
+    {
+      "wave": 2,
+      "step": 8,
+      "at": "2026-11-11T16:05:39.272Z",
+      "agent": "charlie",
+      "kind": "deposit",
+      "tx": "0x7bc10fe853d54a7dc142c863db298a48fa1780dad6d2dd77dbb1e7becd66bbfb",
+      "link": "https://testnet.snowtrace.io/tx/0x7bc10fe853d54a7dc142c863db298a48fa1780dad6d2dd77dbb1e7becd66bbfb"
+    },
+    {
+      "wave": 2,
+      "step": 9,
+      "at": "2026-11-11T16:06:14.412Z",
+      "agent": "bob",
+      "kind": "split",
+      "tx": "0xd899561a84b12c3bc34de1e5e63b07b8f08c1773e198694e690c61eaa22245e2",
+      "link": "https://testnet.snowtrace.io/tx/0xd899561a84b12c3bc34de1e5e63b07b8f08c1773e198694e690c61eaa22245e2"
+    },
+    {
+      "wave": 2,
+      "step": 10,
+      "at": "2026-11-11T16:06:50.644Z",
+      "agent": "ellie",
+      "kind": "transfer",
+      "tx": "0x7e139eac9542a8bff4f0839fa267c0933d675298c061ac778c16343af12677bf",
+      "link": "https://testnet.snowtrace.io/tx/0x7e139eac9542a8bff4f0839fa267c0933d675298c061ac778c16343af12677bf"
+    },
+    {
+      "wave": 2,
+      "step": 11,
+      "at": "2026-11-11T16:07:27.273Z",
+      "agent": "grace",
+      "kind": "split",
+      "tx": "0x0e88c34da44e5ce08fbda2163c9d5d6fa2ac751208811f6204e4f408950ff067",
+      "link": "https://testnet.snowtrace.io/tx/0x0e88c34da44e5ce08fbda2163c9d5d6fa2ac751208811f6204e4f408950ff067"
+    },
+    {
+      "wave": 2,
+      "step": 11,
+      "at": "2026-11-11T16:08:06.203Z",
+      "agent": "alice",
+      "kind": "approve",
+      "tx": "0x4f55a235d9d0c97d4a8fd006826f114b225466730e69beabf8e34df388fc2212",
+      "link": "https://testnet.snowtrace.io/tx/0x4f55a235d9d0c97d4a8fd006826f114b225466730e69beabf8e34df388fc2212"
+    },
+    {
+      "wave": 2,
+      "step": 12,
+      "at": "2026-11-11T16:08:15.004Z",
+      "agent": "alice",
+      "kind": "deposit",
+      "tx": "0x0215e2312e436d10b568a3d45eaad37a59f735af7f752394046d3dc028f048ab",
+      "link": "https://testnet.snowtrace.io/tx/0x0215e2312e436d10b568a3d45eaad37a59f735af7f752394046d3dc028f048ab"
+    },
+    {
+      "wave": 2,
+      "step": 13,
+      "at": "2026-11-11T16:08:50.740Z",
+      "agent": "david",
+      "kind": "transfer",
+      "tx": "0xdaf89eb5966555eeeff7c0eddb28f36333fb6ac22b0a00c5ee7d129e079c94bd",
+      "link": "https://testnet.snowtrace.io/tx/0xdaf89eb5966555eeeff7c0eddb28f36333fb6ac22b0a00c5ee7d129e079c94bd"
+    },
+    {
+      "wave": 2,
+      "step": 14,
+      "at": "2026-11-11T16:10:00.745Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0xeeb9f2488699ebac8e9b73dbf57e5b53fcd3c25f950c6b76cb82470fa409d325",
+      "link": "https://testnet.snowtrace.io/tx/0xeeb9f2488699ebac8e9b73dbf57e5b53fcd3c25f950c6b76cb82470fa409d325"
+    },
+    {
+      "wave": 2,
+      "step": 14,
+      "at": "2026-11-11T16:10:37.576Z",
+      "agent": "charlie",
+      "kind": "approve",
+      "tx": "0x8d7ced850c25591f9a0fa4ac2efcf5832398213765c38cedd02102c28ee4fa15",
+      "link": "https://testnet.snowtrace.io/tx/0x8d7ced850c25591f9a0fa4ac2efcf5832398213765c38cedd02102c28ee4fa15"
+    },
+    {
+      "wave": 2,
+      "step": 15,
+      "at": "2026-11-11T16:10:44.523Z",
+      "agent": "charlie",
+      "kind": "deposit",
+      "tx": "0x369fd861300be1964f1897cd8c2068f5a244f51df00975c2c1ca078cb0c72fc6",
+      "link": "https://testnet.snowtrace.io/tx/0x369fd861300be1964f1897cd8c2068f5a244f51df00975c2c1ca078cb0c72fc6"
+    },
+    {
+      "wave": 2,
+      "step": 16,
+      "at": "2026-11-11T16:11:20.311Z",
+      "agent": "alice",
+      "kind": "join",
+      "tx": "0x2e7a9601405f42a464b52d0bcf362311e69755f6c3035e8635760b7bfbcb08bd",
+      "link": "https://testnet.snowtrace.io/tx/0x2e7a9601405f42a464b52d0bcf362311e69755f6c3035e8635760b7bfbcb08bd"
+    },
+    {
+      "wave": 2,
+      "step": 17,
+      "at": "2026-11-11T16:12:19.621Z",
+      "agent": "bob",
+      "kind": "transfer",
+      "tx": "0x7ef6d350a3b4dd452044965d003d0c277ef9a726624d27e8ba02d14288027d8c",
+      "link": "https://testnet.snowtrace.io/tx/0x7ef6d350a3b4dd452044965d003d0c277ef9a726624d27e8ba02d14288027d8c"
+    },
+    {
+      "wave": 2,
+      "step": 18,
+      "at": "2026-11-11T16:16:08.996Z",
+      "agent": "ellie",
+      "kind": "join",
+      "tx": "0xde43562512b9aba556ee374c4f5447fb83f7afcc99691fbee38941549bd0cf22",
+      "link": "https://testnet.snowtrace.io/tx/0xde43562512b9aba556ee374c4f5447fb83f7afcc99691fbee38941549bd0cf22"
+    },
+    {
+      "wave": 2,
+      "step": 18,
+      "at": "2026-11-11T16:16:52.257Z",
+      "agent": "charlie",
+      "kind": "approve",
+      "tx": "0x2575436ed1e1f1cd87d7bebfefbcb544fa6da3d9148e6a4665bb1d051b9ceab7",
+      "link": "https://testnet.snowtrace.io/tx/0x2575436ed1e1f1cd87d7bebfefbcb544fa6da3d9148e6a4665bb1d051b9ceab7"
+    },
+    {
+      "wave": 2,
+      "step": 19,
+      "at": "2026-11-11T16:16:59.877Z",
+      "agent": "charlie",
+      "kind": "publicTransfer",
+      "tx": "0x5eb8da3a9fe63010117ba7757aea17604d719548b05eed746a7134cd586d516b",
+      "link": "https://testnet.snowtrace.io/tx/0x5eb8da3a9fe63010117ba7757aea17604d719548b05eed746a7134cd586d516b"
+    },
+    {
+      "wave": 2,
+      "step": 20,
+      "at": "2026-11-11T16:17:50.220Z",
+      "agent": "alice",
+      "kind": "swap",
+      "tx": "0x1c03e4d7a98a915570d945b325f47618cf7367fcf8a7a37a7fd37221f6e3282b",
+      "link": "https://testnet.snowtrace.io/tx/0x1c03e4d7a98a915570d945b325f47618cf7367fcf8a7a37a7fd37221f6e3282b"
+    },
+    {
+      "wave": 2,
+      "step": 21,
+      "at": "2026-11-11T16:18:38.109Z",
+      "agent": "david",
+      "kind": "transfer",
+      "tx": "0x6067095eac2759a4373d8d605b803dd3282fe7b3f26c6b2ced91c2e487c51285",
+      "link": "https://testnet.snowtrace.io/tx/0x6067095eac2759a4373d8d605b803dd3282fe7b3f26c6b2ced91c2e487c51285"
+    },
+    {
+      "wave": 2,
+      "step": 22,
+      "at": "2026-11-11T16:19:26.411Z",
+      "agent": "grace",
+      "kind": "hop",
+      "tx": "0x9bbf72ab886c1c7fd6925cc304eac63c0b35c0c5a773f8b6f70b9d366cd32b38",
+      "link": "https://testnet.snowtrace.io/tx/0x9bbf72ab886c1c7fd6925cc304eac63c0b35c0c5a773f8b6f70b9d366cd32b38"
+    },
+    {
+      "wave": 2,
+      "step": 23,
+      "at": "2026-11-11T16:21:49.250Z",
+      "agent": "bob",
+      "kind": "cheat: double spend",
+      "tx": "0xea75459de53735b703aed0162bf937bc3fcd90949ed0a2ae4444525398fe3df5",
+      "link": "https://testnet.snowtrace.io/tx/0xea75459de53735b703aed0162bf937bc3fcd90949ed0a2ae4444525398fe3df5"
+    },
+    {
+      "wave": 2,
+      "step": 24,
+      "at": "2026-11-11T16:22:33.366Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0x62a7e5e207f238e43b5eb528edecb30b1fb97a99832364ee2cf4e42192c69e6e",
+      "link": "https://testnet.snowtrace.io/tx/0x62a7e5e207f238e43b5eb528edecb30b1fb97a99832364ee2cf4e42192c69e6e"
+    },
+    {
+      "wave": 2,
+      "step": 25,
+      "at": "2026-11-11T16:23:22.086Z",
+      "agent": "alice",
+      "kind": "withdraw",
+      "tx": "0x70848a9fe8a7017c0075be21c14a4ec2222f920292180ecd79a91ae482200708",
+      "link": "https://testnet.snowtrace.io/tx/0x70848a9fe8a7017c0075be21c14a4ec2222f920292180ecd79a91ae482200708"
+    },
+    {
+      "wave": 2,
+      "step": 25,
+      "at": "2026-11-11T16:24:05.541Z",
+      "agent": "charlie",
+      "kind": "approve",
+      "tx": "0xc371eff1c3073d9a458e9eaf4a19119c72e75a7c39413694d4008888c2665966",
+      "link": "https://testnet.snowtrace.io/tx/0xc371eff1c3073d9a458e9eaf4a19119c72e75a7c39413694d4008888c2665966"
+    },
+    {
+      "wave": 2,
+      "step": 26,
+      "at": "2026-11-11T16:24:13.754Z",
+      "agent": "charlie",
+      "kind": "publicTransfer",
+      "tx": "0x4f55046cfc044bb86d9f2b709a27700c7e14d28a9811a9542e26a7d48c0519fc",
+      "link": "https://testnet.snowtrace.io/tx/0x4f55046cfc044bb86d9f2b709a27700c7e14d28a9811a9542e26a7d48c0519fc"
+    },
+    {
+      "wave": 2,
+      "step": 27,
+      "at": "2026-11-11T16:24:59.771Z",
+      "agent": "david",
+      "kind": "transfer",
+      "tx": "0x8d3fd2627828c813d5d40cec5b4f3caecba2746d95d9a58b487db9f206d12db4",
+      "link": "https://testnet.snowtrace.io/tx/0x8d3fd2627828c813d5d40cec5b4f3caecba2746d95d9a58b487db9f206d12db4"
+    },
+    {
+      "wave": 2,
+      "step": 28,
+      "at": "2026-11-11T16:25:45.023Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0xcffede76d14cd86589efcdaab44919b55109785a69585f8712e155ed534258c6",
+      "link": "https://testnet.snowtrace.io/tx/0xcffede76d14cd86589efcdaab44919b55109785a69585f8712e155ed534258c6"
+    },
+    {
+      "wave": 2,
+      "step": 29,
+      "at": "2026-11-11T16:26:31.008Z",
+      "agent": "bob",
+      "kind": "transfer",
+      "tx": "0x001824935fe2848b4a0516305744836e15e214b85dda817bd70d58648b19bdcf",
+      "link": "https://testnet.snowtrace.io/tx/0x001824935fe2848b4a0516305744836e15e214b85dda817bd70d58648b19bdcf"
+    },
+    {
+      "wave": 2,
+      "step": 29,
+      "at": "2026-11-11T16:27:14.491Z",
+      "agent": "alice",
+      "kind": "approve",
+      "tx": "0x1981e33f729b85ea2f0c62cd57eccaedce7d914018603c33e4c8ebc7dec38896",
+      "link": "https://testnet.snowtrace.io/tx/0x1981e33f729b85ea2f0c62cd57eccaedce7d914018603c33e4c8ebc7dec38896"
+    },
+    {
+      "wave": 2,
+      "step": 30,
+      "at": "2026-11-11T16:27:22.290Z",
+      "agent": "alice",
+      "kind": "deposit",
+      "tx": "0x85b6ef11c84779c572d108e0b688c41b58ca17f2b394d6f8a4f9df57748539c2",
+      "link": "https://testnet.snowtrace.io/tx/0x85b6ef11c84779c572d108e0b688c41b58ca17f2b394d6f8a4f9df57748539c2"
+    },
+    {
+      "wave": 2,
+      "step": 31,
+      "at": "2026-11-11T16:29:06.640Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0xba59aa95705f6327415d5fdc8c2db9a7f205d0496295b07f18eac5b9b0bb1378",
+      "link": "https://testnet.snowtrace.io/tx/0xba59aa95705f6327415d5fdc8c2db9a7f205d0496295b07f18eac5b9b0bb1378"
+    },
+    {
+      "wave": 2,
+      "step": 32,
+      "at": "2026-11-11T16:29:52.836Z",
+      "agent": "charlie",
+      "kind": "transfer",
+      "tx": "0x136e296a40e665a8a6f033f5af7057caca813c5efb1b3e7e308045c63fe5c345",
+      "link": "https://testnet.snowtrace.io/tx/0x136e296a40e665a8a6f033f5af7057caca813c5efb1b3e7e308045c63fe5c345"
+    },
+    {
+      "wave": 2,
+      "step": 33,
+      "at": "2026-11-11T16:31:11.447Z",
+      "agent": "alice",
+      "kind": "join",
+      "tx": "0x709fabc277365e4b7649900959919f9ff778f8aa4d13dd1ed47cb7ce66840948",
+      "link": "https://testnet.snowtrace.io/tx/0x709fabc277365e4b7649900959919f9ff778f8aa4d13dd1ed47cb7ce66840948"
+    },
+    {
+      "wave": 2,
+      "step": 34,
+      "at": "2026-11-11T16:32:23.376Z",
+      "agent": "bob",
+      "kind": "cheat: phantom note withdraw",
+      "tx": "0x51cbcaa0f004d7efdb6b9c0c1af348e8a47824ddb8a2351c0810053082a15b97",
+      "link": "https://testnet.snowtrace.io/tx/0x51cbcaa0f004d7efdb6b9c0c1af348e8a47824ddb8a2351c0810053082a15b97"
+    },
+    {
+      "wave": 2,
+      "step": 35,
+      "at": "2026-11-11T16:33:08.568Z",
+      "agent": "ellie",
+      "kind": "transfer",
+      "tx": "0x32a37b6f42959b4c0383e9bf9fe729393664ae23e0e7057b0c410a5c2fd5d3d4",
+      "link": "https://testnet.snowtrace.io/tx/0x32a37b6f42959b4c0383e9bf9fe729393664ae23e0e7057b0c410a5c2fd5d3d4"
+    },
+    {
+      "wave": 2,
+      "step": 35,
+      "at": "2026-11-11T16:33:51.858Z",
+      "agent": "david",
+      "kind": "approve",
+      "tx": "0xbf5dd8815dbac0881fa059056c05c667105ac2369fdc72db5275cd1034d9d58a",
+      "link": "https://testnet.snowtrace.io/tx/0xbf5dd8815dbac0881fa059056c05c667105ac2369fdc72db5275cd1034d9d58a"
+    },
+    {
+      "wave": 2,
+      "step": 36,
+      "at": "2026-11-11T16:33:59.148Z",
+      "agent": "david",
+      "kind": "publicTransfer",
+      "tx": "0x1d2f5bbc8959b90fad48ab6842b2232515f00efa930778db6c115dd0374d2428",
+      "link": "https://testnet.snowtrace.io/tx/0x1d2f5bbc8959b90fad48ab6842b2232515f00efa930778db6c115dd0374d2428"
+    },
+    {
+      "wave": 2,
+      "step": 36,
+      "at": "2026-11-11T16:34:43.834Z",
+      "agent": "alice",
+      "kind": "approve",
+      "tx": "0x02b3b3d8a5e74e9bec38cd859a57fcb5b8fad189b35ab20d1e6f5b7928eef9f5",
+      "link": "https://testnet.snowtrace.io/tx/0x02b3b3d8a5e74e9bec38cd859a57fcb5b8fad189b35ab20d1e6f5b7928eef9f5"
+    },
+    {
+      "wave": 2,
+      "step": 37,
+      "at": "2026-11-11T16:34:51.180Z",
+      "agent": "alice",
+      "kind": "deposit",
+      "tx": "0xf2430de7eca4fe099c8b110e371d6227a5a8fd858234818c9c89df0d093c33c8",
+      "link": "https://testnet.snowtrace.io/tx/0xf2430de7eca4fe099c8b110e371d6227a5a8fd858234818c9c89df0d093c33c8"
+    },
+    {
+      "wave": 2,
+      "step": 38,
+      "at": "2026-11-11T16:35:37.867Z",
+      "agent": "charlie",
+      "kind": "transfer",
+      "tx": "0xebc3782b722a8586b8122dc6f540bb130033ae1f18c4558f4efb7dd1291784c2",
+      "link": "https://testnet.snowtrace.io/tx/0xebc3782b722a8586b8122dc6f540bb130033ae1f18c4558f4efb7dd1291784c2"
+    },
+    {
+      "wave": 2,
+      "step": 39,
+      "at": "2026-11-11T16:36:26.489Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0xb96e584c9c8b55eb0caa6dd2418dbbef2138817ff1f78337e74af4211ebe7e22",
+      "link": "https://testnet.snowtrace.io/tx/0xb96e584c9c8b55eb0caa6dd2418dbbef2138817ff1f78337e74af4211ebe7e22"
+    },
+    {
+      "wave": 2,
+      "step": 40,
+      "at": "2026-11-11T16:37:14.467Z",
+      "agent": "alice",
+      "kind": "join",
+      "tx": "0xa23f3e2027dec4d5115b20181a19ad455699b22c72556bacabbee08d63d63dbe",
+      "link": "https://testnet.snowtrace.io/tx/0xa23f3e2027dec4d5115b20181a19ad455699b22c72556bacabbee08d63d63dbe"
+    },
+    {
+      "wave": 2,
+      "step": 41,
+      "at": "2026-11-11T16:38:04.681Z",
+      "agent": "bob",
+      "kind": "transfer",
+      "tx": "0x7502c19d6cbc9fcd6547b7f337d4fb16ef8cae68f7096670842da92fda3a141d",
+      "link": "https://testnet.snowtrace.io/tx/0x7502c19d6cbc9fcd6547b7f337d4fb16ef8cae68f7096670842da92fda3a141d"
+    },
+    {
+      "wave": 2,
+      "step": 42,
+      "at": "2026-11-11T16:38:54.759Z",
+      "agent": "grace",
+      "kind": "hop",
+      "tx": "0xbbd4c80c30b4dbc445a93bd534331949e87bef8fc377b6f44ae5852b50bab6f7",
+      "link": "https://testnet.snowtrace.io/tx/0xbbd4c80c30b4dbc445a93bd534331949e87bef8fc377b6f44ae5852b50bab6f7"
+    },
+    {
+      "wave": 3,
+      "step": 1,
+      "at": "2026-11-11T16:52:51.974Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0xba1cdff49fcec37b1518a8e9c0ba54c90702a74c08e91e15aa27f87ef6efca1e",
+      "link": "https://testnet.snowtrace.io/tx/0xba1cdff49fcec37b1518a8e9c0ba54c90702a74c08e91e15aa27f87ef6efca1e"
+    },
+    {
+      "wave": 3,
+      "step": 2,
+      "at": "2026-11-11T16:53:39.518Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0x6dfc6b283983fffea7bd3a038c7acb7b4336201f67a08e19d63e28a4b80cb724",
+      "link": "https://testnet.snowtrace.io/tx/0x6dfc6b283983fffea7bd3a038c7acb7b4336201f67a08e19d63e28a4b80cb724"
+    },
+    {
+      "wave": 3,
+      "step": 3,
+      "at": "2026-11-11T16:54:27.523Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0x3a5497edf15c624326d016184f3b02421d1728110abeca26e3460cbb722f121d",
+      "link": "https://testnet.snowtrace.io/tx/0x3a5497edf15c624326d016184f3b02421d1728110abeca26e3460cbb722f121d"
+    },
+    {
+      "wave": 3,
+      "step": 4,
+      "at": "2026-11-11T16:55:15.847Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0xc852c85172330385546c421f93aa8791bdd4ea2cd0cbbf41826b5d94d918a800",
+      "link": "https://testnet.snowtrace.io/tx/0xc852c85172330385546c421f93aa8791bdd4ea2cd0cbbf41826b5d94d918a800"
+    },
+    {
+      "wave": 3,
+      "step": 5,
+      "at": "2026-11-11T16:56:07.996Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0x46fd04459f11f2d7e6f69221518a541e42c7f641b6bca8302e6fc0cca874a423",
+      "link": "https://testnet.snowtrace.io/tx/0x46fd04459f11f2d7e6f69221518a541e42c7f641b6bca8302e6fc0cca874a423"
+    },
+    {
+      "wave": 3,
+      "step": 6,
+      "at": "2026-11-11T16:56:56.393Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0xf6c5ad2c6dda3e5e7e390b9dfbbad5599653df80bd6ebc3ba88d7e1d3956cc5d",
+      "link": "https://testnet.snowtrace.io/tx/0xf6c5ad2c6dda3e5e7e390b9dfbbad5599653df80bd6ebc3ba88d7e1d3956cc5d"
+    },
+    {
+      "wave": 3,
+      "step": 7,
+      "at": "2026-11-11T16:57:48.357Z",
+      "agent": "alice",
+      "kind": "withdraw",
+      "tx": "0x3862a4d0f820891dc9f8976be40274eea27ece07ee32ad6b05dbeda435b9dfd9",
+      "link": "https://testnet.snowtrace.io/tx/0x3862a4d0f820891dc9f8976be40274eea27ece07ee32ad6b05dbeda435b9dfd9"
+    },
+    {
+      "wave": 3,
+      "step": 8,
+      "at": "2026-11-11T16:58:39.940Z",
+      "agent": "charlie",
+      "kind": "transfer",
+      "tx": "0xeeb3d145321a54052fd538479687d30eefed833a3577e9863ccebc4a7eeba1f8",
+      "link": "https://testnet.snowtrace.io/tx/0xeeb3d145321a54052fd538479687d30eefed833a3577e9863ccebc4a7eeba1f8"
+    },
+    {
+      "wave": 3,
+      "step": 9,
+      "at": "2026-11-11T16:59:38.282Z",
+      "agent": "bob",
+      "kind": "cheat: withdraw with inflated value",
+      "tx": "0x5746e9bcff696f83bb5f040d449b6088ab3bf6d74e63db21561a23e3f93c5336",
+      "link": "https://testnet.snowtrace.io/tx/0x5746e9bcff696f83bb5f040d449b6088ab3bf6d74e63db21561a23e3f93c5336"
+    },
+    {
+      "wave": 3,
+      "step": 9,
+      "at": "2026-11-11T17:00:30.035Z",
+      "agent": "frank",
+      "kind": "approve",
+      "tx": "0x3e88994ed6ca717156823617f2c6d3f62f4b7b17e6454f354bd6cf6ce8ba26e2",
+      "link": "https://testnet.snowtrace.io/tx/0x3e88994ed6ca717156823617f2c6d3f62f4b7b17e6454f354bd6cf6ce8ba26e2"
+    },
+    {
+      "wave": 3,
+      "step": 10,
+      "at": "2026-11-11T17:00:37.482Z",
+      "agent": "frank",
+      "kind": "deposit",
+      "tx": "0x5354d3de569b6aec6328a2e2b5b2383aeb16b0ea30911b79fbd3a09ce2b54bc1",
+      "link": "https://testnet.snowtrace.io/tx/0x5354d3de569b6aec6328a2e2b5b2383aeb16b0ea30911b79fbd3a09ce2b54bc1"
+    },
+    {
+      "wave": 3,
+      "step": 10,
+      "at": "2026-11-11T17:01:31.322Z",
+      "agent": "david",
+      "kind": "approve",
+      "tx": "0x05ca5cd8754bc4b3c39e5ed222b4bcc89511cd1dd557ed00c29200a24ab5bdba",
+      "link": "https://testnet.snowtrace.io/tx/0x05ca5cd8754bc4b3c39e5ed222b4bcc89511cd1dd557ed00c29200a24ab5bdba"
+    },
+    {
+      "wave": 3,
+      "step": 11,
+      "at": "2026-11-11T17:01:38.573Z",
+      "agent": "david",
+      "kind": "publicTransfer",
+      "tx": "0xd7c9cb871208b6af55e9a7ebd21589016f2c3eb5b76721d8625128b3cc5b57c1",
+      "link": "https://testnet.snowtrace.io/tx/0xd7c9cb871208b6af55e9a7ebd21589016f2c3eb5b76721d8625128b3cc5b57c1"
+    },
+    {
+      "wave": 3,
+      "step": 12,
+      "at": "2026-11-11T17:02:32.684Z",
+      "agent": "grace",
+      "kind": "join",
+      "tx": "0xcace9e3e75bea4b6b8687ef044098e321b309303830cdd319b49c7e98840ae58",
+      "link": "https://testnet.snowtrace.io/tx/0xcace9e3e75bea4b6b8687ef044098e321b309303830cdd319b49c7e98840ae58"
+    },
+    {
+      "wave": 3,
+      "step": 12,
+      "at": "2026-11-11T17:03:29.416Z",
+      "agent": "alice",
+      "kind": "approve",
+      "tx": "0xc785c497645a9563f30bcf1be96f4d42d7f1115211300c617af86344781c6d41",
+      "link": "https://testnet.snowtrace.io/tx/0xc785c497645a9563f30bcf1be96f4d42d7f1115211300c617af86344781c6d41"
+    },
+    {
+      "wave": 3,
+      "step": 13,
+      "at": "2026-11-11T17:03:37.368Z",
+      "agent": "alice",
+      "kind": "deposit",
+      "tx": "0xe389e6d5fecdf93da2031239e3a347376c09bb613fbc3f3ae7d6954a3b7b7b06",
+      "link": "https://testnet.snowtrace.io/tx/0xe389e6d5fecdf93da2031239e3a347376c09bb613fbc3f3ae7d6954a3b7b7b06"
+    },
+    {
+      "wave": 3,
+      "step": 14,
+      "at": "2026-11-11T17:04:30.408Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0xcd9550f62de3fdb2d0144900a1460c96bbe9a4cc68a5be79a0a233555ef7652a",
+      "link": "https://testnet.snowtrace.io/tx/0xcd9550f62de3fdb2d0144900a1460c96bbe9a4cc68a5be79a0a233555ef7652a"
+    },
+    {
+      "wave": 3,
+      "step": 15,
+      "at": "2026-11-11T17:05:25.003Z",
+      "agent": "bob",
+      "kind": "cheat: withdraw redirected to another recipient",
+      "tx": "0x1e18aabd60cc9ab43f6b2a20faaeab07d845cdd2f34f359422e0576ec5139a4b",
+      "link": "https://testnet.snowtrace.io/tx/0x1e18aabd60cc9ab43f6b2a20faaeab07d845cdd2f34f359422e0576ec5139a4b"
+    },
+    {
+      "wave": 3,
+      "step": 16,
+      "at": "2026-11-11T17:06:19.961Z",
+      "agent": "charlie",
+      "kind": "transfer",
+      "tx": "0xe8a847cc823d8cc697112b3a386bd0ba52129348c6af5964fcf56dc8c01212e8",
+      "link": "https://testnet.snowtrace.io/tx/0xe8a847cc823d8cc697112b3a386bd0ba52129348c6af5964fcf56dc8c01212e8"
+    },
+    {
+      "wave": 3,
+      "step": 17,
+      "at": "2026-11-11T17:07:40.668Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0xfb769804f55501ecaf8be7c862e689f7f139aaf80f16d2ac5fa500ab9d6fb269",
+      "link": "https://testnet.snowtrace.io/tx/0xfb769804f55501ecaf8be7c862e689f7f139aaf80f16d2ac5fa500ab9d6fb269"
+    },
+    {
+      "wave": 3,
+      "step": 18,
+      "at": "2026-11-11T17:08:40.701Z",
+      "agent": "alice",
+      "kind": "swap",
+      "tx": "0x0ebdeb9f398a14431d06909ab202061ffaa36cf9eda78a0cebb24805c492c688",
+      "link": "https://testnet.snowtrace.io/tx/0x0ebdeb9f398a14431d06909ab202061ffaa36cf9eda78a0cebb24805c492c688"
+    },
+    {
+      "wave": 3,
+      "step": 19,
+      "at": "2026-11-11T17:09:38.610Z",
+      "agent": "david",
+      "kind": "transfer",
+      "tx": "0xb580bac6a03f47ec32d78660992c863c976f9a2fc102086b55afa9d8d2313bde",
+      "link": "https://testnet.snowtrace.io/tx/0xb580bac6a03f47ec32d78660992c863c976f9a2fc102086b55afa9d8d2313bde"
+    },
+    {
+      "wave": 3,
+      "step": 20,
+      "at": "2026-11-11T17:10:37.102Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0x9e1684d40a88598decc2a88edfd6faf9ec3e8e029551f1b3492a24233b6f20ba",
+      "link": "https://testnet.snowtrace.io/tx/0x9e1684d40a88598decc2a88edfd6faf9ec3e8e029551f1b3492a24233b6f20ba"
+    },
+    {
+      "wave": 3,
+      "step": 21,
+      "at": "2026-11-11T17:11:42.756Z",
+      "agent": "charlie",
+      "kind": "transfer",
+      "tx": "0x0da97873ef7c7a7d49a4a3b8125fe47c48751dd4c664dbd27ae84a2163a28ade",
+      "link": "https://testnet.snowtrace.io/tx/0x0da97873ef7c7a7d49a4a3b8125fe47c48751dd4c664dbd27ae84a2163a28ade"
+    },
+    {
+      "wave": 3,
+      "step": 22,
+      "at": "2026-11-11T17:12:50.900Z",
+      "agent": "bob",
+      "kind": "cheat: replay another wallet's claim",
+      "tx": "0xcd55f897dff75c667f9fb85375a94607b5e8d2c9f754c6bc22399b844a645c31",
+      "link": "https://testnet.snowtrace.io/tx/0xcd55f897dff75c667f9fb85375a94607b5e8d2c9f754c6bc22399b844a645c31"
+    },
+    {
+      "wave": 3,
+      "step": 23,
+      "at": "2026-11-11T17:13:48.616Z",
+      "agent": "alice",
+      "kind": "split",
+      "tx": "0x510342d5588699f41f870bc5e01757b4ec282920354973069bc28b264bf40268",
+      "link": "https://testnet.snowtrace.io/tx/0x510342d5588699f41f870bc5e01757b4ec282920354973069bc28b264bf40268"
+    },
+    {
+      "wave": 3,
+      "step": 24,
+      "at": "2026-11-11T17:14:48.034Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0xe9fb808af4ddbb2acc3d8be04af289e5ab3e6349cd41ad68089d2d2ac5ee0399",
+      "link": "https://testnet.snowtrace.io/tx/0xe9fb808af4ddbb2acc3d8be04af289e5ab3e6349cd41ad68089d2d2ac5ee0399"
+    },
+    {
+      "wave": 3,
+      "step": 25,
+      "at": "2026-11-11T17:15:50.124Z",
+      "agent": "david",
+      "kind": "transfer",
+      "tx": "0xf4de27292b647675a99e6a154b4b624be11087a0553a8a25e87e9a80ded63b4a",
+      "link": "https://testnet.snowtrace.io/tx/0xf4de27292b647675a99e6a154b4b624be11087a0553a8a25e87e9a80ded63b4a"
+    },
+    {
+      "wave": 3,
+      "step": 26,
+      "at": "2026-11-11T17:16:49.859Z",
+      "agent": "grace",
+      "kind": "split",
+      "tx": "0x2315a1e2652a71ccb1ae44f6382a77abdea7cbd039c51b1e8c2441112e1ef1b3",
+      "link": "https://testnet.snowtrace.io/tx/0x2315a1e2652a71ccb1ae44f6382a77abdea7cbd039c51b1e8c2441112e1ef1b3"
+    },
+    {
+      "wave": 3,
+      "step": 26,
+      "at": "2026-11-11T17:17:52.662Z",
+      "agent": "charlie",
+      "kind": "approve",
+      "tx": "0x7ea59c7790918bf73b8610d7986c3d9a75613658ae13dce53dea548719b0662d",
+      "link": "https://testnet.snowtrace.io/tx/0x7ea59c7790918bf73b8610d7986c3d9a75613658ae13dce53dea548719b0662d"
+    },
+    {
+      "wave": 3,
+      "step": 27,
+      "at": "2026-11-11T17:18:23.140Z",
+      "agent": "charlie",
+      "kind": "publicTransfer",
+      "tx": "0xde35f6dcb1d67683ecd0882b53414ce09fac3feb2fa99f51b0f918b5573b8cf9",
+      "link": "https://testnet.snowtrace.io/tx/0xde35f6dcb1d67683ecd0882b53414ce09fac3feb2fa99f51b0f918b5573b8cf9"
+    },
+    {
+      "wave": 3,
+      "step": 28,
+      "at": "2026-11-11T17:19:38.916Z",
+      "agent": "alice",
+      "kind": "withdraw",
+      "tx": "0x513b9492566f3ef606444d5f0bdf850ccaf082353fd978ebe3d0d21d8b352add",
+      "link": "https://testnet.snowtrace.io/tx/0x513b9492566f3ef606444d5f0bdf850ccaf082353fd978ebe3d0d21d8b352add"
+    },
+    {
+      "wave": 3,
+      "step": 29,
+      "at": "2026-11-11T17:20:45.284Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0xc88fe21bc8a4b94a132322f70befb5ed59b7fc600d4806b7f1a55d608751235d",
+      "link": "https://testnet.snowtrace.io/tx/0xc88fe21bc8a4b94a132322f70befb5ed59b7fc600d4806b7f1a55d608751235d"
+    },
+    {
+      "wave": 3,
+      "step": 30,
+      "at": "2026-11-11T17:21:48.978Z",
+      "agent": "bob",
+      "kind": "transfer",
+      "tx": "0xc67b0d0c0751b3ae3efc4df85fa81449e52b123e6c65bd5007dca27321c11813",
+      "link": "https://testnet.snowtrace.io/tx/0xc67b0d0c0751b3ae3efc4df85fa81449e52b123e6c65bd5007dca27321c11813"
+    },
+    {
+      "wave": 3,
+      "step": 31,
+      "at": "2026-11-11T17:23:08.388Z",
+      "agent": "david",
+      "kind": "withdraw",
+      "tx": "0x3a8bae11edbfff5abd11b268e6a265e20c9ea0191fd4adc465952be7bc43d2cf",
+      "link": "https://testnet.snowtrace.io/tx/0x3a8bae11edbfff5abd11b268e6a265e20c9ea0191fd4adc465952be7bc43d2cf"
+    },
+    {
+      "wave": 3,
+      "step": 32,
+      "at": "2026-11-11T17:24:18.397Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0x8bf4776463da4fc635dfb35d9958c65341b889924a2b9d8d5ab3994438338027",
+      "link": "https://testnet.snowtrace.io/tx/0x8bf4776463da4fc635dfb35d9958c65341b889924a2b9d8d5ab3994438338027"
+    },
+    {
+      "wave": 3,
+      "step": 33,
+      "at": "2026-11-11T17:25:25.825Z",
+      "agent": "alice",
+      "kind": "publicClaim",
+      "tx": "0x89a9c1b4fe2df46d11751a4bf3d46f0048963fb25652550a8fde0f563364b19f",
+      "link": "https://testnet.snowtrace.io/tx/0x89a9c1b4fe2df46d11751a4bf3d46f0048963fb25652550a8fde0f563364b19f"
+    },
+    {
+      "wave": 3,
+      "step": 34,
+      "at": "2026-11-11T17:26:32.975Z",
+      "agent": "alice",
+      "kind": "publicClaim",
+      "tx": "0x2d2c699ff2073c1312c12063d5efd80a950420718244bb3f2e213a78d6484d61",
+      "link": "https://testnet.snowtrace.io/tx/0x2d2c699ff2073c1312c12063d5efd80a950420718244bb3f2e213a78d6484d61"
+    },
+    {
+      "wave": 3,
+      "step": 35,
+      "at": "2026-11-11T17:27:54.129Z",
+      "agent": "alice",
+      "kind": "publicClaim",
+      "tx": "0x9502ec7f885c17d131c6a065b91030b24980fb86a29cc5d996f9638e0ef67b2f",
+      "link": "https://testnet.snowtrace.io/tx/0x9502ec7f885c17d131c6a065b91030b24980fb86a29cc5d996f9638e0ef67b2f"
+    },
+    {
+      "wave": 3,
+      "step": 36,
+      "at": "2026-11-11T17:29:26.575Z",
+      "agent": "charlie",
+      "kind": "split",
+      "tx": "0x85b407e81ba14bfc5a4dd3079ce631332c55e5fdcef5e3bdc920338782c2263b",
+      "link": "https://testnet.snowtrace.io/tx/0x85b407e81ba14bfc5a4dd3079ce631332c55e5fdcef5e3bdc920338782c2263b"
+    },
+    {
+      "wave": 3,
+      "step": 36,
+      "at": "2026-11-11T17:30:40.871Z",
+      "agent": "frank",
+      "kind": "approve",
+      "tx": "0x02287c507fdc8ff84f49b34d634cb52188edd325f72e40ac81f17c0da1155f47",
+      "link": "https://testnet.snowtrace.io/tx/0x02287c507fdc8ff84f49b34d634cb52188edd325f72e40ac81f17c0da1155f47"
+    },
+    {
+      "wave": 3,
+      "step": 37,
+      "at": "2026-11-11T17:30:48.409Z",
+      "agent": "frank",
+      "kind": "deposit",
+      "tx": "0xe7e8cd1dcd8436f02a18fb21dc11ddb9793e8b44e464a317704a511010aae83a",
+      "link": "https://testnet.snowtrace.io/tx/0xe7e8cd1dcd8436f02a18fb21dc11ddb9793e8b44e464a317704a511010aae83a"
+    },
+    {
+      "wave": 4,
+      "step": 1,
+      "at": "2026-11-11T17:45:19.565Z",
+      "agent": "bob",
+      "kind": "withdraw",
+      "tx": "0x29d31f7108f7c8ae6d9e72d47ffa9eaba9a1e9a6ffd15007ed001ffc0f2c9281",
+      "link": "https://testnet.snowtrace.io/tx/0x29d31f7108f7c8ae6d9e72d47ffa9eaba9a1e9a6ffd15007ed001ffc0f2c9281"
+    },
+    {
+      "wave": 4,
+      "step": 2,
+      "at": "2026-11-11T17:46:26.225Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0x310356a1641570a9d64006cc960ead5f1502dd5b523e9f27c2c93d3d1c8b9266",
+      "link": "https://testnet.snowtrace.io/tx/0x310356a1641570a9d64006cc960ead5f1502dd5b523e9f27c2c93d3d1c8b9266"
+    },
+    {
+      "wave": 4,
+      "step": 3,
+      "at": "2026-11-11T17:47:30.512Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0x372386ba0e00179e7d927f276561d4545f2c077152f7c19cf389728273aecd92",
+      "link": "https://testnet.snowtrace.io/tx/0x372386ba0e00179e7d927f276561d4545f2c077152f7c19cf389728273aecd92"
+    },
+    {
+      "wave": 4,
+      "step": 3,
+      "at": "2026-11-11T17:48:34.941Z",
+      "agent": "charlie",
+      "kind": "approve",
+      "tx": "0x87b51caf38d78feb1920ad8f9ac6f0d58214f658e52305745489949dc42a6a31",
+      "link": "https://testnet.snowtrace.io/tx/0x87b51caf38d78feb1920ad8f9ac6f0d58214f658e52305745489949dc42a6a31"
+    },
+    {
+      "wave": 4,
+      "step": 4,
+      "at": "2026-11-11T17:48:42.072Z",
+      "agent": "charlie",
+      "kind": "publicTransfer",
+      "tx": "0x7b70d1ffe808559a5c220a1436b5f45dfa00df51613cbe0d06c1269effadfac9",
+      "link": "https://testnet.snowtrace.io/tx/0x7b70d1ffe808559a5c220a1436b5f45dfa00df51613cbe0d06c1269effadfac9"
+    },
+    {
+      "wave": 4,
+      "step": 4,
+      "at": "2026-11-11T17:49:45.731Z",
+      "agent": "alice",
+      "kind": "approve",
+      "tx": "0x809871d659d2edbe1ce9382abd721b6915fd77990ea80c45a37599730394bc01",
+      "link": "https://testnet.snowtrace.io/tx/0x809871d659d2edbe1ce9382abd721b6915fd77990ea80c45a37599730394bc01"
+    },
+    {
+      "wave": 4,
+      "step": 5,
+      "at": "2026-11-11T17:49:53.092Z",
+      "agent": "alice",
+      "kind": "deposit",
+      "tx": "0xcabe1ea4de85c61288966f1a6dd8e16c3d3c740ffbbed5a7ae16ef6362d5971e",
+      "link": "https://testnet.snowtrace.io/tx/0xcabe1ea4de85c61288966f1a6dd8e16c3d3c740ffbbed5a7ae16ef6362d5971e"
+    },
+    {
+      "wave": 4,
+      "step": 6,
+      "at": "2026-11-11T17:51:04.226Z",
+      "agent": "bob",
+      "kind": "split",
+      "tx": "0x25801b50b2893ce48d2ffa361f7e5e20ad9890d7c1b15736e96b2514097d44de",
+      "link": "https://testnet.snowtrace.io/tx/0x25801b50b2893ce48d2ffa361f7e5e20ad9890d7c1b15736e96b2514097d44de"
+    },
+    {
+      "wave": 4,
+      "step": 6,
+      "at": "2026-11-11T17:54:06.646Z",
+      "agent": "ellie",
+      "kind": "approve",
+      "tx": "0x4a2a8ff46f54ac107a6b773cee93430375f4a41d1f5f78258b84d8bb983f8e68",
+      "link": "https://testnet.snowtrace.io/tx/0x4a2a8ff46f54ac107a6b773cee93430375f4a41d1f5f78258b84d8bb983f8e68"
+    },
+    {
+      "wave": 4,
+      "step": 7,
+      "at": "2026-11-11T17:54:12.955Z",
+      "agent": "ellie",
+      "kind": "deposit",
+      "tx": "0x88be8001f235e185a0ab8b37baaa1a51377bf281c568f970afde29c00659c0f2",
+      "link": "https://testnet.snowtrace.io/tx/0x88be8001f235e185a0ab8b37baaa1a51377bf281c568f970afde29c00659c0f2"
+    },
+    {
+      "wave": 4,
+      "step": 8,
+      "at": "2026-11-11T17:55:09.656Z",
+      "agent": "alice",
+      "kind": "join",
+      "tx": "0x556bcff00629a2054fe8d890a84ccbc0cc35f1e2127e0694bff01f376641081f",
+      "link": "https://testnet.snowtrace.io/tx/0x556bcff00629a2054fe8d890a84ccbc0cc35f1e2127e0694bff01f376641081f"
+    },
+    {
+      "wave": 4,
+      "step": 9,
+      "at": "2026-11-11T17:56:07.855Z",
+      "agent": "david",
+      "kind": "transfer",
+      "tx": "0xe30bac6a17ea754260c1ba54f0e97f24a715d335d8b75e25212e6857c9a1e7d6",
+      "link": "https://testnet.snowtrace.io/tx/0xe30bac6a17ea754260c1ba54f0e97f24a715d335d8b75e25212e6857c9a1e7d6"
+    },
+    {
+      "wave": 4,
+      "step": 9,
+      "at": "2026-11-11T17:57:06.372Z",
+      "agent": "ellie",
+      "kind": "approve",
+      "tx": "0x16bef667579d3acf8b99cd7265f08f050e52c3e06a82916ee9bafc7755a55a30",
+      "link": "https://testnet.snowtrace.io/tx/0x16bef667579d3acf8b99cd7265f08f050e52c3e06a82916ee9bafc7755a55a30"
+    },
+    {
+      "wave": 4,
+      "step": 10,
+      "at": "2026-11-11T17:57:12.597Z",
+      "agent": "ellie",
+      "kind": "deposit",
+      "tx": "0x2ad6ad0d6ab34212529161ad9ff91480254393e96873362545a1f50c9154188e",
+      "link": "https://testnet.snowtrace.io/tx/0x2ad6ad0d6ab34212529161ad9ff91480254393e96873362545a1f50c9154188e"
+    },
+    {
+      "wave": 4,
+      "step": 11,
+      "at": "2026-11-11T17:58:10.239Z",
+      "agent": "charlie",
+      "kind": "split",
+      "tx": "0x1f050b9a98de16cb46df0c9c0ac5f94f42dbff1c3e08a99f3fc8887705b766f2",
+      "link": "https://testnet.snowtrace.io/tx/0x1f050b9a98de16cb46df0c9c0ac5f94f42dbff1c3e08a99f3fc8887705b766f2"
+    },
+    {
+      "wave": 4,
+      "step": 12,
+      "at": "2026-11-11T17:59:09.977Z",
+      "agent": "bob",
+      "kind": "transfer",
+      "tx": "0xed2ff47568876bf7219ef5c85a30590e7b2de9d7caec0b7b8e831b55c4c407be",
+      "link": "https://testnet.snowtrace.io/tx/0xed2ff47568876bf7219ef5c85a30590e7b2de9d7caec0b7b8e831b55c4c407be"
+    },
+    {
+      "wave": 4,
+      "step": 13,
+      "at": "2026-11-11T18:00:09.112Z",
+      "agent": "grace",
+      "kind": "split",
+      "tx": "0x3ad32277cf72ef468502be621d6a67c8b8d0369fe7051de32b54e1a6c4dcff93",
+      "link": "https://testnet.snowtrace.io/tx/0x3ad32277cf72ef468502be621d6a67c8b8d0369fe7051de32b54e1a6c4dcff93"
+    },
+    {
+      "wave": 4,
+      "step": 14,
+      "at": "2026-11-11T18:01:13.791Z",
+      "agent": "alice",
+      "kind": "withdraw",
+      "tx": "0x13682db37a9303d20a993af0bc6d8117d0ca57ecf1395f64fe3183b467b166a1",
+      "link": "https://testnet.snowtrace.io/tx/0x13682db37a9303d20a993af0bc6d8117d0ca57ecf1395f64fe3183b467b166a1"
+    },
+    {
+      "wave": 4,
+      "step": 14,
+      "at": "2026-11-11T18:02:12.473Z",
+      "agent": "ellie",
+      "kind": "approve",
+      "tx": "0x9fe589885d77b8907cfbdfbd5ac4bc74f377e09085132fa974c61f640815c1a9",
+      "link": "https://testnet.snowtrace.io/tx/0x9fe589885d77b8907cfbdfbd5ac4bc74f377e09085132fa974c61f640815c1a9"
+    },
+    {
+      "wave": 4,
+      "step": 15,
+      "at": "2026-11-11T18:02:18.713Z",
+      "agent": "ellie",
+      "kind": "deposit",
+      "tx": "0x65c308ef94e51e4afeaa44624ffca1ad739945b00911959a84f57fb4ecdfaf63",
+      "link": "https://testnet.snowtrace.io/tx/0x65c308ef94e51e4afeaa44624ffca1ad739945b00911959a84f57fb4ecdfaf63"
+    },
+    {
+      "wave": 4,
+      "step": 16,
+      "at": "2026-11-11T18:03:24.731Z",
+      "agent": "david",
+      "kind": "withdraw",
+      "tx": "0xc0217e19e3a4fc6f8285e34aefeee73ee7854ab78ab6368bdcc86365af58b411",
+      "link": "https://testnet.snowtrace.io/tx/0xc0217e19e3a4fc6f8285e34aefeee73ee7854ab78ab6368bdcc86365af58b411"
+    },
+    {
+      "wave": 4,
+      "step": 16,
+      "at": "2026-11-11T18:04:45.521Z",
+      "agent": "bob",
+      "kind": "approve",
+      "tx": "0xad7f5a1ae5f463473d7455493b8f5d00e51e4efff3b3f69e589180cc1604b848",
+      "link": "https://testnet.snowtrace.io/tx/0xad7f5a1ae5f463473d7455493b8f5d00e51e4efff3b3f69e589180cc1604b848"
+    },
+    {
+      "wave": 4,
+      "step": 17,
+      "at": "2026-11-11T18:04:52.327Z",
+      "agent": "bob",
+      "kind": "deposit",
+      "tx": "0x500f4a5271003b3a046ccc909f81acc701ef998cca66bbd05a1abb785db133db",
+      "link": "https://testnet.snowtrace.io/tx/0x500f4a5271003b3a046ccc909f81acc701ef998cca66bbd05a1abb785db133db"
+    },
+    {
+      "wave": 4,
+      "step": 18,
+      "at": "2026-11-11T18:05:52.571Z",
+      "agent": "charlie",
+      "kind": "transfer",
+      "tx": "0xd372903565d64e6cc5b3075fc574061692b272d65fcfe047997ec890ad88c968",
+      "link": "https://testnet.snowtrace.io/tx/0xd372903565d64e6cc5b3075fc574061692b272d65fcfe047997ec890ad88c968"
+    },
+    {
+      "wave": 4,
+      "step": 19,
+      "at": "2026-11-11T18:06:54.439Z",
+      "agent": "alice",
+      "kind": "join",
+      "tx": "0x016822273d279af7578c0abb085e4e608a39814f423aa82520fc950a98b043cd",
+      "link": "https://testnet.snowtrace.io/tx/0x016822273d279af7578c0abb085e4e608a39814f423aa82520fc950a98b043cd"
+    },
+    {
+      "wave": 4,
+      "step": 19,
+      "at": "2026-11-11T18:07:58.595Z",
+      "agent": "ellie",
+      "kind": "approve",
+      "tx": "0x10cb4680d965cce73a223220af4a3af329fd013c687d881081c8b4196d8451cd",
+      "link": "https://testnet.snowtrace.io/tx/0x10cb4680d965cce73a223220af4a3af329fd013c687d881081c8b4196d8451cd"
+    },
+    {
+      "wave": 4,
+      "step": 20,
+      "at": "2026-11-11T18:08:04.890Z",
+      "agent": "ellie",
+      "kind": "deposit",
+      "tx": "0x7f64e3695e0e0b5c0f70c0d54fd625060afa9b1c554068a725a6c24b717266ea",
+      "link": "https://testnet.snowtrace.io/tx/0x7f64e3695e0e0b5c0f70c0d54fd625060afa9b1c554068a725a6c24b717266ea"
+    },
+    {
+      "wave": 4,
+      "step": 21,
+      "at": "2026-11-11T18:09:06.003Z",
+      "agent": "david",
+      "kind": "withdraw",
+      "tx": "0xbb65a44d42e544f7a8d07119c5648b485af15eae8f599134c2121c44bd63f6c1",
+      "link": "https://testnet.snowtrace.io/tx/0xbb65a44d42e544f7a8d07119c5648b485af15eae8f599134c2121c44bd63f6c1"
+    },
+    {
+      "wave": 4,
+      "step": 22,
+      "at": "2026-11-11T18:10:13.171Z",
+      "agent": "bob",
+      "kind": "transfer",
+      "tx": "0x059c6325d3e4b51a793d0bd8e9def5a796fa62b727692421b935617ee38fa343",
+      "link": "https://testnet.snowtrace.io/tx/0x059c6325d3e4b51a793d0bd8e9def5a796fa62b727692421b935617ee38fa343"
+    },
+    {
+      "wave": 4,
+      "step": 23,
+      "at": "2026-11-11T18:11:14.214Z",
+      "agent": "alice",
+      "kind": "swap",
+      "tx": "0x72123a4f931cfe63a5714f7ee6d2eca6874eafb06ff4c7b8ac32e9d2a44a66fc",
+      "link": "https://testnet.snowtrace.io/tx/0x72123a4f931cfe63a5714f7ee6d2eca6874eafb06ff4c7b8ac32e9d2a44a66fc"
+    },
+    {
+      "wave": 4,
+      "step": 23,
+      "at": "2026-11-11T18:12:16.335Z",
+      "agent": "charlie",
+      "kind": "approve",
+      "tx": "0x15eac2733167391bf850be63ed77641c332013b4981eb3f1b2e27a9e58bf68d3",
+      "link": "https://testnet.snowtrace.io/tx/0x15eac2733167391bf850be63ed77641c332013b4981eb3f1b2e27a9e58bf68d3"
+    },
+    {
+      "wave": 4,
+      "step": 24,
+      "at": "2026-11-11T18:12:26.005Z",
+      "agent": "charlie",
+      "kind": "deposit",
+      "tx": "0x5fefebe79e5b1727651bc4b8a4f8f91d6732cb0d0b127f8116412e613130db3a",
+      "link": "https://testnet.snowtrace.io/tx/0x5fefebe79e5b1727651bc4b8a4f8f91d6732cb0d0b127f8116412e613130db3a"
+    },
+    {
+      "wave": 4,
+      "step": 24,
+      "at": "2026-11-11T18:13:26.607Z",
+      "agent": "ellie",
+      "kind": "approve",
+      "tx": "0x32c569f85b5c234bb95a7ef9a9586f06bd860b492f5c32fdeaa61da8d0367585",
+      "link": "https://testnet.snowtrace.io/tx/0x32c569f85b5c234bb95a7ef9a9586f06bd860b492f5c32fdeaa61da8d0367585"
+    },
+    {
+      "wave": 4,
+      "step": 25,
+      "at": "2026-11-11T18:13:32.825Z",
+      "agent": "ellie",
+      "kind": "deposit",
+      "tx": "0x9a9fea5b1940a997f3431cd50dc51ec308da430a18393370fa54985999eddce1",
+      "link": "https://testnet.snowtrace.io/tx/0x9a9fea5b1940a997f3431cd50dc51ec308da430a18393370fa54985999eddce1"
+    },
+    {
+      "wave": 4,
+      "step": 26,
+      "at": "2026-11-11T18:17:47.028Z",
+      "agent": "alice",
+      "kind": "join",
+      "tx": "0xa744abdc334d9f0cd36a90919aacbcc8e3be20786151fb8e4aa84070937f650e",
+      "link": "https://testnet.snowtrace.io/tx/0xa744abdc334d9f0cd36a90919aacbcc8e3be20786151fb8e4aa84070937f650e"
+    },
+    {
+      "wave": 4,
+      "step": 27,
+      "at": "2026-11-11T18:18:59.020Z",
+      "agent": "bob",
+      "kind": "transfer",
+      "tx": "0x5bdd2aea6a53bdb0e985e83df834a7172d57dde1453d15be322c9108631a77a7",
+      "link": "https://testnet.snowtrace.io/tx/0x5bdd2aea6a53bdb0e985e83df834a7172d57dde1453d15be322c9108631a77a7"
+    },
+    {
+      "wave": 4,
+      "step": 27,
+      "at": "2026-11-11T18:19:59.509Z",
+      "agent": "david",
+      "kind": "approve",
+      "tx": "0xe41294ae9133120d73ac4dd665ab0f3b188ae542bff0562049b0611462029904",
+      "link": "https://testnet.snowtrace.io/tx/0xe41294ae9133120d73ac4dd665ab0f3b188ae542bff0562049b0611462029904"
+    },
+    {
+      "wave": 4,
+      "step": 28,
+      "at": "2026-11-11T18:20:05.618Z",
+      "agent": "david",
+      "kind": "publicTransfer",
+      "tx": "0xab37e2eca5edcd7c951e8880da121daa9a4af89d169697a108bb083244d77bae",
+      "link": "https://testnet.snowtrace.io/tx/0xab37e2eca5edcd7c951e8880da121daa9a4af89d169697a108bb083244d77bae"
+    },
+    {
+      "wave": 4,
+      "step": 28,
+      "at": "2026-11-11T18:21:06.113Z",
+      "agent": "charlie",
+      "kind": "approve",
+      "tx": "0xc4d319b63552cc01512e8cc2fe3a52b1b4ff81f144af714690489e3e040d0003",
+      "link": "https://testnet.snowtrace.io/tx/0xc4d319b63552cc01512e8cc2fe3a52b1b4ff81f144af714690489e3e040d0003"
+    },
+    {
+      "wave": 4,
+      "step": 29,
+      "at": "2026-11-11T18:21:12.323Z",
+      "agent": "charlie",
+      "kind": "publicTransfer",
+      "tx": "0x6e8f28f2a94db3a56181421fd6ea3e9be93828092eb15d61c0f52edf4667b05a",
+      "link": "https://testnet.snowtrace.io/tx/0x6e8f28f2a94db3a56181421fd6ea3e9be93828092eb15d61c0f52edf4667b05a"
+    },
+    {
+      "wave": 4,
+      "step": 30,
+      "at": "2026-11-11T18:22:15.459Z",
+      "agent": "grace",
+      "kind": "publicClaim",
+      "tx": "0x93cddfa50e5bd0e9fdbf8e661fdd6df38d9177cc9af435960f7cf136faa287bb",
+      "link": "https://testnet.snowtrace.io/tx/0x93cddfa50e5bd0e9fdbf8e661fdd6df38d9177cc9af435960f7cf136faa287bb"
+    },
+    {
+      "wave": 5,
+      "step": 0,
+      "at": "2026-11-11T18:37:38.435Z",
+      "agent": "alice",
+      "kind": "approve",
+      "tx": "0x55906292b73d7a2356de4bca1e636e1cec16fcb93032b8f8a411fa083a024981",
+      "link": "https://testnet.snowtrace.io/tx/0x55906292b73d7a2356de4bca1e636e1cec16fcb93032b8f8a411fa083a024981"
+    },
+    {
+      "wave": 5,
+      "step": 1,
+      "at": "2026-11-11T18:37:44.782Z",
+      "agent": "alice",
+      "kind": "deposit",
+      "tx": "0xa7afacedd8c2ae47f3f986b77e6dcd315108a6ba25124a2562c15cca7fb79d77",
+      "link": "https://testnet.snowtrace.io/tx/0xa7afacedd8c2ae47f3f986b77e6dcd315108a6ba25124a2562c15cca7fb79d77"
+    },
+    {
+      "wave": 5,
+      "step": 2,
+      "at": "2026-11-11T18:38:48.208Z",
+      "agent": "bob",
+      "kind": "transfer",
+      "tx": "0xc09fc404359d779c74075ee5d46c057a8225788d88bac9fca98985d4b70e4d5b",
+      "link": "https://testnet.snowtrace.io/tx/0xc09fc404359d779c74075ee5d46c057a8225788d88bac9fca98985d4b70e4d5b"
+    },
+    {
+      "wave": 5,
+      "step": 3,
+      "at": "2026-11-11T18:39:52.996Z",
+      "agent": "david",
+      "kind": "transfer",
+      "tx": "0x0d54dfbbaedb0979ca7b035cdac4cc0661a0da4a23774a0cdb4a86db389f5cef",
+      "link": "https://testnet.snowtrace.io/tx/0x0d54dfbbaedb0979ca7b035cdac4cc0661a0da4a23774a0cdb4a86db389f5cef"
+    },
+    {
+      "wave": 5,
+      "step": 4,
+      "at": "2026-11-11T18:40:57.066Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0xc92ac14ec78a19392ebb266875fd98cc40514a27ce1380fe142e75401089e33e",
+      "link": "https://testnet.snowtrace.io/tx/0xc92ac14ec78a19392ebb266875fd98cc40514a27ce1380fe142e75401089e33e"
+    },
+    {
+      "wave": 5,
+      "step": 5,
+      "at": "2026-11-11T18:42:01.721Z",
+      "agent": "charlie",
+      "kind": "publicClaim",
+      "tx": "0xb35ec288f04b65a78ac9d6e3904a1ddb787b89b64468cefe9758c01f74c61d11",
+      "link": "https://testnet.snowtrace.io/tx/0xb35ec288f04b65a78ac9d6e3904a1ddb787b89b64468cefe9758c01f74c61d11"
+    },
+    {
+      "wave": 5,
+      "step": 6,
+      "at": "2026-11-11T18:43:05.331Z",
+      "agent": "charlie",
+      "kind": "publicClaim",
+      "tx": "0x325c84212e14829fa19ddc4f3fd387fcf44469ecedb995a7787c9a4b61ac5615",
+      "link": "https://testnet.snowtrace.io/tx/0x325c84212e14829fa19ddc4f3fd387fcf44469ecedb995a7787c9a4b61ac5615"
+    },
+    {
+      "wave": 5,
+      "step": 7,
+      "at": "2026-11-11T18:44:09.933Z",
+      "agent": "alice",
+      "kind": "join",
+      "tx": "0xebf3046439018c6cfb554bd6464ec69bc5f2886acb97adeea04f808d515aacf0",
+      "link": "https://testnet.snowtrace.io/tx/0xebf3046439018c6cfb554bd6464ec69bc5f2886acb97adeea04f808d515aacf0"
+    },
+    {
+      "wave": 5,
+      "step": 8,
+      "at": "2026-11-11T18:45:13.994Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0xbe28480db32834879ab99fa9b8209fff21390d5980319f3bfa657f130de1a339",
+      "link": "https://testnet.snowtrace.io/tx/0xbe28480db32834879ab99fa9b8209fff21390d5980319f3bfa657f130de1a339"
+    },
+    {
+      "wave": 5,
+      "step": 9,
+      "at": "2026-11-11T18:46:20.332Z",
+      "agent": "bob",
+      "kind": "transfer",
+      "tx": "0xa7470d0e2ca6ccf44a3bb24ab13decf5a90860e8c138720aa504862ff226aefc",
+      "link": "https://testnet.snowtrace.io/tx/0xa7470d0e2ca6ccf44a3bb24ab13decf5a90860e8c138720aa504862ff226aefc"
+    },
+    {
+      "wave": 5,
+      "step": 10,
+      "at": "2026-11-11T18:47:26.519Z",
+      "agent": "grace",
+      "kind": "join",
+      "tx": "0xcb34517d287f1906a8e3248b543fe5ef56a2721da62b81d12a44624dfc597193",
+      "link": "https://testnet.snowtrace.io/tx/0xcb34517d287f1906a8e3248b543fe5ef56a2721da62b81d12a44624dfc597193"
+    },
+    {
+      "wave": 5,
+      "step": 11,
+      "at": "2026-11-11T18:48:44.578Z",
+      "agent": "david",
+      "kind": "withdraw",
+      "tx": "0x3f8fbdb8f191ecc6a680c294da9ce7758c0231c8ab9ebf25ea817f8b8ce4acfb",
+      "link": "https://testnet.snowtrace.io/tx/0x3f8fbdb8f191ecc6a680c294da9ce7758c0231c8ab9ebf25ea817f8b8ce4acfb"
+    },
+    {
+      "wave": 5,
+      "step": 12,
+      "at": "2026-11-11T18:49:49.267Z",
+      "agent": "alice",
+      "kind": "join",
+      "tx": "0x1a00e08c5629a96bdc9bab6b08dafe39706bac49c299997c40c99a738c08297d",
+      "link": "https://testnet.snowtrace.io/tx/0x1a00e08c5629a96bdc9bab6b08dafe39706bac49c299997c40c99a738c08297d"
+    },
+    {
+      "wave": 5,
+      "step": 13,
+      "at": "2026-11-11T18:50:53.855Z",
+      "agent": "charlie",
+      "kind": "transfer",
+      "tx": "0x4f23068cc3e6c98327f723110a6574d3851d566ac4eda58ab1f3bcc129e496b8",
+      "link": "https://testnet.snowtrace.io/tx/0x4f23068cc3e6c98327f723110a6574d3851d566ac4eda58ab1f3bcc129e496b8"
+    },
+    {
+      "wave": 5,
+      "step": 14,
+      "at": "2026-11-11T18:51:58.823Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0xc5b9fcc5f79ab9c0babd77254aa8ccfd27e4611ff55b18dc0e241d93cd4ad506",
+      "link": "https://testnet.snowtrace.io/tx/0xc5b9fcc5f79ab9c0babd77254aa8ccfd27e4611ff55b18dc0e241d93cd4ad506"
+    },
+    {
+      "wave": 5,
+      "step": 15,
+      "at": "2026-11-11T18:53:03.668Z",
+      "agent": "bob",
+      "kind": "split",
+      "tx": "0xf0362148d2ba606d9429d43048452d607c65e02fa85263604b6b5a0434f08f41",
+      "link": "https://testnet.snowtrace.io/tx/0xf0362148d2ba606d9429d43048452d607c65e02fa85263604b6b5a0434f08f41"
+    },
+    {
+      "wave": 5,
+      "step": 16,
+      "at": "2026-11-11T18:54:11.218Z",
+      "agent": "frank",
+      "kind": "split",
+      "tx": "0x76ba50adae536258cca5ff03b75784fa76082f0fbca643179d03d4ff2034c501",
+      "link": "https://testnet.snowtrace.io/tx/0x76ba50adae536258cca5ff03b75784fa76082f0fbca643179d03d4ff2034c501"
+    },
+    {
+      "wave": 5,
+      "step": 17,
+      "at": "2026-11-11T18:55:18.138Z",
+      "agent": "alice",
+      "kind": "publicClaim",
+      "tx": "0xbcbf26abfb721d9a51d3d910f4ee54f5e08248d07d06c841a16fc5776a0cc2b4",
+      "link": "https://testnet.snowtrace.io/tx/0xbcbf26abfb721d9a51d3d910f4ee54f5e08248d07d06c841a16fc5776a0cc2b4"
+    },
+    {
+      "wave": 5,
+      "step": 18,
+      "at": "2026-11-11T18:56:24.726Z",
+      "agent": "alice",
+      "kind": "publicClaim",
+      "tx": "0x365b3758bce52db0fc4aa1110ba48a5da604f6562384e8f7ae6fd1207431882b",
+      "link": "https://testnet.snowtrace.io/tx/0x365b3758bce52db0fc4aa1110ba48a5da604f6562384e8f7ae6fd1207431882b"
+    },
+    {
+      "wave": 5,
+      "step": 19,
+      "at": "2026-11-11T18:57:32.446Z",
+      "agent": "charlie",
+      "kind": "split",
+      "tx": "0xaf558f41f04038353fea398861d9a42ab7b97e18d67afc9b1d671bb15ac32349",
+      "link": "https://testnet.snowtrace.io/tx/0xaf558f41f04038353fea398861d9a42ab7b97e18d67afc9b1d671bb15ac32349"
+    },
+    {
+      "wave": 5,
+      "step": 20,
+      "at": "2026-11-11T18:58:41.169Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0x32158c151a605b61915dccbd5f26536d22375b4458c69c3da7558ce9a707edcf",
+      "link": "https://testnet.snowtrace.io/tx/0x32158c151a605b61915dccbd5f26536d22375b4458c69c3da7558ce9a707edcf"
+    },
+    {
+      "wave": 5,
+      "step": 21,
+      "at": "2026-11-11T18:59:49.653Z",
+      "agent": "david",
+      "kind": "transfer",
+      "tx": "0xae9ee36d186d4e08d5af23e8e9c491b019ed450a57b100cf856170fcb771051b",
+      "link": "https://testnet.snowtrace.io/tx/0xae9ee36d186d4e08d5af23e8e9c491b019ed450a57b100cf856170fcb771051b"
+    },
+    {
+      "wave": 5,
+      "step": 22,
+      "at": "2026-11-11T19:00:59.354Z",
+      "agent": "bob",
+      "kind": "publicClaim",
+      "tx": "0xd8c94fc071520b2eca905cbeca8871081bbdbeffafd1932fe7d04fc2b5c829c1",
+      "link": "https://testnet.snowtrace.io/tx/0xd8c94fc071520b2eca905cbeca8871081bbdbeffafd1932fe7d04fc2b5c829c1"
+    },
+    {
+      "wave": 5,
+      "step": 23,
+      "at": "2026-11-11T19:02:07.344Z",
+      "agent": "bob",
+      "kind": "publicClaim",
+      "tx": "0xdc1da85bcd949db1d507f7c83e06f5a3c590e41ec9ecaca1c160f9ae74c49c8d",
+      "link": "https://testnet.snowtrace.io/tx/0xdc1da85bcd949db1d507f7c83e06f5a3c590e41ec9ecaca1c160f9ae74c49c8d"
+    },
+    {
+      "wave": 5,
+      "step": 24,
+      "at": "2026-11-11T19:03:17.296Z",
+      "agent": "grace",
+      "kind": "hop",
+      "tx": "0xeaa141b29534268099b93ab7c0d37c68e9cbd33db189dae486e9477d7f264e2b",
+      "link": "https://testnet.snowtrace.io/tx/0xeaa141b29534268099b93ab7c0d37c68e9cbd33db189dae486e9477d7f264e2b"
+    },
+    {
+      "wave": 5,
+      "step": 25,
+      "at": "2026-11-11T19:04:27.044Z",
+      "agent": "alice",
+      "kind": "join",
+      "tx": "0x75cad8e705bbd167bc037ce8bcb324e58240a888d48f88f5697c2c06d757891b",
+      "link": "https://testnet.snowtrace.io/tx/0x75cad8e705bbd167bc037ce8bcb324e58240a888d48f88f5697c2c06d757891b"
+    },
+    {
+      "wave": 5,
+      "step": 26,
+      "at": "2026-11-11T19:05:38.841Z",
+      "agent": "ellie",
+      "kind": "split",
+      "tx": "0xdcacb0379b1099ddf283728f0ac400fabd640d857847f3724b24482adf4ba7f0",
+      "link": "https://testnet.snowtrace.io/tx/0xdcacb0379b1099ddf283728f0ac400fabd640d857847f3724b24482adf4ba7f0"
+    },
+    {
+      "wave": 5,
+      "step": 27,
+      "at": "2026-11-11T19:06:53.102Z",
+      "agent": "charlie",
+      "kind": "transfer",
+      "tx": "0xce93452e227db94c076477bc19f5811af45f4502561cec23706184f96d9d53bb",
+      "link": "https://testnet.snowtrace.io/tx/0xce93452e227db94c076477bc19f5811af45f4502561cec23706184f96d9d53bb"
+    },
+    {
+      "wave": 5,
+      "step": 27,
+      "at": "2026-11-11T19:08:08.052Z",
+      "agent": "bob",
+      "kind": "approve",
+      "tx": "0x5610c11180db5b85c18346db6e7aa14b48a0fd9dfcd06e2cded8e0bcea904cb1",
+      "link": "https://testnet.snowtrace.io/tx/0x5610c11180db5b85c18346db6e7aa14b48a0fd9dfcd06e2cded8e0bcea904cb1"
+    },
+    {
+      "wave": 5,
+      "step": 28,
+      "at": "2026-11-11T19:08:14.145Z",
+      "agent": "bob",
+      "kind": "deposit",
+      "tx": "0x181c58f34f1ad811e38565b3a597861b72c2cf750a48af49b3054335ee46c8b6",
+      "link": "https://testnet.snowtrace.io/tx/0x181c58f34f1ad811e38565b3a597861b72c2cf750a48af49b3054335ee46c8b6"
+    },
+    {
+      "wave": 5,
+      "step": 29,
+      "at": "2026-11-11T19:09:29.146Z",
+      "agent": "david",
+      "kind": "withdraw",
+      "tx": "0x2dcbcd0ce72eaf9491b81c340446a1b67979a622440741adecaa7683e52596b6",
+      "link": "https://testnet.snowtrace.io/tx/0x2dcbcd0ce72eaf9491b81c340446a1b67979a622440741adecaa7683e52596b6"
+    },
+    {
+      "wave": 5,
+      "step": 30,
+      "at": "2026-11-11T19:10:45.616Z",
+      "agent": "alice",
+      "kind": "join",
+      "tx": "0xe3d73a3d2479d34d90831f0de52aea68794593505ac73fa22641293450ece9b1",
+      "link": "https://testnet.snowtrace.io/tx/0xe3d73a3d2479d34d90831f0de52aea68794593505ac73fa22641293450ece9b1"
+    },
+    {
+      "wave": 5,
+      "step": 31,
+      "at": "2026-11-11T19:12:00.733Z",
+      "agent": "ellie",
+      "kind": "swap",
+      "tx": "0x9bc205fb07b33769e22868d93e4c5695d71f20ca988a54c334012c060e8287b4",
+      "link": "https://testnet.snowtrace.io/tx/0x9bc205fb07b33769e22868d93e4c5695d71f20ca988a54c334012c060e8287b4"
+    },
+    {
+      "wave": 5,
+      "step": 32,
+      "at": "2026-11-11T19:13:16.850Z",
+      "agent": "charlie",
+      "kind": "transfer",
+      "tx": "0x465b2995024d5a69c8ea7ea8e54f52c9c22811711e5f555aa1835e2dbff0410b",
+      "link": "https://testnet.snowtrace.io/tx/0x465b2995024d5a69c8ea7ea8e54f52c9c22811711e5f555aa1835e2dbff0410b"
+    },
+    {
+      "wave": 5,
+      "step": 32,
+      "at": "2026-11-11T19:14:32.296Z",
+      "agent": "bob",
+      "kind": "approve",
+      "tx": "0xca2e4364c7611e8d383da3c3705ed18f425a63619c951c89922fb0e3a0790871",
+      "link": "https://testnet.snowtrace.io/tx/0xca2e4364c7611e8d383da3c3705ed18f425a63619c951c89922fb0e3a0790871"
+    },
+    {
+      "wave": 5,
+      "step": 33,
+      "at": "2026-11-11T19:14:42.985Z",
+      "agent": "bob",
+      "kind": "deposit",
+      "tx": "0x146d6869f60dc66180b2368a930d04b8a188bb99e2ca7047cdfe2b4f5f1d9fe8",
+      "link": "https://testnet.snowtrace.io/tx/0x146d6869f60dc66180b2368a930d04b8a188bb99e2ca7047cdfe2b4f5f1d9fe8"
+    },
+    {
+      "wave": 5,
+      "step": 34,
+      "at": "2026-11-11T19:15:59.597Z",
+      "agent": "david",
+      "kind": "publicClaim",
+      "tx": "0x264bf249e0652b273fd1862e9ea1af7b4ded6ea3df381080075ba4cbeaac3cb5",
+      "link": "https://testnet.snowtrace.io/tx/0x264bf249e0652b273fd1862e9ea1af7b4ded6ea3df381080075ba4cbeaac3cb5"
+    },
+    {
+      "wave": 5,
+      "step": 35,
+      "at": "2026-11-11T19:17:16.379Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0x808941b54f2ca58dcf2973bacb29c78ce8d6b88ac7904898d32551b27df4991b",
+      "link": "https://testnet.snowtrace.io/tx/0x808941b54f2ca58dcf2973bacb29c78ce8d6b88ac7904898d32551b27df4991b"
+    },
+    {
+      "wave": 5,
+      "step": 36,
+      "at": "2026-11-11T19:18:33.666Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0x47bc55a930a44e4e20880e521737f1cc7427d8b990af2c38d46a220e7920672d",
+      "link": "https://testnet.snowtrace.io/tx/0x47bc55a930a44e4e20880e521737f1cc7427d8b990af2c38d46a220e7920672d"
+    },
+    {
+      "wave": 5,
+      "step": 37,
+      "at": "2026-11-11T19:20:44.249Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0xe3f7462b07fff2388f8ebb5eb0f372e544e320087edd60888aef937ebf6c3f44",
+      "link": "https://testnet.snowtrace.io/tx/0xe3f7462b07fff2388f8ebb5eb0f372e544e320087edd60888aef937ebf6c3f44"
+    },
+    {
+      "wave": 5,
+      "step": 1,
+      "at": "2026-11-12T21:47:18.099Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0x424f1c7f47590c4f8939bf5a920ba7e0b50a4139ad57e8c5ecd62797ba2a2f32",
+      "link": "https://testnet.snowtrace.io/tx/0x424f1c7f47590c4f8939bf5a920ba7e0b50a4139ad57e8c5ecd62797ba2a2f32"
+    },
+    {
+      "wave": 5,
+      "step": 2,
+      "at": "2026-11-12T21:49:00.456Z",
+      "agent": "ellie",
+      "kind": "publicClaim",
+      "tx": "0x6c3aac381d291e9abfffe249673ae6813901b0936648b53bf9ec1abdd88f65ad",
+      "link": "https://testnet.snowtrace.io/tx/0x6c3aac381d291e9abfffe249673ae6813901b0936648b53bf9ec1abdd88f65ad"
+    }
+  ],
+  "gasByLeafCount": {
+    "deposit": {
+      "1-64": {
+        "n": 17,
+        "mean": 984503
+      },
+      "65-128": {
+        "n": 8,
+        "mean": 1026585
+      },
+      "129-192": {
+        "n": 10,
+        "mean": 1036824
+      },
+      "193-256": {
+        "n": 3,
+        "mean": 1035609
+      }
+    },
+    "split": {
+      "1-64": {
+        "n": 3,
+        "mean": 1094208
+      },
+      "65-128": {
+        "n": 2,
+        "mean": 1159073
+      },
+      "129-192": {
+        "n": 6,
+        "mean": 1183792
+      },
+      "193-256": {
+        "n": 4,
+        "mean": 1218604
+      }
+    },
+    "transfer": {
+      "1-64": {
+        "n": 7,
+        "mean": 1144662
+      },
+      "65-128": {
+        "n": 13,
+        "mean": 1181541
+      },
+      "129-192": {
+        "n": 9,
+        "mean": 1178159
+      },
+      "193-256": {
+        "n": 8,
+        "mean": 1211021
+      }
+    },
+    "join": {
+      "1-64": {
+        "n": 4,
+        "mean": 1058583
+      },
+      "65-128": {
+        "n": 5,
+        "mean": 1070405
+      },
+      "129-192": {
+        "n": 4,
+        "mean": 1083513
+      },
+      "193-256": {
+        "n": 5,
+        "mean": 1086361
+      }
+    },
+    "swap": {
+      "1-64": {
+        "n": 9,
+        "mean": 1413931
+      },
+      "65-128": {
+        "n": 6,
+        "mean": 1431321
+      },
+      "129-192": {
+        "n": 6,
+        "mean": 1421647
+      },
+      "193-256": {
+        "n": 5,
+        "mean": 1455090
+      }
+    },
+    "withdraw": {
+      "1-64": {
+        "n": 2,
+        "mean": 1044181
+      },
+      "65-128": {
+        "n": 2,
+        "mean": 1061034
+      },
+      "129-192": {
+        "n": 6,
+        "mean": 1082414
+      },
+      "193-256": {
+        "n": 2,
+        "mean": 1104463
+      }
+    },
+    "hop": {
+      "1-64": {
+        "n": 2,
+        "mean": 1171536
+      },
+      "65-128": {
+        "n": 2,
+        "mean": 1206774
+      },
+      "193-256": {
+        "n": 1,
+        "mean": 1183763
+      }
+    },
+    "publicClaim": {
+      "1-64": {
+        "n": 6,
+        "mean": 1007809
+      },
+      "65-128": {
+        "n": 10,
+        "mean": 1026780
+      },
+      "129-192": {
+        "n": 7,
+        "mean": 1022515
+      },
+      "193-256": {
+        "n": 12,
+        "mean": 1042085
+      }
+    },
+    "publicTransfer": {
+      "1-64": {
+        "n": 2,
+        "mean": 131723
+      },
+      "65-128": {
+        "n": 4,
+        "mean": 131726
+      },
+      "129-192": {
+        "n": 2,
+        "mean": 131711
+      },
+      "193-256": {
+        "n": 2,
+        "mean": 131699
+      }
+    }
+  },
+  "leavesInsertedPerAction": {
+    "deposit": 1,
+    "split": 2,
+    "transfer": 2,
+    "join": 1,
+    "swap": 1,
+    "withdraw": 1,
+    "hop": 2,
+    "publicClaim": 1,
+    "publicTransfer": 0
+  },
+  "smoke": {
+    "kage": {
+      "run": "smoke-run-3",
+      "mismatches": 0,
+      "steps": [
+        {
+          "t": "2026-11-12T22:42:57.448Z",
+          "step": "solver-registered",
+          "solverId": "3",
+          "stake": "1000000000000000000",
+          "tx": "0xb4cb2fcaff4b75a808a7d88c68bd923b8d0de45e7d5bc43188046c8c582ae5dd",
+          "signer": "0x686F475daba1FBf30bF74918D8a33F0185FA6Ee2"
+        },
+        {
+          "t": "2026-11-12T22:48:13.603Z",
+          "step": "plant-wrong-hint",
+          "which": "older",
+          "hint": 282,
+          "refused": "refused: the order says count 282, the intent's root is the root at 281"
+        },
+        {
+          "t": "2026-11-12T22:48:34.854Z",
+          "step": "settled",
+          "which": "older",
+          "tx": "0x2659e9401cb7b4d713363612efc8ecfab6ab6057bb2c8a8c750326e8f5b1bea2",
+          "gas": "1717142",
+          "resolvedCount": 281,
+          "makerInputLeaf": 280,
+          "settleMs": 4936,
+          "takerFound": [
+            {
+              "leafIndex": 284,
+              "value": "40",
+              "spent": false
+            },
+            {
+              "leafIndex": 285,
+              "value": "50",
+              "spent": false
+            }
+          ],
+          "makerFound": [
+            {
+              "leafIndex": 286,
+              "value": "60"
+            },
+            {
+              "leafIndex": 287,
+              "value": "50"
+            }
+          ],
+          "makerSpent": true
+        },
+        {
+          "t": "2026-11-12T22:48:57.318Z",
+          "step": "plant-wrong-hint",
+          "which": "current",
+          "hint": 289,
+          "refused": "refused: the order says count 289, the intent's root is the root at 288"
+        },
+        {
+          "t": "2026-11-12T22:49:20.283Z",
+          "step": "settled",
+          "which": "current",
+          "tx": "0xcc58870c3bc7601eddce5480037a4761d3233f51a7312eed3904d1ca8be86106",
+          "gas": "1577088",
+          "resolvedCount": 288,
+          "makerInputLeaf": 281,
+          "settleMs": 5361,
+          "takerFound": [
+            {
+              "leafIndex": 289,
+              "value": "40",
+              "spent": false
+            },
+            {
+              "leafIndex": 290,
+              "value": "50",
+              "spent": false
+            }
+          ],
+          "makerFound": [
+            {
+              "leafIndex": 291,
+              "value": "60"
+            },
+            {
+              "leafIndex": 292,
+              "value": "50"
+            }
+          ],
+          "makerSpent": true
+        }
+      ]
+    },
+    "multisig": {
+      "run": "smoke-run-1",
+      "steps": [
+        {
+          "t": "2026-11-12T22:11:31.595Z",
+          "step": "multisig-found",
+          "members": {
+            "1": [
+              {
+                "leafIndex": 259,
+                "value": "100"
+              }
+            ],
+            "2": [
+              {
+                "leafIndex": 259,
+                "value": "100"
+              }
+            ],
+            "3": [
+              {
+                "leafIndex": 259,
+                "value": "100"
+              }
+            ]
+          }
+        },
+        {
+          "t": "2026-11-12T22:11:33.001Z",
+          "step": "plant-mismatched-root",
+          "signer": "3",
+          "refusal": "signer 3 refused (root): the path of leaf 259 at count 261 folds to 0x0ee2ff02217fb4475cb9f7b6160fb435c44fb17ac5a4942f2c015fab37588e76, the session names 0x29bd28ed2543f6640f23b12dc90f11702a0b71482d3d4e79daa9241bad1fcd9a"
+        },
+        {
+          "t": "2026-11-12T22:11:44.979Z",
+          "step": "multisig-spent",
+          "tx": "0xad087d19ae84e6e031595dfb32656873f65dd7360059296500e25f3eb273419d",
+          "gas": "1064945",
+          "quorum": ["1", "3"],
+          "leafIndex": 259,
+          "leafCount": 261,
+          "root": "0x0ee2ff02217fb4475cb9f7b6160fb435c44fb17ac5a4942f2c015fab37588e76",
+          "paid": "40",
+          "spent": true,
+          "unspentAfter": {
+            "1": [
+              {
+                "leafIndex": 261,
+                "value": "60"
+              }
+            ],
+            "2": [
+              {
+                "leafIndex": 261,
+                "value": "60"
+              }
+            ],
+            "3": [
+              {
+                "leafIndex": 261,
+                "value": "60"
+              }
+            ]
+          }
+        },
+        {
+          "t": "2026-11-12T22:12:48.932Z",
+          "step": "multisig-incoming-and-growth",
+          "near": {
+            "index": "13",
+            "leaf": 263
+          },
+          "far": {
+            "index": "16",
+            "leaf": 266
+          },
+          "selfFar": {
+            "j": "17",
+            "changeJ": "13"
+          },
+          "perMember": {
+            "1": {
+              "rounds": 3,
+              "notes": [
+                {
+                  "leafIndex": 261,
+                  "value": "60",
+                  "family": "self",
+                  "index": "13"
+                },
+                {
+                  "leafIndex": 263,
+                  "value": "10",
+                  "family": "incoming",
+                  "index": "13"
+                },
+                {
+                  "leafIndex": 266,
+                  "value": "11",
+                  "family": "incoming",
+                  "index": "16"
+                },
+                {
+                  "leafIndex": 268,
+                  "value": "7",
+                  "family": "self",
+                  "index": "17"
+                }
+              ]
+            },
+            "2": {
+              "rounds": 3,
+              "notes": [
+                {
+                  "leafIndex": 261,
+                  "value": "60",
+                  "family": "self",
+                  "index": "13"
+                },
+                {
+                  "leafIndex": 263,
+                  "value": "10",
+                  "family": "incoming",
+                  "index": "13"
+                },
+                {
+                  "leafIndex": 266,
+                  "value": "11",
+                  "family": "incoming",
+                  "index": "16"
+                },
+                {
+                  "leafIndex": 268,
+                  "value": "7",
+                  "family": "self",
+                  "index": "17"
+                }
+              ]
+            },
+            "3": {
+              "rounds": 3,
+              "notes": [
+                {
+                  "leafIndex": 261,
+                  "value": "60",
+                  "family": "self",
+                  "index": "13"
+                },
+                {
+                  "leafIndex": 263,
+                  "value": "10",
+                  "family": "incoming",
+                  "index": "13"
+                },
+                {
+                  "leafIndex": 266,
+                  "value": "11",
+                  "family": "incoming",
+                  "index": "16"
+                },
+                {
+                  "leafIndex": 268,
+                  "value": "7",
+                  "family": "self",
+                  "index": "17"
+                }
+              ]
+            }
+          },
+          "plantFixedWindowMisses": {
+            "far": true,
+            "selfFar": true
+          }
+        },
+        {
+          "t": "2026-11-12T22:13:28.618Z",
+          "step": "multisig-spends",
+          "spends": [
+            {
+              "kind": "split",
+              "input": {
+                "leaf": 263,
+                "family": "incoming"
+              },
+              "leafCount": 269
+            },
+            {
+              "kind": "join",
+              "inputs": [
+                {
+                  "leaf": 266,
+                  "family": "incoming"
+                },
+                {
+                  "leaf": 268,
+                  "family": "self"
+                }
+              ],
+              "leafCount": 271
+            },
+            {
+              "kind": "transfer",
+              "input": {
+                "leaf": 261,
+                "family": "self"
+              },
+              "leafCount": 272
+            }
+          ],
+          "unspentAfter": {
+            "1": [
+              {
+                "leafIndex": 269,
+                "value": "4"
+              },
+              {
+                "leafIndex": 270,
+                "value": "6"
+              },
+              {
+                "leafIndex": 271,
+                "value": "18"
+              },
+              {
+                "leafIndex": 273,
+                "value": "35"
+              }
+            ],
+            "2": [
+              {
+                "leafIndex": 269,
+                "value": "4"
+              },
+              {
+                "leafIndex": 270,
+                "value": "6"
+              },
+              {
+                "leafIndex": 271,
+                "value": "18"
+              },
+              {
+                "leafIndex": 273,
+                "value": "35"
+              }
+            ],
+            "3": [
+              {
+                "leafIndex": 269,
+                "value": "4"
+              },
+              {
+                "leafIndex": 270,
+                "value": "6"
+              },
+              {
+                "leafIndex": 271,
+                "value": "18"
+              },
+              {
+                "leafIndex": 273,
+                "value": "35"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "source": {
+    "repository": "hisoka-io/darkpool",
+    "branch": "test/fuji-howl",
+    "deployedContractsCommit": "a64f05b2ad79e02a868b9d15893018b97ff736c3",
+    "harness": "packages/evm-contracts/test/fuji-sim/"
+  }
+}
