@@ -8,6 +8,8 @@
 #                            only, so a long rehearsal outlives its fork; keep SIM_REHEARSAL_ACTIONS small
 #   run.sh live <out dir>    the paced run on Fuji itself, SIM_WAVES waves of SIM_WAVE_MINUTES with
 #                            SIM_GAP_MINUTES between them; stops at the first failed wave
+#   run.sh smoke <out dir>   on Fuji: a Kage swap settled by a registered solver, and a 2-of-3 FROST multisig that
+#                            finds its notes through Raven and spends them (SIM_NODE_DATA continues a node's data)
 #
 # Needs: SIM_RPC_URL (a Fuji endpoint, e.g. scripts/fuji/rpc-relay.mjs; SIM_NODE_RPC_URL, optional, gives the node
 # its own), FUJI_DEPLOYER_KEY_FILE (owner of the test
@@ -119,6 +121,20 @@ case "$MODE" in
       wave "$n" "$final" "$OUT/wave-$n"
       [ "$n" = "$SIM_WAVES" ] || sleep $(( SIM_GAP_MINUTES * 60 ))
     done
+    ;;
+  smoke)
+    export FUJI_RPC_URL="$SIM_RPC_URL"
+    dir="$OUT/smoke"
+    rc=0
+    SIM_OUT_DIR="$dir" npx hardhat test test/fuji-sim/FujiKageMultisig.test.ts > "$OUT/smoke.log" 2>&1 || rc=$?
+    # judged by mocha's own summary, as each wave is (hardhat can exit non-zero after mocha has finished)
+    verdict=fail
+    if grep -aqE '^[[:space:]]*2 passing' "$OUT/smoke.log" && ! grep -aqE '^[[:space:]]*[0-9]+ failing' "$OUT/smoke.log" \
+      && [ "$(jq -r '.mismatches == 0' "$dir/summary.json" 2>/dev/null)" = true ]; then
+      verdict=pass
+    fi
+    echo "smoke: $verdict (exit $rc, $(date -u +%FT%TZ))" | tee -a "$OUT/waves.log"
+    [ "$verdict" = pass ]
     ;;
   *) echo "unknown mode: $MODE" >&2; exit 2 ;;
 esac

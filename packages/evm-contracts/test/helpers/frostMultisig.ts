@@ -21,8 +21,9 @@ export async function buildMultisigNote(
   owner: Fr,
   assetFr: Fr,
   parents: Fr,
+  compliancePk: Point<bigint> = COMPLIANCE_PK,
 ): Promise<{ commitment: Fr; noteInput: NoteInput; psi: Fr; tag: Fr }> {
-  const cek = deriveCek(eph, COMPLIANCE_PK);
+  const cek = deriveCek(eph, compliancePk);
   const psi = await computePsi(cek);
   const commitment = await leaf({
     noteVersion: toFr(1n),

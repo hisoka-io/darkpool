@@ -101,13 +101,14 @@ export async function mintSelfNote(
   spendScalar: Fr,
   assetFr: Fr,
   parents: Fr = ZERO,
+  compliancePk: Point<bigint> = COMPLIANCE_PK,
 ): Promise<BuiltNote> {
   return walletsMintSelfNote(
     eph,
     value,
     spendScalar,
     assetFr,
-    COMPLIANCE_PK,
+    compliancePk,
     parents,
   );
 }
@@ -119,6 +120,7 @@ export async function mintIncomingNote(
   inKey: Fr,
   assetFr: Fr,
   parents: Fr = ZERO,
+  compliancePk: Point<bigint> = COMPLIANCE_PK,
 ): ReturnType<typeof walletsMintIncomingNote> {
   return walletsMintIncomingNote(
     eph,
@@ -126,7 +128,7 @@ export async function mintIncomingNote(
     inPub,
     inKey,
     assetFr,
-    COMPLIANCE_PK,
+    compliancePk,
     parents,
   );
 }
@@ -139,10 +141,11 @@ export async function mintIncomingMultisigNote(
   v: Fr,
   assetFr: Fr,
   parents: Fr = ZERO,
+  compliancePk: Point<bigint> = COMPLIANCE_PK,
 ): Promise<BuiltNote> {
   const viewPub = publicKey(v);
   const owner = await pubkeyOwner(gpk);
-  const cek = deriveCek(eph, COMPLIANCE_PK);
+  const cek = deriveCek(eph, compliancePk);
   const psi = await computePsi(cek);
   const plaintextNote: Note = {
     noteVersion: NOTE_VERSION,
